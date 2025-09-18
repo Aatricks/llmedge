@@ -29,3 +29,17 @@ replay_pid*
 .idea/
 .vscode/
 build/
+llama.cpp/
+*.iml
+.gradle/
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.kotlin
+ktlint
+ktlint.bat

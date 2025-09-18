@@ -67,6 +67,15 @@ android {
 
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+    // Sentence Embeddings (on-device) - provides ONNX-based sentence-transformers
+    implementation("io.gitlab.shubham0204:sentence-embeddings:v6")
+
+    // PDF parsing on Android (Apache 2.0)
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
+    // JSON serialization (for simple local embedding index persistence)
+    implementation("com.google.code.gson:gson:2.11.0")
+
     testImplementation(libs.junit)
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     androidTestImplementation("androidx.test:runner:1.6.2")

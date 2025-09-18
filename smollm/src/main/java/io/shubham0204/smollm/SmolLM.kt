@@ -29,6 +29,8 @@ import java.io.FileNotFoundException
  * This class interacts with the JNI binding and provides a Kotlin API
  * to infer a GGUF LLM model
  */
+
+//TODO: Check if llama.cpp can be compiled to use Vulkan for inference on Android devices (and use the mobile GPU)
 class SmolLM {
     companion object {
         init {

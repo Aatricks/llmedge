@@ -2,6 +2,54 @@
 Library for using gguf models on android devices, powered by llama.cpp
 
 ## Setup
+### On-device RAG (Android-Doc-QA style)
+
+This repo now includes a minimal on-device RAG pipeline inside the `smollm` Android library module. It mirrors the flow from Android-Doc-QA using:
+
+- `sentence-embeddings` (ONNX) for embeddings
+- A simple whitespace `TextSplitter`
+- An in-memory cosine `VectorStore` with JSON persistence
+- `SmolLM` (llama.cpp JNI) for answering with retrieved context
+
+Setup:
+
+1) Place embedding assets:
+   - `smollm/src/main/assets/embeddings/all-minilm-l6-v2/model.onnx`
+   - `smollm/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json`
+
+   You can download from the HF `sentence-transformers/all-MiniLM-L6-v2` repo.
+
+2) Build the library:
+
+```powershell
+./gradlew :smollm:assembleDebug
+```
+
+3) Usage from an app module:
+
+```kotlin
+val smol = SmolLM()
+// smol.load("/path/to/model.gguf", SmolLM.InferenceParams()) // ensure your GGUF is available
+
+val rag = RAGEngine(context = this, smolLM = smol)
+CoroutineScope(Dispatchers.IO).launch {
+   rag.init()
+   // Index a PDF from SAF Uri
+   val count = rag.indexPdf(pdfUri)
+   val answer = rag.ask("What are the key points?")
+   withContext(Dispatchers.Main) { /* render answer */ }
+}
+```
+
+Notes:
+- For PDF parsing, we use `com.tom-roush:pdfbox-android`.
+- Embeddings artifact: `io.gitlab.shubham0204:sentence-embeddings:v6`.
+- If you prefer the full Android-Doc-QA app, see the original repo for UI and ObjectBox persistence.
+
+Troubleshooting:
+- Empty or irrelevant answers: If the retrieved context is empty, your PDF may be a scanned/image-only PDF. This demo does not perform OCR. Use a text-based PDF or add OCR (e.g., ML Kit Text Recognition or Tesseract) before indexing.
+- ONNX error "Missing Input: token_type_ids": The library auto-falls back to enable `token_type_ids` and `last_hidden_state` when needed (e.g., BGE models). For a fixed configuration, pass an `EmbeddingConfig` with `useTokenTypeIds=true`.
+
 
 1. Clone the repository with its submodule originating from llama.cpp,
 
