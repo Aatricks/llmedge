@@ -1,4 +1,0 @@
-C:\Users\Aatricks\Documents\Dev\SmolChat-Android\llama.cpp\src\unicode.h
-C:\Users\Aatricks\Documents\Dev\SmolChat-Android\llama.cpp\vendor\nlohmann\json_fwd.hpp
-C:\Users\Aatricks\Documents\Dev\SmolChat-Android\llama.cpp\vendor\nlohmann\json.hpp
-C:\Users\Aatricks\Documents\Dev\SmolChat-Android\llama.cpp\common\base64.hpp
