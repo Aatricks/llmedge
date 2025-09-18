@@ -1,0 +1,47 @@
+{
+  "buildFiles": [
+    "C:\\Users\\Aatricks\\Documents\\Dev\\SmolChat-Android\\smollm\\src\\main\\cpp\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "C:\\Users\\Aatricks\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "C:\\Users\\Aatricks\\Documents\\Dev\\SmolChat-Android\\smollm\\.cxx\\Release\\3e5x3j5r\\x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "C:\\Users\\Aatricks\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "C:\\Users\\Aatricks\\Documents\\Dev\\SmolChat-Android\\smollm\\.cxx\\Release\\3e5x3j5r\\x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "ggufreader::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "ggufreader",
+      "output": "C:\\Users\\Aatricks\\Documents\\Dev\\SmolChat-Android\\smollm\\build\\intermediates\\cxx\\Release\\3e5x3j5r\\obj\\x86_64\\libggufreader.so",
+      "runtimeFiles": []
+    },
+    "smollm::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "smollm",
+      "output": "C:\\Users\\Aatricks\\Documents\\Dev\\SmolChat-Android\\smollm\\build\\intermediates\\cxx\\Release\\3e5x3j5r\\obj\\x86_64\\libsmollm.so",
+      "runtimeFiles": []
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "C:\\Users\\Aatricks\\AppData\\Local\\Android\\Sdk\\ndk\\27.2.12479018\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang.exe",
+      "cppCompilerExecutable": "C:\\Users\\Aatricks\\AppData\\Local\\Android\\Sdk\\ndk\\27.2.12479018\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe"
+    }
+  },
+  "cFileExtensions": [
+    "c"
+  ],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}

@@ -1,0 +1,132 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"jsonFile" : "directory-.-Release-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.6.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"name" : "Release",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "smollm",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ggufreader::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ggufreader-Release-c59dba028541f9a9d7c5.json",
+					"name" : "ggufreader",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm-Release-03ceab2d681277700d85.json",
+					"name" : "smollm",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm_v8::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm_v8-Release-6587795e51b71adb5af4.json",
+					"name" : "smollm_v8",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm_v8_2_fp16::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm_v8_2_fp16-Release-61c58fcced5dbd47f369.json",
+					"name" : "smollm_v8_2_fp16",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm_v8_2_fp16_dotprod::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm_v8_2_fp16_dotprod-Release-6d4d6e4b1b75b03add62.json",
+					"name" : "smollm_v8_2_fp16_dotprod",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm_v8_4_fp16_dotprod::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm_v8_4_fp16_dotprod-Release-e6b2928396920ccb8992.json",
+					"name" : "smollm_v8_4_fp16_dotprod",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm_v8_4_fp16_dotprod_i8mm::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm_v8_4_fp16_dotprod_i8mm-Release-ec1e832d381167c2f209.json",
+					"name" : "smollm_v8_4_fp16_dotprod_i8mm",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm_v8_4_fp16_dotprod_i8mm_sve::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm_v8_4_fp16_dotprod_i8mm_sve-Release-cee5985b7b7ee84fdf79.json",
+					"name" : "smollm_v8_4_fp16_dotprod_i8mm_sve",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm_v8_4_fp16_dotprod_sve::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm_v8_4_fp16_dotprod_sve-Release-59a7532ed3e9fa6235ca.json",
+					"name" : "smollm_v8_4_fp16_dotprod_sve",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "C:/Users/Aatricks/Documents/Dev/SmolChat-Android/smollm/.cxx/Release/3e5x3j5r/arm64-v8a",
+		"source" : "C:/Users/Aatricks/Documents/Dev/SmolChat-Android/smollm/src/main/cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

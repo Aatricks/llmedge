@@ -1,0 +1,78 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"jsonFile" : "directory-.-Release-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.6.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"name" : "Release",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "smollm",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ggufreader::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ggufreader-Release-1246876a30d9784a80ad.json",
+					"name" : "ggufreader",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm-Release-1217fdc7ab341bcea520.json",
+					"name" : "smollm",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "smollm_v7a::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-smollm_v7a-Release-df2c93dcaa02a92c6cc4.json",
+					"name" : "smollm_v7a",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "C:/Users/Aatricks/Documents/Dev/SmolChat-Android/smollm/.cxx/Release/3e5x3j5r/armeabi-v7a",
+		"source" : "C:/Users/Aatricks/Documents/Dev/SmolChat-Android/smollm/src/main/cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

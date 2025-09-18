@@ -1,0 +1,5 @@
+C:/Users/Aatricks/Documents/Dev/SmolChat-Android/smollm/.cxx/Release/3e5x3j5r/armeabi-v7a/CMakeFiles/smollm.dir
+C:/Users/Aatricks/Documents/Dev/SmolChat-Android/smollm/.cxx/Release/3e5x3j5r/armeabi-v7a/CMakeFiles/smollm_v7a.dir
+C:/Users/Aatricks/Documents/Dev/SmolChat-Android/smollm/.cxx/Release/3e5x3j5r/armeabi-v7a/CMakeFiles/ggufreader.dir
+C:/Users/Aatricks/Documents/Dev/SmolChat-Android/smollm/.cxx/Release/3e5x3j5r/armeabi-v7a/CMakeFiles/edit_cache.dir
+C:/Users/Aatricks/Documents/Dev/SmolChat-Android/smollm/.cxx/Release/3e5x3j5r/armeabi-v7a/CMakeFiles/rebuild_cache.dir

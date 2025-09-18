@@ -1,0 +1,19 @@
+                        -HC:\Users\Aatricks\Documents\Dev\llmedge\smollm\src\main\cpp
+-DCMAKE_SYSTEM_NAME=Android
+-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+-DCMAKE_SYSTEM_VERSION=26
+-DANDROID_PLATFORM=android-26
+-DANDROID_ABI=x86
+-DCMAKE_ANDROID_ARCH_ABI=x86
+-DANDROID_NDK=C:\Users\Aatricks\AppData\Local\Android\Sdk\ndk\27.2.12479018
+-DCMAKE_ANDROID_NDK=C:\Users\Aatricks\AppData\Local\Android\Sdk\ndk\27.2.12479018
+-DCMAKE_TOOLCHAIN_FILE=C:\Users\Aatricks\AppData\Local\Android\Sdk\ndk\27.2.12479018\build\cmake\android.toolchain.cmake
+-DCMAKE_MAKE_PROGRAM=C:\Users\Aatricks\AppData\Local\Android\Sdk\cmake\3.22.1\bin\ninja.exe
+-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=C:\Users\Aatricks\Documents\Dev\llmedge\smollm\build\intermediates\cxx\Release\3e5x3j5r\obj\x86
+-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=C:\Users\Aatricks\Documents\Dev\llmedge\smollm\build\intermediates\cxx\Release\3e5x3j5r\obj\x86
+-BC:\Users\Aatricks\Documents\Dev\llmedge\smollm\.cxx\Release\3e5x3j5r\x86
+-GNinja
+-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON
+-DCMAKE_BUILD_TYPE=Release
+                        Build command args: []
+                        Version: 2
