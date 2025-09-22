@@ -20,7 +20,8 @@ plugins {
 }
 
 android {
-    namespace = "io.shubham0204.smollm"
+    // Keeping the Kotlin package as-is to avoid JNI breakage; namespace can be branded separately if desired
+    namespace = "io.aatricks.llmedge"
     compileSdk = 35
     ndkVersion = "27.2.12479018"
 

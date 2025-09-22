@@ -1,10 +1,12 @@
 # llmedge
 Library for using gguf models on android devices, powered by llama.cpp
 
-## Setup
-### On-device RAG (Android-Doc-QA style)
+See CREDITS.md for acknowledgments to the original author Shubham Panchal and upstream projects.
 
-This repo now includes a minimal on-device RAG pipeline inside the `smollm` Android library module. It mirrors the flow from Android-Doc-QA using:
+## Setup
+### On-device RAG
+
+This repo now includes a minimal on-device RAG pipeline inside the `llmedge` Android library module (package names may still reference `smollm` internally for JNI compatibility). It mirrors the flow from Android-Doc-QA using:
 
 - `sentence-embeddings` (ONNX) for embeddings
 - A simple whitespace `TextSplitter`
@@ -14,15 +16,15 @@ This repo now includes a minimal on-device RAG pipeline inside the `smollm` Andr
 Setup:
 
 1) Place embedding assets:
-   - `smollm/src/main/assets/embeddings/all-minilm-l6-v2/model.onnx`
-   - `smollm/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json`
+   - `llmedge/src/main/assets/embeddings/all-minilm-l6-v2/model.onnx`
+   - `llmedge/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json`
 
    You can download from the HF `sentence-transformers/all-MiniLM-L6-v2` repo.
 
 2) Build the library:
 
 ```powershell
-./gradlew :smollm:assembleDebug
+./gradlew :llmedge:assembleDebug
 ```
 
 3) Usage from an app module:
@@ -68,13 +70,16 @@ git submodule update --init --recursive
 1. The application uses llama.cpp to load and execute GGUF models. As llama.cpp is written in pure C/C++, it is easy 
    to compile on Android-based targets using the [NDK](https://developer.android.com/ndk). 
 
-2. The `smollm` module uses a `llm_inference.cpp` class which interacts with llama.cpp's C-style API to execute the 
-   GGUF model and a JNI binding `smollm.cpp`. Check the [C++ source files here](https://github.com/shubham0204/SmolChat-Android/tree/main/smollm/src/main/cpp). On the Kotlin side, the [`SmolLM`](https://github.com/shubham0204/SmolChat-Android/blob/main/smollm/src/main/java/io/shubham0204/smollm/SmolLM.kt) class provides 
+2. The `llmedge` module uses a `LLMInference.cpp` class which interacts with llama.cpp's C-style API to execute the 
+   GGUF model and a JNI binding `smollm.cpp` (name retained for binary compatibility). On the Kotlin side, the `SmolLM` class provides 
    the required methods to interact with the JNI (C++ side) bindings.
 
 ## Technologies
 
 * [ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp) is a pure C/C++ framework to execute machine learning 
   models on multiple execution backends. It provides a primitive C-style API to interact with LLMs 
-  converted to the [GGUF format](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) native to [ggml](https://github.com/ggerganov/ggml)/llama.cpp. The app uses JNI bindings to interact with a small class `smollm.
-  cpp` which uses llama.cpp to load and execute GGUF models.
+   converted to the [GGUF format](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) native to [ggml](https://github.com/ggerganov/ggml)/llama.cpp. The app uses JNI bindings to interact with a small class `smollm.cpp` which uses llama.cpp to load and execute GGUF models.
+
+## Notes
+
+- You may need to download vulkan sdk and set `VULKAN_SDK` environment variable for building the project.
