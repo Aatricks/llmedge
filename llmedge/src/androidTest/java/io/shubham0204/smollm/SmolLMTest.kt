@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.shubham0204.smollm
+package io.aatricks.llmedge
 
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -68,7 +68,7 @@ class SmolLMTest {
             }
 
             val located = findInAssets(appContext) ?: findInAssets(instrContext)
-                ?: error("No GGUF model found in assets. Place a .gguf model in smollm/src/main/assets or smollm/src/androidTest/assets (optionally under 'models').")
+                ?: error("No GGUF model found in assets. Place a .gguf model in llmedge/src/main/assets or llmedge/src/androidTest/assets (optionally under 'models').")
 
             val (dir, file) = located
             val assetPath = if (dir.isEmpty()) file else "$dir/$file"

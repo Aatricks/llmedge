@@ -1,15 +1,15 @@
 # llmedge
-Library for using gguf models on android devices, powered by llama.cpp
-
-See [llmedge-examples](https://github.com/Aatricks/llmedge-examples) for a minimal example app.
+Library for using GGUF models on Android devices, powered by llama.cpp.
 
 
-See CREDITS.md for acknowledgments to the original author Shubham Panchal and upstream projects.
+- Remote example repo (optional): [llmedge-examples](https://github.com/Aatricks/llmedge-examples)
+
+See `CREDITS.md` for acknowledgments to the original author Shubham Panchal and upstream projects.
 
 ## Setup
 ### On-device RAG
 
-This repo now includes a minimal on-device RAG pipeline inside the `llmedge` Android library module (package names may still reference `smollm` internally for JNI compatibility). It mirrors the flow from Android-Doc-QA using:
+This repo includes a minimal on-device RAG pipeline inside the `llmedge` Android library module. It mirrors the flow from Android-Doc-QA using:
 
 - `sentence-embeddings` (ONNX) for embeddings
 - A simple whitespace `TextSplitter`
@@ -27,12 +27,15 @@ Setup:
 2) Build the library:
 
 ```powershell
-./gradlew :llmedge:assembleDebug
+.\gradlew :llmedge:assembleRelease
 ```
 
-3) Usage from an app module:
+3) Usage from an app module (Kotlin):
 
 ```kotlin
+import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.rag.RAGEngine
+
 val smol = SmolLM()
 // smol.load("/path/to/model.gguf", SmolLM.InferenceParams()) // ensure your GGUF is available
 
@@ -56,11 +59,11 @@ Troubleshooting:
 - ONNX error "Missing Input: token_type_ids": The library auto-falls back to enable `token_type_ids` and `last_hidden_state` when needed (e.g., BGE models). For a fixed configuration, pass an `EmbeddingConfig` with `useTokenTypeIds=true`.
 
 
-1. Clone the repository with its submodule originating from llama.cpp,
+1. Clone the repository with its `llama.cpp` submodule:
 
 ```commandline
 git clone --depth=1 https://github.com/Aatricks/llmedge
-cd SmolChat-Android
+cd llmedge
 git submodule update --init --recursive
 ```
 
@@ -74,15 +77,15 @@ git submodule update --init --recursive
    to compile on Android-based targets using the [NDK](https://developer.android.com/ndk). 
 
 2. The `llmedge` module uses a `LLMInference.cpp` class which interacts with llama.cpp's C-style API to execute the 
-   GGUF model and a JNI binding `smollm.cpp` (name retained for binary compatibility). On the Kotlin side, the `SmolLM` class provides 
-   the required methods to interact with the JNI (C++ side) bindings.
+   GGUF model and a JNI binding `smollm.cpp` (native file name retained for binary compatibility). On the Kotlin side, the `SmolLM` class provides 
+   the required methods to interact with the JNI (C++ side) bindings under the package `io.aatricks.llmedge`.
 
 ## Technologies
 
 * [ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp) is a pure C/C++ framework to execute machine learning 
-  models on multiple execution backends. It provides a primitive C-style API to interact with LLMs 
-   converted to the [GGUF format](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) native to [ggml](https://github.com/ggerganov/ggml)/llama.cpp. The app uses JNI bindings to interact with a small class `smollm.cpp` which uses llama.cpp to load and execute GGUF models.
+   models on multiple execution backends. It provides a primitive C-style API to interact with LLMs 
+    converted to the [GGUF format](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) native to [ggml](https://github.com/ggerganov/ggml)/llama.cpp. The app uses JNI bindings to interact with a small class `smollm.cpp` which uses llama.cpp to load and execute GGUF models.
 
 ## Notes
 
-- You may need to download vulkan sdk and set `VULKAN_SDK` environment variable for building the project.
+- You may need to download the Vulkan SDK and set the `VULKAN_SDK` environment variable for building the project.

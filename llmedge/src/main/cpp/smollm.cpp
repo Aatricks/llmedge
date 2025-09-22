@@ -2,7 +2,7 @@
 #include <jni.h>
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_shubham0204_smollm_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring modelPath, jfloat minP,
+Java_io_aatricks_llmedge_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring modelPath, jfloat minP,
                                             jfloat temperature, jboolean storeChats, jlong contextSize,
                                             jstring chatTemplate, jint nThreads, jboolean useMmap, jboolean useMlock,
                                             jboolean useVulkan) {
@@ -24,7 +24,7 @@ Java_io_shubham0204_smollm_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring m
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_shubham0204_smollm_SmolLM_addChatMessage(JNIEnv* env, jobject thiz, jlong modelPtr, jstring message,
+Java_io_aatricks_llmedge_SmolLM_addChatMessage(JNIEnv* env, jobject thiz, jlong modelPtr, jstring message,
                                                  jstring role) {
     jboolean    isCopy       = true;
     const char* messageCstr  = env->GetStringUTFChars(message, &isCopy);
@@ -36,25 +36,25 @@ Java_io_shubham0204_smollm_SmolLM_addChatMessage(JNIEnv* env, jobject thiz, jlon
 }
 
 extern "C" JNIEXPORT jfloat JNICALL
-Java_io_shubham0204_smollm_SmolLM_getResponseGenerationSpeed(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_SmolLM_getResponseGenerationSpeed(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
     return llmInference->getResponseGenerationTime();
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_io_shubham0204_smollm_SmolLM_getContextSizeUsed(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_SmolLM_getContextSizeUsed(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
     return llmInference->getContextSizeUsed();
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_shubham0204_smollm_SmolLM_close(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_SmolLM_close(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
     delete llmInference;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_shubham0204_smollm_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt) {
+Java_io_aatricks_llmedge_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt) {
     jboolean    isCopy       = true;
     const char* promptCstr   = env->GetStringUTFChars(prompt, &isCopy);
     auto*       llmInference = reinterpret_cast<LLMInference*>(modelPtr);
@@ -63,7 +63,7 @@ Java_io_shubham0204_smollm_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlo
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_shubham0204_smollm_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
     try {
         std::string response = llmInference->completionLoop();
@@ -75,7 +75,7 @@ Java_io_shubham0204_smollm_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlon
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_shubham0204_smollm_SmolLM_stopCompletion(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_SmolLM_stopCompletion(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
     llmInference->stopCompletion();
 }

@@ -3,7 +3,7 @@
 #include <string>
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_shubham0204_smollm_GGUFReader_getGGUFContextNativeHandle(JNIEnv* env, jobject thiz, jstring modelPath) {
+Java_io_aatricks_llmedge_GGUFReader_getGGUFContextNativeHandle(JNIEnv* env, jobject thiz, jstring modelPath) {
     jboolean         isCopy        = true;
     const char*      modelPathCStr = env->GetStringUTFChars(modelPath, &isCopy);
     gguf_init_params initParams    = { .no_alloc = true, .ctx = nullptr };
@@ -13,7 +13,7 @@ Java_io_shubham0204_smollm_GGUFReader_getGGUFContextNativeHandle(JNIEnv* env, jo
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_shubham0204_smollm_GGUFReader_getContextSize(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+Java_io_aatricks_llmedge_GGUFReader_getContextSize(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     gguf_context* ggufContext       = reinterpret_cast<gguf_context*>(nativeHandle);
     int64_t       architectureKeyId = gguf_find_key(ggufContext, "general.architecture");
     if (architectureKeyId == -1)
@@ -28,7 +28,7 @@ Java_io_shubham0204_smollm_GGUFReader_getContextSize(JNIEnv* env, jobject thiz, 
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_shubham0204_smollm_GGUFReader_getChatTemplate(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+Java_io_aatricks_llmedge_GGUFReader_getChatTemplate(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     gguf_context* ggufContext       = reinterpret_cast<gguf_context*>(nativeHandle);
     int64_t       chatTemplateKeyId = gguf_find_key(ggufContext, "tokenizer.chat_template");
     std::string   chatTemplate;

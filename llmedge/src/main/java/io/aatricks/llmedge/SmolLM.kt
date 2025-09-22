@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.shubham0204.smollm
+package io.aatricks.llmedge
 
 import android.os.Build
 import android.util.Log

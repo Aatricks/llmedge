@@ -14,11 +14,11 @@
  * limitations under the License.
 */
 
-package io.shubham0204.smollm.rag
+package io.aatricks.llmedge.rag
 
 import android.content.Context
 import android.net.Uri
-import io.shubham0204.smollm.SmolLM
+import io.aatricks.llmedge.SmolLM
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

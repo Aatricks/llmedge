@@ -14,7 +14,7 @@
  * limitations under the License.
 */
 
-package io.shubham0204.smollm.rag
+package io.aatricks.llmedge.rag
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken

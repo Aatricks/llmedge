@@ -14,7 +14,7 @@
  * limitations under the License.
 */
 
-package io.shubham0204.smollm.rag
+package io.aatricks.llmedge.rag
 
 /**
  * Produces overlapping chunks from a long text using whitespace boundaries.
