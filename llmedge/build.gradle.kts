@@ -20,7 +20,8 @@ plugins {
 }
 
 android {
-    namespace = "io.shubham0204.smollm"
+    // Keeping the Kotlin package as-is to avoid JNI breakage; namespace can be branded separately if desired
+    namespace = "io.aatricks.llmedge"
     compileSdk = 35
     ndkVersion = "27.2.12479018"
 
@@ -35,6 +36,7 @@ android {
                 // https://developer.android.com/guide/practices/page-sizes#compile-r27
                 arguments += listOf("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
                 arguments += "-DCMAKE_BUILD_TYPE=Release"
+                arguments += "-DGGML_VULKAN=ON"
 
                 // (debugging) uncomment the following line to enable debug builds
                 // and attach hardware-assisted address sanitizer

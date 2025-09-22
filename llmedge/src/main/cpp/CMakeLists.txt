@@ -67,6 +67,17 @@ set(SMOLLM_SOURCES
         LLMInference.cpp
         smollm.cpp
 )
+
+set(VULKAN_ENABLED ON CACHE BOOL "Enable Vulkan support")
+
+if(VULKAN_ENABLED)
+    if (EXISTS "${GGML_DIR}/src/ggml-vulkan.cpp")
+        list(APPEND SMOLLM_SOURCES
+                ${GGML_DIR}/src/ggml-vulkan.cpp
+                )
+    endif()
+endif()
+
 set(GGUF_READER_SOURCES
         ${GGML_DIR}/src/ggml.c
         ${GGML_DIR}/src/ggml-alloc.c

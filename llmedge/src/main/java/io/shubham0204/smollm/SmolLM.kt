@@ -31,7 +31,9 @@ import java.io.FileNotFoundException
  */
 
 //TODO: Check if llama.cpp can be compiled to use Vulkan for inference on Android devices (and use the mobile GPU)
-class SmolLM {
+class SmolLM(
+    useVulkan: Boolean = true
+) {
     companion object {
         init {
             val logTag = SmolLM::class.java.simpleName
@@ -131,6 +133,11 @@ class SmolLM {
     }
 
     private var nativePtr = 0L
+    private var useVulkanGPU = true
+
+    init {
+        this.useVulkanGPU = useVulkan
+    }
 
     /**
      * Provides default values for inference parameters.
@@ -212,6 +219,7 @@ class SmolLM {
                 params.numThreads,
                 params.useMmap,
                 params.useMlock,
+                useVulkanGPU
             )
     }
 
@@ -336,6 +344,7 @@ class SmolLM {
         nThreads: Int,
         useMmap: Boolean,
         useMlock: Boolean,
+        useVulkan: Boolean
     ): Long
 
     private external fun addChatMessage(

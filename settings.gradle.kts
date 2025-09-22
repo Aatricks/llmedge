@@ -23,5 +23,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SmolLM"
-include(":smollm")
+rootProject.name = "llmedge"
+include(":llmedge")
