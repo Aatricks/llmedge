@@ -1,6 +1,9 @@
 # llmedge
 Library for using gguf models on android devices, powered by llama.cpp
 
+See [llmedge-examples](https://github.com/Aatricks/llmedge-examples) for a minimal example app.
+
+
 See CREDITS.md for acknowledgments to the original author Shubham Panchal and upstream projects.
 
 ## Setup
