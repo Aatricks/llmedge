@@ -139,6 +139,9 @@ class SmolLM(
         this.useVulkanGPU = useVulkan
     }
 
+    /** Returns true if this SmolLM instance will try to use Vulkan-backed GPU layers. */
+    fun isVulkanEnabled(): Boolean = useVulkanGPU
+
     /**
      * Provides default values for inference parameters.
      * These values are used when the corresponding parameters are not provided

@@ -2,7 +2,7 @@
 Library for using GGUF models on Android devices, powered by llama.cpp.
 
 
-- Remote example repo (optional): [llmedge-examples](https://github.com/Aatricks/llmedge-examples)
+Examples repo : [llmedge-examples](https://github.com/Aatricks/llmedge-examples)
 
 See `CREDITS.md` for acknowledgments to the original author Shubham Panchal and upstream projects.
 
@@ -85,6 +85,37 @@ git submodule update --init --recursive
 * [ggerganov/llama.cpp](https://github.com/ggerganov/llama.cpp) is a pure C/C++ framework to execute machine learning 
    models on multiple execution backends. It provides a primitive C-style API to interact with LLMs 
     converted to the [GGUF format](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) native to [ggml](https://github.com/ggerganov/ggml)/llama.cpp. The app uses JNI bindings to interact with a small class `smollm.cpp` which uses llama.cpp to load and execute GGUF models.
+
+## Memory metrics (RAM)
+
+You can capture RAM usage snapshots from your app:
+
+- API: `io.aatricks.llmedge.util.MemoryMetrics.snapshot(context)` returns a `Snapshot` with system and process stats.
+- Pretty print: call `snapshot.toPretty(context)` to get a human-readable string.
+
+The example app (`llmedge-examples`) shows RAM snapshots:
+- Before model load
+- After model load
+- After a blocking prompt
+- After a streaming prompt
+
+It also displays whether Vulkan acceleration is enabled for the `SmolLM` instance via `SmolLM.isVulkanEnabled()`.
+
+### What the PSS fields mean
+
+Android reports per-process memory using PSS (Proportional Set Size), where shared pages are proportionally divided
+among processes, making it a fairer indicator of how much RAM your process effectively uses.
+
+- `totalPssKb`: Total proportional RAM of the process (KB). The best single number to track overall app RAM impact.
+- `dalvikPssKb`: Managed (Dalvik/ART) heap and runtime structures (KB). Moves with your Java/Kotlin allocations and GC.
+- `nativePssKb`: Native (C/C++) heap and resident mmapped regions (KB). For llmedge, llama.cpp/ONNX/tensors/KV cache typically
+   contribute here.
+- `otherPssKb`: Everything else attributed to the process not included above, consolidated by the summary (KB).
+
+Tips:
+- Use `totalPssKb` for high-level RAM tracking.
+- Watch `nativePssKb` while loading models and running inference; that’s where LLM/embedding memory usually lands.
+- Expect some fluctuation snapshot-to-snapshot due to allocations and GC timing.
 
 ## Notes
 
