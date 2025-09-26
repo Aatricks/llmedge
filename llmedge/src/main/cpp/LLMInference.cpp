@@ -76,7 +76,25 @@ LLMInference::addChatMessage(const char *message, const char *role) {
 
 float
 LLMInference::getResponseGenerationTime() const {
-    return (float) _responseNumTokens / (_responseGenerationTime / 1e6);
+    return getResponseTokensPerSecond();
+}
+
+float
+LLMInference::getResponseTokensPerSecond() const {
+    if (_responseGenerationTime <= 0 || _responseNumTokens <= 0) {
+        return 0.f;
+    }
+    return (_responseNumTokens * 1e6f) / static_cast<float>(_responseGenerationTime);
+}
+
+long
+LLMInference::getResponseTokenCount() const {
+    return _responseNumTokens;
+}
+
+int64_t
+LLMInference::getResponseGenerationTimeMicros() const {
+    return _responseGenerationTime;
 }
 
 int

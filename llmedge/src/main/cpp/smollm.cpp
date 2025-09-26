@@ -41,6 +41,18 @@ Java_io_aatricks_llmedge_SmolLM_getResponseGenerationSpeed(JNIEnv* env, jobject 
     return llmInference->getResponseGenerationTime();
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_aatricks_llmedge_SmolLM_getResponseGeneratedTokenCount(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    return llmInference->getResponseTokenCount();
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_aatricks_llmedge_SmolLM_getResponseGenerationDurationMicros(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    return llmInference->getResponseGenerationTimeMicros();
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_io_aatricks_llmedge_SmolLM_getContextSizeUsed(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);

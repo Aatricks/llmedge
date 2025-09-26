@@ -188,6 +188,25 @@ class SmolLM(
     )
 
     /**
+     * Summary of the most recent response generation.
+     *
+     * @property tokensPerSecond Average decoding throughput for the response.
+     * @property tokenCount Number of tokens emitted for the response.
+     * @property elapsedMicros Total decoding time in microseconds.
+     */
+    data class GenerationMetrics(
+        val tokensPerSecond: Float,
+        val tokenCount: Long,
+        val elapsedMicros: Long,
+    ) {
+        val elapsedMillis: Double
+            get() = elapsedMicros / 1_000.0
+
+        val elapsedSeconds: Double
+            get() = elapsedMicros / 1_000_000.0
+    }
+
+    /**
      * Loads the GGUF model from the given path.
      * This function will read the metadata from the GGUF model file,
      * such as the context size and chat template, and use them if they are not
@@ -264,6 +283,27 @@ class SmolLM(
     fun getResponseGenerationSpeed(): Float {
         verifyHandle()
         return getResponseGenerationSpeed(nativePtr)
+    }
+
+    /**
+     * Returns throughput information for the last completed response.
+     * The metrics are reset on the next call to [getResponse] or [getResponseAsFlow].
+     */
+    fun getLastGenerationMetrics(): GenerationMetrics {
+        verifyHandle()
+        val elapsedMicros = getResponseGenerationDurationMicros(nativePtr)
+        val tokenCount = getResponseGeneratedTokenCount(nativePtr)
+        val tokensPerSecond =
+            if (elapsedMicros <= 0L || tokenCount <= 0L) {
+                0f
+            } else {
+                getResponseGenerationSpeed(nativePtr)
+            }
+        return GenerationMetrics(
+            tokensPerSecond = tokensPerSecond,
+            tokenCount = tokenCount,
+            elapsedMicros = elapsedMicros
+        )
     }
 
     /**
@@ -357,6 +397,10 @@ class SmolLM(
     )
 
     private external fun getResponseGenerationSpeed(modelPtr: Long): Float
+
+    private external fun getResponseGeneratedTokenCount(modelPtr: Long): Long
+
+    private external fun getResponseGenerationDurationMicros(modelPtr: Long): Long
 
     private external fun getContextSizeUsed(modelPtr: Long): Int
 

@@ -46,6 +46,12 @@ class LLMInference {
 
     float getResponseGenerationTime() const;
 
+    float getResponseTokensPerSecond() const;
+
+    long getResponseTokenCount() const;
+
+    int64_t getResponseGenerationTimeMicros() const;
+
     int getContextSizeUsed() const;
 
     void startCompletion(const char* query);
