@@ -1,35 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://github.com/Aatricks/llmedge/</loc>
+         <loc>https://aatricks.github.io/llmedge/index.html</loc>
          <lastmod>2025-10-22</lastmod>
     </url>
     <url>
-         <loc>https://github.com/Aatricks/llmedge/architecture/</loc>
+         <loc>https://aatricks.github.io/llmedge/architecture.html</loc>
          <lastmod>2025-10-22</lastmod>
     </url>
     <url>
-         <loc>https://github.com/Aatricks/llmedge/contributing/</loc>
+         <loc>https://aatricks.github.io/llmedge/contributing.html</loc>
          <lastmod>2025-10-22</lastmod>
     </url>
     <url>
-         <loc>https://github.com/Aatricks/llmedge/examples/</loc>
+         <loc>https://aatricks.github.io/llmedge/examples.html</loc>
          <lastmod>2025-10-22</lastmod>
     </url>
     <url>
-         <loc>https://github.com/Aatricks/llmedge/faq/</loc>
+         <loc>https://aatricks.github.io/llmedge/faq.html</loc>
          <lastmod>2025-10-22</lastmod>
     </url>
     <url>
-         <loc>https://github.com/Aatricks/llmedge/installation/</loc>
+         <loc>https://aatricks.github.io/llmedge/installation.html</loc>
          <lastmod>2025-10-22</lastmod>
     </url>
     <url>
-         <loc>https://github.com/Aatricks/llmedge/quirks/</loc>
+         <loc>https://aatricks.github.io/llmedge/quirks.html</loc>
          <lastmod>2025-10-22</lastmod>
     </url>
     <url>
-         <loc>https://github.com/Aatricks/llmedge/usage/</loc>
+         <loc>https://aatricks.github.io/llmedge/usage.html</loc>
          <lastmod>2025-10-22</lastmod>
     </url>
 </urlset>
