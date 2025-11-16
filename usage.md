@@ -37,6 +37,17 @@ val download = smol.loadFromHuggingFace(
 )
 ```
 
+For Wan video models (multi-asset: diffusion, VAE and encoder), use:
+
+```kotlin
+val sdWan = StableDiffusion.loadFromHuggingFace(
+    context = context,
+    modelId = "wan/Wan2.1-T2V-1.3B",
+    preferSystemDownloader = true,
+    onProgress = { name, downloaded, total -> /* update progress */ }
+)
+```
+
 **Key features:**
 
 - Downloads are cached automatically
