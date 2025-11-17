@@ -1,0 +1,169 @@
+# Testing llmedge
+
+This guide shows how to run unit tests, instrumentation tests on emulators/devices, and the opt-in native end-to-end (E2E) image generation test.
+
+Most tests avoid running native code by default and use a stubbed NativeBridge for speed and stability. You can optionally enable real native inference for txt2img when you have a local GGUF model.
+
+## Prerequisites
+
+- Android SDK and NDK installed (Android Studio or command line SDK tools)
+- Gradle (wrapper included)
+- Java 17+ (recommended by AGP)
+
+## Project modules under test
+
+- Library module: `llmedge`
+- Example app: `llmedge-examples` (not required for tests)
+
+## Unit tests (JVM)
+
+Run the library’s JVM unit tests:
+
+```bash
+./gradlew :llmedge:testDebugUnitTest
+```
+
+Reports:
+- HTML: `llmedge/build/reports/tests/testDebugUnitTest/index.html`
+
+## Instrumentation tests (managed emulator)
+
+We use Gradle Managed Devices to provision an emulator automatically (ATD Pixel 6, API 33). This runs all Android instrumentation tests without a plugged‑in device.
+
+```bash
+./gradlew :llmedge:pixel6api33DebugAndroidTest
+```
+
+Reports:
+
+- HTML summary: `llmedge/build/reports/androidTests/managedDevice/debug/allDevices/index.html`
+- Per‑class pages in the same folder
+
+Notes:
+
+- The first run may download the system image (AOSP ATD x86_64 API 33).
+- Some tests are intentionally skipped on x86_64 emulators (e.g., WAN E2E which targets arm64 devices).
+
+## Instrumentation tests (connected device)
+
+If you have a physical or virtual device connected via ADB:
+
+```bash
+./gradlew :llmedge:connectedDebugAndroidTest
+```
+
+Run a specific test class or method:
+
+```bash
+# Single class
+./gradlew :llmedge:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.VideoGenerationE2ETest
+
+# Single method
+./gradlew :llmedge:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.VideoGenerationE2ETest#testAllSchedulers
+```
+
+## Core coverage summary
+
+What’s covered by default:
+
+- txt2vid API layer (progress callbacks, cancellation, memory tracking, scheduler mapping, parameter validation, metadata handling)
+- txt2img API layer (RGB→Bitmap conversion) using deterministic stub bytes for speed
+
+What’s skipped by default:
+
+- SmolLM tests (explicit skip)
+- WAN video E2E (requires arm64 hardware and large assets)
+- Native txt2img E2E (opt‑in; see next section)
+
+## Opt‑in native E2E: txt2img with your model
+
+The test `ImageGenerationE2ENativeTest` runs true native inference via JNI and validates that the output is a non‑uniform 64×64 bitmap. It is skipped unless explicitly enabled.
+
+Enable and provide model paths either with environment variables or Gradle system properties:
+
+Required inputs:
+
+- GGUF model path (text‑to‑image)
+- Optional VAE path (if not baked in your model)
+
+Run with environment variables:
+
+```bash
+export LLMEDGE_T2I_MODEL_PATH=/absolute/path/to/your_model.gguf
+# optional if your model needs a VAE
+export LLMEDGE_T2I_VAE_PATH=/absolute/path/to/your_vae.safetensors
+
+./gradlew :llmedge:pixel6api33DebugAndroidTest -Dllmedge.runNativeImageE2E=true
+```
+
+Run with Gradle properties only:
+
+```bash
+./gradlew :llmedge:pixel6api33DebugAndroidTest \
+  -Dllmedge.runNativeImageE2E=true \
+  -Dllmedge.t2i.modelPath=/absolute/path/to/your_model.gguf \
+  -Dllmedge.t2i.vaePath=/absolute/path/to/your_vae.safetensors
+```
+
+Test source:
+
+- `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationE2ENativeTest.kt`
+
+What it does:
+
+- Calls `StableDiffusion.load` with your model and optional VAE
+- Generates a 64×64 image with 10 steps (seed=42, cfgScale=7.0)
+- Verifies a valid, non‑uniform bitmap is produced
+
+## WAN video E2E (arm64 device only)
+
+The class `WanVideoE2ETest` exercises native text‑to‑video generation with WAN models. It requires an arm64 device and downloadable assets.
+
+Run on a connected arm64 device:
+
+```bash
+./gradlew :llmedge:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.WanVideoE2ETest
+```
+
+Tip: WAN assets are large. Ensure sufficient disk and network availability.
+
+## Tips & Troubleshooting
+
+- Accept SDK licenses if prompted:
+  ```bash
+  yes | "$ANDROID_HOME"/tools/bin/sdkmanager --licenses
+  ```
+
+- Emulator boot failures: try cleaning managed devices and rerun
+  ```bash
+  ./gradlew :llmedge:cleanManagedDevices
+  ./gradlew :llmedge:pixel6api33DebugAndroidTest
+  ```
+
+- Viewing reports:
+
+  - Unit: `llmedge/build/reports/tests/testDebugUnitTest/index.html`
+  - Instrumentation (managed): `llmedge/build/reports/androidTests/managedDevice/debug/allDevices/index.html`
+
+- Out‑of‑memory during downloads/inference:
+
+  - Use smaller resolutions/steps for tests
+  - Ensure system downloader is used for large files, and prefer the managed device flow to keep memory usage predictable
+
+- Native JNI is skipped in most tests:
+
+  - Test harness sets `llmedge.disableNativeLoad=true` automatically for non‑E2E tests
+  - The opt‑in E2E explicitly runs native inference
+
+## Key test files
+
+- Image (API layer): `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationTest.kt`
+- Native image E2E (opt‑in): `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationE2ENativeTest.kt`
+- Video API & integration tests (progress, cancellation, memory, schedulers, metadata):
+  - `VideoGenerationTest.kt`, `VideoGenerationE2ETest.kt`, `VideoProgressCallbackTest.kt`
+  - `VideoCancellationTest.kt`, `VideoMemoryRegressionTest.kt`, `VideoReproducibilityTest.kt`
+  - `ModelSwitchingTest.kt`, `ModelVariantTest.kt`
+- WAN E2E (arm64 only): `WanVideoE2ETest.kt`

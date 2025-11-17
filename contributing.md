@@ -311,6 +311,12 @@ git commit -m "Update llama.cpp to [version]"
 
 Test thoroughly after submodule updates!
 
+Note: The project's native CMake build supports both legacy llama.cpp layouts that provide per-model
+source files under `src/models/*.cpp`, as well as newer llama.cpp versions that consolidate model
+implementations into `llama-model.cpp`. If you update the submodule and encounter CMake errors about
+missing source files, ensure the `llmedge/src/main/cpp/CMakeLists.txt` file reflects the current
+llama.cpp structure or open a PR with a fix similar to the existing guarded `file(GLOB ...)` approach.
+
 ## Documentation
 
 ### Building Docs Locally
