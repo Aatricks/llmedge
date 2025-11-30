@@ -810,7 +810,8 @@
 <li>Follow <a href="https://developer.android.com/kotlin/style-guide">Android Kotlin style guide</a></li>
 <li>Use meaningful variable names</li>
 <li>Prefer <code>suspend fun</code> for long-running operations</li>
-<li>Use <code>Dispatchers.IO</code> or <code>Dispatchers.Default</code> for background work</li>
+<li><strong>Use <code>Dispatchers.IO</code> for native JNI operations</strong> - they are blocking I/O operations</li>
+<li><strong>Avoid <code>Dispatchers.Default</code> for native calls</strong> - it has limited parallelism and causes thread starvation</li>
 <li>Document public APIs with KDoc</li>
 <li>Use <code>@JvmStatic</code> for JNI-exposed methods</li>
 </ul>
@@ -826,7 +827,7 @@ suspend fun load(
     modelPath: String,
     params: InferenceParams = InferenceParams()
 ) = withContext(Dispatchers.IO) {
-    // Implementation
+    // Implementation - uses IO because native JNI calls block the thread
 }
 </code></pre>
 

@@ -787,6 +787,10 @@
 <td>On-device image generation</td>
 </tr>
 <tr>
+<td><code>VideoGenerationActivity</code></td>
+<td>On-device text-to-video generation (Wan 2.1)</td>
+</tr>
+<tr>
 <td><code>RagActivity</code></td>
 <td>PDF indexing, vector search, Q&amp;A</td>
 </tr>
@@ -794,77 +798,68 @@
 </table></div>
 <hr />
 <h2 id="localassetdemoactivity">LocalAssetDemoActivity</h2>
-<p>Demonstrates loading a bundled model asset and running both blocking and streaming inference.</p>
+<p>Demonstrates loading a bundled model asset and running inference using <code>LLMEdgeManager</code>.</p>
 <p><strong>Key patterns:</strong></p>
 <pre class="codehilite"><code class="language-kotlin">val modelPath = copyAssetIfNeeded(&quot;YourModel.gguf&quot;)
-llm.load(
-    modelPath,
-    InferenceParams(numThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(4), contextSize = 8192L)
+
+// Run inference (Manager handles loading &amp; caching)
+val response = LLMEdgeManager.generateText(
+    context = context,
+    params = LLMEdgeManager.TextGenerationParams(
+        prompt = &quot;Say 'hello from llmedge'.&quot;,
+        modelPath = modelPath,
+        modelId = &quot;local-model&quot; // Unique ID for caching
+    )
 )
-llm.addSystemPrompt(&quot;You are a helpful assistant.&quot;)
-
-// Blocking generation
-val response = withContext(Dispatchers.Default) { llm.getResponse(&quot;Say 'hello from llmedge'.&quot;) }
-
-// Streaming generation (collect pieces)
-val sb = StringBuilder()
-withContext(Dispatchers.Default) {
-    llm.getResponseAsFlow(&quot;Write a short haiku about Android.&quot;)
-        .collect { piece -&gt; if (piece != &quot;[EOG]&quot;) sb.append(piece) }
-}
 </code></pre>
 
 <hr />
 <h2 id="imagetotextactivity">ImageToTextActivity</h2>
-<p>Demonstrates camera integration and OCR text extraction.</p>
+<p>Demonstrates camera integration and OCR text extraction using <code>LLMEdgeManager</code>.</p>
 <p><strong>Key features:</strong></p>
 <ul>
 <li>Camera permission handling</li>
-<li>High-resolution image capture with FileProvider</li>
-<li>ML Kit OCR integration</li>
-<li>Error handling and lifecycle management</li>
+<li>High-resolution image capture</li>
+<li>ML Kit OCR integration via Manager</li>
 </ul>
 <p><strong>Code snippet:</strong></p>
-<pre class="codehilite"><code class="language-kotlin">// Initialize OCR engine
-val ocrEngine = MlKitOcrEngine(context)
-
-// Process image
+<pre class="codehilite"><code class="language-kotlin">// Process image
 val bitmap = ImageUtils.fileToBitmap(file)
 ivPreview.setImageBitmap(bitmap)
-val result = ocrEngine.extractText(ImageSource.BitmapSource(bitmap))
-tvResult.text = result.text.ifEmpty { &quot;(no text detected)&quot; }
+
+// Extract text (handles engine lifecycle automatically)
+val text = LLMEdgeManager.extractText(context, bitmap)
+tvResult.text = text.ifEmpty { &quot;(no text detected)&quot; }
 </code></pre>
 
 <hr />
 <h2 id="huggingfacedemoactivity">HuggingFaceDemoActivity</h2>
-<p>Shows how to download models from Hugging Face Hub with progress tracking and reasoning controls.</p>
+<p>Shows how to download models from Hugging Face Hub and run inference using <code>LLMEdgeManager</code>.</p>
 <p><strong>Key features:</strong></p>
 <ul>
 <li>Model download with progress callback</li>
 <li>Heap-aware parameter selection</li>
 <li>Thinking mode configuration</li>
-<li>Performance metrics display</li>
 </ul>
 <p><strong>Code snippet:</strong></p>
-<pre class="codehilite"><code class="language-kotlin">val safeParams = InferenceParams(
-    storeChats = false,
-    numThreads = 4,
-    contextSize = 4096L
-)
-
-val result = llm.loadFromHuggingFace(
-    context = this,
+<pre class="codehilite"><code class="language-kotlin">// 1. Download with progress
+LLMEdgeManager.downloadModel(
+    context = context,
     modelId = &quot;unsloth/Qwen3-0.6B-GGUF&quot;,
-    revision = &quot;main&quot;,
-    filename = null,
-    params = safeParams,
-    forceDownload = false,
+    filename = &quot;Qwen3-0.6B-Q4_K_M.gguf&quot;,
     onProgress = { downloaded, total -&gt; /* update UI */ }
 )
 
-val response = withContext(Dispatchers.Default) { 
-    llm.getResponse(&quot;List two quick facts about running GGUF models on Android.&quot;) 
-}
+// 2. Generate text (model is now cached)
+val response = LLMEdgeManager.generateText(
+    context = context,
+    params = LLMEdgeManager.TextGenerationParams(
+        prompt = &quot;List two quick facts about running GGUF models on Android.&quot;,
+        modelId = &quot;unsloth/Qwen3-0.6B-GGUF&quot;,
+        modelFilename = &quot;Qwen3-0.6B-Q4_K_M.gguf&quot;,
+        thinkingMode = SmolLM.ThinkingMode.DISABLED // Optional reasoning control
+    )
+)
 </code></pre>
 
 <hr />
@@ -876,16 +871,11 @@ val response = withContext(Dispatchers.Default) {
 <li>Sentence embeddings (ONNX Runtime)</li>
 <li>Vector store with cosine similarity search</li>
 <li>Context-aware answer generation</li>
-<li>Retrieval preview for debugging</li>
 </ul>
 <p><strong>Full workflow:</strong></p>
-<pre class="codehilite"><code class="language-kotlin">// 1. Load LLM
-val llm = SmolLM()
-llm.load(modelPath, InferenceParams(
-    contextSize = 8192L,
-    temperature = 0.2f,
-    storeChats = false
-))
+<pre class="codehilite"><code class="language-kotlin">// 1. Get shared LLM instance from Manager
+// (Ensures efficient resource sharing with other app components)
+val llm = LLMEdgeManager.getSmolLM(context)
 
 // 2. Initialize RAG engine with embedding config
 val rag = RAGEngine(
@@ -905,10 +895,6 @@ Log.d(&quot;RAG&quot;, &quot;Indexed $count chunks&quot;)
 
 // 4. Ask questions
 val answer = rag.ask(&quot;What are the key points?&quot;, topK = 5)
-
-// 5. Preview retrieval (debugging)
-val preview = rag.retrievalPreview(question, topK = 5)
-val context = rag.contextFor(question, topK = 5)
 </code></pre>
 
 <p><strong>Important notes:</strong></p>
@@ -920,126 +906,95 @@ val context = rag.contextFor(question, topK = 5)
 </ul>
 <hr />
 <h2 id="stablediffusionactivity">StableDiffusionActivity</h2>
-<p>Demonstrates on-device image generation with memory-safe downloads and OOM recovery.</p>
+<p>Demonstrates on-device image generation using <code>LLMEdgeManager</code>.</p>
 <p><strong>Key patterns:</strong></p>
-<pre class="codehilite"><code class="language-kotlin">// 1. Download VAE with system downloader (avoids heap OOM)
-val vaeDownload = HuggingFaceHub.ensureRepoFileOnDisk(
+<pre class="codehilite"><code class="language-kotlin">// Generate image (Manager handles downloading, caching, VAE loading, and memory safety)
+val bitmap = LLMEdgeManager.generateImage(
     context = context,
-    modelId = &quot;Meina/MeinaMix&quot;,
-    filename = &quot;MeinaPastel - baked VAE.safetensors&quot;,
-    preferSystemDownloader = true  // Critical for large files
-)
-
-// 2. Load model with CPU offloading for constrained devices
-val sd = StableDiffusion.load(
-    context = context,
-    modelId = &quot;Meina/MeinaMix&quot;,
-    offloadToCpu = true,      // Reduces native memory pressure
-    keepClipOnCpu = true,     // Keep CLIP on CPU
-    vaePath = vaeDownload.file.absolutePath
-)
-
-// 3. Generate with adaptive resolution fallback
-val bitmap = try {
-    sd.txt2img(GenerateParams(
+    params = LLMEdgeManager.ImageGenerationParams(
         prompt = &quot;a cute cat&quot;,
-        width = 128, height = 128,
-        steps = 20, cfgScale = 7.0f
-    ))
-} catch (oom: OutOfMemoryError) {
-    // Fallback: smaller resolution, fewer steps
-    sd.txt2img(GenerateParams(
-        prompt = &quot;a cute cat&quot;,
-        width = 64, height = 64,
-        steps = 10, cfgScale = 7.0f
-    ))
-}
-
-sd.close()  // Always close immediately
-</code></pre>
-
-<p><strong>Important notes:</strong></p>
-<ul>
-<li>Start with 128×128 or smaller on devices with &lt;3GB RAM</li>
-<li>Always use <code>preferSystemDownloader = true</code> for downloads &gt;50MB</li>
-<li>Enable all CPU offload flags if experiencing OOM</li>
-<li>Don't persist SD instance across generations (reload is acceptable)</li>
-</ul>
-<hr />
-<h2 id="llavavisionactivity">LlavaVisionActivity</h2>
-<p>Demonstrates vision-capable LLM integration with OCR and projector (mmproj) support.</p>
-<p><strong>Key patterns:</strong></p>
-<pre class="codehilite"><code class="language-kotlin">// 1. Load vision model with conservative settings
-val smol = SmolLM()
-smol.loadFromHuggingFace(
-    context, 
-    modelId = &quot;xtuner/llava-phi-3-mini-gguf&quot;,
-    params = InferenceParams(
-        temperature = 0.0f,  // Reduce hallucination
-        thinkingMode = ThinkingMode.DISABLED
+        width = 256, // Start small on mobile
+        height = 256,
+        steps = 20,
+        cfgScale = 7.0f
     )
 )
 
-// 2. Download and initialize projector for vision embeddings
-val mmprojFile = HuggingFaceHub.ensureModelOnDisk(
-    context, modelId, 
-    filename = &quot;llava-phi-3-mini-mmproj-f16.gguf&quot;,
-    preferSystemDownloader = true
-)
-
-val projector = Projector()
-projector.init(mmprojFile.file.absolutePath, smol.getNativeModelPointer())
-
-// 3. Preprocess image and encode to embeddings
-val preprocessed = ImageUtils.preprocessImage(
-    bitmap, 
-    correctOrientation = true, 
-    maxDimension = 1600
-)
-val embeddingsFile = File.createTempFile(&quot;vision_embd&quot;, &quot;.bin&quot;, cacheDir)
-projector.encodeImageToFile(imageFile.absolutePath, embeddingsFile.absolutePath)
-projector.close()  // Close immediately
-
-// 4. Extract OCR text for grounding
-val ocrEngine = MlKitOcrEngine(context)
-val ocrText = ocrEngine.extractText(ImageSource.FileSource(imageFile)).text
-
-// 5. Build grounded prompt with OCR context
-val prompt = &quot;&quot;&quot;
-    Context: Image contains the following OCR text:
-    $ocrText
-
-    Question: $userQuestion
-    Answer using ONLY the image and OCR context. Be concise.
-&quot;&quot;&quot;.trimIndent()
-
-// 6. Run vision analysis
-val adapter = SmolLMVisionAdapter(context, smol)
-adapter.loadVisionModel(modelPath)
-val result = adapter.analyze(ImageSource.FileSource(embeddingsFile), prompt)
-
-// Cleanup
-ocrEngine.close()
-adapter.close()
-smol.close()
-</code></pre>
-
-<p><strong>Local description fallback</strong> (no model required):</p>
-<pre class="codehilite"><code class="language-kotlin">// Fast OCR + basic analysis without loading LLM
-val desc = LocalImageDescriber.describe(context, ImageSource.FileSource(imageFile))
-println(&quot;Summary: ${desc.summary}&quot;)
-println(&quot;Labels: ${desc.labels.joinToString(&quot;, &quot;)}&quot;)
+// Display result
+imageView.setImageBitmap(bitmap)
 </code></pre>
 
 <p><strong>Important notes:</strong></p>
 <ul>
-<li>Always preprocess images: downsample to ≤1600px and correct EXIF orientation</li>
-<li>Include OCR text in prompts to reduce vision model hallucination</li>
-<li>Close projector immediately after encoding (before inference)</li>
-<li>mmproj file may not exist for all model repos (check availability)</li>
-<li>Vision support is experimental; OCR-only mode recommended for production</li>
+<li>Start with 128×128 or 256x256 on devices with &lt;4GB RAM</li>
+<li><code>LLMEdgeManager</code> automatically enables CPU offloading if memory is tight</li>
+<li>Generating images is memory-intensive; close other apps for best results</li>
 </ul>
-<p><strong>Status</strong>: Architecture prepared, full integration pending llama.cpp multimodal support for Android.</p>
+<hr />
+<h2 id="videogenerationactivity">VideoGenerationActivity</h2>
+<p>Demonstrates on-device text-to-video generation using Wan 2.1.</p>
+<p><strong>Key patterns:</strong></p>
+<pre class="codehilite"><code class="language-kotlin">// 1. Configure params for mobile-friendly generation
+val params = LLMEdgeManager.VideoGenerationParams(
+    prompt = &quot;A dog running in the park&quot;,
+    width = 480,      // 480x480 is a good balance
+    height = 480,
+    videoFrames = 8,  // Start with fewer frames (8-16)
+    steps = 15,       // Reduced steps for speed
+    forceSequentialLoad = true // Critical for devices with &lt;12GB RAM
+)
+
+// 2. Generate video (returns list of bitmaps)
+val frames = LLMEdgeManager.generateVideo(
+    context = context,
+    params = params
+) { phase, current, total -&gt;
+    // Update progress UI
+    updateProgress(&quot;$phase ($current/$total)&quot;)
+}
+
+// 3. Display or save frames
+imageView.setImageBitmap(frames.first())
+</code></pre>
+
+<p><strong>Important notes:</strong></p>
+<ul>
+<li><strong>Sequential Load:</strong> Video models are large (Wan 2.1 is ~5GB). <code>forceSequentialLoad = true</code> is essential for mobile devices; it loads components (T5 encoder, Diffusion model, VAE) one by one to keep peak memory low.</li>
+<li><strong>Frame Count:</strong> Generating 8-16 frames takes significant time. Provide progress feedback.</li>
+<li><strong>LLMEdgeManager:</strong> This activity uses the high-level <code>LLMEdgeManager</code> which handles the complex sequentially loading logic automatically.</li>
+</ul>
+<hr />
+<h2 id="llavavisionactivity">LlavaVisionActivity</h2>
+<p>Demonstrates vision-capable LLM integration using <code>LLMEdgeManager</code>.</p>
+<p><strong>Key patterns:</strong></p>
+<pre class="codehilite"><code class="language-kotlin">// 1. Preprocess image
+val bmp = ImageUtils.imageToBitmap(context, uri)
+val scaledBmp = ImageUtils.preprocessImage(bmp, correctOrientation = true, maxDimension = 1024)
+
+// 2. Run OCR (Optional grounding)
+val ocrText = LLMEdgeManager.extractText(context, scaledBmp)
+
+// 3. Build Prompt (e.g. ChatML format for Phi-3)
+val prompt = &quot;&quot;&quot;
+    &lt;|system|&gt;You are a helpful assistant.&lt;|end|&gt;
+    &lt;|user|&gt;
+    Context (OCR): $ocrText
+
+    Describe this image.&lt;|end|&gt;
+    &lt;|assistant|&gt;
+&quot;&quot;&quot;.trimIndent()
+
+// 4. Run Vision Analysis
+val result = LLMEdgeManager.analyzeImage(
+    context = context,
+    params = LLMEdgeManager.VisionAnalysisParams(
+        image = scaledBmp,
+        prompt = prompt
+    )
+)
+</code></pre>
+
+<p><strong>Status</strong>: Uses <code>LLMEdgeManager</code> to orchestrate the experimental vision pipeline (loading projector, encoding image, running inference).</p>
 <hr />
 <h2 id="additional-resources">Additional Resources</h2>
 <ul>
@@ -1221,6 +1176,14 @@ println(&quot;Labels: ${desc.labels.joinToString(&quot;, &quot;)}&quot;)
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="2">
             StableDiffusionActivity
+        </a>
+        
+
+        
+        <a href="#videogenerationactivity"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            VideoGenerationActivity
         </a>
         
 

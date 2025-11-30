@@ -755,7 +755,73 @@
     </div>
   </div>
   <div class="typography w-full flex-1 *:data-[slot=alert]:first:mt-0">
-    <p>This page explains how to use <code>llmedge</code>'s Kotlin API and native bindings. Examples reference the <code>llmedge-examples</code> <a href="https://github.com/aatricks/llmedge-examples">repo</a>.</p>
+    <p>This page explains how to use <code>llmedge</code>'s Kotlin API. The library offers two layers of abstraction:
+1.  <strong>High-Level API (<code>LLMEdgeManager</code>)</strong>: Recommended for most use cases. Handles loading, caching, threading, and memory management automatically.
+2.  <strong>Low-Level API (<code>SmolLM</code>, <code>StableDiffusion</code>)</strong>: For advanced users who need fine-grained control over model lifecycle and parameters.</p>
+<p>Examples reference the <code>llmedge-examples</code> <a href="https://github.com/aatricks/llmedge-examples">repo</a>.</p>
+<hr />
+<h2 id="high-level-api-llmedgemanager">High-Level API (LLMEdgeManager)</h2>
+<p>The <code>LLMEdgeManager</code> singleton simplifies interactions by managing model instances and resources for you.</p>
+<h3 id="text-generation">Text Generation</h3>
+<pre class="codehilite"><code class="language-kotlin">val response = LLMEdgeManager.generateText(
+    context = context,
+    params = LLMEdgeManager.TextGenerationParams(
+        prompt = &quot;Write a haiku about Kotlin.&quot;,
+        modelId = &quot;HuggingFaceTB/SmolLM-135M-Instruct-GGUF&quot;, // Optional: defaults to this model
+        modelFilename = &quot;smollm-135m-instruct.q4_k_m.gguf&quot;
+    )
+)
+</code></pre>
+
+<h3 id="image-generation">Image Generation</h3>
+<p>Automatically handles model downloading (MeinaMix) and memory-safe loading.</p>
+<pre class="codehilite"><code class="language-kotlin">val bitmap = LLMEdgeManager.generateImage(
+    context = context,
+    params = LLMEdgeManager.ImageGenerationParams(
+        prompt = &quot;A cyberpunk city street at night, neon lights&quot;,
+        width = 512,
+        height = 512,
+        steps = 20
+    )
+)
+</code></pre>
+
+<h3 id="video-generation-wan-21">Video Generation (Wan 2.1)</h3>
+<p>Handles the complex multi-model loading (Diffusion, VAE, T5) and sequential processing required for video generation on mobile.</p>
+<pre class="codehilite"><code class="language-kotlin">val frames = LLMEdgeManager.generateVideo(
+    context = context,
+    params = LLMEdgeManager.VideoGenerationParams(
+        prompt = &quot;A robot dancing in the rain&quot;,
+        videoFrames = 16,
+        width = 480,
+        height = 480,
+        forceSequentialLoad = true // Recommended for devices with &lt;12GB RAM
+    )
+) { status, currentFrame, totalFrames -&gt;
+    // Optional progress callback
+    Log.d(&quot;Video&quot;, &quot;$status&quot;)
+}
+</code></pre>
+
+<h3 id="vision-analysis">Vision Analysis</h3>
+<p>Analyze images using a Vision Language Model (VLM).</p>
+<pre class="codehilite"><code class="language-kotlin">val description = LLMEdgeManager.analyzeImage(
+    context = context,
+    params = LLMEdgeManager.VisionAnalysisParams(
+        image = bitmap,
+        prompt = &quot;What is in this image?&quot;
+    )
+)
+</code></pre>
+
+<h3 id="ocr-text-extraction">OCR (Text Extraction)</h3>
+<p>Extract text using ML Kit.</p>
+<pre class="codehilite"><code class="language-kotlin">val text = LLMEdgeManager.extractText(context, bitmap)
+</code></pre>
+
+<hr />
+<h2 id="low-level-api">Low-Level API</h2>
+<p>Direct usage of <code>SmolLM</code> and <code>StableDiffusion</code> classes. Use this if you need to manage the model lifecycle manually (e.g., keeping a model loaded across multiple disparate activities) or require specific configuration not exposed by the Manager.</p>
 <h3 id="core-components">Core components</h3>
 <ul>
 <li><code>SmolLM</code> — Kotlin front-end class that wraps native inference calls.</li>
@@ -837,7 +903,7 @@ println(&quot;Extracted: ${result.text}&quot;)
 </ul>
 <p>Use <code>ImageUnderstanding</code> to orchestrate between OCR and vision models with automatic fallback.</p>
 <p>See <a href="examples.html#imagetotextactivity">ImageToTextActivity example</a> for complete implementation including camera capture.</p>
-<h3 id="vision-models">Vision Models</h3>
+<h3 id="vision-models-low-level">Vision Models (Low-Level)</h3>
 <p>The library has interfaces for vision-capable LLMs (LLaVA-style models):</p>
 <pre class="codehilite"><code class="language-kotlin">interface VisionModelAnalyzer {
     suspend fun analyze(image: ImageSource, prompt: String): VisionResult
@@ -846,8 +912,9 @@ println(&quot;Extracted: ${result.text}&quot;)
 </code></pre>
 
 <p><strong>Status:</strong> Architecture is prepared, but native vision support from llama.cpp is still being integrated for Android. Currently use OCR for text extraction. See <a href="examples.html#llavavisionactivity">LlavaVisionActivity example</a> for the prepared integration pattern.</p>
-<h3 id="stable-diffusion-image-generation">Stable Diffusion (Image Generation)</h3>
-<p>Generate images on-device using Stable Diffusion:</p>
+<h3 id="stable-diffusion-image-video-generation">Stable Diffusion (Image &amp; Video Generation)</h3>
+<p>Generate images and video on-device using Stable Diffusion and Wan models:</p>
+<p><strong>Image Generation:</strong></p>
 <pre class="codehilite"><code class="language-kotlin">val sd = StableDiffusion.load(
     context = context,
     modelId = &quot;Meina/MeinaMix&quot;,
@@ -865,6 +932,25 @@ val bitmap = sd.txt2img(
 sd.close()
 </code></pre>
 
+<p><strong>Video Generation (Wan 2.1):</strong></p>
+<pre class="codehilite"><code class="language-kotlin">// Load Wan model (loads diffusion, VAE, and T5 encoder)
+val sd = StableDiffusion.loadFromHuggingFace(
+    context = context,
+    modelId = &quot;wan/Wan2.1-T2V-1.3B&quot;,
+    preferSystemDownloader = true
+)
+
+val frames = sd.txt2vid(
+    VideoGenerateParams(
+        prompt = &quot;A cinematic shot of a robot walking&quot;,
+        width = 480, height = 480,
+        videoFrames = 16,
+        steps = 20
+    )
+)
+sd.close()
+</code></pre>
+
 <p><strong>Memory management:</strong></p>
 <ul>
 <li>Use small resolutions (128x128 or 256x256) on constrained devices</li>
@@ -876,10 +962,12 @@ sd.close()
 <h3 id="best-practices">Best Practices</h3>
 <p><strong>Threading:</strong></p>
 <ul>
-<li>Always use background dispatchers (<code>Dispatchers.IO</code> or <code>Dispatchers.Default</code>) for model loading and inference</li>
-<li>Update UI only via <code>withContext(Dispatchers.Main)</code></li>
-<li>Call <code>.close()</code> in <code>onDestroy()</code> to free native memory</li>
+<li>For heavy CPU-bound native inference (StableDiffusion CPU generation, large LLM decoding), prefer <code>Dispatchers.Default</code> so work schedules onto CPU-optimized thread pool sized to the device cores.</li>
+<li>For blocking calls that wait on I/O (downloads, filesystem access, or JNI calls that wait on network/IO), prefer <code>Dispatchers.IO</code>.</li>
+<li>Update UI only via <code>withContext(Dispatchers.Main)</code>.</li>
+<li>Call <code>.close()</code> in <code>onDestroy()</code> to free native memory.</li>
 </ul>
+<p>Note: Choosing the correct dispatcher depends on the workload. JNI calls that use CPU-bound native kernels (like <code>txt2img</code>) should use Default; calls that perform blocking I/O should use IO.</p>
 <p><strong>Memory optimization:</strong></p>
 <ul>
 <li>Use quantized models (Q4_K_M, Q5_K_M)</li>
@@ -896,6 +984,9 @@ sd.close()
 <h3 id="api-reference">API reference</h3>
 <p>Key methods:</p>
 <ul>
+<li><code>LLMEdgeManager.generateText(...)</code> — High-level text generation</li>
+<li><code>LLMEdgeManager.generateImage(...)</code> — High-level image generation</li>
+<li><code>LLMEdgeManager.generateVideo(...)</code> — High-level video generation</li>
 <li><code>SmolLM.load(modelPath: String, params: InferenceParams)</code> — loads a GGUF model from a path</li>
 <li><code>SmolLM.loadFromHuggingFace(...)</code> — downloads and loads a model from Hugging Face</li>
 <li><code>SmolLM.getResponse(query: String): String</code> — runs blocking generation and returns complete text</li>
@@ -905,6 +996,8 @@ sd.close()
 <li><code>SmolLM.close()</code> — releases native resources</li>
 <li><code>OcrEngine.extractText(image: ImageSource, params: OcrParams): OcrResult</code> — extracts text from image</li>
 <li><code>ImageUnderstanding.process(image: ImageSource, mode: VisionMode, prompt: String?)</code> — processes image with vision/OCR</li>
+<li><code>StableDiffusion.txt2img(params: GenerateParams): Bitmap</code> — generates an image</li>
+<li><code>StableDiffusion.txt2vid(params: VideoGenerateParams): List&lt;Bitmap&gt;</code> — generates video frames</li>
 </ul>
 <p>Refer to the <code>llmedge-examples</code> activities for complete, working code samples.</p>
   </div>
@@ -1036,75 +1129,107 @@ sd.close()
         
         
         
-        <a href="#core-components"
+        <a href="#high-level-api-llmedgemanager"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="2">
+            High-Level API (LLMEdgeManager)
+        </a>
+        
+        
+        <a href="#text-generation"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Text Generation
+        </a>
+        
+        <a href="#image-generation"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Image Generation
+        </a>
+        
+        <a href="#video-generation-wan-21"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Video Generation (Wan 2.1)
+        </a>
+        
+        <a href="#vision-analysis"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Vision Analysis
+        </a>
+        
+        <a href="#ocr-text-extraction"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            OCR (Text Extraction)
+        </a>
+        
+        
+
+        
+        <a href="#low-level-api"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            Low-Level API
+        </a>
+        
+        
+        <a href="#core-components"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
             Core components
         </a>
         
-
-        
         <a href="#basic-llm-inference"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
+            data-active="false" data-depth="3">
             Basic LLM Inference
         </a>
         
-
-        
         <a href="#downloading-models-from-hugging-face"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
+            data-active="false" data-depth="3">
             Downloading Models from Hugging Face
         </a>
         
-
-        
         <a href="#reasoning-controls"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
+            data-active="false" data-depth="3">
             Reasoning Controls
         </a>
         
-
-        
         <a href="#image-text-extraction-ocr"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
+            data-active="false" data-depth="3">
             Image Text Extraction (OCR)
         </a>
         
-
-        
-        <a href="#vision-models"
+        <a href="#vision-models-low-level"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
-            Vision Models
+            data-active="false" data-depth="3">
+            Vision Models (Low-Level)
         </a>
         
-
-        
-        <a href="#stable-diffusion-image-generation"
+        <a href="#stable-diffusion-image-video-generation"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
-            Stable Diffusion (Image Generation)
+            data-active="false" data-depth="3">
+            Stable Diffusion (Image &amp; Video Generation)
         </a>
-        
-
         
         <a href="#best-practices"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
+            data-active="false" data-depth="3">
             Best Practices
         </a>
         
-
-        
         <a href="#api-reference"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
+            data-active="false" data-depth="3">
             API reference
         </a>
+        
         
 
         

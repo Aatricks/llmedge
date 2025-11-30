@@ -810,7 +810,13 @@
 <p><strong>Known Limitations</strong>:</p>
 <ul>
 <li>GGUF quantization of main model blocked by metadata issues</li>
-<li>Sequential loading not supported - all three models load simultaneously</li>
+<li>Sequential loading: LLMEdgeManager supports a sequential load flow to reduce peak
+    memory usage for low-memory devices. When <code>forceSequentialLoad=true</code> is used, the
+    manager will precompute text-conditioning with the T5 encoder and then load the
+    diffusion model without reloading the T5 encoder to avoid duplicating memory usage.
+    Note: For best results with sequential loading, avoid <code>preferPerformanceMode=true</code> as
+    that can cause the manager to favor GPU allocation patterns that increase peak
+    memory usage.</li>
 <li>No disk streaming - models must fit in RAM</li>
 <li>8GB RAM devices cannot run Wan models (architectural constraint)</li>
 </ul>

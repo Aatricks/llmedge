@@ -80,6 +80,7 @@ Diagram (JNI loading):
 
 **Core LLM:**
 
+- `llmedge/src/main/java/io/aatricks/llmedge/LLMEdgeManager.kt` (High-level orchestration)
 - `llmedge/src/main/java/io/aatricks/llmedge/SmolLM.kt`
 - `llmedge/src/main/java/io/aatricks/llmedge/GGUFReader.kt`
 - `llmedge/src/main/cpp/` (native JNI implementation)

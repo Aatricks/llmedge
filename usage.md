@@ -1,6 +1,93 @@
-# Usage
+# Usage & API
 
-This page explains how to use `llmedge`'s Kotlin API and native bindings. Examples reference the `llmedge-examples` [repo](https://github.com/aatricks/llmedge-examples).
+This page explains how to use `llmedge`'s Kotlin API. The library offers two layers of abstraction:
+1.  **High-Level API (`LLMEdgeManager`)**: Recommended for most use cases. Handles loading, caching, threading, and memory management automatically.
+2.  **Low-Level API (`SmolLM`, `StableDiffusion`)**: For advanced users who need fine-grained control over model lifecycle and parameters.
+
+Examples reference the `llmedge-examples` [repo](https://github.com/aatricks/llmedge-examples).
+
+---
+
+## High-Level API (LLMEdgeManager)
+
+The `LLMEdgeManager` singleton simplifies interactions by managing model instances and resources for you.
+
+### Text Generation
+
+```kotlin
+val response = LLMEdgeManager.generateText(
+    context = context,
+    params = LLMEdgeManager.TextGenerationParams(
+        prompt = "Write a haiku about Kotlin.",
+        modelId = "HuggingFaceTB/SmolLM-135M-Instruct-GGUF", // Optional: defaults to this model
+        modelFilename = "smollm-135m-instruct.q4_k_m.gguf"
+    )
+)
+```
+
+### Image Generation
+
+Automatically handles model downloading (MeinaMix) and memory-safe loading.
+
+```kotlin
+val bitmap = LLMEdgeManager.generateImage(
+    context = context,
+    params = LLMEdgeManager.ImageGenerationParams(
+        prompt = "A cyberpunk city street at night, neon lights",
+        width = 512,
+        height = 512,
+        steps = 20
+    )
+)
+```
+
+### Video Generation (Wan 2.1)
+
+Handles the complex multi-model loading (Diffusion, VAE, T5) and sequential processing required for video generation on mobile.
+
+```kotlin
+val frames = LLMEdgeManager.generateVideo(
+    context = context,
+    params = LLMEdgeManager.VideoGenerationParams(
+        prompt = "A robot dancing in the rain",
+        videoFrames = 16,
+        width = 480,
+        height = 480,
+        forceSequentialLoad = true // Recommended for devices with <12GB RAM
+    )
+) { status, currentFrame, totalFrames ->
+    // Optional progress callback
+    Log.d("Video", "$status")
+}
+```
+
+### Vision Analysis
+
+Analyze images using a Vision Language Model (VLM).
+
+```kotlin
+val description = LLMEdgeManager.analyzeImage(
+    context = context,
+    params = LLMEdgeManager.VisionAnalysisParams(
+        image = bitmap,
+        prompt = "What is in this image?"
+    )
+)
+```
+
+### OCR (Text Extraction)
+
+Extract text using ML Kit.
+
+```kotlin
+val text = LLMEdgeManager.extractText(context, bitmap)
+```
+
+---
+
+## Low-Level API
+
+Direct usage of `SmolLM` and `StableDiffusion` classes. Use this if you need to manage the model lifecycle manually (e.g., keeping a model loaded across multiple disparate activities) or require specific configuration not exposed by the Manager.
 
 ### Core components
 
@@ -100,7 +187,7 @@ Use `ImageUnderstanding` to orchestrate between OCR and vision models with autom
 
 See [ImageToTextActivity example](examples.md#imagetotextactivity) for complete implementation including camera capture.
 
-### Vision Models
+### Vision Models (Low-Level)
 
 The library has interfaces for vision-capable LLMs (LLaVA-style models):
 
@@ -114,9 +201,11 @@ interface VisionModelAnalyzer {
 **Status:** Architecture is prepared, but native vision support from llama.cpp is still being integrated for Android. Currently use OCR for text extraction. See [LlavaVisionActivity example](examples.md#llavavisionactivity) for the prepared integration pattern.
 
 
-### Stable Diffusion (Image Generation)
+### Stable Diffusion (Image & Video Generation)
 
-Generate images on-device using Stable Diffusion:
+Generate images and video on-device using Stable Diffusion and Wan models:
+
+**Image Generation:**
 
 ```kotlin
 val sd = StableDiffusion.load(
@@ -136,6 +225,27 @@ val bitmap = sd.txt2img(
 sd.close()
 ```
 
+**Video Generation (Wan 2.1):**
+
+```kotlin
+// Load Wan model (loads diffusion, VAE, and T5 encoder)
+val sd = StableDiffusion.loadFromHuggingFace(
+    context = context,
+    modelId = "wan/Wan2.1-T2V-1.3B",
+    preferSystemDownloader = true
+)
+
+val frames = sd.txt2vid(
+    VideoGenerateParams(
+        prompt = "A cinematic shot of a robot walking",
+        width = 480, height = 480,
+        videoFrames = 16,
+        steps = 20
+    )
+)
+sd.close()
+```
+
 **Memory management:**
 
 - Use small resolutions (128x128 or 256x256) on constrained devices
@@ -149,9 +259,12 @@ See [StableDiffusionActivity example](examples.md#stablediffusionactivity) for c
 
 **Threading:**
 
-- Always use background dispatchers (`Dispatchers.IO` or `Dispatchers.Default`) for model loading and inference
-- Update UI only via `withContext(Dispatchers.Main)`
-- Call `.close()` in `onDestroy()` to free native memory
+- For heavy CPU-bound native inference (StableDiffusion CPU generation, large LLM decoding), prefer `Dispatchers.Default` so work schedules onto CPU-optimized thread pool sized to the device cores.
+- For blocking calls that wait on I/O (downloads, filesystem access, or JNI calls that wait on network/IO), prefer `Dispatchers.IO`.
+- Update UI only via `withContext(Dispatchers.Main)`.
+- Call `.close()` in `onDestroy()` to free native memory.
+
+Note: Choosing the correct dispatcher depends on the workload. JNI calls that use CPU-bound native kernels (like `txt2img`) should use Default; calls that perform blocking I/O should use IO.
 
 **Memory optimization:**
 
@@ -170,6 +283,9 @@ See [StableDiffusionActivity example](examples.md#stablediffusionactivity) for c
 
 Key methods:
 
+- `LLMEdgeManager.generateText(...)` — High-level text generation
+- `LLMEdgeManager.generateImage(...)` — High-level image generation
+- `LLMEdgeManager.generateVideo(...)` — High-level video generation
 - `SmolLM.load(modelPath: String, params: InferenceParams)` — loads a GGUF model from a path
 - `SmolLM.loadFromHuggingFace(...)` — downloads and loads a model from Hugging Face
 - `SmolLM.getResponse(query: String): String` — runs blocking generation and returns complete text
@@ -179,5 +295,7 @@ Key methods:
 - `SmolLM.close()` — releases native resources
 - `OcrEngine.extractText(image: ImageSource, params: OcrParams): OcrResult` — extracts text from image
 - `ImageUnderstanding.process(image: ImageSource, mode: VisionMode, prompt: String?)` — processes image with vision/OCR
+- `StableDiffusion.txt2img(params: GenerateParams): Bitmap` — generates an image
+- `StableDiffusion.txt2vid(params: VideoGenerateParams): List<Bitmap>` — generates video frames
 
 Refer to the `llmedge-examples` activities for complete, working code samples.

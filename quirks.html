@@ -798,6 +798,9 @@
 <li>Use <code>forceDownload = true</code> to redownload corrupted files</li>
 <li>Files are cached in app's files directory under <code>models/hub/</code></li>
 </ul>
+<p>Caching details:
+- If the Hugging Face model metadata contains a file size, the library verifies the file length before using a cached copy.
+- If the size is not available, the library will validate the file using SHA256 if the API provides a checksum, or will fall back to treating any existing non-empty file as a valid cached file to avoid unnecessary re-downloads.</p>
 <h3 id="imagecamera-quirks">Image/Camera quirks</h3>
 <p><strong>Orientation issues:</strong></p>
 <ul>

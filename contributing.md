@@ -79,7 +79,8 @@ Use descriptive branch names:
 - Follow [Android Kotlin style guide](https://developer.android.com/kotlin/style-guide)
 - Use meaningful variable names
 - Prefer `suspend fun` for long-running operations
-- Use `Dispatchers.IO` or `Dispatchers.Default` for background work
+- **Use `Dispatchers.IO` for native JNI operations** - they are blocking I/O operations
+- **Avoid `Dispatchers.Default` for native calls** - it has limited parallelism and causes thread starvation
 - Document public APIs with KDoc
 - Use `@JvmStatic` for JNI-exposed methods
 
@@ -96,7 +97,7 @@ suspend fun load(
     modelPath: String,
     params: InferenceParams = InferenceParams()
 ) = withContext(Dispatchers.IO) {
-    // Implementation
+    // Implementation - uses IO because native JNI calls block the thread
 }
 ```
 
