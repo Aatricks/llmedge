@@ -48,6 +48,7 @@ This section documents known quirks, limitations, and troubleshooting steps for 
 - Files are cached in app's files directory under `models/hub/`
 
 Caching details:
+
 - If the Hugging Face model metadata contains a file size, the library verifies the file length before using a cached copy.
 - If the size is not available, the library will validate the file using SHA256 if the API provides a checksum, or will fall back to treating any existing non-empty file as a valid cached file to avoid unnecessary re-downloads.
 

@@ -734,18 +734,27 @@
 <h2 id="highlights">Highlights</h2>
 <p><strong>Core Features:</strong></p>
 <ul>
-<li>Native C++ inference via llama.cpp (GGUF model support)</li>
+<li>Native C++ inference via <a href="https://github.com/ggerganov/llama.cpp">llama.cpp</a> (GGUF model support)</li>
 <li>Kotlin API for Android with coroutines and Flow support</li>
 <li>Automatic CPU feature detection (FP16, dotprod, SVE, i8mm)</li>
 <li>Optional Vulkan acceleration for compatible devices</li>
 <li>Memory-aware context size capping</li>
+<li><strong>Optimized Inference</strong>: KV Cache reuse for multi-turn conversations, significantly reducing latency for subsequent prompts.</li>
+</ul>
+<p><strong>Generative AI Capabilities:</strong></p>
+<ul>
+<li><strong>Image Generation</strong>: Stable Diffusion integration for on-device image generation with:<ul>
+<li><strong>EasyCache</strong>: Automatically detected and enabled for supported models (DiT architecture) to accelerate generation.</li>
+<li><strong>LoRA Support</strong>: Apply Low-Rank Adaptation models (e.g., for style transfer) with automatic downloading from Hugging Face.</li>
+</ul>
+</li>
+<li><strong>Video Generation</strong>: Generate short video clips (4-64 frames) from text using Wan models with sequential loading for lower RAM usage.</li>
 </ul>
 <p><strong>Multimodal Capabilities:</strong></p>
 <ul>
 <li>OCR: Google ML Kit Text Recognition integration</li>
 <li>Image processing utilities with orientation handling</li>
 <li>Vision model interfaces (prepared for LLaVA-style models)</li>
-<li>Stable Diffusion integration for on-device image generation</li>
 </ul>
 <p><strong>RAG Pipeline:</strong></p>
 <ul>

@@ -773,19 +773,25 @@
 <pre class="codehilite"><code class="language-bash">./gradlew :llmedge:testDebugUnitTest
 </code></pre>
 
-<p>Reports:
-- HTML: <code>llmedge/build/reports/tests/testDebugUnitTest/index.html</code></p>
+<p>Reports:</p>
+<ul>
+<li>HTML: <code>llmedge/build/reports/tests/testDebugUnitTest/index.html</code></li>
+</ul>
 <h2 id="instrumentation-tests-managed-emulator">Instrumentation tests (managed emulator)</h2>
 <p>We use Gradle Managed Devices to provision an emulator automatically (ATD Pixel 6, API 33). This runs all Android instrumentation tests without a plugged‑in device.</p>
 <pre class="codehilite"><code class="language-bash">./gradlew :llmedge:pixel6api33DebugAndroidTest
 </code></pre>
 
-<p>Reports:
-- HTML summary: <code>llmedge/build/reports/androidTests/managedDevice/debug/allDevices/index.html</code>
-- Per‑class pages in the same folder</p>
-<p>Notes:
-- The first run may download the system image (AOSP ATD x86_64 API 33).
-- Some tests are intentionally skipped on x86_64 emulators (e.g., WAN E2E which targets arm64 devices).</p>
+<p>Reports:</p>
+<ul>
+<li>HTML summary: <code>llmedge/build/reports/androidTests/managedDevice/debug/allDevices/index.html</code></li>
+<li>Per‑class pages in the same folder</li>
+</ul>
+<p>Notes:</p>
+<ul>
+<li>The first run may download the system image (AOSP ATD x86_64 API 33).</li>
+<li>Some tests are intentionally skipped on x86_64 emulators (e.g., WAN E2E which targets arm64 devices).</li>
+</ul>
 <h2 id="instrumentation-tests-connected-device">Instrumentation tests (connected device)</h2>
 <p>If you have a physical or virtual device connected via ADB:</p>
 <pre class="codehilite"><code class="language-bash">./gradlew :llmedge:connectedDebugAndroidTest
@@ -802,19 +808,25 @@
 </code></pre>
 
 <h2 id="core-coverage-summary">Core coverage summary</h2>
-<p>What’s covered by default:
-- txt2vid API layer (progress callbacks, cancellation, memory tracking, scheduler mapping, parameter validation, metadata handling)
-- txt2img API layer (RGB→Bitmap conversion) using deterministic stub bytes for speed</p>
-<p>What’s skipped by default:
-- SmolLM tests (explicit skip)
-- WAN video E2E (requires arm64 hardware and large assets)
-- Native txt2img E2E (opt‑in; see next section)</p>
+<p>What’s covered by default:</p>
+<ul>
+<li>txt2vid API layer (progress callbacks, cancellation, memory tracking, scheduler mapping, parameter validation, metadata handling)</li>
+<li>txt2img API layer (RGB→Bitmap conversion) using deterministic stub bytes for speed</li>
+</ul>
+<p>What’s skipped by default:</p>
+<ul>
+<li>SmolLM tests (explicit skip)</li>
+<li>WAN video E2E (requires arm64 hardware and large assets)</li>
+<li>Native txt2img E2E (opt‑in; see next section)</li>
+</ul>
 <h2 id="optin-native-e2e-txt2img-with-your-model">Opt‑in native E2E: txt2img with your model</h2>
 <p>The test <code>ImageGenerationE2ENativeTest</code> runs true native inference via JNI and validates that the output is a non‑uniform 64×64 bitmap. It is skipped unless explicitly enabled.</p>
 <p>Enable and provide model paths either with environment variables or Gradle system properties:</p>
-<p>Required inputs:
-- GGUF model path (text‑to‑image)
-- Optional VAE path (if not baked in your model)</p>
+<p>Required inputs:</p>
+<ul>
+<li>GGUF model path (text‑to‑image)</li>
+<li>Optional VAE path (if not baked in your model)</li>
+</ul>
 <p>Run with environment variables:</p>
 <pre class="codehilite"><code class="language-bash">export LLMEDGE_T2I_MODEL_PATH=/absolute/path/to/your_model.gguf
 # optional if your model needs a VAE
@@ -830,12 +842,16 @@ export LLMEDGE_T2I_VAE_PATH=/absolute/path/to/your_vae.safetensors
   -Dllmedge.t2i.vaePath=/absolute/path/to/your_vae.safetensors
 </code></pre>
 
-<p>Test source:
-- <code>llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationE2ENativeTest.kt</code></p>
-<p>What it does:
-- Calls <code>StableDiffusion.load</code> with your model and optional VAE
-- Generates a 64×64 image with 10 steps (seed=42, cfgScale=7.0)
-- Verifies a valid, non‑uniform bitmap is produced</p>
+<p>Test source:</p>
+<ul>
+<li><code>llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationE2ENativeTest.kt</code></li>
+</ul>
+<p>What it does:</p>
+<ul>
+<li>Calls <code>StableDiffusion.load</code> with your model and optional VAE</li>
+<li>Generates a 64×64 image with 10 steps (seed=42, cfgScale=7.0)</li>
+<li>Verifies a valid, non‑uniform bitmap is produced</li>
+</ul>
 <h2 id="wan-video-e2e-arm64-device-only">WAN video E2E (arm64 device only)</h2>
 <p>The class <code>WanVideoE2ETest</code> exercises native text‑to‑video generation with WAN models. It requires an arm64 device and downloadable assets.</p>
 <p>Run on a connected arm64 device:</p>

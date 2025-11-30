@@ -190,10 +190,12 @@ Demonstrates on-device text-to-video generation using Wan 2.1.
 // 1. Configure params for mobile-friendly generation
 val params = LLMEdgeManager.VideoGenerationParams(
     prompt = "A dog running in the park",
-    width = 480,      // 480x480 is a good balance
-    height = 480,
+    width = 512,      // Wan models require multiples of 64 between 256-960
+    height = 512,
     videoFrames = 8,  // Start with fewer frames (8-16)
-    steps = 15,       // Reduced steps for speed
+    steps = 20,
+    cfgScale = 7.0f,
+    flowShift = 3.0f, // Use Float.POSITIVE_INFINITY to auto-select
     forceSequentialLoad = true // Critical for devices with <12GB RAM
 )
 

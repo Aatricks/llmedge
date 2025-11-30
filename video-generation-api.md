@@ -94,7 +94,9 @@ suspend fun load(
     nThreads: Int = Runtime.getRuntime().availableProcessors(),
     offloadToCpu: Boolean = true,
     keepClipOnCpu: Boolean = true,
-    keepVaeOnCpu: Boolean = true
+    keepVaeOnCpu: Boolean = true,
+    loraModelDir: String? = null, // Path to directory containing LoRA .safetensors
+    loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO, // LoRA application strategy
 ): StableDiffusion
 ```
 
@@ -157,7 +159,9 @@ val sd = StableDiffusion.load(
     nThreads = Runtime.getRuntime().availableProcessors(),
     offloadToCpu = true,
     keepClipOnCpu = true,
-    keepVaeOnCpu = true
+    keepVaeOnCpu = true,
+    loraModelDir = null, // Or provide path to LoRA directory if applicable
+    loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
 )
 ```
 
@@ -218,7 +222,10 @@ data class VideoGenerateParams(
     val seed: Long = -1,
     val scheduler: Scheduler = Scheduler.EULER_A,
     val strength: Float = 0.8f,
-    val initImage: Bitmap? = null
+    val initImage: Bitmap? = null,
+    val easyCacheParams: EasyCacheParams = EasyCacheParams(), // Parameters for EasyCache optimization
+    val loraModelDir: String? = null, // Directory containing LoRA .safetensors (only applicable if also loading base model with LoRA support)
+    val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO // LoRA application strategy
 )
 ```
 
@@ -815,6 +822,26 @@ val job = CoroutineScope(Dispatchers.IO).launch {
 ---
 
 ## Performance Optimization
+
+### EasyCache (for supported models)
+
+For supported models (e.g., DiT architectures like Flux/SD3), EasyCache can significantly reduce generation time by reusing intermediate diffusion steps. `LLMEdgeManager` automatically detects and enables EasyCache if the loaded model supports it.
+
+If using the low-level `StableDiffusion` API, you can enable EasyCache via `VideoGenerateParams`:
+
+```kotlin
+val params = VideoGenerateParams(
+    // ... other params
+    easyCacheParams = StableDiffusion.EasyCacheParams(
+        enabled = true,
+        reuseThreshold = 0.2f, // Threshold for skipping steps (0.0 - 1.0)
+        startPercent = 0.15f,  // Start skipping after this percentage of steps
+        endPercent = 0.95f     // Stop skipping before this percentage of steps
+    )
+)
+```
+
+**Note**: EasyCache is not supported for UNet-based models (like Stable Diffusion 1.5).
 
 ### Memory Management
 

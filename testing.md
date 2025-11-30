@@ -24,6 +24,7 @@ Run the library’s JVM unit tests:
 ```
 
 Reports:
+
 - HTML: `llmedge/build/reports/tests/testDebugUnitTest/index.html`
 
 ## Instrumentation tests (managed emulator)
@@ -35,10 +36,12 @@ We use Gradle Managed Devices to provision an emulator automatically (ATD Pixel 
 ```
 
 Reports:
+
 - HTML summary: `llmedge/build/reports/androidTests/managedDevice/debug/allDevices/index.html`
 - Per‑class pages in the same folder
 
 Notes:
+
 - The first run may download the system image (AOSP ATD x86_64 API 33).
 - Some tests are intentionally skipped on x86_64 emulators (e.g., WAN E2E which targets arm64 devices).
 
@@ -65,10 +68,12 @@ Run a specific test class or method:
 ## Core coverage summary
 
 What’s covered by default:
+
 - txt2vid API layer (progress callbacks, cancellation, memory tracking, scheduler mapping, parameter validation, metadata handling)
 - txt2img API layer (RGB→Bitmap conversion) using deterministic stub bytes for speed
 
 What’s skipped by default:
+
 - SmolLM tests (explicit skip)
 - WAN video E2E (requires arm64 hardware and large assets)
 - Native txt2img E2E (opt‑in; see next section)
@@ -80,6 +85,7 @@ The test `ImageGenerationE2ENativeTest` runs true native inference via JNI and v
 Enable and provide model paths either with environment variables or Gradle system properties:
 
 Required inputs:
+
 - GGUF model path (text‑to‑image)
 - Optional VAE path (if not baked in your model)
 
@@ -103,9 +109,11 @@ Run with Gradle properties only:
 ```
 
 Test source:
+
 - `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationE2ENativeTest.kt`
 
 What it does:
+
 - Calls `StableDiffusion.load` with your model and optional VAE
 - Generates a 64×64 image with 10 steps (seed=42, cfgScale=7.0)
 - Verifies a valid, non‑uniform bitmap is produced

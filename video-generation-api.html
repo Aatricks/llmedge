@@ -834,7 +834,9 @@
     nThreads: Int = Runtime.getRuntime().availableProcessors(),
     offloadToCpu: Boolean = true,
     keepClipOnCpu: Boolean = true,
-    keepVaeOnCpu: Boolean = true
+    keepVaeOnCpu: Boolean = true,
+    loraModelDir: String? = null, // Path to directory containing LoRA .safetensors
+    loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO, // LoRA application strategy
 ): StableDiffusion
 </code></pre>
 
@@ -894,7 +896,9 @@ val sd = StableDiffusion.load(
     nThreads = Runtime.getRuntime().availableProcessors(),
     offloadToCpu = true,
     keepClipOnCpu = true,
-    keepVaeOnCpu = true
+    keepVaeOnCpu = true,
+    loraModelDir = null, // Or provide path to LoRA directory if applicable
+    loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
 )
 </code></pre>
 
@@ -943,7 +947,10 @@ val frames = sd.txt2vid(params)
     val seed: Long = -1,
     val scheduler: Scheduler = Scheduler.EULER_A,
     val strength: Float = 0.8f,
-    val initImage: Bitmap? = null
+    val initImage: Bitmap? = null,
+    val easyCacheParams: EasyCacheParams = EasyCacheParams(), // Parameters for EasyCache optimization
+    val loraModelDir: String? = null, // Directory containing LoRA .safetensors (only applicable if also loading base model with LoRA support)
+    val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO // LoRA application strategy
 )
 </code></pre>
 
@@ -1423,6 +1430,21 @@ val params = VideoGenerateParams(
 
 <hr />
 <h2 id="performance-optimization">Performance Optimization</h2>
+<h3 id="easycache-for-supported-models">EasyCache (for supported models)</h3>
+<p>For supported models (e.g., DiT architectures like Flux/SD3), EasyCache can significantly reduce generation time by reusing intermediate diffusion steps. <code>LLMEdgeManager</code> automatically detects and enables EasyCache if the loaded model supports it.</p>
+<p>If using the low-level <code>StableDiffusion</code> API, you can enable EasyCache via <code>VideoGenerateParams</code>:</p>
+<pre class="codehilite"><code class="language-kotlin">val params = VideoGenerateParams(
+    // ... other params
+    easyCacheParams = StableDiffusion.EasyCacheParams(
+        enabled = true,
+        reuseThreshold = 0.2f, // Threshold for skipping steps (0.0 - 1.0)
+        startPercent = 0.15f,  // Start skipping after this percentage of steps
+        endPercent = 0.95f     // Stop skipping before this percentage of steps
+    )
+)
+</code></pre>
+
+<p><strong>Note</strong>: EasyCache is not supported for UNet-based models (like Stable Diffusion 1.5).</p>
 <h3 id="memory-management">Memory Management</h3>
 <p><strong>Monitor memory usage</strong>:</p>
 <pre class="codehilite"><code class="language-kotlin">val runtime = Runtime.getRuntime()
@@ -1775,6 +1797,12 @@ sd.close()
             Performance Optimization
         </a>
         
+        
+        <a href="#easycache-for-supported-models"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            EasyCache (for supported models)
+        </a>
         
         <a href="#memory-management"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"

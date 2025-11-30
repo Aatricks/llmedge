@@ -755,9 +755,11 @@
     </div>
   </div>
   <div class="typography w-full flex-1 *:data-[slot=alert]:first:mt-0">
-    <p>This page explains how to use <code>llmedge</code>'s Kotlin API. The library offers two layers of abstraction:
-1.  <strong>High-Level API (<code>LLMEdgeManager</code>)</strong>: Recommended for most use cases. Handles loading, caching, threading, and memory management automatically.
-2.  <strong>Low-Level API (<code>SmolLM</code>, <code>StableDiffusion</code>)</strong>: For advanced users who need fine-grained control over model lifecycle and parameters.</p>
+    <p>This page explains how to use <code>llmedge</code>'s Kotlin API. The library offers two layers of abstraction:</p>
+<ol>
+<li><strong>High-Level API (<code>LLMEdgeManager</code>)</strong>: Recommended for most use cases. Handles loading, caching, threading, and memory management automatically.</li>
+<li><strong>Low-Level API (<code>SmolLM</code>, <code>StableDiffusion</code>)</strong>: For advanced users who need fine-grained control over model lifecycle and parameters.</li>
+</ol>
 <p>Examples reference the <code>llmedge-examples</code> <a href="https://github.com/aatricks/llmedge-examples">repo</a>.</p>
 <hr />
 <h2 id="high-level-api-llmedgemanager">High-Level API (LLMEdgeManager)</h2>
@@ -774,18 +776,29 @@
 </code></pre>
 
 <h3 id="image-generation">Image Generation</h3>
-<p>Automatically handles model downloading (MeinaMix) and memory-safe loading.</p>
+<p>Automatically handles model downloading (MeinaMix), caching, and memory-safe loading.</p>
 <pre class="codehilite"><code class="language-kotlin">val bitmap = LLMEdgeManager.generateImage(
     context = context,
     params = LLMEdgeManager.ImageGenerationParams(
-        prompt = &quot;A cyberpunk city street at night, neon lights&quot;,
+        prompt = &quot;A cyberpunk city street at night, neon lights &lt;lora:detail_tweaker_lora_sd15:1.0&gt;&quot;,
         width = 512,
         height = 512,
-        steps = 20
+        steps = 20,
+        // Optional: Specify LoRA model details.
+        // The example app automatically downloads 'imagepipeline/Detail-Tweaker-LoRA-SD1.5'
+        // and appends the appropriate LoRA tag to the prompt when the toggle is enabled.
+        loraModelDir = getExternalFilesDir(&quot;loras&quot;)?.absolutePath + &quot;/detail-tweaker-lora-sd15&quot;,
+        loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
     )
 )
 </code></pre>
 
+<p><strong>Key Optimizations for Image Generation:</strong></p>
+<ul>
+<li><strong>EasyCache</strong>: Automatically detected and enabled by <code>LLMEdgeManager</code> for supported Diffusion Transformer (DiT) models (e.g., Flux, Wan), significantly accelerating generation by reusing intermediate diffusion states. It is disabled for UNet-based models (like SD 1.5).</li>
+<li><strong>LoRA Support</strong>: <code>LLMEdgeManager</code> can be configured with <code>loraModelDir</code> and <code>loraApplyMode</code> to use Low-Rank Adaptation models for fine-tuning outputs.</li>
+<li><strong>Flash Attention</strong>: Automatically enabled for compatible image dimensions.</li>
+</ul>
 <h3 id="video-generation-wan-21">Video Generation (Wan 2.1)</h3>
 <p>Handles the complex multi-model loading (Diffusion, VAE, T5) and sequential processing required for video generation on mobile.</p>
 <pre class="codehilite"><code class="language-kotlin">val frames = LLMEdgeManager.generateVideo(
@@ -793,8 +806,11 @@
     params = LLMEdgeManager.VideoGenerationParams(
         prompt = &quot;A robot dancing in the rain&quot;,
         videoFrames = 16,
-        width = 480,
-        height = 480,
+        width = 512,
+        height = 512,
+        steps = 20,
+        cfgScale = 7.0f,
+        flowShift = 3.0f,
         forceSequentialLoad = true // Recommended for devices with &lt;12GB RAM
     )
 ) { status, currentFrame, totalFrames -&gt;
@@ -919,14 +935,19 @@ println(&quot;Extracted: ${result.text}&quot;)
     context = context,
     modelId = &quot;Meina/MeinaMix&quot;,
     offloadToCpu = true,
-    keepClipOnCpu = true
+    keepClipOnCpu = true,
+    // Optional: Load with LoRA
+    loraModelDir = &quot;/path/to/your/lora/files&quot;, // Directory containing .safetensors
+    loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
 )
 
 val bitmap = sd.txt2img(
     GenerateParams(
-        prompt = &quot;a cute cat&quot;,
+        prompt = &quot;a cute cat &lt;lora:your_lora_name:1.0&gt;&quot;, // LoRA tag in prompt
         width = 256, height = 256,
-        steps = 20, cfgScale = 7.0f
+        steps = 20, cfgScale = 7.0f,
+        // Optional: EasyCache parameters
+        easyCacheParams = StableDiffusion.EasyCacheParams(enabled = true, reuseThreshold = 0.2f)
     )
 )
 sd.close()
@@ -968,12 +989,13 @@ sd.close()
 <li>Call <code>.close()</code> in <code>onDestroy()</code> to free native memory.</li>
 </ul>
 <p>Note: Choosing the correct dispatcher depends on the workload. JNI calls that use CPU-bound native kernels (like <code>txt2img</code>) should use Default; calls that perform blocking I/O should use IO.</p>
-<p><strong>Memory optimization:</strong></p>
+<p><strong>Optimization Strategies</strong>:</p>
 <ul>
-<li>Use quantized models (Q4_K_M, Q5_K_M)</li>
-<li>Reduce <code>contextSize</code> (2048-4096 for constrained devices)</li>
-<li>Cap <code>numThreads</code> to avoid CPU oversubscription</li>
-<li>Monitor with <code>MemoryMetrics.snapshot()</code></li>
+<li>Use quantized models (Q4_K_M) for lower memory footprint</li>
+<li>Enable CPU offloading for large models</li>
+<li>Close model instances when not in use</li>
+<li>Process images/video in batches with intermediate cleanup</li>
+<li><strong>KV Cache</strong>: For LLMs, ensure <code>storeChats = true</code> to leverage KV cache for faster multi-turn conversations.</li>
 </ul>
 <p><strong>See also:</strong></p>
 <ul>

@@ -1,6 +1,7 @@
 # Usage & API
 
 This page explains how to use `llmedge`'s Kotlin API. The library offers two layers of abstraction:
+
 1.  **High-Level API (`LLMEdgeManager`)**: Recommended for most use cases. Handles loading, caching, threading, and memory management automatically.
 2.  **Low-Level API (`SmolLM`, `StableDiffusion`)**: For advanced users who need fine-grained control over model lifecycle and parameters.
 
@@ -27,19 +28,30 @@ val response = LLMEdgeManager.generateText(
 
 ### Image Generation
 
-Automatically handles model downloading (MeinaMix) and memory-safe loading.
+Automatically handles model downloading (MeinaMix), caching, and memory-safe loading.
 
 ```kotlin
 val bitmap = LLMEdgeManager.generateImage(
     context = context,
     params = LLMEdgeManager.ImageGenerationParams(
-        prompt = "A cyberpunk city street at night, neon lights",
+        prompt = "A cyberpunk city street at night, neon lights <lora:detail_tweaker_lora_sd15:1.0>",
         width = 512,
         height = 512,
-        steps = 20
+        steps = 20,
+        // Optional: Specify LoRA model details.
+        // The example app automatically downloads 'imagepipeline/Detail-Tweaker-LoRA-SD1.5'
+        // and appends the appropriate LoRA tag to the prompt when the toggle is enabled.
+        loraModelDir = getExternalFilesDir("loras")?.absolutePath + "/detail-tweaker-lora-sd15",
+        loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
     )
 )
 ```
+
+**Key Optimizations for Image Generation:**
+
+- **EasyCache**: Automatically detected and enabled by `LLMEdgeManager` for supported Diffusion Transformer (DiT) models (e.g., Flux, Wan), significantly accelerating generation by reusing intermediate diffusion states. It is disabled for UNet-based models (like SD 1.5).
+- **LoRA Support**: `LLMEdgeManager` can be configured with `loraModelDir` and `loraApplyMode` to use Low-Rank Adaptation models for fine-tuning outputs.
+- **Flash Attention**: Automatically enabled for compatible image dimensions.
 
 ### Video Generation (Wan 2.1)
 
@@ -51,8 +63,11 @@ val frames = LLMEdgeManager.generateVideo(
     params = LLMEdgeManager.VideoGenerationParams(
         prompt = "A robot dancing in the rain",
         videoFrames = 16,
-        width = 480,
-        height = 480,
+        width = 512,
+        height = 512,
+        steps = 20,
+        cfgScale = 7.0f,
+        flowShift = 3.0f,
         forceSequentialLoad = true // Recommended for devices with <12GB RAM
     )
 ) { status, currentFrame, totalFrames ->
@@ -212,14 +227,19 @@ val sd = StableDiffusion.load(
     context = context,
     modelId = "Meina/MeinaMix",
     offloadToCpu = true,
-    keepClipOnCpu = true
+    keepClipOnCpu = true,
+    // Optional: Load with LoRA
+    loraModelDir = "/path/to/your/lora/files", // Directory containing .safetensors
+    loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
 )
 
 val bitmap = sd.txt2img(
     GenerateParams(
-        prompt = "a cute cat",
+        prompt = "a cute cat <lora:your_lora_name:1.0>", // LoRA tag in prompt
         width = 256, height = 256,
-        steps = 20, cfgScale = 7.0f
+        steps = 20, cfgScale = 7.0f,
+        // Optional: EasyCache parameters
+        easyCacheParams = StableDiffusion.EasyCacheParams(enabled = true, reuseThreshold = 0.2f)
     )
 )
 sd.close()
@@ -266,12 +286,13 @@ See [StableDiffusionActivity example](examples.md#stablediffusionactivity) for c
 
 Note: Choosing the correct dispatcher depends on the workload. JNI calls that use CPU-bound native kernels (like `txt2img`) should use Default; calls that perform blocking I/O should use IO.
 
-**Memory optimization:**
+**Optimization Strategies**:
 
-- Use quantized models (Q4_K_M, Q5_K_M)
-- Reduce `contextSize` (2048-4096 for constrained devices)
-- Cap `numThreads` to avoid CPU oversubscription
-- Monitor with `MemoryMetrics.snapshot()`
+- Use quantized models (Q4_K_M) for lower memory footprint
+- Enable CPU offloading for large models
+- Close model instances when not in use
+- Process images/video in batches with intermediate cleanup
+- **KV Cache**: For LLMs, ensure `storeChats = true` to leverage KV cache for faster multi-turn conversations.
 
 **See also:**
 
