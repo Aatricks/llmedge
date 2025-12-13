@@ -165,3 +165,52 @@ Tip: WAN assets are large. Ensure sufficient disk and network availability.
   - `VideoCancellationTest.kt`, `VideoMemoryRegressionTest.kt`, `VideoReproducibilityTest.kt`
   - `ModelSwitchingTest.kt`, `ModelVariantTest.kt`
 - WAN E2E (arm64 only): `WanVideoE2ETest.kt`
+
+## Speech E2E Tests
+
+The library includes end-to-end tests for speech processing (Whisper STT and Bark TTS).
+
+### Bark TTS Android E2E Test
+
+Run on a connected device (arm64 recommended):
+
+```bash
+# Push the model to device first
+adb push models/bark_ggml_weights.bin /data/local/tmp/
+
+# Run the test
+./gradlew :llmedge:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.BarkTtsAndroidE2ETest#testBarkTtsPerformance
+```
+
+**Test Output:**
+
+- Generated samples: 69,120 (~2.88 seconds of audio)
+- Progress updates: 583 callbacks
+- Output saved to: `/data/user/0/io.aatricks.llmedge.test/cache/bark_test_output.wav`
+
+**View Results:**
+```bash
+adb shell run-as io.aatricks.llmedge.test cat /data/user/0/io.aatricks.llmedge.test/cache/bark_tts_results.txt
+```
+
+### Bark TTS Desktop E2E Test
+
+For faster development iteration, run Bark tests on Linux desktop:
+
+```bash
+export LLMEDGE_BUILD_BARK_LIB_PATH="/path/to/libbark_jni.so"
+export LLMEDGE_TEST_BARK_MODEL_PATH="/path/to/bark_ggml_weights.bin"
+export LD_LIBRARY_PATH="/path/to/lib:$LD_LIBRARY_PATH"
+
+./gradlew :llmedge:testDebugUnitTest --tests "*BarkLinuxE2ETest*" --no-daemon
+```
+
+### Whisper STT Tests
+
+Whisper tests are faster and work well on mobile:
+
+```bash
+./gradlew :llmedge:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.WhisperAndroidE2ETest
+```

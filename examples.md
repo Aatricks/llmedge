@@ -15,6 +15,8 @@ The `llmedge-examples` repository contains complete working demonstrations:
 | `StableDiffusionActivity` | On-device image generation |
 | `VideoGenerationActivity` | On-device text-to-video generation (Wan 2.1) |
 | `RagActivity` | PDF indexing, vector search, Q&A |
+| `TTSActivity` | Text-to-speech synthesis (Bark) |
+| `STTActivity` | Speech-to-text transcription (Whisper) |
 
 ---
 
@@ -239,7 +241,7 @@ val prompt = """
     <|system|>You are a helpful assistant.<|end|>
     <|user|>
     Context (OCR): $ocrText
-    
+
     Describe this image.<|end|>
     <|assistant|>
 """.trimIndent()
@@ -258,10 +260,65 @@ val result = LLMEdgeManager.analyzeImage(
 
 ---
 
+## TTSActivity
+
+Demonstrates text-to-speech synthesis using Bark via `LLMEdgeManager`.
+
+**Key features:**
+
+- Text input for speech synthesis
+- Automatic model download from Hugging Face (843MB)
+- Progress tracking during generation (semantic, coarse, fine encoding)
+- Audio playback of generated speech
+- WAV file saving
+
+**Key patterns:**
+
+```kotlin
+import io.aatricks.llmedge.LLMEdgeManager
+import io.aatricks.llmedge.BarkTTS
+
+// Generate speech (model auto-downloads on first use)
+val audio = LLMEdgeManager.synthesizeSpeech(
+    context = context,
+    params = LLMEdgeManager.SpeechSynthesisParams(
+        text = "Hello, world!",
+        nThreads = 8  // Use more threads for better performance
+    )
+) { step: BarkTTS.EncodingStep, progress: Int ->
+    // Update progress UI
+    updateProgress("${step.name}: $progress%")
+}
+
+// Play the generated audio
+val audioTrack = AudioTrack.Builder()
+    .setAudioAttributes(AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_MEDIA)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build())
+    .setAudioFormat(AudioFormat.Builder()
+        .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+        .setSampleRate(audio.sampleRate)
+        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+        .build())
+    .setBufferSizeInBytes(audio.samples.size * 4)
+    .build()
+
+audioTrack.write(audio.samples, 0, audio.samples.size, AudioTrack.WRITE_BLOCKING)
+audioTrack.play()
+
+// Save to WAV file
+LLMEdgeManager.synthesizeSpeechToFile(
+    context = context,
+    text = "Hello, world!",
+    outputFile = File(cacheDir, "output.wav")
+)
+```
+
+---
+
 ## Additional Resources
 
 - [Architecture](architecture.md) for flow diagrams (RAG, OCR, JNI loading)
 - [Usage](usage.md) for API reference and concepts
 - [Quirks](quirks.md) for troubleshooting specific issues
-
-All example activities are intentionally minimal and well-documented. Copy and adapt them into your own app!

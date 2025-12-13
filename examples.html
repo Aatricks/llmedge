@@ -794,6 +794,14 @@
 <td><code>RagActivity</code></td>
 <td>PDF indexing, vector search, Q&amp;A</td>
 </tr>
+<tr>
+<td><code>TTSActivity</code></td>
+<td>Text-to-speech synthesis (Bark)</td>
+</tr>
+<tr>
+<td><code>STTActivity</code></td>
+<td>Speech-to-text transcription (Whisper)</td>
+</tr>
 </tbody>
 </table></div>
 <hr />
@@ -998,13 +1006,64 @@ val result = LLMEdgeManager.analyzeImage(
 
 <p><strong>Status</strong>: Uses <code>LLMEdgeManager</code> to orchestrate the experimental vision pipeline (loading projector, encoding image, running inference).</p>
 <hr />
+<h2 id="ttsactivity">TTSActivity</h2>
+<p>Demonstrates text-to-speech synthesis using Bark via <code>LLMEdgeManager</code>.</p>
+<p><strong>Key features:</strong></p>
+<ul>
+<li>Text input for speech synthesis</li>
+<li>Automatic model download from Hugging Face (843MB)</li>
+<li>Progress tracking during generation (semantic, coarse, fine encoding)</li>
+<li>Audio playback of generated speech</li>
+<li>WAV file saving</li>
+</ul>
+<p><strong>Key patterns:</strong></p>
+<pre class="codehilite"><code class="language-kotlin">import io.aatricks.llmedge.LLMEdgeManager
+import io.aatricks.llmedge.BarkTTS
+
+// Generate speech (model auto-downloads on first use)
+val audio = LLMEdgeManager.synthesizeSpeech(
+    context = context,
+    params = LLMEdgeManager.SpeechSynthesisParams(
+        text = &quot;Hello, world!&quot;,
+        nThreads = 8  // Use more threads for better performance
+    )
+) { step: BarkTTS.EncodingStep, progress: Int -&gt;
+    // Update progress UI
+    updateProgress(&quot;${step.name}: $progress%&quot;)
+}
+
+// Play the generated audio
+val audioTrack = AudioTrack.Builder()
+    .setAudioAttributes(AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_MEDIA)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build())
+    .setAudioFormat(AudioFormat.Builder()
+        .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+        .setSampleRate(audio.sampleRate)
+        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+        .build())
+    .setBufferSizeInBytes(audio.samples.size * 4)
+    .build()
+
+audioTrack.write(audio.samples, 0, audio.samples.size, AudioTrack.WRITE_BLOCKING)
+audioTrack.play()
+
+// Save to WAV file
+LLMEdgeManager.synthesizeSpeechToFile(
+    context = context,
+    text = &quot;Hello, world!&quot;,
+    outputFile = File(cacheDir, &quot;output.wav&quot;)
+)
+</code></pre>
+
+<hr />
 <h2 id="additional-resources">Additional Resources</h2>
 <ul>
 <li><a href="architecture.html">Architecture</a> for flow diagrams (RAG, OCR, JNI loading)</li>
 <li><a href="usage.html">Usage</a> for API reference and concepts</li>
 <li><a href="quirks.html">Quirks</a> for troubleshooting specific issues</li>
 </ul>
-<p>All example activities are intentionally minimal and well-documented. Copy and adapt them into your own app!</p>
   </div>
 </article>
                                 <div class="mx-auto flex flex-wrap h-16 w-full max-w-2xl items-center gap-2 px-4 md:px-0">
@@ -1194,6 +1253,14 @@ val result = LLMEdgeManager.analyzeImage(
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="2">
             LlavaVisionActivity
+        </a>
+        
+
+        
+        <a href="#ttsactivity"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            TTSActivity
         </a>
         
 

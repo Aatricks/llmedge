@@ -903,6 +903,42 @@ export LLMEDGE_T2I_VAE_PATH=/absolute/path/to/your_vae.safetensors
 <li><code>ModelSwitchingTest.kt</code>, <code>ModelVariantTest.kt</code></li>
 <li>WAN E2E (arm64 only): <code>WanVideoE2ETest.kt</code></li>
 </ul>
+<h2 id="speech-e2e-tests">Speech E2E Tests</h2>
+<p>The library includes end-to-end tests for speech processing (Whisper STT and Bark TTS).</p>
+<h3 id="bark-tts-android-e2e-test">Bark TTS Android E2E Test</h3>
+<p>Run on a connected device (arm64 recommended):</p>
+<pre class="codehilite"><code class="language-bash"># Push the model to device first
+adb push models/bark_ggml_weights.bin /data/local/tmp/
+
+# Run the test
+./gradlew :llmedge:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.BarkTtsAndroidE2ETest#testBarkTtsPerformance
+</code></pre>
+
+<p><strong>Test Output:</strong></p>
+<ul>
+<li>Generated samples: 69,120 (~2.88 seconds of audio)</li>
+<li>Progress updates: 583 callbacks</li>
+<li>Output saved to: <code>/data/user/0/io.aatricks.llmedge.test/cache/bark_test_output.wav</code></li>
+</ul>
+<p><strong>View Results:</strong></p>
+<pre class="codehilite"><code class="language-bash">adb shell run-as io.aatricks.llmedge.test cat /data/user/0/io.aatricks.llmedge.test/cache/bark_tts_results.txt
+</code></pre>
+
+<h3 id="bark-tts-desktop-e2e-test">Bark TTS Desktop E2E Test</h3>
+<p>For faster development iteration, run Bark tests on Linux desktop:</p>
+<pre class="codehilite"><code class="language-bash">export LLMEDGE_BUILD_BARK_LIB_PATH=&quot;/path/to/libbark_jni.so&quot;
+export LLMEDGE_TEST_BARK_MODEL_PATH=&quot;/path/to/bark_ggml_weights.bin&quot;
+export LD_LIBRARY_PATH=&quot;/path/to/lib:$LD_LIBRARY_PATH&quot;
+
+./gradlew :llmedge:testDebugUnitTest --tests &quot;*BarkLinuxE2ETest*&quot; --no-daemon
+</code></pre>
+
+<h3 id="whisper-stt-tests">Whisper STT Tests</h3>
+<p>Whisper tests are faster and work well on mobile:</p>
+<pre class="codehilite"><code class="language-bash">./gradlew :llmedge:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.WhisperAndroidE2ETest
+</code></pre>
   </div>
 </article>
                                 <div class="mx-auto flex flex-wrap h-16 w-full max-w-2xl items-center gap-2 px-4 md:px-0">
@@ -1109,6 +1145,34 @@ export LLMEDGE_T2I_VAE_PATH=/absolute/path/to/your_vae.safetensors
             data-active="false" data-depth="2">
             Key test files
         </a>
+        
+
+        
+        <a href="#speech-e2e-tests"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            Speech E2E Tests
+        </a>
+        
+        
+        <a href="#bark-tts-android-e2e-test"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Bark TTS Android E2E Test
+        </a>
+        
+        <a href="#bark-tts-desktop-e2e-test"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Bark TTS Desktop E2E Test
+        </a>
+        
+        <a href="#whisper-stt-tests"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Whisper STT Tests
+        </a>
+        
         
 
         

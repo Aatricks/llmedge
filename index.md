@@ -16,9 +16,25 @@ llmedge is a lightweight toolkit for running LLM inference, vision models, and m
 **Generative AI Capabilities:**
 
 - **Image Generation**: Stable Diffusion integration for on-device image generation with:
+
     - **EasyCache**: Automatically detected and enabled for supported models (DiT architecture) to accelerate generation.
     - **LoRA Support**: Apply Low-Rank Adaptation models (e.g., for style transfer) with automatic downloading from Hugging Face.
+
 - **Video Generation**: Generate short video clips (4-64 frames) from text using Wan models with sequential loading for lower RAM usage.
+
+**Speech Capabilities:**
+
+- **Speech-to-Text (STT)**: Whisper.cpp integration for audio transcription with:
+
+    - Timestamp support for subtitles
+    - Language detection
+    - SRT subtitle generation
+    - Real-time streaming transcription
+    - Works well on mobile with tiny/base models
+
+- **Text-to-Speech (TTS)**: Bark.cpp integration for neural speech synthesis
+
+    - High-quality voice generation
 
 **Multimodal Capabilities:**
 
@@ -51,6 +67,7 @@ llmedge is a lightweight toolkit for running LLM inference, vision models, and m
 - Detailed documentation and troubleshooting guides
 
 ## Quick links
+
 - [Installation](installation.md) — Setup and build instructions
 - [Usage](usage.md) — API guide and code patterns
 - [Examples](examples.md) — Sample applications and snippets

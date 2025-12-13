@@ -835,6 +835,144 @@
 <pre class="codehilite"><code class="language-kotlin">val text = LLMEdgeManager.extractText(context, bitmap)
 </code></pre>
 
+<h3 id="speech-to-text-whisper">Speech-to-Text (Whisper)</h3>
+<p>Transcribe audio using the high-level API:</p>
+<pre class="codehilite"><code class="language-kotlin">import io.aatricks.llmedge.LLMEdgeManager
+
+// Simple transcription to text
+val text = LLMEdgeManager.transcribeAudioToText(
+    context = context,
+    audioSamples = audioSamples  // 16kHz mono PCM float32
+)
+
+// Full transcription with segments and timing
+val segments = LLMEdgeManager.transcribeAudio(
+    context = context,
+    params = LLMEdgeManager.TranscriptionParams(
+        audioSamples = audioSamples,
+        language = &quot;en&quot;,  // null for auto-detect
+        translate = false  // set true to translate to English
+    )
+) { progress -&gt;
+    Log.d(&quot;Whisper&quot;, &quot;Progress: $progress%&quot;)
+}
+
+// Language detection
+val lang = LLMEdgeManager.detectLanguage(context, audioSamples)
+
+// Generate SRT subtitles
+val srt = LLMEdgeManager.transcribeToSrt(context, audioSamples)
+</code></pre>
+
+<h3 id="streaming-transcription-real-time-captioning">Streaming Transcription (Real-time Captioning)</h3>
+<p>For live transcription from a microphone or audio stream, use the streaming API:</p>
+<pre class="codehilite"><code class="language-kotlin">import io.aatricks.llmedge.LLMEdgeManager
+import kotlinx.coroutines.launch
+
+// Create a streaming transcriber with sliding window approach
+val transcriber = LLMEdgeManager.createStreamingTranscriber(
+    context = context,
+    params = LLMEdgeManager.StreamingTranscriptionParams(
+        stepMs = 3000,      // Run transcription every 3 seconds
+        lengthMs = 10000,   // Use 10-second audio windows
+        keepMs = 200,       // Keep 200ms overlap for context
+        language = &quot;en&quot;,    // null for auto-detect
+        useVad = true       // Skip silent audio
+    )
+)
+
+// Collect real-time transcription results
+launch {
+    transcriber.start().collect { segment -&gt;
+        runOnUiThread {
+            textView.append(&quot;${segment.text}\n&quot;)
+        }
+    }
+}
+
+// Feed audio samples from microphone (16kHz mono PCM float32)
+audioRecorder.setOnAudioDataListener { samples -&gt;
+    lifecycleScope.launch {
+        transcriber.feedAudio(samples)
+    }
+}
+
+// Stop when done
+fun stopTranscription() {
+    transcriber.stop()
+    LLMEdgeManager.stopStreamingTranscription()
+}
+</code></pre>
+
+<p><strong>Streaming Parameters Explained:</strong></p>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>stepMs</code></td>
+<td>3000</td>
+<td>How often transcription runs (lower = faster updates)</td>
+</tr>
+<tr>
+<td><code>lengthMs</code></td>
+<td>10000</td>
+<td>Audio window size (longer = more accurate)</td>
+</tr>
+<tr>
+<td><code>keepMs</code></td>
+<td>200</td>
+<td>Overlap with previous window for context</td>
+</tr>
+<tr>
+<td><code>vadThreshold</code></td>
+<td>0.6</td>
+<td>Voice activity threshold (0.0-1.0)</td>
+</tr>
+<tr>
+<td><code>useVad</code></td>
+<td>true</td>
+<td>Skip transcription during silence</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Preset Configurations:</strong></p>
+<ul>
+<li><strong>Fast captioning:</strong> <code>stepMs=1000, lengthMs=5000</code> - Quick updates, lower accuracy</li>
+<li><strong>Balanced (default):</strong> <code>stepMs=3000, lengthMs=10000</code> - Good tradeoff</li>
+<li><strong>High accuracy:</strong> <code>stepMs=5000, lengthMs=15000</code> - Better accuracy, more delay</li>
+</ul>
+<h3 id="text-to-speech-bark">Text-to-Speech (Bark)</h3>
+<p>Generate speech using the high-level API:</p>
+<pre class="codehilite"><code class="language-kotlin">import io.aatricks.llmedge.LLMEdgeManager
+
+// Generate speech (model auto-downloads on first use)
+val audio = LLMEdgeManager.synthesizeSpeech(
+    context = context,
+    params = LLMEdgeManager.SpeechSynthesisParams(
+        text = &quot;Hello, world!&quot;,
+        nThreads = 8  // Use more threads for faster generation
+    )
+) { step, progress -&gt;
+    Log.d(&quot;Bark&quot;, &quot;${step.name}: $progress%&quot;)
+}
+
+// Save directly to file
+LLMEdgeManager.synthesizeSpeechToFile(
+    context = context,
+    text = &quot;Hello, world!&quot;,
+    outputFile = File(cacheDir, &quot;output.wav&quot;)
+)
+
+// Unload when done to free memory
+LLMEdgeManager.unloadSpeechModels()
+</code></pre>
+
 <hr />
 <h2 id="low-level-api">Low-Level API</h2>
 <p>Direct usage of <code>SmolLM</code> and <code>StableDiffusion</code> classes. Use this if you need to manage the model lifecycle manually (e.g., keeping a model loaded across multiple disparate activities) or require specific configuration not exposed by the Manager.</p>
@@ -842,6 +980,8 @@
 <ul>
 <li><code>SmolLM</code> — Kotlin front-end class that wraps native inference calls.</li>
 <li><code>GGUFReader</code> — C++/JNI reader for GGUF model files.</li>
+<li><code>Whisper</code> — Speech-to-text via whisper.cpp (JNI bindings).</li>
+<li><code>BarkTTS</code> — Text-to-speech via bark.cpp (JNI bindings).</li>
 <li>Vision helpers — <code>ImageUnderstanding</code>, <code>OcrEngine</code> (with <code>MlKitOcrEngine</code> implementation).</li>
 <li>RAG helpers — <code>RAGEngine</code>, <code>VectorStore</code>, <code>PDFReader</code>, <code>EmbeddingProvider</code>.</li>
 </ul>
@@ -913,7 +1053,7 @@ println(&quot;Extracted: ${result.text}&quot;)
 <p><strong>Vision modes:</strong></p>
 <ul>
 <li><code>AUTO_PREFER_OCR</code>: Try OCR first, fall back to vision</li>
-<li><code>AUTO_PREFER_VISION</code>: Try vision first, fall back to OCR  </li>
+<li><code>AUTO_PREFER_VISION</code>: Try vision first, fall back to OCR</li>
 <li><code>FORCE_MLKIT</code>: ML Kit only</li>
 <li><code>FORCE_VISION</code>: Vision model only</li>
 </ul>
@@ -928,6 +1068,81 @@ println(&quot;Extracted: ${result.text}&quot;)
 </code></pre>
 
 <p><strong>Status:</strong> Architecture is prepared, but native vision support from llama.cpp is still being integrated for Android. Currently use OCR for text extraction. See <a href="examples.html#llavavisionactivity">LlavaVisionActivity example</a> for the prepared integration pattern.</p>
+<h3 id="speech-to-text-whisper-low-level">Speech-to-Text (Whisper Low-Level)</h3>
+<p>Use <code>Whisper</code> directly for fine-grained control:</p>
+<pre class="codehilite"><code class="language-kotlin">import io.aatricks.llmedge.Whisper
+
+// Load model with options
+val whisper = Whisper.load(
+    modelPath = &quot;/path/to/ggml-base.bin&quot;,
+    useGpu = false
+)
+
+// Configure transcription parameters
+val params = Whisper.TranscriptionParams(
+    language = &quot;en&quot;,           // null for auto-detect
+    translate = false,         // translate to English
+    maxTokens = 0,             // 0 = no limit
+    speedUp = false,           // experimental 2x speedup
+    audioCtx = 0               // audio context size
+)
+
+// Transcribe (16kHz mono PCM float32)
+val segments = whisper.transcribe(audioSamples, params)
+segments.forEach { segment -&gt;
+    println(&quot;[${segment.startTimeMs}-${segment.endTimeMs}ms] ${segment.text}&quot;)
+}
+
+// Utility functions
+val srt = whisper.transcribeToSrt(audioSamples)
+val lang = whisper.detectLanguage(audioSamples)
+val isMultilingual = whisper.isMultilingual()
+val modelType = whisper.getModelType()
+
+whisper.close()
+</code></pre>
+
+<p><strong>Model sources:</strong></p>
+<ul>
+<li>HuggingFace: <code>ggerganov/whisper.cpp</code> (ggml-tiny.bin, ggml-base.bin, ggml-small.bin)</li>
+<li>Sizes: tiny (~75MB), base (~142MB), small (~466MB)</li>
+</ul>
+<h3 id="text-to-speech-bark-low-level">Text-to-Speech (Bark Low-Level)</h3>
+<p>Use <code>BarkTTS</code> directly:</p>
+<pre class="codehilite"><code class="language-kotlin">import io.aatricks.llmedge.BarkTTS
+
+// Load model
+val tts = BarkTTS.load(
+    modelPath = &quot;/path/to/bark-small_weights-f16.bin&quot;,
+    useGpu = false
+)
+
+// Generate audio with progress tracking
+val audio = tts.generate(
+    text = &quot;Hello, world!&quot;,
+    onProgress = { step, progress -&gt;
+        // step: SEMANTIC, COARSE, or FINE
+        // progress: 0.0 to 1.0
+        Log.d(&quot;Bark&quot;, &quot;${step.name}: ${(progress * 100).toInt()}%&quot;)
+    }
+)
+
+// AudioResult contains:
+// - samples: FloatArray (32-bit PCM)
+// - sampleRate: Int (typically 24000)
+// - durationSeconds: Float
+
+// Save as WAV
+tts.saveAsWav(audio, File(&quot;/path/to/output.wav&quot;))
+
+tts.close()
+</code></pre>
+
+<p><strong>Model sources:</strong></p>
+<ul>
+<li>HuggingFace: <code>Green-Sky/bark-ggml</code> (bark-small_weights-f16.bin, bark_weights-f16.bin)</li>
+<li>Sizes: small (~843MB), full (~2.2GB)</li>
+</ul>
 <h3 id="stable-diffusion-image-video-generation">Stable Diffusion (Image &amp; Video Generation)</h3>
 <p>Generate images and video on-device using Stable Diffusion and Wan models:</p>
 <p><strong>Image Generation:</strong></p>
@@ -1016,11 +1231,32 @@ sd.close()
 <li><code>SmolLM.addSystemPrompt(prompt: String)</code> — adds system prompt to chat history</li>
 <li><code>SmolLM.addUserMessage(message: String)</code> — adds user message to chat history</li>
 <li><code>SmolLM.close()</code> — releases native resources</li>
-<li><code>OcrEngine.extractText(image: ImageSource, params: OcrParams): OcrResult</code> — extracts text from image</li>
-<li><code>ImageUnderstanding.process(image: ImageSource, mode: VisionMode, prompt: String?)</code> — processes image with vision/OCR</li>
-<li><code>StableDiffusion.txt2img(params: GenerateParams): Bitmap</code> — generates an image</li>
-<li><code>StableDiffusion.txt2vid(params: VideoGenerateParams): List&lt;Bitmap&gt;</code> — generates video frames</li>
 </ul>
+<p><strong>High-Level Speech API (via LLMEdgeManager):</strong>
+- <code>LLMEdgeManager.transcribeAudioToText(context, audioSamples, language?)</code> — simple audio transcription
+- <code>LLMEdgeManager.transcribeAudio(context, params, onProgress?)</code> — full transcription with segments
+- <code>LLMEdgeManager.detectLanguage(context, audioSamples)</code> — detect spoken language
+- <code>LLMEdgeManager.transcribeToSrt(context, audioSamples, language?)</code> — generate SRT subtitles
+- <code>LLMEdgeManager.synthesizeSpeech(context, params, onProgress?)</code> — generate speech from text
+- <code>LLMEdgeManager.synthesizeSpeechToFile(context, text, outputFile, onProgress?)</code> — generate and save WAV
+- <code>LLMEdgeManager.unloadSpeechModels()</code> — unload all speech models</p>
+<p><strong>Low-Level Speech API:</strong>
+- <code>Whisper.load(modelPath: String, useGpu: Boolean)</code> — loads a Whisper model
+- <code>Whisper.loadFromHuggingFace(...)</code> — downloads and loads Whisper from HuggingFace
+- <code>Whisper.transcribe(samples: FloatArray, params: TranscriptionParams)</code> — transcribes audio
+- <code>Whisper.detectLanguage(samples: FloatArray)</code> — detects spoken language
+- <code>Whisper.close()</code> — releases native resources
+- <code>BarkTTS.load(modelPath: String, ...)</code> — loads a Bark TTS model
+- <code>BarkTTS.loadFromHuggingFace(...)</code> — downloads and loads Bark from HuggingFace
+- <code>BarkTTS.generate(text: String, params: GenerateParams)</code> — generates audio from text
+- <code>BarkTTS.saveAsWav(audio: AudioResult, filePath: String)</code> — saves audio to WAV file
+- <code>BarkTTS.close()</code> — releases native resources</p>
+<p><strong>Vision &amp; OCR:</strong>
+- <code>OcrEngine.extractText(image: ImageSource, params: OcrParams): OcrResult</code> — extracts text from image
+- <code>ImageUnderstanding.process(image: ImageSource, mode: VisionMode, prompt: String?)</code> — processes image with vision/OCR</p>
+<p><strong>Image &amp; Video:</strong>
+- <code>StableDiffusion.txt2img(params: GenerateParams): Bitmap</code> — generates an image
+- <code>StableDiffusion.txt2vid(params: VideoGenerateParams): List&lt;Bitmap&gt;</code> — generates video frames</p>
 <p>Refer to the <code>llmedge-examples</code> activities for complete, working code samples.</p>
   </div>
 </article>
@@ -1188,6 +1424,24 @@ sd.close()
             OCR (Text Extraction)
         </a>
         
+        <a href="#speech-to-text-whisper"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Speech-to-Text (Whisper)
+        </a>
+        
+        <a href="#streaming-transcription-real-time-captioning"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Streaming Transcription (Real-time Captioning)
+        </a>
+        
+        <a href="#text-to-speech-bark"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Text-to-Speech (Bark)
+        </a>
+        
         
 
         
@@ -1232,6 +1486,18 @@ sd.close()
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
             Vision Models (Low-Level)
+        </a>
+        
+        <a href="#speech-to-text-whisper-low-level"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Speech-to-Text (Whisper Low-Level)
+        </a>
+        
+        <a href="#text-to-speech-bark-low-level"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Text-to-Speech (Bark Low-Level)
         </a>
         
         <a href="#stable-diffusion-image-video-generation"

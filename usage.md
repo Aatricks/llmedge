@@ -98,6 +98,126 @@ Extract text using ML Kit.
 val text = LLMEdgeManager.extractText(context, bitmap)
 ```
 
+### Speech-to-Text (Whisper)
+
+Transcribe audio using the high-level API:
+
+```kotlin
+import io.aatricks.llmedge.LLMEdgeManager
+
+// Simple transcription to text
+val text = LLMEdgeManager.transcribeAudioToText(
+    context = context,
+    audioSamples = audioSamples  // 16kHz mono PCM float32
+)
+
+// Full transcription with segments and timing
+val segments = LLMEdgeManager.transcribeAudio(
+    context = context,
+    params = LLMEdgeManager.TranscriptionParams(
+        audioSamples = audioSamples,
+        language = "en",  // null for auto-detect
+        translate = false  // set true to translate to English
+    )
+) { progress ->
+    Log.d("Whisper", "Progress: $progress%")
+}
+
+// Language detection
+val lang = LLMEdgeManager.detectLanguage(context, audioSamples)
+
+// Generate SRT subtitles
+val srt = LLMEdgeManager.transcribeToSrt(context, audioSamples)
+```
+
+### Streaming Transcription (Real-time Captioning)
+
+For live transcription from a microphone or audio stream, use the streaming API:
+
+```kotlin
+import io.aatricks.llmedge.LLMEdgeManager
+import kotlinx.coroutines.launch
+
+// Create a streaming transcriber with sliding window approach
+val transcriber = LLMEdgeManager.createStreamingTranscriber(
+    context = context,
+    params = LLMEdgeManager.StreamingTranscriptionParams(
+        stepMs = 3000,      // Run transcription every 3 seconds
+        lengthMs = 10000,   // Use 10-second audio windows
+        keepMs = 200,       // Keep 200ms overlap for context
+        language = "en",    // null for auto-detect
+        useVad = true       // Skip silent audio
+    )
+)
+
+// Collect real-time transcription results
+launch {
+    transcriber.start().collect { segment ->
+        runOnUiThread {
+            textView.append("${segment.text}\n")
+        }
+    }
+}
+
+// Feed audio samples from microphone (16kHz mono PCM float32)
+audioRecorder.setOnAudioDataListener { samples ->
+    lifecycleScope.launch {
+        transcriber.feedAudio(samples)
+    }
+}
+
+// Stop when done
+fun stopTranscription() {
+    transcriber.stop()
+    LLMEdgeManager.stopStreamingTranscription()
+}
+```
+
+**Streaming Parameters Explained:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `stepMs` | 3000 | How often transcription runs (lower = faster updates) |
+| `lengthMs` | 10000 | Audio window size (longer = more accurate) |
+| `keepMs` | 200 | Overlap with previous window for context |
+| `vadThreshold` | 0.6 | Voice activity threshold (0.0-1.0) |
+| `useVad` | true | Skip transcription during silence |
+
+**Preset Configurations:**
+
+- **Fast captioning:** `stepMs=1000, lengthMs=5000` - Quick updates, lower accuracy
+- **Balanced (default):** `stepMs=3000, lengthMs=10000` - Good tradeoff
+- **High accuracy:** `stepMs=5000, lengthMs=15000` - Better accuracy, more delay
+
+### Text-to-Speech (Bark)
+
+Generate speech using the high-level API:
+
+```kotlin
+import io.aatricks.llmedge.LLMEdgeManager
+
+// Generate speech (model auto-downloads on first use)
+val audio = LLMEdgeManager.synthesizeSpeech(
+    context = context,
+    params = LLMEdgeManager.SpeechSynthesisParams(
+        text = "Hello, world!",
+        nThreads = 8  // Use more threads for faster generation
+    )
+) { step, progress ->
+    Log.d("Bark", "${step.name}: $progress%")
+}
+
+// Save directly to file
+LLMEdgeManager.synthesizeSpeechToFile(
+    context = context,
+    text = "Hello, world!",
+    outputFile = File(cacheDir, "output.wav")
+)
+
+// Unload when done to free memory
+LLMEdgeManager.unloadSpeechModels()
+```
+
 ---
 
 ## Low-Level API
@@ -108,6 +228,8 @@ Direct usage of `SmolLM` and `StableDiffusion` classes. Use this if you need to 
 
 - `SmolLM` — Kotlin front-end class that wraps native inference calls.
 - `GGUFReader` — C++/JNI reader for GGUF model files.
+- `Whisper` — Speech-to-text via whisper.cpp (JNI bindings).
+- `BarkTTS` — Text-to-speech via bark.cpp (JNI bindings).
 - Vision helpers — `ImageUnderstanding`, `OcrEngine` (with `MlKitOcrEngine` implementation).
 - RAG helpers — `RAGEngine`, `VectorStore`, `PDFReader`, `EmbeddingProvider`.
 
@@ -194,7 +316,7 @@ println("Extracted: ${result.text}")
 **Vision modes:**
 
 - `AUTO_PREFER_OCR`: Try OCR first, fall back to vision
-- `AUTO_PREFER_VISION`: Try vision first, fall back to OCR  
+- `AUTO_PREFER_VISION`: Try vision first, fall back to OCR
 - `FORCE_MLKIT`: ML Kit only
 - `FORCE_VISION`: Vision model only
 
@@ -214,6 +336,88 @@ interface VisionModelAnalyzer {
 ```
 
 **Status:** Architecture is prepared, but native vision support from llama.cpp is still being integrated for Android. Currently use OCR for text extraction. See [LlavaVisionActivity example](examples.md#llavavisionactivity) for the prepared integration pattern.
+
+
+### Speech-to-Text (Whisper Low-Level)
+
+Use `Whisper` directly for fine-grained control:
+
+```kotlin
+import io.aatricks.llmedge.Whisper
+
+// Load model with options
+val whisper = Whisper.load(
+    modelPath = "/path/to/ggml-base.bin",
+    useGpu = false
+)
+
+// Configure transcription parameters
+val params = Whisper.TranscriptionParams(
+    language = "en",           // null for auto-detect
+    translate = false,         // translate to English
+    maxTokens = 0,             // 0 = no limit
+    speedUp = false,           // experimental 2x speedup
+    audioCtx = 0               // audio context size
+)
+
+// Transcribe (16kHz mono PCM float32)
+val segments = whisper.transcribe(audioSamples, params)
+segments.forEach { segment ->
+    println("[${segment.startTimeMs}-${segment.endTimeMs}ms] ${segment.text}")
+}
+
+// Utility functions
+val srt = whisper.transcribeToSrt(audioSamples)
+val lang = whisper.detectLanguage(audioSamples)
+val isMultilingual = whisper.isMultilingual()
+val modelType = whisper.getModelType()
+
+whisper.close()
+```
+
+**Model sources:**
+
+- HuggingFace: `ggerganov/whisper.cpp` (ggml-tiny.bin, ggml-base.bin, ggml-small.bin)
+- Sizes: tiny (~75MB), base (~142MB), small (~466MB)
+
+### Text-to-Speech (Bark Low-Level)
+
+Use `BarkTTS` directly:
+
+```kotlin
+import io.aatricks.llmedge.BarkTTS
+
+// Load model
+val tts = BarkTTS.load(
+    modelPath = "/path/to/bark-small_weights-f16.bin",
+    useGpu = false
+)
+
+// Generate audio with progress tracking
+val audio = tts.generate(
+    text = "Hello, world!",
+    onProgress = { step, progress ->
+        // step: SEMANTIC, COARSE, or FINE
+        // progress: 0.0 to 1.0
+        Log.d("Bark", "${step.name}: ${(progress * 100).toInt()}%")
+    }
+)
+
+// AudioResult contains:
+// - samples: FloatArray (32-bit PCM)
+// - sampleRate: Int (typically 24000)
+// - durationSeconds: Float
+
+// Save as WAV
+tts.saveAsWav(audio, File("/path/to/output.wav"))
+
+tts.close()
+```
+
+**Model sources:**
+
+- HuggingFace: `Green-Sky/bark-ggml` (bark-small_weights-f16.bin, bark_weights-f16.bin)
+- Sizes: small (~843MB), full (~2.2GB)
 
 
 ### Stable Diffusion (Image & Video Generation)
@@ -314,8 +518,33 @@ Key methods:
 - `SmolLM.addSystemPrompt(prompt: String)` — adds system prompt to chat history
 - `SmolLM.addUserMessage(message: String)` — adds user message to chat history
 - `SmolLM.close()` — releases native resources
+
+**High-Level Speech API (via LLMEdgeManager):**
+- `LLMEdgeManager.transcribeAudioToText(context, audioSamples, language?)` — simple audio transcription
+- `LLMEdgeManager.transcribeAudio(context, params, onProgress?)` — full transcription with segments
+- `LLMEdgeManager.detectLanguage(context, audioSamples)` — detect spoken language
+- `LLMEdgeManager.transcribeToSrt(context, audioSamples, language?)` — generate SRT subtitles
+- `LLMEdgeManager.synthesizeSpeech(context, params, onProgress?)` — generate speech from text
+- `LLMEdgeManager.synthesizeSpeechToFile(context, text, outputFile, onProgress?)` — generate and save WAV
+- `LLMEdgeManager.unloadSpeechModels()` — unload all speech models
+
+**Low-Level Speech API:**
+- `Whisper.load(modelPath: String, useGpu: Boolean)` — loads a Whisper model
+- `Whisper.loadFromHuggingFace(...)` — downloads and loads Whisper from HuggingFace
+- `Whisper.transcribe(samples: FloatArray, params: TranscriptionParams)` — transcribes audio
+- `Whisper.detectLanguage(samples: FloatArray)` — detects spoken language
+- `Whisper.close()` — releases native resources
+- `BarkTTS.load(modelPath: String, ...)` — loads a Bark TTS model
+- `BarkTTS.loadFromHuggingFace(...)` — downloads and loads Bark from HuggingFace
+- `BarkTTS.generate(text: String, params: GenerateParams)` — generates audio from text
+- `BarkTTS.saveAsWav(audio: AudioResult, filePath: String)` — saves audio to WAV file
+- `BarkTTS.close()` — releases native resources
+
+**Vision & OCR:**
 - `OcrEngine.extractText(image: ImageSource, params: OcrParams): OcrResult` — extracts text from image
 - `ImageUnderstanding.process(image: ImageSource, mode: VisionMode, prompt: String?)` — processes image with vision/OCR
+
+**Image & Video:**
 - `StableDiffusion.txt2img(params: GenerateParams): Bitmap` — generates an image
 - `StableDiffusion.txt2vid(params: VideoGenerateParams): List<Bitmap>` — generates video frames
 

@@ -743,12 +743,35 @@
 </ul>
 <p><strong>Generative AI Capabilities:</strong></p>
 <ul>
-<li><strong>Image Generation</strong>: Stable Diffusion integration for on-device image generation with:<ul>
+<li>
+<p><strong>Image Generation</strong>: Stable Diffusion integration for on-device image generation with:</p>
+<ul>
 <li><strong>EasyCache</strong>: Automatically detected and enabled for supported models (DiT architecture) to accelerate generation.</li>
 <li><strong>LoRA Support</strong>: Apply Low-Rank Adaptation models (e.g., for style transfer) with automatic downloading from Hugging Face.</li>
 </ul>
 </li>
-<li><strong>Video Generation</strong>: Generate short video clips (4-64 frames) from text using Wan models with sequential loading for lower RAM usage.</li>
+<li>
+<p><strong>Video Generation</strong>: Generate short video clips (4-64 frames) from text using Wan models with sequential loading for lower RAM usage.</p>
+</li>
+</ul>
+<p><strong>Speech Capabilities:</strong></p>
+<ul>
+<li>
+<p><strong>Speech-to-Text (STT)</strong>: Whisper.cpp integration for audio transcription with:</p>
+<ul>
+<li>Timestamp support for subtitles</li>
+<li>Language detection</li>
+<li>SRT subtitle generation</li>
+<li>Real-time streaming transcription</li>
+<li>Works well on mobile with tiny/base models</li>
+</ul>
+</li>
+<li>
+<p><strong>Text-to-Speech (TTS)</strong>: Bark.cpp integration for neural speech synthesis</p>
+<ul>
+<li>High-quality voice generation</li>
+</ul>
+</li>
 </ul>
 <p><strong>Multimodal Capabilities:</strong></p>
 <ul>
