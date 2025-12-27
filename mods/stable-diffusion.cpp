@@ -224,6 +224,71 @@ public:
 
         ModelLoader model_loader;
 
+        if (sd_ctx_params->t5_only) {
+            LOG_INFO("Initializing in T5-only mode");
+            if (strlen(SAFE_STR(sd_ctx_params->model_path)) > 0) {
+                // For T5-only, we might only need parts of the model file if it's a unified file,
+                // or specific file if split.
+                // The JNI hack used "text_encoders.t5xxl.transformer." prefix filter logic implicitly by how ModelLoader works?
+                // Actually the JNI hack called init_from_file(modelPath, "text_encoders.t5xxl.transformer.").
+                // Let's assume we want to load just that part.
+                LOG_INFO("loading T5 from '%s'", sd_ctx_params->model_path);
+                if (!model_loader.init_from_file(sd_ctx_params->model_path, "text_encoders.t5xxl.transformer.")) {
+                    LOG_ERROR("init model loader for T5 failed: '%s'", sd_ctx_params->model_path);
+                    return false;
+                }
+            } else if (strlen(SAFE_STR(sd_ctx_params->t5xxl_path)) > 0) {
+                LOG_INFO("loading T5 from '%s'", sd_ctx_params->t5xxl_path);
+                if (!model_loader.init_from_file(sd_ctx_params->t5xxl_path, "text_encoders.t5xxl.transformer.")) {
+                    LOG_ERROR("init model loader for T5 failed: '%s'", sd_ctx_params->t5xxl_path);
+                    return false;
+                }
+            } else {
+                LOG_ERROR("T5-only mode requested but no model path provided");
+                return false;
+            }
+
+            model_loader.convert_tensors_name();
+            // In T5-only mode we might still need backend info for offloading decisions?
+            // JNI code: new T5CLIPEmbedder(backend, offloadToCpu, model_loader.get_tensor_storage_map(), false, 0, is_umt5);
+
+            // Need to determine is_umt5. JNI hack checked filename.
+            // StableDiffusionGGML doesn't seem to store model path string after init.
+            // But we have sd_ctx_params->model_path.
+            std::string path_to_check = strlen(SAFE_STR(sd_ctx_params->model_path)) > 0 ? sd_ctx_params->model_path : sd_ctx_params->t5xxl_path;
+            bool is_umt5 = path_to_check.find("umt5") != std::string::npos;
+
+            // Initialize T5CLIPEmbedder
+            // Note: StableDiffusionGGML::clip_backend is initialized in init_backend() (it sets backend, and clip_backend = backend usually)
+            // But let's refine clip_backend logic as in the main flow
+            clip_backend = backend;
+            if (sd_ctx_params->keep_clip_on_cpu && !ggml_backend_is_cpu(backend)) {
+                LOG_INFO("CLIP: Using CPU backend");
+                clip_backend = ggml_backend_cpu_init();
+            }
+
+            auto& tensor_storage_map = model_loader.get_tensor_storage_map();
+            cond_stage_model = std::make_shared<T5CLIPEmbedder>(clip_backend,
+                                                                offload_params_to_cpu,
+                                                                tensor_storage_map,
+                                                                false, // use_mask
+                                                                0,     // mask_pad
+                                                                is_umt5);
+
+            cond_stage_model->alloc_params_buffer();
+            cond_stage_model->get_param_tensors(tensors);
+
+            std::set<std::string> ignore_tensors;
+            // Load weights
+            bool success = model_loader.load_tensors(tensors, ignore_tensors, n_threads);
+            if (!success) {
+                LOG_ERROR("load T5 tensors failed");
+                return false;
+            }
+            LOG_INFO("T5-only initialization complete");
+            return true;
+        }
+
         if (strlen(SAFE_STR(sd_ctx_params->model_path)) > 0) {
             LOG_INFO("loading model from '%s'", sd_ctx_params->model_path);
             if (!model_loader.init_from_file(sd_ctx_params->model_path)) {
@@ -2535,6 +2600,7 @@ void sd_ctx_params_init(sd_ctx_params_t* sd_ctx_params) {
     sd_ctx_params->chroma_use_t5_mask      = false;
     sd_ctx_params->chroma_t5_mask_pad      = 1;
     sd_ctx_params->flow_shift              = INFINITY;
+    sd_ctx_params->t5_only                 = false;
 }
 
 char* sd_ctx_params_to_str(const sd_ctx_params_t* sd_ctx_params) {
@@ -2603,7 +2669,8 @@ char* sd_ctx_params_to_str(const sd_ctx_params_t* sd_ctx_params) {
              BOOL_STR(sd_ctx_params->diffusion_flash_attn),
              BOOL_STR(sd_ctx_params->chroma_use_dit_mask),
              BOOL_STR(sd_ctx_params->chroma_use_t5_mask),
-             sd_ctx_params->chroma_t5_mask_pad);
+             sd_ctx_params->chroma_t5_mask_pad,
+             BOOL_STR(sd_ctx_params->t5_only));
 
     return buf;
 }

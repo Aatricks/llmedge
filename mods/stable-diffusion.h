@@ -194,6 +194,7 @@ typedef struct {
     bool chroma_use_t5_mask;
     int chroma_t5_mask_pad;
     float flow_shift;
+    bool t5_only;
 } sd_ctx_params_t;
 
 typedef struct {

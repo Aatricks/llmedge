@@ -361,82 +361,14 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     }
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
 
+    if (modelPath && !vaePath && !t5xxlPath) {
+        ALOGI("Detected T5-only load request: %s", modelPath);
+        p.t5_only = true;
+    }
+
     sd_ctx_t* ctx = new_sd_ctx(&p);
 
     if (!ctx) {
-        // Fallback: Check if we can load as T5-only context
-        // This is a hack to support sequential loading where we only want the text encoder
-        if (modelPath && !vaePath && !t5xxlPath) {
-             ALOGI("Attempting to load as T5-only context: %s", modelPath);
-             // We need to manually instantiate T5CLIPEmbedder
-             // But we need a backend.
-             // And ModelLoader.
-
-             // We can't easily do this inside nativeCreate because we need to return a jlong handle
-             // and we need to store the T5 object in it.
-
-             // Let's try to instantiate T5CLIPEmbedder here.
-             ModelLoader model_loader;
-             if (model_loader.init_from_file(modelPath, "text_encoders.t5xxl.transformer.")) {
-                 ALOGI("ModelLoader initialized for T5");
-                 model_loader.convert_tensors_name();
-
-                 ggml_backend_t backend = nullptr;
-                 #ifdef SD_USE_VULKAN
-                 if (ggml_backend_vk_get_device_count() > 0) {
-                     backend = ggml_backend_vk_init(0);
-                 }
-                 #endif
-                 if (!backend) {
-                     backend = ggml_backend_cpu_init();
-                 }
-
-                 if (!backend) {
-                     ALOGE("Vulkan backend not available and CPU backend init failed/missing");
-                     if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
-                     if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
-                     if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
-                     if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
-                     return 0;
-                 }
-                 ALOGI("Backend initialized for T5");
-
-                 // T5CLIPEmbedder(backend, offload, storage, use_mask, mask_pad, is_umt5)
-                 bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
-                 ALOGI("Creating T5CLIPEmbedder (is_umt5=%d)", is_umt5);
-
-                 auto* t5 = new T5CLIPEmbedder(backend, offloadToCpu, model_loader.get_tensor_storage_map(), false, 0, is_umt5);
-                 ALOGI("Allocating params buffer for T5");
-                 t5->alloc_params_buffer();
-
-                 // Load weights
-                 std::map<std::string, struct ggml_tensor*> tensors;
-                 t5->get_param_tensors(tensors);
-                 ALOGI("Got param tensors for T5: %zu tensors", tensors.size());
-
-                 std::set<std::string> ignore_tensors;
-                 ALOGI("Loading tensors for T5");
-                 model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe());
-
-                 auto* handle = new SdHandle();
-                 handle->ctx = nullptr;
-                 handle->t5_ctx = t5;
-                 if (env) {
-                     env->GetJavaVM(&handle->jvm);
-                 }
-                 ALOGI("T5-only context created successfully");
-
-                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
-                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
-                 if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
-                 if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
-
-                 return reinterpret_cast<jlong>(handle);
-             } else {
-                 ALOGE("Failed to init ModelLoader for T5");
-             }
-        }
-
         ALOGE("Failed to create sd_ctx");
         if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
         if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
@@ -469,6 +401,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlo
         handle->ctx = nullptr;
     }
     if (handle->t5_ctx) {
+        // Legacy cleanup, just in case.
+        // With the new flow, t5_ctx is not used, everything is in ctx.
         auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
         t5->free_params_buffer();
         delete t5;
@@ -830,63 +764,8 @@ Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
                 return nullptr;
             }
-        } else if (handle->t5_ctx) {
-            // T5-only path
-            auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
-            try {
-                // T5CLIPEmbedder::get_learned_condition returns SDCondition
-                // SDCondition has ggml_tensor* c_crossattn, c_vector, c_concat
-
-                // We need a work context
-                struct ggml_init_params params;
-                params.mem_size   = 1024 * 1024 * 1024; // 1GB for intermediate tensors?
-                params.mem_buffer = nullptr;
-                params.no_alloc   = false;
-                struct ggml_context* work_ctx = ggml_init(params);
-
-                ConditionerParams cparams;
-                cparams.text = prompt;
-                cparams.clip_skip = clipSkip;
-                cparams.width = width;
-                cparams.height = height;
-
-                SDCondition sd_cond = t5->get_learned_condition(work_ctx, sd_get_num_physical_cores_safe(), cparams);
-
-                // Convert SDCondition to sd_condition_raw_t (always float32)
-                cond = (sd_condition_raw_t*)calloc(1, sizeof(sd_condition_raw_t));
-                if (!cond) {
-                    ggml_free(work_ctx);
-                    throw std::runtime_error("Out of memory allocating condition");
-                }
-
-                auto tensor_to_raw_f32 = [](struct ggml_tensor* t, sd_tensor_raw_t& raw) {
-                    if (!t) return;
-                    raw.ndims = ggml_n_dims(t);
-                    for (int i = 0; i < 4; ++i) raw.ne[i] = t->ne[i];
-                    const size_t n = (size_t)ggml_nelements(t);
-                    raw.data = (float*)malloc(sizeof(float) * n);
-                    if (!raw.data) {
-                        raw.ndims = 0;
-                        return;
-                    }
-                    for (size_t i = 0; i < n; ++i) {
-                        raw.data[i] = ggml_get_f32_1d(t, (int)i);
-                    }
-                };
-
-                if (sd_cond.c_crossattn) tensor_to_raw_f32(sd_cond.c_crossattn, cond->c_crossattn);
-                if (sd_cond.c_vector) tensor_to_raw_f32(sd_cond.c_vector, cond->c_vector);
-                if (sd_cond.c_concat) tensor_to_raw_f32(sd_cond.c_concat, cond->c_concat);
-
-                ggml_free(work_ctx);
-
-            } catch (const std::exception& e) {
-                releaseStrings();
-                throwJavaException(env, "java/lang/RuntimeException", e.what());
-                return nullptr;
-            }
         } else {
-            throwJavaException(env, "java/lang/IllegalStateException", "Invalid handle state");
+            throwJavaException(env, "java/lang/IllegalStateException", "Invalid handle state (ctx is null)");
             releaseStrings();
             return nullptr;
         }
