@@ -42,7 +42,7 @@ jobs:
     - name: Install Native Build Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake build-essential ninja-build glslc
+        sudo apt-get install -y cmake build-essential ninja-build glslc libvulkan-dev
 
     - name: Build Native Libraries
       run: |
@@ -52,6 +52,10 @@ jobs:
         ./scripts/build_sdcpp_linux.sh
         # Build SmolLM (llama.cpp) JNI
         ./scripts/build_smollm_linux.sh
+
+    - name: Build Android AAR (Vulkan enabled)
+      run: |
+        ./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs="-DGGML_VULKAN=ON -DSD_VULKAN=ON"
 
     - name: Download Test Models
       run: .github/scripts/download_models.sh
