@@ -85,13 +85,41 @@ if(EXISTS "${LLAMA_DIR}/src/models" AND NOT EXISTS "${LLAMA_DIR}/src/llama-model
                 list(APPEND SMOLLM_SOURCES ${LLAMA_MODEL_SOURCES})
         endif()
 endif()
-set(VULKAN_ENABLED ON CACHE BOOL "Enable Vulkan support")
 
-if(VULKAN_ENABLED)
-    if (EXISTS "${GGML_DIR}/src/ggml-vulkan.cpp")
-        list(APPEND SMOLLM_SOURCES
-                ${GGML_DIR}/src/ggml-vulkan.cpp
-                )
+# ------------------------------------------------------------
+# Vulkan configuration (Global)
+# ------------------------------------------------------------
+option(GGML_VULKAN "Enable Vulkan support" ON)
+set(VULKAN_ENABLED ${GGML_VULKAN})
+
+if (VULKAN_ENABLED)
+    # Provide Vulkan library and include path for Android NDK
+    find_library(VULKAN_LIB vulkan REQUIRED)
+    set(Vulkan_INCLUDE_DIR "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include")
+
+    # Download Vulkan C++ headers (vulkan.hpp) which don't ship with Android NDK
+    include(FetchContent)
+    FetchContent_Declare(
+        vulkan_hpp
+        GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Hpp.git
+        GIT_TAG        v1.3.275  # Must match Android NDK's Vulkan version
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(vulkan_hpp)
+
+    # Configure Vulkan for both llama.cpp and stable-diffusion.cpp ggml-vulkan
+    set(Vulkan_INCLUDE_DIRS "${Vulkan_INCLUDE_DIR};${vulkan_hpp_SOURCE_DIR}")
+    set(Vulkan_LIBRARIES "${VULKAN_LIB}")
+    set(Vulkan_FOUND ON)
+    set(Vulkan_INCLUDE_DIR "${Vulkan_INCLUDE_DIR}" CACHE PATH "Vulkan include directory" FORCE)
+    set(Vulkan_LIBRARY "${VULKAN_LIB}" CACHE FILEPATH "Vulkan library" FORCE)
+
+    # Find glslc compiler for Vulkan shader compilation
+    find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc HINTS $ENV{VULKAN_SDK}/bin)
+    message(STATUS "Vulkan_GLSLC_EXECUTABLE: ${Vulkan_GLSLC_EXECUTABLE}")
+    if(Vulkan_GLSLC_EXECUTABLE)
+        set(Vulkan_glslc_FOUND ON)
+        set(Vulkan_glslc_EXECUTABLE "${Vulkan_GLSLC_EXECUTABLE}")
     endif()
 endif()
 
@@ -168,6 +196,7 @@ function(build_library target_name)
             ${target_name}
             android log
     )
+
     # -Wl,--gc-sections: remove unused sections (garbage collection)
     # -flto: link-time optimization
     # -Wl,--exclude-libs,ALL: exclude all libraries
@@ -388,39 +417,10 @@ endif()
 set(GGML_VULKAN ON CACHE BOOL "ggml: vulkan" FORCE)
 message(STATUS "Stable Diffusion Vulkan=${SD_VULKAN}; GGML Vulkan=${GGML_VULKAN}")
 
-# Provide Vulkan library and include path for Android NDK
-find_library(VULKAN_LIB vulkan REQUIRED)
-set(Vulkan_INCLUDE_DIR "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include")
-
-# Download Vulkan C++ headers (vulkan.hpp) which don't ship with Android NDK
-include(FetchContent)
-FetchContent_Declare(
-    vulkan_hpp
-    GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Hpp.git
-    GIT_TAG        v1.3.275  # Must match Android NDK's Vulkan version
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(vulkan_hpp)
-
-# Configure Vulkan for both llama.cpp and stable-diffusion.cpp ggml-vulkan
-set(Vulkan_INCLUDE_DIRS "${Vulkan_INCLUDE_DIR};${vulkan_hpp_SOURCE_DIR}")
-set(Vulkan_LIBRARIES "${VULKAN_LIB}")
-set(Vulkan_FOUND ON)
-set(Vulkan_INCLUDE_DIR "${Vulkan_INCLUDE_DIR}" CACHE PATH "Vulkan include directory" FORCE)
-set(Vulkan_LIBRARY "${VULKAN_LIB}" CACHE FILEPATH "Vulkan library" FORCE)
-
-# Find glslc compiler for Vulkan shader compilation
-find_program(Vulkan_GLSLC_EXECUTABLE NAMES glslc HINTS $ENV{VULKAN_SDK}/bin)
-message(STATUS "Vulkan_GLSLC_EXECUTABLE: ${Vulkan_GLSLC_EXECUTABLE}")
-if(Vulkan_GLSLC_EXECUTABLE)
-    set(Vulkan_glslc_FOUND ON)
-    set(Vulkan_glslc_EXECUTABLE "${Vulkan_GLSLC_EXECUTABLE}")
-endif()
-
 add_subdirectory(${SD_DIR} ${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion.cpp)
 
 # Add Vulkan-Hpp headers to ggml-vulkan target created by stable-diffusion.cpp
-if (TARGET ggml-vulkan)
+if (TARGET ggml-vulkan AND vulkan_hpp_SOURCE_DIR)
     target_include_directories(ggml-vulkan PRIVATE ${vulkan_hpp_SOURCE_DIR})
 endif()
 

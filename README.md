@@ -462,6 +462,25 @@ Prerequisites
 - Android API (minSdk) 30 or higher when enabling the Vulkan backend — ggml-vulkan requires Vulkan 1.2 which is guaranteed on Android 11+ devices.
 - (Optional) VULKAN_SDK set in environment if you build shaders or use Vulkan SDK tools on the host. The build will fetch a matching `vulkan.hpp` header if needed.
 
+### Host Setup for Vulkan Build (Ubuntu/WSL)
+
+To build the library with Vulkan support on a Linux host or WSL2, you must install the Vulkan shader compiler and development headers:
+
+1. **Install Dependencies**:
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y glslc libvulkan-dev
+   ```
+
+2. **Verify glslc**:
+   Ensure `glslc` is in your PATH:
+   ```bash
+   glslc --version
+   ```
+
+3. **Android NDK**:
+   Ensure you have Android NDK **r27** (specifically `27.2.12479018`) installed via Android Studio or the SDK manager.
+
 Build flags
 - Enable Vulkan at CMake configure time using Gradle external native build arguments. For example (bash/fish):
 
