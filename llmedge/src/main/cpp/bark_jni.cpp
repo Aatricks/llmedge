@@ -15,6 +15,8 @@
 #include <cstring>
 #include <cmath>
 
+#include "jni_thread_cache.h"
+
 #if __has_include(<android/log.h>)
 #include <android/log.h>
 #else
@@ -72,21 +74,8 @@ static void bark_progress_callback_wrapper(struct bark_context* bctx,
         return;
     }
 
-    JNIEnv* env = nullptr;
-    bool detach = false;
-    jint envStatus = handle->jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    if (envStatus == JNI_EDETACHED) {
-#if defined(__ANDROID__)
-        if (handle->jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-#else
-        if (handle->jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) != JNI_OK) {
-#endif
-            return;
-        }
-        detach = true;
-    } else if (envStatus != JNI_OK) {
-        return;
-    }
+    JNIEnv* env = jni_thread_cache_get_env();
+    if (!env) return;
 
     // Map encoding step to integer: 0=semantic, 1=coarse, 2=fine
     jint stepInt = static_cast<jint>(step);
@@ -97,10 +86,6 @@ static void bark_progress_callback_wrapper(struct bark_context* bctx,
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
-    }
-
-    if (detach) {
-        handle->jvm->DetachCurrentThread();
     }
 }
 
@@ -140,6 +125,7 @@ Java_io_aatricks_llmedge_BarkTTS_nativeCreate(JNIEnv* env, jclass,
     // Create handle first to set up callback
     auto* handle = new BarkHandle();
     env->GetJavaVM(&handle->jvm);
+    jni_thread_cache_init(handle->jvm);
 
     // Set callback in params
     cparams.progress_callback = bark_progress_callback_wrapper;
