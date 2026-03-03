@@ -702,6 +702,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * @return The complete response from the LLM.
      * @throws IllegalStateException if the model is not loaded.
      */
+    @JvmOverloads
     fun getResponse(query: String, maxTokens: Int = -1, batchSize: Int = 1): String {
         verifyHandle()
         logD(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, batchSize=$batchSize, queryLength=${query.length}")
