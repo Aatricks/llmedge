@@ -39,6 +39,7 @@ class SmolLMInferenceTest {
                 useMmap: Boolean,
                 useMlock: Boolean,
                 useVulkan: Boolean,
+                useFlashAttn: Boolean,
             ): Long {
                 // return fake handle
                 return 1L

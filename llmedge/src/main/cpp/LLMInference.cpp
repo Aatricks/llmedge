@@ -18,7 +18,8 @@
 
 void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, bool storeChats, long contextSize,
-                        const char *chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan) {
+                        const char *chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan,
+                        bool useFlashAttn) {
     LOGi("loading model with"
          "\n\tmodel_path = %s"
          "\n\tminP = %f"
@@ -29,8 +30,9 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
          "\n\tnThreads = %d"
          "\n\tuseMmap = %d"
          "\n\tuseMlock = %d"
-         "\n\tuseVulkan = %d",
-         model_path, minP, temperature, storeChats, contextSize, chatTemplate, nThreads, useMmap, useMlock, useVulkan);
+         "\n\tuseVulkan = %d"
+         "\n\tuseFlashAttn = %d",
+         model_path, minP, temperature, storeChats, contextSize, chatTemplate, nThreads, useMmap, useMlock, useVulkan, useFlashAttn);
 
     // load dynamic backends
     ggml_backend_load_all();
@@ -55,11 +57,19 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         LOGi("contextSize %ld adjusted to %ld to fit llama context limits", contextSize, safeContext);
     }
     ctx_params.n_ctx = static_cast<uint32_t>(safeContext);
-    // Optimal batch sizes are typically 512-2048 for modern ARM CPUs
-    // Larger batches waste memory and reduce cache efficiency
     ctx_params.n_batch = std::min(static_cast<int>(safeContext), 512);
+    // Smaller micro-batches improve cache locality on ARM
+    ctx_params.n_ubatch = 128;
     ctx_params.n_threads = nThreads;
-    ctx_params.no_perf = true; // disable performance metrics
+    ctx_params.no_perf = true;
+    // Flash attention: let llama.cpp auto-detect the best mode
+    ctx_params.flash_attn_type = useFlashAttn ? LLAMA_FLASH_ATTN_TYPE_AUTO : LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    // F16 KV cache: ~30-40% memory savings with minimal quality loss
+    ctx_params.type_k = GGML_TYPE_F16;
+    ctx_params.type_v = GGML_TYPE_F16;
+    if (useVulkan) {
+        ctx_params.offload_kqv = true;
+    }
     _ctx = llama_init_from_model(_model, ctx_params);
     if (!_ctx) {
         LOGe("llama_new_context_with_model() returned null)");
@@ -68,8 +78,13 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
 
     // create an instance of llama_sampler
     llama_sampler_chain_params sampler_params = llama_sampler_chain_default_params();
-    sampler_params.no_perf = true; // disable performance metrics
+    sampler_params.no_perf = true;
     _sampler = llama_sampler_chain_init(sampler_params);
+    // Expanded sampling chain: top-k → min-p → temperature → dist
+    llama_sampler_chain_add(_sampler, llama_sampler_init_top_k(40));
+    if (minP > 0.0f) {
+        llama_sampler_chain_add(_sampler, llama_sampler_init_min_p(minP, 1));
+    }
     llama_sampler_chain_add(_sampler, llama_sampler_init_temp(temperature));
     llama_sampler_chain_add(_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 

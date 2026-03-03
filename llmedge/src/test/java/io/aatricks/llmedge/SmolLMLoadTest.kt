@@ -52,6 +52,7 @@ class SmolLMLoadTest {
                     useMmap: Boolean,
                     useMlock: Boolean,
                     useVulkan: Boolean,
+                    useFlashAttn: Boolean,
                 ): Long {
                     capturedCtx = contextSize
                     capturedTemplate = chatTemplate

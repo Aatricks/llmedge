@@ -53,7 +53,8 @@ class LLMInference {
 
   public:
     void loadModel(const char* modelPath, float minP, float temperature, bool storeChats, long contextSize,
-                   const char* chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan);
+                   const char* chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan,
+                   bool useFlashAttn = true);
 
     void addChatMessage(const char* message, const char* role);
 

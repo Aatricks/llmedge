@@ -219,7 +219,7 @@ function(build_library_arm64 target_name cpu_flags)
     target_compile_options(
             ${target_name}
             PUBLIC
-            -DGGML_USE_CPU -DGGML_USE_CPU_AARCH64 ${cpu_flags} -O3
+            -DGGML_USE_CPU -DGGML_USE_CPU_AARCH64 ${cpu_flags} -O3 -funroll-loops
     )
 endfunction()
 
@@ -228,7 +228,7 @@ function(build_library_armv7a target_name cpu_flags fpu fpu_abi)
     target_compile_options(
             ${target_name}
             PUBLIC
-            -DGGML_USE_CPU ${cpu_flags} ${fpu} ${fpu_abi} -O3
+            -DGGML_USE_CPU ${cpu_flags} ${fpu} ${fpu_abi} -O3 -funroll-loops
     )
 endfunction()
 
@@ -237,7 +237,7 @@ function(build_library_universal target_name)
     target_compile_options(
             ${target_name}
             PUBLIC
-            -DGGML_USE_CPU -O3
+            -DGGML_USE_CPU -DGGML_USE_CPU_AARCH64 -O3 -funroll-loops
     )
 endfunction()
 

@@ -25,6 +25,7 @@ class SmolLMThinkingModeTest {
                     useMmap: Boolean,
                     useMlock: Boolean,
                     useVulkan: Boolean,
+                    useFlashAttn: Boolean,
                 ): Long = 1L
 
                 override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) {}

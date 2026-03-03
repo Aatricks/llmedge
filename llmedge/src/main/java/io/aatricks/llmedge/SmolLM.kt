@@ -47,6 +47,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 useMmap: Boolean,
                 useMlock: Boolean,
                 useVulkan: Boolean,
+                useFlashAttn: Boolean,
         ): Long
 
         fun setReasoningOptions(
@@ -255,6 +256,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         useMmap: Boolean,
                         useMlock: Boolean,
                         useVulkan: Boolean,
+                        useFlashAttn: Boolean,
                 ): Long =
                         instance.loadModel(
                                 modelPath,
@@ -266,7 +268,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                 nThreads,
                                 useMmap,
                                 useMlock,
-                                useVulkan
+                                useVulkan,
+                                useFlashAttn
                         )
 
                 override fun setReasoningOptions(
@@ -439,6 +442,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             val numThreads: Int = 4,
             val useMmap: Boolean = true,
             val useMlock: Boolean = false,
+            val useFlashAttn: Boolean = true,
             val thinkingMode: ThinkingMode = ThinkingMode.DEFAULT,
             val reasoningBudget: Int? = null,
     )
@@ -512,11 +516,9 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                 params.numThreads,
                                 params.useMmap,
                                 params.useMlock,
-                                useVulkanGPU
+                                useVulkanGPU,
+                                params.useFlashAttn
                         )
-                // TODO: Plumb flash_attn through to llama_context_params.flash_attn via JNI.
-                // Use FlashAttentionHelper.shouldUseFlashAttentionForLLM(resolvedContextSize.toInt())
-                // to decide the default, and add a flashAttn param to InferenceParams + NativeBridge.loadModel.
                 val reasoningBudget =
                         resolvedReasoningBudget(params.thinkingMode, params.reasoningBudget)
                 applyReasoningState(params.thinkingMode, reasoningBudget)
@@ -687,7 +689,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         }
                         nativeBridge.stopCompletion(this@SmolLM, nativePtr)
                     }
-                    .flowOn(Dispatchers.IO) // Run on IO dispatcher for better performance
+                    .flowOn(Dispatchers.Default) // CPU-bound inference; Default has less scheduling overhead than IO
 
     /**
      * Returns the LLM response to the given query as a String. This function is blocking and will
@@ -704,7 +706,9 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         verifyHandle()
         logD(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, batchSize=$batchSize, queryLength=${query.length}")
         nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
-        val responseBuilder = StringBuilder()
+        // Pre-allocate: ~4 chars per token is a reasonable estimate
+        val estimatedCapacity = if (maxTokens > 0) maxTokens * 4 else 512
+        val responseBuilder = StringBuilder(estimatedCapacity)
         var tokensGenerated = 0
 
         if (batchSize > 1) {
@@ -793,7 +797,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             nThreads: Int,
             useMmap: Boolean,
             useMlock: Boolean,
-            useVulkan: Boolean
+            useVulkan: Boolean,
+            useFlashAttn: Boolean,
     ): Long
 
     private external fun setReasoningOptions(
