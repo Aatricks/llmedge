@@ -46,7 +46,7 @@ class LLMInference {
 
     // System prompt KV cache snapshot
     std::vector<uint8_t> _systemPromptKVSnapshot;
-    std::string _cachedSystemPromptHash;
+    size_t _cachedSystemPromptHash = 0;
     int _systemPromptTokenCount = 0;
 
     bool _isValidUtf8(const char* response);

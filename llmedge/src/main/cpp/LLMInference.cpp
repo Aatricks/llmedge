@@ -12,6 +12,7 @@
 #define LOGe(...) fprintf(stderr, "%s ", TAG); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n")
 #endif
 #include <algorithm>
+#include <numeric>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -93,7 +94,7 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
 
     // Invalidate any existing system prompt KV snapshot
     _systemPromptKVSnapshot.clear();
-    _cachedSystemPromptHash.clear();
+    _cachedSystemPromptHash = 0;
     _systemPromptTokenCount = 0;
 
     if (chatTemplate == nullptr) {
@@ -199,7 +200,7 @@ LLMInference::startCompletion(const char *query) {
         }
 
         if (systemMsgCount > 0) {
-            std::string currentHash = std::to_string(std::hash<std::string>{}(systemContent));
+            size_t currentHash = std::hash<std::string>{}(systemContent);
 
             int sysTemplateLen = llama_chat_apply_template(
                 _chatTemplate, _messages.data(), systemMsgCount, false, nullptr, 0);
@@ -207,15 +208,15 @@ LLMInference::startCompletion(const char *query) {
 
             if (currentHash == _cachedSystemPromptHash && !_systemPromptKVSnapshot.empty()) {
                 // Restore KV state from cached snapshot
-                LOGi("Restoring system prompt KV snapshot (hash=%s, tokens=%d)",
-                     currentHash.c_str(), _systemPromptTokenCount);
+                LOGi("Restoring system prompt KV snapshot (hash=%zu, tokens=%d)",
+                     currentHash, _systemPromptTokenCount);
                 llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
                 size_t nset = llama_state_seq_set_data(
                     _ctx, _systemPromptKVSnapshot.data(), _systemPromptKVSnapshot.size(), 0);
                 if (nset == 0) {
                     LOGe("Failed to restore system prompt KV snapshot, processing normally");
                     _systemPromptKVSnapshot.clear();
-                    _cachedSystemPromptHash.clear();
+                    _cachedSystemPromptHash = 0;
                     _systemPromptTokenCount = 0;
                 } else {
                     _prevLen = sysTemplateLen;
@@ -224,7 +225,7 @@ LLMInference::startCompletion(const char *query) {
                 }
             } else if (sysTemplateLen > 0) {
                 // Decode system prompt and create a new snapshot
-                LOGi("Creating system prompt KV snapshot (hash=%s)", currentHash.c_str());
+                LOGi("Creating system prompt KV snapshot (hash=%zu)", currentHash);
                 llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
 
                 std::string sysPrompt(_formattedMessages.begin(),
@@ -306,9 +307,8 @@ LLMInference::startCompletion(const char *query) {
     LOGi("startCompletion: n_past=%d, n_tokens=%d, prevLen=%d", n_past, _batch->n_tokens, _prevLen);
 
     _batchPos.resize(std::max(_promptTokens.size(), static_cast<size_t>(1)));
-    for (size_t i = 0; i < _promptTokens.size(); ++i) {
-        _batchPos[i] = _nPast + i;
-    }
+    std::iota(_batchPos.begin(), _batchPos.begin() + _promptTokens.size(),
+              static_cast<llama_pos>(_nPast));
     _nPast += static_cast<int>(_promptTokens.size());
     _batch->pos = _batchPos.data();
 }
@@ -407,7 +407,7 @@ LLMInference::completionLoop() {
 
     if (_isValidUtf8(_cacheResponseTokens.c_str())) {
         _response += _cacheResponseTokens;
-        std::string valid_utf8_piece = _cacheResponseTokens;
+        std::string valid_utf8_piece = std::move(_cacheResponseTokens);
         _cacheResponseTokens.clear();
         return valid_utf8_piece;
     }
