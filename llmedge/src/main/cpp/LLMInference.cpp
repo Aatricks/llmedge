@@ -1,6 +1,7 @@
 #include "LLMInference.h"
 #ifdef __ANDROID__
 #include <android/log.h>
+#include <sched.h>
 #define TAG "[SmolLMAndroid-Cpp]"
 #define LOGi(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGe(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
@@ -74,6 +75,11 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
 
     _formattedMessages = std::vector<char>(llama_n_ctx(_ctx));
     _messages.clear();
+
+    // Invalidate any existing system prompt KV snapshot
+    _systemPromptKVSnapshot.clear();
+    _cachedSystemPromptHash.clear();
+    _systemPromptTokenCount = 0;
 
     if (chatTemplate == nullptr) {
         _chatTemplate = llama_model_chat_template(_model, nullptr);
@@ -160,6 +166,91 @@ LLMInference::startCompletion(const char *query) {
     if (newLen < 0) {
         throw std::runtime_error("llama_chat_apply_template() in LLMInference::startCompletion() failed");
     }
+
+    // --- System prompt KV cache snapshotting ---
+    bool restoredFromSnapshot = false;
+    int snapshotNPast = 0;
+
+    if (_prevLen == 0) {
+        size_t systemMsgCount = 0;
+        std::string systemContent;
+        for (const auto& msg : _messages) {
+            if (std::strcmp(msg.role, "system") == 0) {
+                systemContent += msg.content;
+                systemMsgCount++;
+            }
+        }
+
+        if (systemMsgCount > 0) {
+            std::string currentHash = std::to_string(std::hash<std::string>{}(systemContent));
+
+            int sysTemplateLen = llama_chat_apply_template(
+                _chatTemplate, _messages.data(), systemMsgCount, false, nullptr, 0);
+            if (sysTemplateLen < 0) sysTemplateLen = 0;
+
+            if (currentHash == _cachedSystemPromptHash && !_systemPromptKVSnapshot.empty()) {
+                // Restore KV state from cached snapshot
+                LOGi("Restoring system prompt KV snapshot (hash=%s, tokens=%d)",
+                     currentHash.c_str(), _systemPromptTokenCount);
+                llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
+                size_t nset = llama_state_seq_set_data(
+                    _ctx, _systemPromptKVSnapshot.data(), _systemPromptKVSnapshot.size(), 0);
+                if (nset == 0) {
+                    LOGe("Failed to restore system prompt KV snapshot, processing normally");
+                    _systemPromptKVSnapshot.clear();
+                    _cachedSystemPromptHash.clear();
+                    _systemPromptTokenCount = 0;
+                } else {
+                    _prevLen = sysTemplateLen;
+                    restoredFromSnapshot = true;
+                    snapshotNPast = _systemPromptTokenCount;
+                }
+            } else if (sysTemplateLen > 0) {
+                // Decode system prompt and create a new snapshot
+                LOGi("Creating system prompt KV snapshot (hash=%s)", currentHash.c_str());
+                llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
+
+                std::string sysPrompt(_formattedMessages.begin(),
+                                      _formattedMessages.begin() + sysTemplateLen);
+                std::vector<llama_token> sysTokens = common_tokenize(
+                    llama_model_get_vocab(_model), sysPrompt, true, true);
+
+                if (!sysTokens.empty()) {
+                    llama_batch sysBatch = {};
+                    sysBatch.token = sysTokens.data();
+                    sysBatch.n_tokens = static_cast<int32_t>(sysTokens.size());
+                    std::vector<llama_pos> sysPos(sysTokens.size());
+                    for (size_t i = 0; i < sysTokens.size(); i++)
+                        sysPos[i] = static_cast<llama_pos>(i);
+                    sysBatch.pos = sysPos.data();
+
+                    if (llama_decode(_ctx, sysBatch) < 0) {
+                        LOGe("Failed to decode system prompt for snapshot");
+                    } else {
+                        size_t stateSize = llama_state_seq_get_size(_ctx, 0);
+                        _systemPromptKVSnapshot.resize(stateSize);
+                        size_t ncopy = llama_state_seq_get_data(
+                            _ctx, _systemPromptKVSnapshot.data(),
+                            _systemPromptKVSnapshot.size(), 0);
+                        if (ncopy == stateSize) {
+                            _cachedSystemPromptHash = currentHash;
+                            _systemPromptTokenCount = static_cast<int>(sysTokens.size());
+                            _prevLen = sysTemplateLen;
+                            restoredFromSnapshot = true;
+                            snapshotNPast = _systemPromptTokenCount;
+                            LOGi("System prompt KV snapshot saved (%zu bytes, %d tokens)",
+                                 stateSize, _systemPromptTokenCount);
+                        } else {
+                            LOGe("System prompt KV snapshot copy failed");
+                            _systemPromptKVSnapshot.clear();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // --- End system prompt KV cache snapshotting ---
+
     std::string prompt(_formattedMessages.begin() + _prevLen, _formattedMessages.begin() + newLen);
     // Only add special tokens (like BOS) if we are at the start of the context
     bool add_special = (_prevLen == 0); 
@@ -182,27 +273,26 @@ LLMInference::startCompletion(const char *query) {
 
     // Fix KV cache reuse
     int n_past = 0;
-    if (_storeChats && _prevLen > 0) {
-         // We are appending to existing context
-         // Retrieve current KV cache position
-         // seq_id 0 is assumed
+    if (restoredFromSnapshot) {
+         n_past = snapshotNPast;
+    } else if (_storeChats && _prevLen > 0) {
          int max_seq_pos = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0);
          if (max_seq_pos >= 0) {
              n_past = max_seq_pos + 1;
          }
     } else {
-         // New conversation or no history storage -> overwrite from 0
          n_past = 0;
-         // Clear KV cache to ensure fresh start
          llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
     }
     
+    _nPast = n_past;
     LOGi("startCompletion: n_past=%d, n_tokens=%d, prevLen=%d", n_past, _batch->n_tokens, _prevLen);
 
-    _batchPos.resize(_promptTokens.size());
+    _batchPos.resize(std::max(_promptTokens.size(), static_cast<size_t>(1)));
     for (size_t i = 0; i < _promptTokens.size(); ++i) {
-        _batchPos[i] = n_past + i;
+        _batchPos[i] = _nPast + i;
     }
+    _nPast += static_cast<int>(_promptTokens.size());
     _batch->pos = _batchPos.data();
 }
 
@@ -245,6 +335,9 @@ LLMInference::_isValidUtf8(const char *response) {
 
 std::string
 LLMInference::completionLoop() {
+    if (_coreMask != 0) {
+        setThreadAffinity(_coreMask);
+    }
     if (_batch == nullptr || _batch->n_tokens <= 0) {
         LOGe("completionLoop invoked with empty llama_batch");
         throw std::runtime_error("llama batch missing tokens");
@@ -286,10 +379,9 @@ LLMInference::completionLoop() {
     _batch->token = &_currToken;
     _batch->n_tokens = 1;
     
-    // Set position for the next token (append to KV cache)
-    int n_past_next = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0) + 1;
-    if (_batchPos.size() < 1) _batchPos.resize(1);
-    _batchPos[0] = n_past_next;
+    // Set position for the next token using cached n_past
+    _batchPos[0] = _nPast;
+    _nPast++;
     _batch->pos = _batchPos.data();
 
     _batch->seq_id = nullptr;
@@ -306,6 +398,22 @@ LLMInference::completionLoop() {
     return "";
 }
 
+std::string
+LLMInference::completionLoopBatch(int maxTokens) {
+    std::string result;
+    for (int i = 0; i < maxTokens; i++) {
+        std::string piece = completionLoop();
+        if (piece == "[EOG]") {
+            if (result.empty()) return "[EOG]";
+            break;
+        }
+        if (!piece.empty()) {
+            result += piece;
+        }
+    }
+    return result;
+}
+
 void
 LLMInference::stopCompletion() {
     if (_storeChats) {
@@ -315,6 +423,7 @@ LLMInference::stopCompletion() {
         }
     } else {
         _prevLen = 0;
+        _nPast = 0;
     }
     _response.clear();
     _cacheResponseTokens.clear();
@@ -326,6 +435,23 @@ LLMInference::setReasoningOptions(bool disableThinking, int reasoningBudget) {
     _disableThinking = requestedNoThink;
     _reasoningBudget = reasoningBudget;
     LOGi("Reasoning controls: disableThinking=%d, reasoningBudget=%d", _disableThinking, _reasoningBudget);
+}
+
+void
+LLMInference::setThreadAffinity(uint64_t coreMask) {
+    _coreMask = coreMask;
+    if (coreMask == 0) return;
+
+#ifdef __ANDROID__
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    for (int i = 0; i < 64; i++) {
+        if (coreMask & (1ULL << i)) {
+            CPU_SET(i, &cpuset);
+        }
+    }
+    sched_setaffinity(0, sizeof(cpuset), &cpuset);
+#endif
 }
 
 LLMInference::~LLMInference() {

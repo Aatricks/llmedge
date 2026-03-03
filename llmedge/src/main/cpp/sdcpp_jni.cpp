@@ -480,6 +480,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
     jint steps, jfloat cfg, jlong seed,
+    jboolean jVaeTiling,
     jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
     if (handlePtr == 0) {
@@ -511,6 +512,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
     gen.sample_params = sample;
     gen.seed = seed;
     gen.batch_count = 1;
+    gen.vae_tiling_params.enabled = jVaeTiling ? true : false;
     gen.easycache.enabled = jEasyCacheEnabled ? true : false;
     gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
     gen.easycache.start_percent = (float)jEasyCacheStartPercent;

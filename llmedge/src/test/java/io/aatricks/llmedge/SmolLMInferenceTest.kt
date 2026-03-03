@@ -69,6 +69,16 @@ class SmolLMInferenceTest {
             override fun completionLoop(instance: SmolLM, modelPtr: Long): String {
                 return queue.removeFirst()
             }
+            override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String {
+                val result = StringBuilder()
+                repeat(maxTokens) {
+                    if (queue.isEmpty()) return result.toString()
+                    val piece = queue.removeFirst()
+                    if (piece == "[EOG]") { if (result.isEmpty()) return "[EOG]" else return result.toString() }
+                    result.append(piece)
+                }
+                return result.toString()
+            }
 
             override fun stopCompletion(instance: SmolLM, modelPtr: Long) {}
         }

@@ -2,6 +2,9 @@ package io.aatricks.llmedge
 
 import android.util.Log
 import java.util.LinkedHashMap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * LRU cache for models with memory-aware eviction
@@ -137,7 +140,7 @@ class ModelCache<T : AutoCloseable>(
         return newMemoryMB > effectiveMax
     }
 
-    /** Evict least recently used entry */
+    /** Evict least recently used entry, closing the evicted model asynchronously */
     @Synchronized
     fun evictLRU() {
         if (cache.isEmpty()) return
@@ -148,16 +151,19 @@ class ModelCache<T : AutoCloseable>(
 
         lruEntry?.let { entry ->
             totalCachedBytes -= entry.sizeBytes
-            try {
-                entry.model.close()
-                evictions++
-                Log.i(
-                        TAG,
-                        "Evicted LRU '$lruKey' (used ${entry.hitCount} times, " +
-                                "${entry.sizeBytes / 1024 / 1024}MB)"
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "Error closing evicted entry: ${e.message}")
+            evictions++
+            Log.i(
+                    TAG,
+                    "Evicted LRU '$lruKey' (used ${entry.hitCount} times, " +
+                            "${entry.sizeBytes / 1024 / 1024}MB)"
+            )
+            // Close the evicted model in background to avoid blocking callers
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    entry.model.close()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error closing evicted entry: ${e.message}")
+                }
             }
         }
     }

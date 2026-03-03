@@ -71,6 +71,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         fun close(instance: SmolLM, modelPtr: Long)
         fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String)
         fun completionLoop(instance: SmolLM, modelPtr: Long): String
+        fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String
         fun stopCompletion(instance: SmolLM, modelPtr: Long)
     }
     companion object {
@@ -314,6 +315,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         instance.startCompletion(modelPtr, prompt)
                 override fun completionLoop(instance: SmolLM, modelPtr: Long): String =
                         instance.completionLoop(modelPtr)
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String =
+                        instance.completionLoopBatch(modelPtr, maxTokens)
                 override fun stopCompletion(instance: SmolLM, modelPtr: Long) =
                         instance.stopCompletion(modelPtr)
             }
@@ -511,9 +514,18 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                 params.useMlock,
                                 useVulkanGPU
                         )
+                // TODO: Plumb flash_attn through to llama_context_params.flash_attn via JNI.
+                // Use FlashAttentionHelper.shouldUseFlashAttentionForLLM(resolvedContextSize.toInt())
+                // to decide the default, and add a flashAttn param to InferenceParams + NativeBridge.loadModel.
                 val reasoningBudget =
                         resolvedReasoningBudget(params.thinkingMode, params.reasoningBudget)
                 applyReasoningState(params.thinkingMode, reasoningBudget)
+
+                // Pin inference threads to performance cores on big.LITTLE SoCs
+                val pCoreMask = CpuTopology.getPerformanceCoreMask()
+                if (pCoreMask != 0L) {
+                    setThreadAffinity(nativePtr, pCoreMask)
+                }
             }
 
     /**
@@ -683,37 +695,59 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      *
      * @param query The user's query/prompt for the LLM.
      * @param maxTokens Maximum number of tokens to generate. -1 for infinite (until EOS).
+     * @param batchSize Number of tokens to generate per JNI call. Values > 1 use batched
+     *     generation to reduce JNI boundary crossings. Default is 1 (single-token path).
      * @return The complete response from the LLM.
      * @throws IllegalStateException if the model is not loaded.
      */
-    fun getResponse(query: String, maxTokens: Int = -1): String {
+    fun getResponse(query: String, maxTokens: Int = -1, batchSize: Int = 1): String {
         verifyHandle()
-        logD(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, queryLength=${query.length}")
+        logD(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, batchSize=$batchSize, queryLength=${query.length}")
         nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
-        var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
         val responseBuilder = StringBuilder()
         var tokensGenerated = 0
-        
-        while (piece != "[EOG]") {
-            responseBuilder.append(piece)
-            tokensGenerated++
-            
-            if (tokensGenerated % 10 == 0) {
-                 // Log occasional progress to confirm it's alive without spamming
-                 logD(LOG_TAG, "Generated $tokensGenerated tokens...")
-            }
 
-            if (maxTokens > 0 && tokensGenerated >= maxTokens) {
-                logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
-                break
+        if (batchSize > 1) {
+            val effectiveBatch = if (maxTokens > 0) minOf(batchSize, maxTokens) else batchSize
+            var piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, effectiveBatch)
+            while (piece != "[EOG]" && piece.isNotEmpty()) {
+                responseBuilder.append(piece)
+                tokensGenerated += effectiveBatch
+
+                if (maxTokens > 0 && tokensGenerated >= maxTokens) {
+                    logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
+                    break
+                }
+
+                val remaining = if (maxTokens > 0) minOf(batchSize, maxTokens - tokensGenerated) else batchSize
+                if (remaining <= 0) break
+                piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, remaining)
             }
-            
-            piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+            if (piece == "[EOG]") {
+                logD(LOG_TAG, "getResponse: [EOG] received after ~$tokensGenerated tokens.")
+            }
+        } else {
+            var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+            while (piece != "[EOG]") {
+                responseBuilder.append(piece)
+                tokensGenerated++
+
+                if (tokensGenerated % 10 == 0) {
+                    logD(LOG_TAG, "Generated $tokensGenerated tokens...")
+                }
+
+                if (maxTokens > 0 && tokensGenerated >= maxTokens) {
+                    logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
+                    break
+                }
+
+                piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+            }
+            if (piece == "[EOG]") {
+                logD(LOG_TAG, "getResponse: [EOG] received after $tokensGenerated tokens.")
+            }
         }
-        if (piece == "[EOG]") {
-             logD(LOG_TAG, "getResponse: [EOG] received after $tokensGenerated tokens.")
-        }
-        
+
         nativeBridge.stopCompletion(this, nativePtr)
         val response = responseBuilder.toString()
         logD(LOG_TAG, "getResponse: finished. Total length=${response.length}")
@@ -894,7 +928,11 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
 
     private external fun completionLoop(modelPtr: Long): String
 
+    private external fun completionLoopBatch(modelPtr: Long, maxTokens: Int): String
+
     private external fun stopCompletion(modelPtr: Long)
+
+    private external fun setThreadAffinity(modelPtr: Long, coreMask: Long)
 
     private fun applyReasoningState(mode: ThinkingMode, budget: Int) {
         val effectiveMode = if (budget == 0) ThinkingMode.DISABLED else mode

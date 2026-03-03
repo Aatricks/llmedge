@@ -3,6 +3,7 @@
 #include "common.h"
 #include <string>
 #include <vector>
+#include <functional>
 
 class LLMInference {
     // llama.cpp-specific types
@@ -21,6 +22,7 @@ class LLMInference {
     // appended to `_messages`
     std::vector<llama_token> _promptTokens;
     std::vector<llama_pos>   _batchPos;
+    int                      _nPast = 0;
     int                      _prevLen = 0;
     const char*              _chatTemplate;
 
@@ -32,12 +34,20 @@ class LLMInference {
     bool _disableThinking = false;
     int  _reasoningBudget = -1;
 
+    // CPU thread affinity mask for big.LITTLE pinning (0 = no affinity)
+    uint64_t _coreMask = 0;
+
     // response generation metrics
     int64_t _responseGenerationTime = 0;
     long    _responseNumTokens      = 0;
 
     // length of context window consumed during the conversation
     int _nCtxUsed = 0;
+
+    // System prompt KV cache snapshot
+    std::vector<uint8_t> _systemPromptKVSnapshot;
+    std::string _cachedSystemPromptHash;
+    int _systemPromptTokenCount = 0;
 
     bool _isValidUtf8(const char* response);
 
@@ -61,9 +71,13 @@ class LLMInference {
 
     std::string completionLoop();
 
+    std::string completionLoopBatch(int maxTokens);
+
     void stopCompletion();
 
     void setReasoningOptions(bool disableThinking, int reasoningBudget);
+
+    void setThreadAffinity(uint64_t coreMask);
 
     ~LLMInference();
 

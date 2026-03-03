@@ -55,6 +55,9 @@ import kotlinx.coroutines.withContext
  */
 class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
 
+    /** Reusable ByteBuffer for WAV PCM conversion to avoid per-call allocation */
+    private var pcmBuffer: ByteBuffer? = null
+
     /** Encoding step during synthesis. */
     enum class EncodingStep(val value: Int) {
         SEMANTIC(0),
@@ -207,7 +210,15 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
             fos.write(wavHeader)
 
             // Convert float samples to 16-bit PCM
-            val buffer = ByteBuffer.allocate(samples.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+            val requiredBytes = samples.size * 2
+            var buffer = pcmBuffer
+            if (buffer == null || buffer.capacity() < requiredBytes) {
+                buffer = ByteBuffer.allocate(requiredBytes).order(ByteOrder.LITTLE_ENDIAN)
+                pcmBuffer = buffer
+            } else {
+                buffer.clear()
+                buffer.order(ByteOrder.LITTLE_ENDIAN)
+            }
             for (sample in samples) {
                 // Clamp and convert to 16-bit
                 val clamped = sample.coerceIn(-1.0f, 1.0f)

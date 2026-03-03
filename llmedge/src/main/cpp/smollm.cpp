@@ -105,6 +105,26 @@ Java_io_aatricks_llmedge_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong 
     }
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_aatricks_llmedge_SmolLM_completionLoopBatch(JNIEnv* env, jobject thiz, jlong modelPtr, jint maxTokens) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    try {
+        std::string response = llmInference->completionLoopBatch(maxTokens);
+        return env->NewStringUTF(response.c_str());
+    } catch (std::runtime_error& error) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_SmolLM_setThreadAffinity(JNIEnv* env, jobject thiz, jlong modelPtr, jlong coreMask) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    if (llmInference) {
+        llmInference->setThreadAffinity(static_cast<uint64_t>(coreMask));
+    }
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_io_aatricks_llmedge_SmolLM_stopCompletion(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
