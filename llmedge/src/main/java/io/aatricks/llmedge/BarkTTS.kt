@@ -229,12 +229,16 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
         }
     }
 
+    // Reusable WAV header buffer (44 bytes, always the same structure)
+    private val wavHeaderBuffer = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+
     private fun createWavHeader(numSamples: Int, sampleRate: Int): ByteArray {
         val byteRate = sampleRate * 2 // 16-bit mono
         val dataSize = numSamples * 2
         val fileSize = 36 + dataSize
 
-        val buffer = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+        val buffer = wavHeaderBuffer
+        buffer.clear()
 
         // RIFF header
         buffer.put(WAV_RIFF)
@@ -255,7 +259,7 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
         buffer.put(WAV_DATA)
         buffer.putInt(dataSize)
 
-        return buffer.array()
+        return buffer.array().copyOf()
     }
 
     override fun close() {

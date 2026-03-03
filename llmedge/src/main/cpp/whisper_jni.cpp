@@ -62,7 +62,7 @@ static void throwJavaException(JNIEnv* env, const char* className, const char* m
     env->ThrowNew(exClass, message);
 }
 
-// Progress callback wrapper
+// Progress callback wrapper — throttled to fire every 5% change
 static void whisper_progress_callback_wrapper(struct whisper_context* ctx,
                                                struct whisper_state* state,
                                                int progress,
@@ -74,6 +74,13 @@ static void whisper_progress_callback_wrapper(struct whisper_context* ctx,
     if (!handle || !handle->progressCallbackGlobalRef || !handle->jvm || !handle->progressMethodID) {
         return;
     }
+
+    // Throttle: only fire callback on 5% boundaries
+    static thread_local int lastReportedProgress = -1;
+    if (progress / 5 == lastReportedProgress / 5 && progress != 100) {
+        return;
+    }
+    lastReportedProgress = progress;
 
     JNIEnv* env = jni_thread_cache_get_env();
     if (!env) return;

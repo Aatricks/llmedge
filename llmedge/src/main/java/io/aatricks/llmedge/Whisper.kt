@@ -367,8 +367,11 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
     class StreamingTranscriber
     internal constructor(private val whisper: Whisper, private val params: StreamingParams) {
         private val mutex = Mutex()
-        private val audioBuffer = mutableListOf<Float>()
-        private val previousAudio = mutableListOf<Float>()
+        // Use FloatArray-backed ring buffer instead of MutableList<Float> to avoid boxing
+        private var audioBuffer = FloatArray(0)
+        private var audioBufferSize = 0
+        private var previousAudio = FloatArray(0)
+        private var previousAudioSize = 0
 
         @Volatile private var isRunning = false
 
@@ -398,27 +401,30 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         suspend fun feedAudio(samples: FloatArray) =
                 mutex.withLock {
                     if (isRunning && !isPaused) {
-                        for (sample in samples) {
-                            audioBuffer.add(sample)
+                        val needed = audioBufferSize + samples.size
+                        if (needed > audioBuffer.size) {
+                            audioBuffer = audioBuffer.copyOf(maxOf(needed, audioBuffer.size * 2, 4096))
                         }
+                        System.arraycopy(samples, 0, audioBuffer, audioBufferSize, samples.size)
+                        audioBufferSize += samples.size
                     }
                 }
 
         /** Get the current audio buffer size in milliseconds. */
         fun getBufferedAudioMs(): Int {
-            return audioBuffer.size / samplesPerMs
+            return audioBufferSize / samplesPerMs
         }
 
         /** Check if enough audio is buffered for processing. */
         fun hasEnoughAudio(): Boolean {
-            return audioBuffer.size >= samplesStep
+            return audioBufferSize >= samplesStep
         }
 
         /** Clear the audio buffer. */
         suspend fun clearBuffer() =
                 mutex.withLock {
-                    audioBuffer.clear()
-                    previousAudio.clear()
+                    audioBufferSize = 0
+                    previousAudioSize = 0
                     segmentIndex = 0
                     totalProcessedMs = 0
                 }
@@ -454,7 +460,7 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                             while (isRunning) {
                                 // Wait until we have enough audio
                                 var currentBufferSize: Int
-                                mutex.withLock { currentBufferSize = audioBuffer.size }
+                                mutex.withLock { currentBufferSize = audioBufferSize }
 
                                 if (currentBufferSize < samplesStep) {
                                     // Sleep briefly and check again
@@ -481,42 +487,44 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
          */
         suspend fun processNextChunk(): List<TranscriptionSegment> =
                 mutex.withLock {
-                    if (audioBuffer.size < samplesStep) {
+                    if (audioBufferSize < samplesStep) {
                         return@withLock emptyList()
                     }
 
-                    // Extract the new samples for this step
-                    val newSamples = audioBuffer.take(samplesStep)
+                    val newSamplesCount = samplesStep
 
-                    // Remove processed samples from buffer
-                    val removeCount = min(samplesStep, audioBuffer.size)
-                    if (removeCount > 0) {
-                        audioBuffer.subList(0, removeCount).clear()
-                    }
+                    // Remove processed samples from buffer by shifting
+                    val removeCount = min(samplesStep, audioBufferSize)
 
                     // Calculate how many samples to take from previous audio for context
-                    val takeFromPrevious = min(previousAudio.size, samplesLength - newSamples.size)
+                    val takeFromPrevious = min(previousAudioSize, samplesLength - newSamplesCount)
 
                     // Build the full audio window: [previous context] + [new samples]
-                    val windowSamples = FloatArray(takeFromPrevious + newSamples.size)
+                    val windowSamples = FloatArray(takeFromPrevious + newSamplesCount)
 
                     // Copy previous context
-                    for (i in 0 until takeFromPrevious) {
-                        windowSamples[i] = previousAudio[previousAudio.size - takeFromPrevious + i]
+                    if (takeFromPrevious > 0) {
+                        System.arraycopy(previousAudio, previousAudioSize - takeFromPrevious,
+                                windowSamples, 0, takeFromPrevious)
                     }
 
-                    // Copy new samples
-                    for (i in newSamples.indices) {
-                        windowSamples[takeFromPrevious + i] = newSamples[i]
+                    // Copy new samples from audioBuffer
+                    System.arraycopy(audioBuffer, 0, windowSamples, takeFromPrevious, newSamplesCount)
+
+                    // Shift remaining audio buffer
+                    if (removeCount < audioBufferSize) {
+                        System.arraycopy(audioBuffer, removeCount, audioBuffer, 0, audioBufferSize - removeCount)
                     }
+                    audioBufferSize -= removeCount
 
                     // Update previous audio buffer for next iteration
-                    // Keep only the most recent samples for context
-                    previousAudio.clear()
                     val keepSamples = min(windowSamples.size, samplesKeep + samplesLength)
-                    for (i in (windowSamples.size - keepSamples) until windowSamples.size) {
-                        previousAudio.add(windowSamples[i])
+                    val startIdx = windowSamples.size - keepSamples
+                    if (keepSamples > previousAudio.size) {
+                        previousAudio = FloatArray(keepSamples)
                     }
+                    System.arraycopy(windowSamples, startIdx, previousAudio, 0, keepSamples)
+                    previousAudioSize = keepSamples
 
                     // Apply VAD if enabled
                     if (params.useVad && !hasVoiceActivity(windowSamples)) {

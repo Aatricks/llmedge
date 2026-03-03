@@ -23,6 +23,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     private var modelMetadata: VideoModelMetadata? = null
     private val cancellationRequested = AtomicBoolean(false)
     private val rgbBytesThreadLocal = ThreadLocal<ByteArray>()
+    // Reusable pixel buffer for txt2img RGB→ARGB conversion
+    private var txt2imgPixelBuffer: IntArray? = null
 
     @Volatile private var cachedProgressCallback: VideoProgressCallback? = null
 
@@ -1906,7 +1908,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
                 // Convert raw RGB bytes to Bitmap
                 val bmp = Bitmap.createBitmap(params.width, params.height, Bitmap.Config.ARGB_8888)
-                // Convert RGB to ARGB
+                // Convert RGB to ARGB using reusable pixel buffer
                 val rgb = bytes
                 val expectedMin = params.width * params.height * 3
                 if (rgb.size < expectedMin) {
@@ -1915,14 +1917,18 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             "txt2img returned short RGB buffer: size=${rgb.size}, expectedAtLeast=$expectedMin (w=${params.width}, h=${params.height})"
                     )
                 }
-                val pixels = IntArray(params.width * params.height)
+                val pixelCount = params.width * params.height
+                val pixels = txt2imgPixelBuffer.let { buf ->
+                    if (buf != null && buf.size >= pixelCount) buf
+                    else IntArray(pixelCount).also { txt2imgPixelBuffer = it }
+                }
                 var idx = 0
                 var p = 0
-                while (idx + 2 < rgb.size && p < pixels.size) {
-                    val r = (rgb[idx].toInt() and 0xFF)
-                    val g = (rgb[idx + 1].toInt() and 0xFF)
-                    val b = (rgb[idx + 2].toInt() and 0xFF)
-                    pixels[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                while (idx + 2 < rgb.size && p < pixelCount) {
+                    pixels[p] = (0xFF shl 24) or
+                            ((rgb[idx].toInt() and 0xFF) shl 16) or
+                            ((rgb[idx + 1].toInt() and 0xFF) shl 8) or
+                            (rgb[idx + 2].toInt() and 0xFF)
                     idx += 3
                     p += 1
                 }

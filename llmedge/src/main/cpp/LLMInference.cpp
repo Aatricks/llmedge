@@ -157,7 +157,9 @@ LLMInference::startCompletion(const char *query) {
     _responseGenerationTime = 0;
     _responseNumTokens = 0;
     _response.clear();
+    _response.reserve(2048);
     _cacheResponseTokens.clear();
+    _cacheResponseTokens.reserve(32);
     std::string finalQuery = query ? std::string(query) : std::string();
     const bool suppressThinking = _disableThinking || _reasoningBudget == 0;
     if (suppressThinking && finalQuery.find("/no_think") == std::string::npos) {

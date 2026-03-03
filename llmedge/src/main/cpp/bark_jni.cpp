@@ -62,7 +62,7 @@ static void throwJavaException(JNIEnv* env, const char* className, const char* m
     env->ThrowNew(exClass, message);
 }
 
-// Progress callback wrapper
+// Progress callback wrapper — throttled to fire every 5% change per step
 static void bark_progress_callback_wrapper(struct bark_context* bctx,
                                            enum bark_encoding_step step,
                                            int progress,
@@ -74,11 +74,18 @@ static void bark_progress_callback_wrapper(struct bark_context* bctx,
         return;
     }
 
+    // Throttle: only fire callback on 5% boundaries
+    static thread_local int lastStep = -1;
+    static thread_local int lastProgress = -1;
+    jint stepInt = static_cast<jint>(step);
+    if (stepInt == lastStep && progress / 5 == lastProgress / 5 && progress != 100) {
+        return;
+    }
+    lastStep = stepInt;
+    lastProgress = progress;
+
     JNIEnv* env = jni_thread_cache_get_env();
     if (!env) return;
-
-    // Map encoding step to integer: 0=semantic, 1=coarse, 2=fine
-    jint stepInt = static_cast<jint>(step);
 
     env->CallVoidMethod(handle->progressCallbackGlobalRef, handle->progressMethodID,
                         stepInt, static_cast<jint>(progress));
