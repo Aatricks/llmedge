@@ -192,9 +192,14 @@ function(build_library target_name)
             -ffunction-sections -fdata-sections
     )
 
+    # Enable OpenMP for multi-threaded ggml matrix operations
+    target_compile_definitions(${target_name} PRIVATE GGML_USE_OPENMP)
+    target_compile_options(${target_name} PUBLIC -fopenmp)
+
     target_link_libraries(
             ${target_name}
             android log
+            -fopenmp -static-openmp
     )
 
     # -Wl,--gc-sections: remove unused sections (garbage collection)
@@ -214,7 +219,7 @@ function(build_library_arm64 target_name cpu_flags)
     target_compile_options(
             ${target_name}
             PUBLIC
-            -DGGML_USE_CPU -DGGML_USE_CPU_AARCH64 ${cpu_flags} -O3
+            -DGGML_USE_CPU -DGGML_USE_CPU_AARCH64 ${cpu_flags} -O3 -funroll-loops
     )
 endfunction()
 
@@ -223,7 +228,7 @@ function(build_library_armv7a target_name cpu_flags fpu fpu_abi)
     target_compile_options(
             ${target_name}
             PUBLIC
-            -DGGML_USE_CPU ${cpu_flags} ${fpu} ${fpu_abi} -O3
+            -DGGML_USE_CPU ${cpu_flags} ${fpu} ${fpu_abi} -O3 -funroll-loops
     )
 endfunction()
 
@@ -232,7 +237,7 @@ function(build_library_universal target_name)
     target_compile_options(
             ${target_name}
             PUBLIC
-            -DGGML_USE_CPU -O3
+            -DGGML_USE_CPU -DGGML_USE_CPU_AARCH64 -O3 -funroll-loops
     )
 endfunction()
 
@@ -279,7 +284,7 @@ target_compile_definitions(
 target_compile_options(
         ${TARGET_NAME_GGUF_READER}
         PUBLIC
-        -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections
+        -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3
 )
 target_link_options(
         ${TARGET_NAME_GGUF_READER}
@@ -437,7 +442,7 @@ target_include_directories(sdcpp
 
 target_compile_features(sdcpp PUBLIC c_std_11 cxx_std_17)
 
-target_compile_options(sdcpp PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections)
+target_compile_options(sdcpp PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3)
 
 target_link_libraries(sdcpp
         android log
@@ -511,11 +516,13 @@ add_library(whisper_jni SHARED ${WHISPER_JNI_ALL_SOURCES})
 
 # CRITICAL: Add GGML_USE_CPU for proper CPU backend initialization on Android
 # Define WHISPER_VERSION, GGML_VERSION and GGML_COMMIT which are required
+# Enable OpenMP for multi-threaded ggml matrix operations
 target_compile_definitions(whisper_jni PUBLIC GGML_USE_CPU)
 target_compile_definitions(whisper_jni PRIVATE
         WHISPER_VERSION="1.0.0"
         GGML_VERSION="0.9.4"
         GGML_COMMIT="unknown"
+        GGML_USE_OPENMP
 )
 
 # Set architecture-specific compile options for whisper
@@ -538,20 +545,20 @@ target_include_directories(whisper_jni
 
 target_compile_features(whisper_jni PUBLIC c_std_11 cxx_std_17)
 
-target_compile_options(whisper_jni PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3)
+target_compile_options(whisper_jni PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3 -fopenmp)
 
 # Link only against Android libraries (ggml is compiled in)
+# Enable OpenMP for multi-threaded inference
 target_link_libraries(whisper_jni
         android log
+        -fopenmp -static-openmp
 )
 
 target_link_options(whisper_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
 
 message(STATUS "Whisper.cpp JNI wrapper configured (direct source build with bundled ggml)")
 
-target_link_options(whisper_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
-
-message(STATUS "Whisper.cpp JNI wrapper configured (using whisper's bundled ggml via FetchContent)")
+message(STATUS "Whisper.cpp JNI wrapper configured (direct source build with bundled ggml, OpenMP enabled)")
 
 # ------------------------------------------------------------
 # Bark.cpp JNI wrapper build (Text-to-Speech)

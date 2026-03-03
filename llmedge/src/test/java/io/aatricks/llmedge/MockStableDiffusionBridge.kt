@@ -18,6 +18,7 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         steps: Int,
         cfg: Float,
         seed: Long,
+        vaeTiling: Boolean,
         easyCacheEnabled: Boolean,
         easyCacheReuseThreshold: Float,
         easyCacheStartPercent: Float,

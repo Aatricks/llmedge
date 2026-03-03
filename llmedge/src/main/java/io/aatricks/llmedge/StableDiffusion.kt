@@ -23,6 +23,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     private var modelMetadata: VideoModelMetadata? = null
     private val cancellationRequested = AtomicBoolean(false)
     private val rgbBytesThreadLocal = ThreadLocal<ByteArray>()
+    // Reusable pixel buffer for txt2img RGB→ARGB conversion
+    private var txt2imgPixelBuffer: IntArray? = null
 
     @Volatile private var cachedProgressCallback: VideoProgressCallback? = null
 
@@ -39,6 +41,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps: Int,
                 cfg: Float,
                 seed: Long,
+                vaeTiling: Boolean,
                 easyCacheEnabled: Boolean,
                 easyCacheReuseThreshold: Float,
                 easyCacheStartPercent: Float,
@@ -152,6 +155,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         steps,
                         cfg,
                         seed,
+                        true,
                         easyCacheEnabled,
                         easyCacheReuseThreshold,
                         easyCacheStartPercent,
@@ -168,6 +172,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps: Int = 20,
             cfg: Float = 7.0f,
             seed: Long = 42L,
+            vaeTiling: Boolean = true,
             easyCacheEnabled: Boolean = false,
             easyCacheReuseThreshold: Float = 0.2f,
             easyCacheStartPercent: Float = 0.15f,
@@ -182,6 +187,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 steps,
                 cfg,
                 seed,
+                vaeTiling,
                 easyCacheEnabled,
                 easyCacheReuseThreshold,
                 easyCacheStartPercent,
@@ -282,61 +288,51 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     false
                 }
 
+        // Cache reflected Log methods to avoid Class.forName + getMethod on every call
+        private val cachedLogD: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("d", String::class.java, String::class.java) } catch (_: Throwable) { null }
+        }
+        private val cachedLogI: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("i", String::class.java, String::class.java) } catch (_: Throwable) { null }
+        }
+        private val cachedLogW: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("w", String::class.java, String::class.java) } catch (_: Throwable) { null }
+        }
+        private val cachedLogE: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("e", String::class.java, String::class.java, Throwable::class.java) } catch (_: Throwable) { null }
+        }
+
         private fun logD(tag: String, message: String) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val dMethod = logClass.getMethod("d", String::class.java, String::class.java)
-                    dMethod.invoke(null, tag, message)
-                } catch (t: Throwable) {
-                    println("D/$tag: $message")
-                }
+            val method = cachedLogD
+            if (method != null) {
+                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("D/$tag: $message") }
             } else {
                 println("D/$tag: $message")
             }
         }
 
         private fun logI(tag: String, message: String) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val iMethod = logClass.getMethod("i", String::class.java, String::class.java)
-                    iMethod.invoke(null, tag, message)
-                } catch (t: Throwable) {
-                    println("I/$tag: $message")
-                }
+            val method = cachedLogI
+            if (method != null) {
+                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("I/$tag: $message") }
             } else {
                 println("I/$tag: $message")
             }
         }
 
         private fun logW(tag: String, message: String) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val wMethod = logClass.getMethod("w", String::class.java, String::class.java)
-                    wMethod.invoke(null, tag, message)
-                } catch (t: Throwable) {
-                    println("W/$tag: $message")
-                }
+            val method = cachedLogW
+            if (method != null) {
+                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("W/$tag: $message") }
             } else {
                 println("W/$tag: $message")
             }
         }
 
         private fun logE(tag: String, message: String, throwable: Throwable? = null) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val eMethod =
-                            logClass.getMethod(
-                                    "e",
-                                    String::class.java,
-                                    String::class.java,
-                                    Throwable::class.java
-                            )
-                    eMethod.invoke(null, tag, message, throwable)
-                } catch (t: Throwable) {
+            val method = cachedLogE
+            if (method != null) {
+                try { method.invoke(null, tag, message, throwable) } catch (_: Throwable) {
                     System.err.println("E/$tag: $message")
                     throwable?.printStackTrace()
                 }
@@ -368,6 +364,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         steps: Int,
                         cfg: Float,
                         seed: Long,
+                        vaeTiling: Boolean,
                         easyCacheEnabled: Boolean,
                         easyCacheReuseThreshold: Float,
                         easyCacheStartPercent: Float,
@@ -382,6 +379,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                 steps,
                                 cfg,
                                 seed,
+                                vaeTiling,
                                 easyCacheEnabled,
                                 easyCacheReuseThreshold,
                                 easyCacheStartPercent,
@@ -1446,6 +1444,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             val steps: Int = 20,
             val cfgScale: Float = 7.0f,
             val seed: Long = 42L,
+            val vaeTiling: Boolean = true,
             val easyCacheParams: EasyCacheParams = EasyCacheParams()
     )
 
@@ -1898,6 +1897,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     params.steps,
                                     params.cfgScale,
                                     params.seed,
+                                    params.vaeTiling,
                                     params.easyCacheParams.enabled,
                                     params.easyCacheParams.reuseThreshold,
                                     params.easyCacheParams.startPercent,
@@ -1908,7 +1908,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
                 // Convert raw RGB bytes to Bitmap
                 val bmp = Bitmap.createBitmap(params.width, params.height, Bitmap.Config.ARGB_8888)
-                // Convert RGB to ARGB
+                // Convert RGB to ARGB using reusable pixel buffer
                 val rgb = bytes
                 val expectedMin = params.width * params.height * 3
                 if (rgb.size < expectedMin) {
@@ -1917,14 +1917,18 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             "txt2img returned short RGB buffer: size=${rgb.size}, expectedAtLeast=$expectedMin (w=${params.width}, h=${params.height})"
                     )
                 }
-                val pixels = IntArray(params.width * params.height)
+                val pixelCount = params.width * params.height
+                val pixels = txt2imgPixelBuffer.let { buf ->
+                    if (buf != null && buf.size >= pixelCount) buf
+                    else IntArray(pixelCount).also { txt2imgPixelBuffer = it }
+                }
                 var idx = 0
                 var p = 0
-                while (idx + 2 < rgb.size && p < pixels.size) {
-                    val r = (rgb[idx].toInt() and 0xFF)
-                    val g = (rgb[idx + 1].toInt() and 0xFF)
-                    val b = (rgb[idx + 2].toInt() and 0xFF)
-                    pixels[p] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                while (idx + 2 < rgb.size && p < pixelCount) {
+                    pixels[p] = (0xFF shl 24) or
+                            ((rgb[idx].toInt() and 0xFF) shl 16) or
+                            ((rgb[idx + 1].toInt() and 0xFF) shl 8) or
+                            (rgb[idx + 2].toInt() and 0xFF)
                     idx += 3
                     p += 1
                 }
@@ -1962,6 +1966,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             steps: Int,
             cfg: Float,
             seed: Long,
+            vaeTiling: Boolean,
             easyCacheEnabled: Boolean = false,
             easyCacheReuseThreshold: Float = 0.2f,
             easyCacheStartPercent: Float = 0.15f,
@@ -2084,9 +2089,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     ): List<Bitmap> {
         val batchSize = determineBatchSize(frameBytes.size)
         val bitmaps = ArrayList<Bitmap>(frameBytes.size)
+        // Reuse a single pixel buffer across all frames in this batch
+        val pixelBuffer = IntArray(width * height)
         var index = 0
-        // Allocate a fresh pixel buffer per frame to avoid unexpected aliasing if
-        // Bitmap.createBitmap() did not copy the backing array across platform versions.
         while (index < frameBytes.size) {
             val end = min(index + batchSize, frameBytes.size)
             for (i in index until end) {
@@ -2096,7 +2101,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 // prevents later mutations from affecting previously created
                 // Bitmaps.
                 val bytesCopy = frameBytes[i].clone()
-                val pixelBuffer = IntArray(width * height)
                 bitmaps += rgbBytesToBitmap(bytesCopy, width, height, pixelBuffer)
             }
             val remaining = frameBytes.size - end

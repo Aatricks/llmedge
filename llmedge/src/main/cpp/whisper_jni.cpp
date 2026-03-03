@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <cstring>
 
+#include "jni_thread_cache.h"
+
 #if __has_include(<android/log.h>)
 #include <android/log.h>
 #else
@@ -60,7 +62,7 @@ static void throwJavaException(JNIEnv* env, const char* className, const char* m
     env->ThrowNew(exClass, message);
 }
 
-// Progress callback wrapper
+// Progress callback wrapper — throttled to fire every 5% change
 static void whisper_progress_callback_wrapper(struct whisper_context* ctx,
                                                struct whisper_state* state,
                                                int progress,
@@ -73,21 +75,15 @@ static void whisper_progress_callback_wrapper(struct whisper_context* ctx,
         return;
     }
 
-    JNIEnv* env = nullptr;
-    bool detach = false;
-    jint envStatus = handle->jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    if (envStatus == JNI_EDETACHED) {
-#if defined(__ANDROID__)
-        if (handle->jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-#else
-        if (handle->jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) != JNI_OK) {
-#endif
-            return;
-        }
-        detach = true;
-    } else if (envStatus != JNI_OK) {
+    // Throttle: only fire callback on 5% boundaries
+    static thread_local int lastReportedProgress = -1;
+    if (progress / 5 == lastReportedProgress / 5 && progress != 100) {
         return;
     }
+    lastReportedProgress = progress;
+
+    JNIEnv* env = jni_thread_cache_get_env();
+    if (!env) return;
 
     env->CallVoidMethod(handle->progressCallbackGlobalRef, handle->progressMethodID,
                         static_cast<jint>(progress));
@@ -95,10 +91,6 @@ static void whisper_progress_callback_wrapper(struct whisper_context* ctx,
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
-    }
-
-    if (detach) {
-        handle->jvm->DetachCurrentThread();
     }
 }
 
@@ -112,21 +104,8 @@ static void whisper_new_segment_callback_wrapper(struct whisper_context* ctx,
         return;
     }
 
-    JNIEnv* env = nullptr;
-    bool detach = false;
-    jint envStatus = handle->jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    if (envStatus == JNI_EDETACHED) {
-#if defined(__ANDROID__)
-        if (handle->jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-#else
-        if (handle->jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) != JNI_OK) {
-#endif
-            return;
-        }
-        detach = true;
-    } else if (envStatus != JNI_OK) {
-        return;
-    }
+    JNIEnv* env = jni_thread_cache_get_env();
+    if (!env) return;
 
     // Get segment count
     int n_segments = whisper_full_n_segments_from_state(state);
@@ -150,10 +129,6 @@ static void whisper_new_segment_callback_wrapper(struct whisper_context* ctx,
             env->ExceptionClear();
             break;
         }
-    }
-
-    if (detach) {
-        handle->jvm->DetachCurrentThread();
     }
 }
 
@@ -212,6 +187,7 @@ Java_io_aatricks_llmedge_Whisper_nativeCreate(JNIEnv* env, jclass,
     auto* handle = new WhisperHandle();
     handle->ctx = ctx;
     env->GetJavaVM(&handle->jvm);
+    jni_thread_cache_init(handle->jvm);
 
     ALOGI("Whisper context created successfully, handle=%p", handle);
     return reinterpret_cast<jlong>(handle);

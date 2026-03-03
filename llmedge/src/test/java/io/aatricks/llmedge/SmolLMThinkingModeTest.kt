@@ -25,6 +25,7 @@ class SmolLMThinkingModeTest {
                     useMmap: Boolean,
                     useMlock: Boolean,
                     useVulkan: Boolean,
+                    useFlashAttn: Boolean,
                 ): Long = 1L
 
                 override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) {}
@@ -38,6 +39,7 @@ class SmolLMThinkingModeTest {
                 override fun close(instance: SmolLM, modelPtr: Long) {}
                 override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {}
                 override fun completionLoop(instance: SmolLM, modelPtr: Long): String = ""
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String = ""
                 override fun stopCompletion(instance: SmolLM, modelPtr: Long) {}
             }
         }

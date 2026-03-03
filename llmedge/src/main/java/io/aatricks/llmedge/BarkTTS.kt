@@ -55,6 +55,9 @@ import kotlinx.coroutines.withContext
  */
 class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
 
+    /** Reusable ByteBuffer for WAV PCM conversion to avoid per-call allocation */
+    private var pcmBuffer: ByteBuffer? = null
+
     /** Encoding step during synthesis. */
     enum class EncodingStep(val value: Int) {
         SEMANTIC(0),
@@ -207,7 +210,15 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
             fos.write(wavHeader)
 
             // Convert float samples to 16-bit PCM
-            val buffer = ByteBuffer.allocate(samples.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+            val requiredBytes = samples.size * 2
+            var buffer = pcmBuffer
+            if (buffer == null || buffer.capacity() < requiredBytes) {
+                buffer = ByteBuffer.allocate(requiredBytes).order(ByteOrder.LITTLE_ENDIAN)
+                pcmBuffer = buffer
+            } else {
+                buffer.clear()
+                buffer.order(ByteOrder.LITTLE_ENDIAN)
+            }
             for (sample in samples) {
                 // Clamp and convert to 16-bit
                 val clamped = sample.coerceIn(-1.0f, 1.0f)
@@ -218,20 +229,24 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
         }
     }
 
+    // Reusable WAV header buffer (44 bytes, always the same structure)
+    private val wavHeaderBuffer = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+
     private fun createWavHeader(numSamples: Int, sampleRate: Int): ByteArray {
         val byteRate = sampleRate * 2 // 16-bit mono
         val dataSize = numSamples * 2
         val fileSize = 36 + dataSize
 
-        val buffer = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+        val buffer = wavHeaderBuffer
+        buffer.clear()
 
         // RIFF header
-        buffer.put("RIFF".toByteArray())
+        buffer.put(WAV_RIFF)
         buffer.putInt(fileSize)
-        buffer.put("WAVE".toByteArray())
+        buffer.put(WAV_WAVE)
 
         // fmt subchunk
-        buffer.put("fmt ".toByteArray())
+        buffer.put(WAV_FMT)
         buffer.putInt(16) // Subchunk1Size (16 for PCM)
         buffer.putShort(1) // AudioFormat (1 for PCM)
         buffer.putShort(1) // NumChannels (1 for mono)
@@ -241,10 +256,10 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
         buffer.putShort(16) // BitsPerSample
 
         // data subchunk
-        buffer.put("data".toByteArray())
+        buffer.put(WAV_DATA)
         buffer.putInt(dataSize)
 
-        return buffer.array()
+        return buffer.array().copyOf()
     }
 
     override fun close() {
@@ -274,6 +289,12 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
         /** Bark default sample rate (24kHz) */
         const val SAMPLE_RATE = 24000
 
+        // Pre-computed WAV header tag bytes to avoid repeated toByteArray() allocations
+        private val WAV_RIFF = "RIFF".toByteArray()
+        private val WAV_WAVE = "WAVE".toByteArray()
+        private val WAV_FMT = "fmt ".toByteArray()
+        private val WAV_DATA = "data".toByteArray()
+
         private val isAndroidLogAvailable: Boolean =
                 try {
                     Class.forName("android.util.Log")
@@ -282,61 +303,51 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
                     false
                 }
 
+        // Cache reflected Log methods to avoid Class.forName + getMethod on every call
+        private val cachedLogD: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("d", String::class.java, String::class.java) } catch (_: Throwable) { null }
+        }
+        private val cachedLogI: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("i", String::class.java, String::class.java) } catch (_: Throwable) { null }
+        }
+        private val cachedLogW: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("w", String::class.java, String::class.java) } catch (_: Throwable) { null }
+        }
+        private val cachedLogE: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("e", String::class.java, String::class.java, Throwable::class.java) } catch (_: Throwable) { null }
+        }
+
         private fun logD(tag: String, message: String) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val dMethod = logClass.getMethod("d", String::class.java, String::class.java)
-                    dMethod.invoke(null, tag, message)
-                } catch (t: Throwable) {
-                    println("D/$tag: $message")
-                }
+            val method = cachedLogD
+            if (method != null) {
+                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("D/$tag: $message") }
             } else {
                 println("D/$tag: $message")
             }
         }
 
         private fun logI(tag: String, message: String) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val iMethod = logClass.getMethod("i", String::class.java, String::class.java)
-                    iMethod.invoke(null, tag, message)
-                } catch (t: Throwable) {
-                    println("I/$tag: $message")
-                }
+            val method = cachedLogI
+            if (method != null) {
+                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("I/$tag: $message") }
             } else {
                 println("I/$tag: $message")
             }
         }
 
         private fun logW(tag: String, message: String) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val wMethod = logClass.getMethod("w", String::class.java, String::class.java)
-                    wMethod.invoke(null, tag, message)
-                } catch (t: Throwable) {
-                    println("W/$tag: $message")
-                }
+            val method = cachedLogW
+            if (method != null) {
+                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("W/$tag: $message") }
             } else {
                 println("W/$tag: $message")
             }
         }
 
         private fun logE(tag: String, message: String, throwable: Throwable? = null) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val eMethod =
-                            logClass.getMethod(
-                                    "e",
-                                    String::class.java,
-                                    String::class.java,
-                                    Throwable::class.java
-                            )
-                    eMethod.invoke(null, tag, message, throwable)
-                } catch (t: Throwable) {
+            val method = cachedLogE
+            if (method != null) {
+                try { method.invoke(null, tag, message, throwable) } catch (_: Throwable) {
                     System.err.println("E/$tag: $message")
                     throwable?.printStackTrace()
                 }

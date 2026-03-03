@@ -84,3 +84,4 @@ models/*.raw
 
 # Model files
 models/*.bin
+scripts/jni-desktop/build-smollm/

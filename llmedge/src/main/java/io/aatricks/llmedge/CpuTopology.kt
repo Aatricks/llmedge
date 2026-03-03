@@ -10,6 +10,7 @@ import java.io.File
 object CpuTopology {
     private const val TAG = "CpuTopology"
     private const val CPU_BASE_PATH = "/sys/devices/system/cpu"
+    private val CPU_DIR_REGEX = Regex("cpu\\d+")
 
     /** Information about CPU core configuration */
     data class CoreInfo(
@@ -54,7 +55,7 @@ object CpuTopology {
         val cpuDirs =
                 cpuDir
                         .listFiles { file ->
-                            file.isDirectory && file.name.matches(Regex("cpu\\d+"))
+                            file.isDirectory && file.name.matches(CPU_DIR_REGEX)
                         }
                         ?.sortedBy { it.name }
                         ?: emptyList()
@@ -166,5 +167,22 @@ object CpuTopology {
     fun hasBigLittleArchitecture(): Boolean {
         val coreInfo = detectCoreTopology()
         return coreInfo.efficiencyCores > 0
+    }
+
+    /** Returns a bitmask of performance core indices for thread affinity pinning. */
+    fun getPerformanceCoreMask(): Long {
+        val coreInfo = detectCoreTopology()
+        if (coreInfo.efficiencyCores == 0) return 0L // homogeneous, no pinning needed
+
+        var mask = 0L
+        val maxFreq = coreInfo.maxFrequencies.maxOrNull() ?: return 0L
+        val threshold = maxFreq * 0.85
+
+        for (i in coreInfo.maxFrequencies.indices) {
+            if (coreInfo.maxFrequencies[i] >= threshold) {
+                mask = mask or (1L shl i)
+            }
+        }
+        return mask
     }
 }

@@ -23,6 +23,7 @@ class SmolLMMiscTest {
             useMmap: Boolean,
             useMlock: Boolean,
             useVulkan: Boolean,
+            useFlashAttn: Boolean,
         ): Long = 1L
 
         override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) { /* no-op */ }
@@ -36,6 +37,7 @@ class SmolLMMiscTest {
         override fun close(instance: SmolLM, modelPtr: Long) { closeCalled = true }
         override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) { /* no-op */ }
         override fun completionLoop(instance: SmolLM, modelPtr: Long): String = "[EOG]"
+        override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String = "[EOG]"
         override fun stopCompletion(instance: SmolLM, modelPtr: Long) { /* no-op */ }
     }
 

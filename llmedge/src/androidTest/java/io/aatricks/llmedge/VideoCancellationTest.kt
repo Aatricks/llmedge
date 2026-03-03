@@ -29,6 +29,7 @@ class VideoCancellationTest : BaseVideoIntegrationTest() {
                         steps: Int,
                         cfg: Float,
                         seed: Long,
+                        vaeTiling: Boolean,
                         easyCacheEnabled: Boolean,
                         easyCacheReuseThreshold: Float,
                         easyCacheStartPercent: Float,

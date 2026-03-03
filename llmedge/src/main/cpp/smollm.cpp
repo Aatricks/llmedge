@@ -13,7 +13,7 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_io_aatricks_llmedge_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring modelPath, jfloat minP,
                                             jfloat temperature, jboolean storeChats, jlong contextSize,
                                             jstring chatTemplate, jint nThreads, jboolean useMmap, jboolean useMlock,
-                                            jboolean useVulkan) {
+                                            jboolean useVulkan, jboolean useFlashAttn) {
     jboolean    isCopy           = true;
     const char* modelPathCstr    = env->GetStringUTFChars(modelPath, &isCopy);
     auto*       llmInference     = new LLMInference();
@@ -21,7 +21,7 @@ Java_io_aatricks_llmedge_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring mod
 
     try {
         llmInference->loadModel(modelPathCstr, minP, temperature, storeChats, contextSize, chatTemplateCstr, nThreads,
-                                useMmap, useMlock, useVulkan);
+                                useMmap, useMlock, useVulkan, useFlashAttn);
     } catch (std::runtime_error& error) {
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
     }
@@ -102,6 +102,26 @@ Java_io_aatricks_llmedge_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong 
     } catch (std::runtime_error& error) {
         env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
         return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_aatricks_llmedge_SmolLM_completionLoopBatch(JNIEnv* env, jobject thiz, jlong modelPtr, jint maxTokens) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    try {
+        std::string response = llmInference->completionLoopBatch(maxTokens);
+        return env->NewStringUTF(response.c_str());
+    } catch (std::runtime_error& error) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
+        return nullptr;
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_SmolLM_setThreadAffinity(JNIEnv* env, jobject thiz, jlong modelPtr, jlong coreMask) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    if (llmInference) {
+        llmInference->setThreadAffinity(static_cast<uint64_t>(coreMask));
     }
 }
 

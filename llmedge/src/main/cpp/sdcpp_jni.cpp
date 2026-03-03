@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <algorithm>
 
+#include "jni_thread_cache.h"
+
 #if __has_include(<android/log.h>)
 #include <android/log.h>
 #else
@@ -133,21 +135,8 @@ SD_JNI_INTERNAL void sd_video_progress_wrapper(int step, int steps, float time, 
         return;
     }
 
-    JNIEnv* env = nullptr;
-    bool detach = false;
-    jint envStatus = handle->jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    if (envStatus == JNI_EDETACHED) {
-#if defined(__ANDROID__)
-        if (handle->jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-#else
-        if (handle->jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) != JNI_OK) {
-#endif
-            return;
-        }
-        detach = true;
-    } else if (envStatus != JNI_OK) {
-        return;
-    }
+    JNIEnv* env = jni_thread_cache_get_env();
+    if (!env) return;
 
     const int totalFrames = handle->totalFrames > 0 ? handle->totalFrames : 1;
     // For video sampling, stable-diffusion.cpp reports progress per sampling step over the
@@ -176,10 +165,6 @@ SD_JNI_INTERNAL void sd_video_progress_wrapper(int step, int steps, float time, 
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
-    }
-
-    if (detach) {
-        handle->jvm->DetachCurrentThread();
     }
 }
 
@@ -423,6 +408,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
                  handle->t5_ctx = t5;
                  if (env) {
                      env->GetJavaVM(&handle->jvm);
+                     jni_thread_cache_init(handle->jvm);
                  }
                  ALOGI("T5-only context created successfully");
 
@@ -454,6 +440,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     handle->ctx = ctx;
     if (env) {
         env->GetJavaVM(&handle->jvm);
+        jni_thread_cache_init(handle->jvm);
     }
     return reinterpret_cast<jlong>(handle);
 }
@@ -493,6 +480,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
     jint steps, jfloat cfg, jlong seed,
+    jboolean jVaeTiling,
     jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
     if (handlePtr == 0) {
@@ -524,6 +512,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
     gen.sample_params = sample;
     gen.seed = seed;
     gen.batch_count = 1;
+    gen.vae_tiling_params.enabled = jVaeTiling ? true : false;
     gen.easycache.enabled = jEasyCacheEnabled ? true : false;
     gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
     gen.easycache.start_percent = (float)jEasyCacheStartPercent;
@@ -1340,6 +1329,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback(
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
     if (!handle->jvm && env) {
         env->GetJavaVM(&handle->jvm);
+        jni_thread_cache_init(handle->jvm);
     }
 
     if (!progressCallback) {
