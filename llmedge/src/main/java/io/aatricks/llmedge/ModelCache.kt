@@ -48,6 +48,9 @@ class ModelCache<T : AutoCloseable>(
     // LinkedHashMap with access-order for LRU
     private val cache = LinkedHashMap<String, CacheEntry<T>>(16, 0.75f, true)
 
+    // Running total of cached bytes to avoid O(n) sumOf on every put/evict/query
+    private var totalCachedBytes: Long = 0L
+
     // Statistics
     private var hits = 0
     private var misses = 0
@@ -88,6 +91,7 @@ class ModelCache<T : AutoCloseable>(
 
         // Remove existing entry if present
         cache[key]?.let { oldEntry ->
+            totalCachedBytes -= oldEntry.sizeBytes
             try {
                 oldEntry.model.close()
             } catch (e: Exception) {
@@ -104,6 +108,7 @@ class ModelCache<T : AutoCloseable>(
                 )
 
         cache[key] = entry
+        totalCachedBytes += sizeBytes
         Log.i(TAG, "Cached '$key' (${sizeBytes / 1024 / 1024}MB, loaded in ${loadTimeMs}ms)")
         logStats()
     }
@@ -112,7 +117,7 @@ class ModelCache<T : AutoCloseable>(
     private fun shouldEvict(newSizeBytes: Long): Boolean {
         if (cache.size >= maxCacheSize) return true
 
-        val currentMemoryMB = cache.values.sumOf { it.sizeBytes } / 1024 / 1024
+        val currentMemoryMB = totalCachedBytes / 1024 / 1024
         val newMemoryMB = currentMemoryMB + (newSizeBytes / 1024 / 1024)
 
         // If we have a system memory provider, be conservative and cap cache size to a fraction
@@ -142,6 +147,7 @@ class ModelCache<T : AutoCloseable>(
         val lruEntry = cache.remove(lruKey)
 
         lruEntry?.let { entry ->
+            totalCachedBytes -= entry.sizeBytes
             try {
                 entry.model.close()
                 evictions++
@@ -168,6 +174,7 @@ class ModelCache<T : AutoCloseable>(
             }
         }
         cache.clear()
+        totalCachedBytes = 0L
         hits = 0
         misses = 0
         evictions = 0
@@ -178,6 +185,7 @@ class ModelCache<T : AutoCloseable>(
     fun remove(key: String): Boolean {
         val entry = cache.remove(key)
         if (entry != null) {
+            totalCachedBytes -= entry.sizeBytes
             try {
                 entry.model.close()
                 Log.i(TAG, "Removed '$key' from cache")
@@ -192,7 +200,7 @@ class ModelCache<T : AutoCloseable>(
     /** Get cache statistics */
     @Synchronized
     fun getStats(): CacheStats {
-        val totalSize = cache.values.sumOf { it.sizeBytes } / 1024 / 1024
+        val totalSize = totalCachedBytes / 1024 / 1024
         return CacheStats(
                 entries = cache.size,
                 totalSizeMB = totalSize,
@@ -211,7 +219,7 @@ class ModelCache<T : AutoCloseable>(
     /** Get current cache size in MB */
     @Synchronized
     fun getCurrentSizeMB(): Long {
-        return cache.values.sumOf { it.sizeBytes } / 1024 / 1024
+        return totalCachedBytes / 1024 / 1024
     }
 
     /** Check if key exists in cache */

@@ -9,6 +9,15 @@ import android.util.Log
 object FlashAttentionHelper {
     private const val TAG = "FlashAttentionHelper"
 
+    // Cache Vulkan availability to avoid expensive JNI query on every call
+    private val hasVulkanSupport: Boolean by lazy {
+        try {
+            StableDiffusion.getVulkanDeviceCount() > 0
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /**
      * Determines if flash attention should be enabled for image generation
      *
@@ -40,13 +49,8 @@ object FlashAttentionHelper {
         val isDivisible = seqLen % 256 == 0
         val isLongEnough = seqLen >= 512
 
-        // Check Vulkan availability
-        val hasVulkan =
-                try {
-                    StableDiffusion.getVulkanDeviceCount() > 0
-                } catch (e: Exception) {
-                    false
-                }
+        // Check Vulkan availability (cached)
+        val hasVulkan = hasVulkanSupport
 
         val shouldUse = isDivisible && isLongEnough && hasVulkan
 

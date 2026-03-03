@@ -10,6 +10,7 @@ import java.io.File
 object CpuTopology {
     private const val TAG = "CpuTopology"
     private const val CPU_BASE_PATH = "/sys/devices/system/cpu"
+    private val CPU_DIR_REGEX = Regex("cpu\\d+")
 
     /** Information about CPU core configuration */
     data class CoreInfo(
@@ -54,7 +55,7 @@ object CpuTopology {
         val cpuDirs =
                 cpuDir
                         .listFiles { file ->
-                            file.isDirectory && file.name.matches(Regex("cpu\\d+"))
+                            file.isDirectory && file.name.matches(CPU_DIR_REGEX)
                         }
                         ?.sortedBy { it.name }
                         ?: emptyList()

@@ -87,61 +87,51 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                     false
                 }
 
+        // Cache reflected Log methods to avoid Class.forName + getMethod on every call
+        private val cachedLogD: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("d", String::class.java, String::class.java) } catch (_: Throwable) { null }
+        }
+        private val cachedLogI: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("i", String::class.java, String::class.java) } catch (_: Throwable) { null }
+        }
+        private val cachedLogW: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("w", String::class.java, String::class.java) } catch (_: Throwable) { null }
+        }
+        private val cachedLogE: java.lang.reflect.Method? by lazy {
+            try { Class.forName("android.util.Log").getMethod("e", String::class.java, String::class.java, Throwable::class.java) } catch (_: Throwable) { null }
+        }
+
         private fun logD(tag: String, message: String) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val dMethod = logClass.getMethod("d", String::class.java, String::class.java)
-                    dMethod.invoke(null, tag, message)
-                } catch (t: Throwable) {
-                    println("D/$tag: $message")
-                }
+            val method = cachedLogD
+            if (method != null) {
+                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("D/$tag: $message") }
             } else {
                 println("D/$tag: $message")
             }
         }
 
         private fun logI(tag: String, message: String) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val iMethod = logClass.getMethod("i", String::class.java, String::class.java)
-                    iMethod.invoke(null, tag, message)
-                } catch (t: Throwable) {
-                    println("I/$tag: $message")
-                }
+            val method = cachedLogI
+            if (method != null) {
+                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("I/$tag: $message") }
             } else {
                 println("I/$tag: $message")
             }
         }
 
         private fun logW(tag: String, message: String) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val wMethod = logClass.getMethod("w", String::class.java, String::class.java)
-                    wMethod.invoke(null, tag, message)
-                } catch (t: Throwable) {
-                    println("W/$tag: $message")
-                }
+            val method = cachedLogW
+            if (method != null) {
+                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("W/$tag: $message") }
             } else {
                 println("W/$tag: $message")
             }
         }
 
         private fun logE(tag: String, message: String, throwable: Throwable? = null) {
-            if (isAndroidLogAvailable) {
-                try {
-                    val logClass = Class.forName("android.util.Log")
-                    val eMethod =
-                            logClass.getMethod(
-                                    "e",
-                                    String::class.java,
-                                    String::class.java,
-                                    Throwable::class.java
-                            )
-                    eMethod.invoke(null, tag, message, throwable)
-                } catch (t: Throwable) {
+            val method = cachedLogE
+            if (method != null) {
+                try { method.invoke(null, tag, message, throwable) } catch (_: Throwable) {
                     System.err.println("E/$tag: $message")
                     throwable?.printStackTrace()
                 }
@@ -701,11 +691,11 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         logD(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, queryLength=${query.length}")
         nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
         var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-        var response = ""
+        val responseBuilder = StringBuilder()
         var tokensGenerated = 0
         
         while (piece != "[EOG]") {
-            response += piece
+            responseBuilder.append(piece)
             tokensGenerated++
             
             if (tokensGenerated % 10 == 0) {
@@ -725,6 +715,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         }
         
         nativeBridge.stopCompletion(this, nativePtr)
+        val response = responseBuilder.toString()
         logD(LOG_TAG, "getResponse: finished. Total length=${response.length}")
         return response
     }
