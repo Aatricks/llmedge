@@ -8,6 +8,7 @@ import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.File
 
@@ -39,27 +40,22 @@ class ToolCallingE2ETest {
             ))
             println("[ToolCallingE2ETest] Model loaded.")
 
-            // 3. Define a mock tool
+            // 3. Define real tools using the factory
+            val factory = DeviceToolFactory(RuntimeEnvironment.getApplication())
+            val batteryTool = factory.createGetBatteryStatusTool()
             var toolCalled = false
-            val weatherTool = Tool(
-                name = "get_weather",
-                description = "Get the current weather for a specific location.",
-                parameters = mapOf(
-                    "location" to ParameterDescription("string", "The city and state, e.g., San Francisco, CA")
-                ),
-                execute = { args ->
-                    toolCalled = true
-                    val location = args["location"] as? String ?: "Unknown"
-                    println("[ToolCallingE2ETest] Tool executed for location: $location")
-                    "The weather in $location is 72 degrees and sunny."
-                }
-            )
+            
+            // Wrap the tool to track if it was called
+            val wrappedBatteryTool = batteryTool.copy(execute = { args ->
+                toolCalled = true
+                batteryTool.execute(args)
+            })
 
             // 4. Create the agent
-            val agent = LLMAgent(smol, listOf(weatherTool))
+            val agent = LLMAgent(smol, listOf(wrappedBatteryTool))
 
             // 5. Run the chat
-            val query = "Check the weather in London right now."
+            val query = "What is my current battery level?"
             println("[ToolCallingE2ETest] Query: $query")
             
             val finalAnswer = agent.chat(query, maxSteps = 2)
@@ -68,8 +64,10 @@ class ToolCallingE2ETest {
 
             // 6. Assertions
             assertTrue("Tool should have been called", toolCalled)
-            assertTrue("Final answer should contain the weather info", finalAnswer.contains("72 degrees") || finalAnswer.contains("sunny"))
-            assertTrue("Final answer should mention London", finalAnswer.contains("London", ignoreCase = true))
+            assertTrue("Final answer should contain battery level", 
+                finalAnswer.contains("battery", ignoreCase = true) || 
+                finalAnswer.contains("%")
+            )
 
         } catch (e: Exception) {
             println("[ToolCallingE2ETest] Test failed: ${e.message}")

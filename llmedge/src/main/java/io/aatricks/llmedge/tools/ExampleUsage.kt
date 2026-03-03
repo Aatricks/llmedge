@@ -1,39 +1,43 @@
 package io.aatricks.llmedge.tools
 
+import android.content.Context
 import io.aatricks.llmedge.SmolLM
 import kotlinx.coroutines.runBlocking
 
 /**
- * Example usage of the LLMAgent with a custom tool.
+ * Example usage of the LLMAgent with real-world device tools.
  */
 object ExampleUsage {
 
-    @JvmStatic
-    fun main(args: Array<String>) = runBlocking {
-        // 1. Define a tool
-        val weatherTool = Tool(
-            name = "get_weather",
-            description = "Get the current weather for a specific location.",
-            parameters = mapOf(
-                "location" to ParameterDescription("string", "The city and state, e.g., San Francisco, CA")
-            ),
-            execute = { args ->
-                val location = args["location"] as? String ?: "Unknown"
-                // Simulate network call
-                "The weather in $location is 72 degrees and sunny."
-            }
+    /**
+     * Demonstrates how to initialize the agent with real-world device tools.
+     * Note: In a real Android app, this would be called from a ViewModel or Activity
+     * where the 'context' and 'smolLM' are available.
+     */
+    fun setupAgent(context: Context, smolLM: SmolLM): LLMAgent {
+        // 1. Initialize the DeviceToolFactory
+        val factory = DeviceToolFactory(context)
+        
+        // 2. Create the list of real tools
+        val tools = listOf(
+            factory.createGetTimeTool(),
+            factory.createGetBatteryStatusTool(),
+            factory.createGetDeviceInfoTool(),
+            factory.createOpenBrowserTool()
         )
 
-        // 2. Initialize the LLM (in a real app, this would be a loaded SmolLM instance)
-        // val smolLM = SmolLM()
-        // smolLM.load(...)
+        // 3. Create the agent with the SmolLM instance and tools
+        return LLMAgent(smolLM, tools)
+    }
+
+    // Example of running the agent
+    fun runExample(context: Context, smolLM: SmolLM) = runBlocking {
+        val agent = setupAgent(context, smolLM)
         
-        /*
-        val agent = LLMAgent(smolLM, listOf(weatherTool))
-        
-        // 3. Chat with the agent
-        val finalAnswer = agent.chat("What's the weather in London?")
-        println("Final Answer: $finalAnswer")
-        */
+        // The LLM can now answer questions like:
+        // "What time is it and how much battery do I have left?"
+        // "Open google.com for me"
+        val response = agent.chat("What's my current battery level?")
+        println("Agent Response: $response")
     }
 }
