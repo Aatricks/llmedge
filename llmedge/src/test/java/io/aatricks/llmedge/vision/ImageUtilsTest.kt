@@ -32,11 +32,22 @@ class ImageUtilsTest {
     fun `preprocessImage scales down oversized images`() {
         val source = Bitmap.createBitmap(2000, 1000, Bitmap.Config.ARGB_8888)
 
-        val scaled = ImageUtils.preprocessImage(source, maxDimension = 1000)
+        val scaled = ImageUtils.preprocessBitmap(source, maxDimension = 1000)
 
         assertEquals(1000, scaled.width)
         assertEquals(500, scaled.height)
         assertTrue(scaled.width <= 1000)
         assertTrue(scaled.height <= 1000)
+    }
+
+    @Test
+    fun `source-aware preprocessImage delegates through image source helpers`() = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val source = ImageSource.BitmapSource(Bitmap.createBitmap(2000, 1000, Bitmap.Config.ARGB_8888))
+
+        val scaled = ImageUtils.preprocessImage(context, source, maxDimension = 1000)
+
+        assertEquals(1000, scaled.width)
+        assertEquals(500, scaled.height)
     }
 }

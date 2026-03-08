@@ -112,12 +112,7 @@ class ImageClient internal constructor(
                 )
             activeModel = model
             try {
-                val easyCache =
-                    if (model.isEasyCacheSupported()) {
-                        params.easyCache.copy(enabled = true)
-                    } else {
-                        params.easyCache.copy(enabled = false)
-                    }
+                val easyCache = resolveEasyCache(model, params.easyCache)
                 model.txt2img(
                     StableDiffusion.GenerateParams(
                         prompt = params.prompt,
@@ -225,12 +220,7 @@ class ImageClient internal constructor(
             )
         activeModel = model
         try {
-            val easyCache =
-                if (model.isEasyCacheSupported()) {
-                    params.easyCache.copy(enabled = true)
-                } else {
-                    params.easyCache.copy(enabled = false)
-                }
+            val easyCache = resolveEasyCache(model, params.easyCache)
             return model.txt2vid(
                 params =
                     StableDiffusion.VideoGenerateParams(
@@ -335,6 +325,7 @@ class ImageClient internal constructor(
             )
         activeModel = diffusionModel
         try {
+            val easyCache = resolveEasyCache(diffusionModel, params.easyCache)
             return diffusionModel.txt2VidWithPrecomputedCondition(
                 params =
                     StableDiffusion.VideoGenerateParams(
@@ -350,7 +341,7 @@ class ImageClient internal constructor(
                         strength = params.strength,
                         sampleMethod = params.sampleMethod,
                         scheduler = params.scheduler,
-                        easyCacheParams = params.easyCache,
+                        easyCacheParams = easyCache,
                     ),
                 cond = cond,
                 uncond = uncond,
@@ -392,6 +383,16 @@ class ImageClient internal constructor(
             "Sequential video generation requires a text encoder model."
         }
     }
+
+    private fun resolveEasyCache(
+        model: StableDiffusion,
+        requested: StableDiffusion.EasyCacheParams,
+    ): StableDiffusion.EasyCacheParams =
+        if (model.isEasyCacheSupported()) {
+            requested.copy(enabled = true)
+        } else {
+            requested.copy(enabled = false)
+        }
 
     override fun close() {
         cancelGeneration()

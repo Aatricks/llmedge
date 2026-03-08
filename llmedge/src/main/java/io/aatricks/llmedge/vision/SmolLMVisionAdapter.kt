@@ -17,8 +17,8 @@
 package io.aatricks.llmedge.vision
 
 import android.content.Context
-import android.util.Log
 import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -72,16 +72,16 @@ class SmolLMVisionAdapter(
             hasVisionSupport = checkVisionSupport(modelPath)
             
             if (hasVisionSupport) {
-                Log.d(TAG, "Loaded vision model: $modelPath")
+                AndroidLogAdapter.d(TAG, "Loaded vision model: $modelPath")
                 if (mmprojPath != null) {
-                    Log.d(TAG, "With mmproj: $mmprojPath")
+                    AndroidLogAdapter.d(TAG, "With mmproj: $mmprojPath")
                 }
             } else {
-                Log.w(TAG, "Model does not appear to support vision: $modelPath")
+                AndroidLogAdapter.w(TAG, "Model does not appear to support vision: $modelPath")
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load vision model", e)
+            AndroidLogAdapter.e(TAG, "Failed to load vision model", e)
             throw e
         }
     }
@@ -112,10 +112,10 @@ class SmolLMVisionAdapter(
             val metaFile = File(embdFile.absolutePath + ".meta.json")
             val response: String
             if (embdFile.exists() && metaFile.exists()) {
-                Log.d(TAG, "Found prepared embeddings, decoding into model: ${embdFile.absolutePath}")
+                AndroidLogAdapter.d(TAG, "Found prepared embeddings, decoding into model: ${embdFile.absolutePath}")
                 val ok = smolLM.decodePreparedEmbeddings(embdFile.absolutePath, metaFile.absolutePath, params.nBatch ?: 1)
                 if (!ok) {
-                    Log.w(TAG, "decodePreparedEmbeddings failed, falling back to text-only prompt")
+                    AndroidLogAdapter.w(TAG, "decodePreparedEmbeddings failed, falling back to text-only prompt")
                     response = smolLM.getResponse(visionPrompt, params.maxTokens)
                 } else {
                     // After embeddings are decoded into KV cache, call getResponse with the prompt
@@ -142,7 +142,7 @@ class SmolLMVisionAdapter(
             )
             
         } catch (e: Exception) {
-            Log.e(TAG, "Vision analysis failed", e)
+            AndroidLogAdapter.e(TAG, "Vision analysis failed", e)
             throw Exception("Vision analysis failed: ${e.message}", e)
         }
     }

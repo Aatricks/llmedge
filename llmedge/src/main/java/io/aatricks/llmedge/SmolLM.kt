@@ -21,6 +21,7 @@ import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.InvalidModelStateException
 import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeCall
+import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.AndroidLogAdapter
@@ -191,15 +192,14 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             }
         }
 
-        @Volatile
-        private var nativeBridgeProvider: (SmolLM) -> NativeBridge = defaultNativeBridgeProvider
+        private val nativeBridgeProvider = NativeBridgeProvider(defaultNativeBridgeProvider)
 
         internal fun overrideNativeBridgeForTests(provider: (SmolLM) -> NativeBridge) {
-            nativeBridgeProvider = provider
+            nativeBridgeProvider.override(provider)
         }
 
         internal fun resetNativeBridgeForTests() {
-            nativeBridgeProvider = defaultNativeBridgeProvider
+            nativeBridgeProvider.reset()
         }
 
         internal fun createLoadedForTests(
@@ -215,7 +215,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     }
 
     private var nativePtr = 0L
-    private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider(this)
+    private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider.create(this)
     private var useVulkanGPU = true
     private var currentThinkingMode = ThinkingMode.DEFAULT
     private var currentReasoningBudget = DEFAULT_REASONING_BUDGET

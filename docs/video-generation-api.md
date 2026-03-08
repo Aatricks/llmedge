@@ -825,7 +825,7 @@ val job = CoroutineScope(Dispatchers.IO).launch {
 
 ### EasyCache (for supported models)
 
-For supported models (e.g., DiT architectures like Flux/SD3), EasyCache can significantly reduce generation time by reusing intermediate diffusion steps. `edge.image` automatically detects and enables EasyCache if the loaded model supports it.
+For supported DiT models (for example Flux, SD3, Wan, Qwen Image, and Z-Image), EasyCache can significantly reduce generation time by reusing intermediate diffusion steps. `edge.image` automatically enables it across image generation, direct video generation, and sequential video generation when the loaded model supports it.
 
 If using the low-level `StableDiffusion` API, you can enable EasyCache via `VideoGenerateParams`:
 

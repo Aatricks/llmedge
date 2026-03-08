@@ -87,6 +87,10 @@ object SmolLMJavaCompat {
 
         fun setMinP(v: Float) = apply { minP = v }
         fun setTemperature(v: Float) = apply { temperature = v }
+        @Deprecated(
+            message = "Prefer edge.text.session(...) or leave storeChats disabled in new code; native storeChats is kept for targeted compatibility flows.",
+            replaceWith = ReplaceWith("this"),
+        )
         fun setStoreChats(v: Boolean) = apply { storeChats = v }
         fun setContextSize(v: Long?) = apply { contextSize = v }
         fun setChatTemplate(v: String?) = apply { chatTemplate = v }

@@ -1,0 +1,96 @@
+# Bark.cpp JNI wrapper build (Text-to-Speech)
+# Build bark, encodec, and their ggml sources directly without add_subdirectory
+# to avoid target name conflicts with stable-diffusion.cpp's ggml.
+
+option(LLMEDGE_BARK_AGGRESSIVE_ARM_OPT "Enable aggressive ARM tuning flags for Bark (may reduce correctness/compatibility)" OFF)
+
+get_filename_component(BARK_DIR "${LLMEDGE_CPP_ROOT}/../../../../bark.cpp" ABSOLUTE)
+
+if (NOT EXISTS "${BARK_DIR}/bark.h")
+        message(FATAL_ERROR "bark.cpp headers not found at ${BARK_DIR}. Please ensure bark.cpp is cloned.")
+endif()
+
+set(BARK_ENCODEC_DIR ${BARK_DIR}/encodec.cpp)
+set(BARK_GGML_DIR ${BARK_ENCODEC_DIR}/ggml)
+
+set(BARK_GGML_SOURCES
+        ${BARK_GGML_DIR}/src/ggml.c
+        ${BARK_GGML_DIR}/src/ggml-alloc.c
+        ${BARK_GGML_DIR}/src/ggml-backend.cpp
+        ${BARK_GGML_DIR}/src/ggml-quants.c
+        ${BARK_GGML_DIR}/src/ggml-aarch64.c
+)
+
+set(ENCODEC_SOURCES
+        ${BARK_ENCODEC_DIR}/encodec.cpp
+        ${BARK_ENCODEC_DIR}/ops.cpp
+)
+
+set(BARK_SOURCES
+        ${BARK_DIR}/bark.cpp
+)
+
+set(BARK_JNI_ALL_SOURCES
+        ${BARK_GGML_SOURCES}
+        ${ENCODEC_SOURCES}
+        ${BARK_SOURCES}
+        ${LLMEDGE_CPP_ROOT}/bark_jni.cpp
+)
+
+add_library(bark_jni SHARED ${BARK_JNI_ALL_SOURCES})
+
+target_include_directories(bark_jni
+        PRIVATE
+        ${BARK_DIR}
+        ${BARK_ENCODEC_DIR}
+        ${BARK_GGML_DIR}/include
+        ${BARK_GGML_DIR}/src
+)
+
+target_compile_definitions(bark_jni
+        PRIVATE
+        GGML_COMMIT=""
+        GGML_VERSION=""
+        EXPORTING_BARK
+        GGML_USE_CPU
+)
+
+target_compile_features(bark_jni PUBLIC c_std_11 cxx_std_17)
+
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+        target_compile_options(bark_jni PRIVATE -march=armv8-a)
+
+        if (LLMEDGE_BARK_AGGRESSIVE_ARM_OPT)
+                target_compile_options(bark_jni PRIVATE
+                        -march=armv8.4-a+dotprod+fp16
+                        -mtune=cortex-a78
+                        -ffp-contract=fast
+                        -fno-signed-zeros
+                        -fno-trapping-math
+                        -freciprocal-math
+                )
+        endif()
+elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
+        target_compile_options(bark_jni PRIVATE -mfpu=neon-vfpv4)
+endif()
+
+target_compile_options(bark_jni PUBLIC
+        -fvisibility=hidden
+        -fvisibility-inlines-hidden
+        -ffunction-sections
+        -fdata-sections
+        -O3
+        -fopenmp
+        -funroll-loops
+)
+
+target_compile_definitions(bark_jni PRIVATE GGML_USE_OPENMP)
+
+target_link_libraries(bark_jni
+        android log
+        -fopenmp -static-openmp
+)
+
+target_link_options(bark_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+
+message(STATUS "Bark.cpp JNI wrapper configured (direct source build with OpenMP)")

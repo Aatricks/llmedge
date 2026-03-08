@@ -339,7 +339,7 @@ imageView.setImageBitmap(bitmap)
 ```
 
 **Key Optimizations:**
-- **EasyCache**: Automatically detected and enabled for supported models (like Flux/Wan), speeding up generation by reusing intermediate diffusion states.
+- **EasyCache**: `edge.image` automatically enables EasyCache for supported Diffusion Transformer (DiT) models such as Flux, SD3, Wan, Qwen Image, and Z-Image; it stays disabled for classic UNet pipelines.
 - **Flash Attention**: Automatically enabled for compatible image dimensions.
 - **LoRA**: Apply fine-tuned weights on the fly without merging models.
 
@@ -481,13 +481,14 @@ To build the library with Vulkan support on a Linux host or WSL2, you must insta
    Ensure you have Android NDK **r27** (specifically `27.2.12479018`) installed via Android Studio or the SDK manager.
 
 Build flags
+- On Linux/macOS hosts, the Gradle build enables Vulkan by default. On Windows hosts, it defaults to `OFF` because the upstream shader-generator step is still fragile under the Android cross-build toolchain. Re-enable it explicitly only when your environment supports that path.
 - Enable Vulkan at CMake configure time using Gradle external native build arguments. For example (bash/fish):
 
 ```bash
 ./gradlew :llmedge:assembleRelease -Pandroid.injected.build.api=30 -Pandroid.jniCmakeArgs="-DSD_VULKAN=ON -DGGML_VULKAN=ON"
 ```
 
-Alternatively, set these flags in `llmedge/src/main/cpp/CMakeLists.txt` or in your Android Studio CMake configuration. The important flags are `-DSD_VULKAN=ON` and `-DGGML_VULKAN=ON` so ggml's Vulkan backend and the Stable Diffusion integration compile with Vulkan support.
+Alternatively, set these flags in your Android Studio CMake configuration. The important flags are `-DSD_VULKAN=ON` and `-DGGML_VULKAN=ON` so ggml's Vulkan backend and the Stable Diffusion integration compile with Vulkan support.
 
 Notes about headers and toolchain
 - The build fetches `Vulkan-Hpp` (`vulkan.hpp`) and pins it to the NDK's Vulkan headers to avoid API mismatch. If you have a local `VULKAN_SDK` you can point to it, otherwise the project will use the fetched headers.

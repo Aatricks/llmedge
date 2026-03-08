@@ -31,9 +31,8 @@ internal class VisionPipeline(
 
                     try {
                         val scaled =
-                            ImageUtils.preprocessImage(
+                            ImageUtils.preprocessBitmap(
                                 request.image,
-                                correctOrientation = true,
                                 maxDimension = 672,
                                 enhance = false,
                             )
@@ -71,7 +70,7 @@ internal class VisionPipeline(
                             SmolLM.InferenceParams(
                                 numThreads = 2,
                                 contextSize = 4096L,
-                                storeChats = true,
+                                storeChats = false,
                                 temperature = 0.6f,
                                 thinkingMode = SmolLM.ThinkingMode.DISABLED,
                             ),

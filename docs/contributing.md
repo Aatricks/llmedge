@@ -300,6 +300,11 @@ rm -rf llmedge/.cxx
 ./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs="-DGGML_VULKAN=ON -DSD_VULKAN=ON"
 ```
 
+On Linux/macOS hosts the Gradle build enables Vulkan by default. On Windows hosts it now defaults
+to `OFF` because the upstream shader-generator step is still fragile under the Android cross-build
+toolchain; opt back in explicitly with `-DGGML_VULKAN=ON -DSD_VULKAN=ON` only when that path is
+known to work in your environment.
+
 ### Debugging Native Code
 
 1. **Build debug variant:**

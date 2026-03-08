@@ -48,7 +48,7 @@ val bitmap = edge.image.generate(
 
 **Key Optimizations for Image Generation:**
 
-- **EasyCache**: Automatically enabled by `edge.image` for supported Diffusion Transformer (DiT) models (e.g., Flux, Wan), significantly accelerating generation by reusing intermediate diffusion states. It is disabled for UNet-based models (like SD 1.5).
+- **EasyCache**: Automatically enabled by `edge.image` for supported Diffusion Transformer (DiT) models such as Flux, SD3, Wan, Qwen Image, and Z-Image. It remains disabled for classic UNet-based pipelines such as SD 1.5/SDXL.
 - **LoRA Support**: `ImageGenerationRequest` accepts `loraModelDir` and `loraApplyMode` for on-the-fly fine-tuning.
 - **Flash Attention**: Automatically enabled for compatible image dimensions.
 
@@ -358,12 +358,11 @@ val whisper = Whisper.load(
 )
 
 // Configure transcription parameters
-val params = Whisper.TranscriptionParams(
+val params = Whisper.TranscribeParams(
     language = "en",           // null for auto-detect
     translate = false,         // translate to English
-    maxTokens = 0,             // 0 = no limit
-    speedUp = false,           // experimental 2x speedup
-    audioCtx = 0               // audio context size
+    tokenTimestamps = true,
+    beamSize = 1,
 )
 
 // Transcribe (16kHz mono PCM float32)
@@ -373,7 +372,7 @@ segments.forEach { segment ->
 }
 
 // Utility functions
-val srt = whisper.transcribeToSrt(audioSamples)
+val srt = whisper.generateSrt(segments)
 val lang = whisper.detectLanguage(audioSamples)
 val isMultilingual = whisper.isMultilingual()
 val modelType = whisper.getModelType()
@@ -396,18 +395,15 @@ import io.aatricks.llmedge.BarkTTS
 // Load model
 val tts = BarkTTS.load(
     modelPath = "/path/to/bark-small_weights-f16.bin",
-    useGpu = false
+    temperature = 0.7f,
+    fineTemperature = 0.5f,
 )
 
-// Generate audio with progress tracking
-val audio = tts.generate(
-    text = "Hello, world!",
-    onProgress = { step, progress ->
-        // step: SEMANTIC, COARSE, or FINE
-        // progress: 0.0 to 1.0
-        Log.d("Bark", "${step.name}: ${(progress * 100).toInt()}%")
-    }
-)
+tts.setProgressCallback { step, progress ->
+    Log.d("Bark", "${step.name}: $progress%")
+}
+
+val audio = tts.generate("Hello, world!", BarkTTS.GenerateParams(nThreads = 4))
 
 // AudioResult contains:
 // - samples: FloatArray (32-bit PCM)
@@ -489,12 +485,10 @@ See [StableDiffusionActivity example](examples.md#stablediffusionactivity) for c
 
 **Threading:**
 
-- For heavy CPU-bound native inference (StableDiffusion CPU generation, large LLM decoding), prefer `Dispatchers.Default` so work schedules onto CPU-optimized thread pool sized to the device cores.
-- For blocking calls that wait on I/O (downloads, filesystem access, or JNI calls that wait on network/IO), prefer `Dispatchers.IO`.
+- Route blocking JNI/native work through `Dispatchers.IO` (or the library inference dispatcher used by `LLMEdge`).
+- Reserve `Dispatchers.Default` for pure Kotlin/Java CPU work such as post-processing that does not block on JNI calls.
 - Update UI only via `withContext(Dispatchers.Main)`.
 - Call `.close()` in `onDestroy()` to free native memory.
-
-Note: Choosing the correct dispatcher depends on the workload. JNI calls that use CPU-bound native kernels (like `txt2img`) should use Default; calls that perform blocking I/O should use IO.
 
 **Optimization Strategies**:
 
@@ -503,7 +497,7 @@ Note: Choosing the correct dispatcher depends on the workload. JNI calls that us
 - Close model instances when not in use
 - Process images/video in batches with intermediate cleanup
 - **LLM chat memory**:
-  - Use `storeChats = true` for fast native KV-cache reuse in short or compact multi-turn chats.
+    - `storeChats` is deprecated but still available for tightly scoped low-level compatibility flows that intentionally keep chat state inside one native runtime.
   - Use `edge.text.session(...)` when you need bounded history replay or want to strip older reasoning traces before replay.
 
 **See also:**
@@ -544,9 +538,9 @@ Key methods:
 - `edge.speech.synthesizeStream(text, model?, params?, loadOptions?)` — stream speech generation events
 
 **Low-Level Speech API:**
-- `Whisper.load(modelPath: String, useGpu: Boolean)` — loads a Whisper model
+- `Whisper.load(modelPath: String, useGpu: Boolean, flashAttn: Boolean = true, gpuDevice: Int = 0)` — loads a Whisper model
 - `Whisper.loadFromHuggingFace(...)` — downloads and loads Whisper from HuggingFace
-- `Whisper.transcribe(samples: FloatArray, params: TranscriptionParams)` — transcribes audio
+- `Whisper.transcribe(samples: FloatArray, params: TranscribeParams)` — transcribes audio
 - `Whisper.detectLanguage(samples: FloatArray)` — detects spoken language
 - `Whisper.close()` — releases native resources
 - `BarkTTS.load(modelPath: String, ...)` — loads a Bark TTS model

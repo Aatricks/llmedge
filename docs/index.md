@@ -17,7 +17,7 @@ llmedge is a lightweight toolkit for running LLM inference, vision models, and m
 
 - **Image Generation**: Stable Diffusion integration for on-device image generation with:
 
-    - **EasyCache**: Automatically detected and enabled for supported models (DiT architecture) to accelerate generation.
+    - **EasyCache**: Automatically enabled by `edge.image` for supported DiT models (Flux, SD3, Wan, Qwen Image, Z-Image) to accelerate generation.
     - **LoRA Support**: Apply Low-Rank Adaptation models (e.g., for style transfer) with automatic downloading from Hugging Face.
 
 - **Video Generation**: Generate short video clips (4-64 frames) from text using Wan models with sequential loading for lower RAM usage.

@@ -17,15 +17,13 @@
 package io.aatricks.llmedge.vision.ocr
 
 import android.content.Context
-import android.graphics.Bitmap
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.vision.*
 import kotlinx.coroutines.tasks.await
-import java.io.File
-import android.util.Log
 
 /**
  * OCR engine implementation using Google ML Kit Text Recognition.
@@ -35,6 +33,9 @@ import android.util.Log
 class MlKitOcrEngine(
     private val context: Context
 ) : OcrEngine {
+    companion object {
+        private const val LOG_TAG = "MlKitOcrEngine"
+    }
     
     private var textRecognizer: TextRecognizer? = null
     
@@ -53,35 +54,30 @@ class MlKitOcrEngine(
         image: ImageSource,
         params: OcrParams
     ): OcrResult {
-        val TAG = "MlKitOcrEngine"
         val startTime = System.currentTimeMillis()
-        Log.d(TAG, "extractText: start, params=$params, source=${image.javaClass.simpleName}")
+        AndroidLogAdapter.d(LOG_TAG, "extractText: start, params=$params, source=${image.javaClass.simpleName}")
         
         try {
-            // Convert ImageSource to bitmap
             val bitmap = try {
-                ImageUtils.imageToBitmap(context, image)
+                if (params.enhance) {
+                    ImageUtils.preprocessImage(
+                        context = context,
+                        source = image,
+                        enhance = true,
+                    )
+                } else {
+                    ImageUtils.imageToBitmap(context, image)
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to convert ImageSource to Bitmap", e)
+                AndroidLogAdapter.e(LOG_TAG, "Failed to convert ImageSource to Bitmap", e)
                 throw e
             }
-            
-            // Preprocess if enhancement is requested
-            val processedBitmap = if (params.enhance) {
-                ImageUtils.preprocessImage(
-                    bitmap = bitmap,
-                    correctOrientation = true,
-                    enhance = true
-                )
-            } else {
-                bitmap
-            }
-            
+
             // Create InputImage for ML Kit
             val inputImage = try {
-                InputImage.fromBitmap(processedBitmap, 0)
+                InputImage.fromBitmap(bitmap, 0)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to create InputImage", e)
+                AndroidLogAdapter.e(LOG_TAG, "Failed to create InputImage", e)
                 throw e
             }
             
@@ -92,7 +88,7 @@ class MlKitOcrEngine(
             val result = try {
                 recognizer.process(inputImage).await()
             } catch (e: Exception) {
-                Log.e(TAG, "ML Kit recognizer.process failed", e)
+                AndroidLogAdapter.e(LOG_TAG, "ML Kit recognizer.process failed", e)
                 throw e
             }
             
@@ -125,7 +121,7 @@ class MlKitOcrEngine(
             }
             
             val duration = System.currentTimeMillis() - startTime
-            Log.d(TAG, "extractText: completed in ${duration}ms, textLength=${extractedText.length}")
+            AndroidLogAdapter.d(LOG_TAG, "extractText: completed in ${duration}ms, textLength=${extractedText.length}")
             
             return OcrResult(
                 text = extractedText,

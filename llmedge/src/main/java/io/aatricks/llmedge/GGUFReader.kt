@@ -19,6 +19,7 @@ package io.aatricks.llmedge
 import io.aatricks.llmedge.core.InvalidModelStateException
 import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeCall
+import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.AndroidLogAdapter
@@ -40,7 +41,7 @@ class GGUFReader : Closeable {
 
     companion object {
         private const val LOG_TAG = "GGUFReader"
-        private var testBridgeProvider: ((GGUFReader) -> NativeBridge)? = null
+        private val nativeBridgeProvider = NativeBridgeProvider<GGUFReader, NativeBridge> { DefaultNativeBridge() }
 
         init {
             NativeLibraryLoader.ensureGgufReaderLoaded(
@@ -51,16 +52,16 @@ class GGUFReader : Closeable {
         }
 
         internal fun overrideNativeBridgeForTests(provider: (GGUFReader) -> NativeBridge) {
-            testBridgeProvider = provider
+            nativeBridgeProvider.override(provider)
         }
 
         internal fun resetNativeBridgeForTests() {
-            testBridgeProvider = null
+            nativeBridgeProvider.reset()
         }
     }
 
     private var nativeHandle: Long = 0L
-    private val nativeBridge: NativeBridge = testBridgeProvider?.invoke(this) ?: DefaultNativeBridge()
+    private val nativeBridge: NativeBridge = nativeBridgeProvider.create(this)
 
     suspend fun load(modelPath: String) =
         withContext(Dispatchers.IO) {

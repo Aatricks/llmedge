@@ -243,4 +243,284 @@ class ImageClientTest {
             StableDiffusion.resetNativeBridgeForTests()
         }
     }
+
+    @Test
+    fun `image generation auto-enables easycache for supported models`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile = java.io.File.createTempFile("flux-model", ".gguf", context.filesDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val easyCacheFlags = mutableListOf<Boolean>()
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray {
+                    easyCacheFlags += easyCacheEnabled
+                    return ByteArray(width * height * 3) { 0x7F }
+                }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = null
+
+                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
+                override fun cancelGeneration(handle: Long) = Unit
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
+            }
+        }
+
+        coEvery {
+            StableDiffusion.load(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+            )
+        } coAnswers {
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L).apply {
+                updateModelMetadata(
+                    StableDiffusion.VideoModelMetadata(
+                        architecture = "Flux",
+                        modelType = null,
+                        parameterCount = null,
+                        mobileSupported = true,
+                        tags = setOf("flux"),
+                        filename = modelFile.name,
+                    ),
+                )
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelResolver(),
+            )
+
+        try {
+            val bitmap =
+                client.generate(
+                    ImageGenerationRequest(
+                        prompt = "test prompt",
+                        width = 64,
+                        height = 64,
+                        model = ModelSpec.localFile(modelFile),
+                    ),
+                )
+
+            assertEquals(64, bitmap.width)
+            assertEquals(64, bitmap.height)
+            assertEquals(listOf(true), easyCacheFlags)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `sequential video generation auto-enables easycache for supported models`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val modelFile = java.io.File.createTempFile("wan-model", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val vaeFile = java.io.File.createTempFile("wan-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val t5File = java.io.File.createTempFile("umt5", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val easyCacheFlags = mutableListOf<Boolean>()
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray = ByteArray(width * height * 3) { 0 }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = null
+
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition =
+                    StableDiffusion.PrecomputedCondition(
+                        cCrossAttn = floatArrayOf(1.0f),
+                        cCrossAttnDims = intArrayOf(1, 1),
+                        cVector = floatArrayOf(1.0f),
+                        cVectorDims = intArrayOf(1, 1),
+                        cConcat = floatArrayOf(1.0f),
+                        cConcatDims = intArrayOf(1, 1),
+                    )
+
+                override fun txt2vidWithPrecomputedCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    cond: StableDiffusion.PrecomputedCondition?,
+                    uncond: StableDiffusion.PrecomputedCondition?,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray> {
+                    easyCacheFlags += easyCacheEnabled
+                    return Array(videoFrames) { ByteArray(width * height * 3) { 5 } }
+                }
+
+                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        coEvery {
+            StableDiffusion.load(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L).apply {
+                val modelPathArg = callArgs[3] as String?
+                val metadata =
+                    if (modelPathArg == modelFile.absolutePath) {
+                        StableDiffusion.VideoModelMetadata(
+                            architecture = "Wan 2.1 T2V",
+                            modelType = null,
+                            parameterCount = "1.3B",
+                            mobileSupported = true,
+                            tags = setOf("wan-model"),
+                            filename = modelFile.name,
+                        )
+                    } else {
+                        StableDiffusion.VideoModelMetadata(
+                            architecture = "text-encoder",
+                            modelType = null,
+                            parameterCount = null,
+                            mobileSupported = true,
+                            tags = emptySet(),
+                            filename = t5File.name,
+                        )
+                    }
+                updateModelMetadata(metadata)
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelResolver(),
+            )
+
+        try {
+            client.generateVideo(
+                VideoGenerationRequest(
+                    prompt = "test prompt",
+                    width = 256,
+                    height = 256,
+                    videoFrames = 5,
+                    steps = 20,
+                    forceSequentialLoad = true,
+                    model = ModelSpec.localFile(modelFile),
+                    vae = ModelSpec.localFile(vaeFile),
+                    textEncoder = ModelSpec.localFile(t5File),
+                ),
+            ).collect()
+
+            assertEquals(listOf(true), easyCacheFlags)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
 }

@@ -17,6 +17,17 @@ internal object StableDiffusionMetadataSupport {
             "i2v",
             "ti2v",
         )
+    private val easyCacheKeywords =
+        setOf(
+            "flux",
+            "sd3",
+            "wan",
+            "qwen-image",
+            "qwen_image",
+            "qwen image",
+            "z-image",
+            "z_image",
+        )
 
     fun inferVideoModelMetadata(
         resolvedModelPath: String,
@@ -108,5 +119,19 @@ internal object StableDiffusionMetadataSupport {
     private fun containsKeyword(value: String): Boolean {
         if (value.isEmpty()) return false
         return videoKeywords.any { keyword -> value.contains(keyword) }
+    }
+
+    fun supportsEasyCache(metadata: StableDiffusion.VideoModelMetadata): Boolean {
+        val candidates =
+            listOf(
+                metadata.architecture,
+                metadata.modelType,
+                metadata.filename,
+            ) + metadata.tags
+
+        return candidates
+            .filterNotNull()
+            .map { it.lowercase(Locale.US) }
+            .any { candidate -> easyCacheKeywords.any(candidate::contains) }
     }
 }

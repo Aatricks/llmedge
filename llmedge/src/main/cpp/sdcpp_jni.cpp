@@ -467,11 +467,16 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlo
 extern "C" JNIEXPORT jboolean JNICALL
 Java_io_aatricks_llmedge_StableDiffusion_nativeIsEasyCacheSupported(JNIEnv* env, jobject, jlong handlePtr) {
     (void)env;
-    (void)handlePtr;
-    // Upstream stable-diffusion.cpp does not expose a public C API to query EasyCache
-    // support. The generation APIs will internally enable/disable based on model type.
-    // Return false conservatively to prevent callers from assuming support.
-    return JNI_FALSE;
+    if (handlePtr == 0) {
+        return JNI_FALSE;
+    }
+    auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    if (!handle->ctx) {
+        return JNI_FALSE;
+    }
+    // stable-diffusion.cpp selects Euler as the default sampler for DiT models and Euler A for
+    // classic UNet pipelines. EasyCache follows the same DiT-only split.
+    return sd_get_default_sample_method(handle->ctx) == EULER_SAMPLE_METHOD ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
