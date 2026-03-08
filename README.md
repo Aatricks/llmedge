@@ -9,6 +9,9 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 > [!NOTE]
 > This library is in early development and may change significantly.
 
+> [!IMPORTANT]
+> API maturity is uneven by feature area. `LLMEdge`, text inference, speech inference, and model management are the most stable entry points today. Vision, RAG, and some image/video-generation flows are available and tested, but should still be treated as evolving APIs.
+
 ---
 
 ## Features

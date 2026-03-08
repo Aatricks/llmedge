@@ -161,14 +161,7 @@ class SmolLMVisionAdapter(
      * This is a placeholder that will read actual model metadata.
      */
     private fun checkVisionSupport(modelPath: String): Boolean {
-        val modelName = File(modelPath).name.lowercase()
-        
-        // Simple heuristic based on known vision model names
-        // Will be replaced with proper metadata checking
-        return modelName.contains("llava") || 
-               modelName.contains("vision") ||
-               modelName.contains("clip") ||
-               modelName.contains("multimodal")
+        return VisionPromptSupport.appearsVisionCapable(modelPath)
     }
     
     /**
@@ -176,23 +169,7 @@ class SmolLMVisionAdapter(
      * Different models may require different formats.
      */
     private fun formatVisionPrompt(prompt: String, imageFile: File): String {
-        // If the prompt already contains high-level SYSTEM / OCR markers (our augmented prompt)
-        // treat it as a full prompt and return it unchanged to avoid double-wrapping.
-        val normalized = prompt.trimStart()
-        if (normalized.startsWith("SYSTEM:") || 
-            normalized.contains("OCR_TEXT_START") || 
-            normalized.contains("EXAMPLES:") ||
-            normalized.startsWith("<|user|>")) { // Allow ChatML formatting
-            return prompt
-        }
-
-        // Default lightweight wrapper when prompt is a simple user query
-        return """
-            [Image: ${imageFile.absolutePath}]
-
-            User: $prompt
-            Assistant:
-        """.trimIndent()
+        return VisionPromptSupport.formatVisionPrompt(prompt, imageFile)
     }
     
     /**
@@ -200,7 +177,7 @@ class SmolLMVisionAdapter(
      * Rough approximation: ~4 characters per token.
      */
     private fun estimateTokens(text: String): Int {
-        return (text.length / 4).coerceAtLeast(1)
+        return VisionPromptSupport.estimateTokens(text)
     }
     
     /**

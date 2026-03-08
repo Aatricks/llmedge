@@ -99,45 +99,11 @@ class RAGEngine(
     }
 
     private fun buildPrompt(context: String, query: String): String {
-        return """
-            Context (use only this):
-            $context
-
-            Task:
-            Answer the question strictly and only from the context above. If the context is insufficient, say "I don't know".
-
-            Question:
-            $query
-        """.trimIndent()
+        return RAGPromptSupport.buildPrompt(context, query)
     }
 
     private fun buildContextFromHits(hitsWithScores: List<Pair<VectorEntry, Float>>): String {
-        // Filter weak matches and truncate to avoid overlong prompts
-        val minScore = 0.10f
-        val sb = StringBuilder()
-        var totalChars = 0
-        val maxChars = 3000
-        for ((entry, score) in hitsWithScores) {
-            if (score < minScore) continue
-            val piece = entry.text.trim()
-            if (piece.isEmpty()) continue
-            val header = "[score=${"%.3f".format(score)}]\n"
-            val toAdd = (header + piece + "\n\n---\n\n")
-            if (totalChars + toAdd.length > maxChars) break
-            sb.append(toAdd)
-            totalChars += toAdd.length
-        }
-        if (sb.isNotEmpty()) return sb.toString()
-        // Fallback: include top-1 chunk even if below threshold
-        if (hitsWithScores.isNotEmpty()) {
-            val (entry, score) = hitsWithScores.first()
-            val piece = entry.text.trim()
-            if (piece.isNotEmpty()) {
-                val header = "[score=${"%.3f".format(score)}]\n"
-                return (header + piece.take(1500))
-            }
-        }
-        return ""
+        return RAGPromptSupport.buildContextFromHits(hitsWithScores)
     }
 
     suspend fun retrieve(question: String, topK: Int = 5): List<Pair<VectorEntry, Float>> = withContext(Dispatchers.Default) {
@@ -147,8 +113,7 @@ class RAGEngine(
 
     suspend fun retrievalPreview(question: String, topK: Int = 5): String = withContext(Dispatchers.Default) {
         val hits = retrieve(question, topK)
-        if (hits.isEmpty()) return@withContext "(no hits)"
-        hits.joinToString("\n\n") { (e, s) -> "score=${"%.3f".format(s)}\n" + e.text.take(300) }
+        RAGPromptSupport.formatRetrievalPreview(hits)
     }
 
     companion object {

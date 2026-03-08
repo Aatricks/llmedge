@@ -18,8 +18,10 @@ package io.aatricks.llmedge
 
 import io.aatricks.llmedge.core.InvalidModelStateException
 import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.model.ModelFileValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,13 +39,14 @@ class GGUFReader : Closeable {
     }
 
     companion object {
+        private const val LOG_TAG = "GGUFReader"
         private var testBridgeProvider: ((GGUFReader) -> NativeBridge)? = null
 
         init {
             NativeLibraryLoader.ensureGgufReaderLoaded(
                 required = false,
-                onDebug = ::println,
-                onError = { message, _ -> println("[GGUFReader] $message") },
+                onDebug = { message -> AndroidLogAdapter.d(LOG_TAG, message) },
+                onError = { message, throwable -> AndroidLogAdapter.e(LOG_TAG, message, throwable) },
             )
         }
 
@@ -66,21 +69,16 @@ class GGUFReader : Closeable {
             }
             val validatedModel = ModelFileValidator.requireGgufFile(modelPath, "GGUF model")
             nativeHandle =
-                try {
-                    nativeBridge.getGGUFContextNativeHandle(validatedModel.absolutePath)
-                } catch (e: UnsatisfiedLinkError) {
-                    throw NativeBindingException(
-                        libraryName = "ggufreader",
-                        detail = "GGUF metadata reader JNI bindings are unavailable.",
-                        cause = e,
-                    )
-                }
-            if (nativeHandle == 0L) {
-                throw ModelLoadException(
+                NativeCall.requireHandle(
+                    NativeCall.binding(
+                        "ggufreader",
+                        "GGUF metadata reader JNI bindings are unavailable.",
+                    ) {
+                        nativeBridge.getGGUFContextNativeHandle(validatedModel.absolutePath)
+                    },
                     validatedModel.absolutePath,
                     "GGUF metadata reader returned an invalid native handle.",
                 )
-            }
         }
 
     fun getContextSize(): Long? {

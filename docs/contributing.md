@@ -28,10 +28,14 @@ Thanks for your interest in contributing to `llmedge`! This project contains nat
 4. **Build the project:**
    ```fish
    ./gradlew :llmedge:assembleDebug
-   ./gradlew :llmedge-examples:app:assembleDebug
+   ./gradlew :llmedge:assembleRelease
+   cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
+   cd llmedge-examples && ./gradlew :app:assembleDebug
    ```
 
 5. **Run examples on a device or emulator** to verify setup
+
+The root Gradle build only includes `:llmedge`. The example app is a separate Gradle build that consumes the generated AAR, so validate it separately after library changes. For a one-command check from the repository root, run `bash scripts/validate_examples.sh`.
 
 ## Development Workflow
 
@@ -70,6 +74,11 @@ Use descriptive branch names:
 
 3. **Run example apps** to verify functionality
 
+   Because the example app is a separate build, validate it explicitly:
+   ```fish
+   bash scripts/validate_examples.sh
+   ```
+
 4. **Check for warnings** in build output
 
 ## Coding Style
@@ -83,6 +92,17 @@ Use descriptive branch names:
 - **Avoid `Dispatchers.Default` for native calls** - it has limited parallelism and causes thread starvation
 - Document public APIs with KDoc
 - Use `@JvmStatic` for JNI-exposed methods
+
+#### Native wrapper checklist
+
+When editing a JNI-backed wrapper such as `SmolLM`, `StableDiffusion`, `Whisper`, `BarkTTS`, or `GGUFReader`, update the full wrapper surface instead of only the production path:
+
+- Keep JNI-exposed entry points annotated with `@JvmStatic` where required.
+- Update wrapper-side bridge interfaces and their default provider implementations.
+- Update test override/reset hooks used by unit and instrumentation tests.
+- Update every mocked bridge implementation in tests that depends on the changed methods.
+- Keep blocking native calls off the main thread by routing them through `Dispatchers.IO` or the library inference dispatcher.
+- Preserve exception translation (`NativeBindingException`, `ModelLoadException`, `InferenceFailedException`) so diagnostics remain consistent.
 
 **Example:**
 ```kotlin
@@ -176,6 +196,7 @@ Run all example activities:
 ### PR Checklist
 
 - [ ] Code builds without errors or warnings
+- [ ] `bash scripts/validate_examples.sh` passes if the change can affect the example app
 - [ ] All example apps run successfully
 - [ ] Changes are focused and well-scoped
 - [ ] Code follows project style guidelines
@@ -319,6 +340,15 @@ source files under `src/models/*.cpp`, as well as newer llama.cpp versions that 
 implementations into `llama-model.cpp`. If you update the submodule and encounter CMake errors about
 missing source files, ensure the `llmedge/src/main/cpp/CMakeLists.txt` file reflects the current
 llama.cpp structure or open a PR with a fix similar to the existing guarded `file(GLOB ...)` approach.
+
+## API Stability
+
+The library currently has two maturity zones:
+
+- **Recommended / more stable:** `LLMEdge`, `TextClient`, `SpeechClient`, `ModelManager`, and the lower-level `SmolLM`/`Whisper`/`BarkTTS` wrappers used in tests.
+- **Evolving / experimental:** vision/VLM flows, on-device RAG, and some image/video-generation integration paths, especially where external model packaging conventions vary.
+
+When contributing to evolving areas, prefer additive changes and keep the existing high-level facade behavior stable for downstream consumers.
 
 ## Documentation
 

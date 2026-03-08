@@ -18,19 +18,7 @@ class HuggingFaceModelStore : ModelStore {
         spec: ModelSpec.HuggingFace,
         onProgress: ((downloaded: Long, total: Long?) -> Unit)?,
     ): File {
-        return try {
-            HuggingFaceHub.ensureModelOnDisk(
-                context = context,
-                modelId = spec.repoId,
-                revision = spec.revision,
-                preferredQuantizations = spec.preferredQuantizations,
-                filename = spec.filename,
-                token = spec.token,
-                forceDownload = spec.forceDownload,
-                preferSystemDownloader = spec.preferSystemDownloader,
-                onProgress = onProgress,
-            ).file
-        } catch (_: IllegalArgumentException) {
+        return if (spec.shouldResolveAsRepoFile()) {
             val filename =
                 requireNotNull(spec.filename) {
                     "A filename is required when resolving ${spec.repoId} through ensureRepoFileOnDisk()."
@@ -46,6 +34,23 @@ class HuggingFaceModelStore : ModelStore {
                 preferSystemDownloader = spec.preferSystemDownloader,
                 onProgress = onProgress,
             ).file
+        } else {
+            HuggingFaceHub.ensureModelOnDisk(
+                context = context,
+                modelId = spec.repoId,
+                revision = spec.revision,
+                preferredQuantizations = spec.preferredQuantizations,
+                filename = spec.filename,
+                token = spec.token,
+                forceDownload = spec.forceDownload,
+                preferSystemDownloader = spec.preferSystemDownloader,
+                onProgress = onProgress,
+            ).file
         }
     }
+}
+
+private fun ModelSpec.HuggingFace.shouldResolveAsRepoFile(): Boolean {
+    val explicitFilename = filename ?: return false
+    return !explicitFilename.endsWith(".gguf", ignoreCase = true)
 }

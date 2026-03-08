@@ -19,8 +19,10 @@ package io.aatricks.llmedge
 import android.content.Context
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.model.ModelFileValidator
 import kotlin.math.min
@@ -642,67 +644,14 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         /** Whisper processes audio in 30-second chunks */
         const val CHUNK_SIZE_SECONDS = 30
 
-        private val isAndroidLogAvailable: Boolean =
-                try {
-                    Class.forName("android.util.Log")
-                    true
-                } catch (_: Throwable) {
-                    false
-                }
+        private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
 
-        // Cache reflected Log methods to avoid Class.forName + getMethod on every call
-        private val cachedLogD: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("d", String::class.java, String::class.java) } catch (_: Throwable) { null }
-        }
-        private val cachedLogI: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("i", String::class.java, String::class.java) } catch (_: Throwable) { null }
-        }
-        private val cachedLogW: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("w", String::class.java, String::class.java) } catch (_: Throwable) { null }
-        }
-        private val cachedLogE: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("e", String::class.java, String::class.java, Throwable::class.java) } catch (_: Throwable) { null }
-        }
+        private fun logI(tag: String, message: String) = AndroidLogAdapter.i(tag, message)
 
-        private fun logD(tag: String, message: String) {
-            val method = cachedLogD
-            if (method != null) {
-                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("D/$tag: $message") }
-            } else {
-                println("D/$tag: $message")
-            }
-        }
+        private fun logW(tag: String, message: String) = AndroidLogAdapter.w(tag, message)
 
-        private fun logI(tag: String, message: String) {
-            val method = cachedLogI
-            if (method != null) {
-                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("I/$tag: $message") }
-            } else {
-                println("I/$tag: $message")
-            }
-        }
-
-        private fun logW(tag: String, message: String) {
-            val method = cachedLogW
-            if (method != null) {
-                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("W/$tag: $message") }
-            } else {
-                println("W/$tag: $message")
-            }
-        }
-
-        private fun logE(tag: String, message: String, throwable: Throwable? = null) {
-            val method = cachedLogE
-            if (method != null) {
-                try { method.invoke(null, tag, message, throwable) } catch (_: Throwable) {
-                    System.err.println("E/$tag: $message")
-                    throwable?.printStackTrace()
-                }
-            } else {
-                System.err.println("E/$tag: $message")
-                throwable?.printStackTrace()
-            }
-        }
+        private fun logE(tag: String, message: String, throwable: Throwable? = null) =
+            AndroidLogAdapter.e(tag, message, throwable)
 
         // Native library loading - similar to SmolLM
         init {
@@ -799,26 +748,21 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
         ): Whisper {
             val validatedModel = ModelFileValidator.requireReadableFile(modelPath, "Whisper model")
             val handle =
-                    try {
-                        staticInvoker.nativeCreate(
-                                validatedModel.absolutePath,
-                                useGpu,
-                                flashAttn,
-                                gpuDevice
-                        )
-                    } catch (e: UnsatisfiedLinkError) {
-                        throw NativeBindingException(
-                                libraryName = "whisper",
-                                detail = "Whisper JNI bindings are unavailable.",
-                                cause = e
-                        )
-                    }
-            if (handle == 0L) {
-                throw ModelLoadException(
+                    NativeCall.requireHandle(
+                        NativeCall.binding(
+                            "whisper",
+                            "Whisper JNI bindings are unavailable.",
+                        ) {
+                            staticInvoker.nativeCreate(
+                                    validatedModel.absolutePath,
+                                    useGpu,
+                                    flashAttn,
+                                    gpuDevice
+                            )
+                        },
                         validatedModel.absolutePath,
-                        "The native Whisper loader returned an invalid handle."
-                )
-            }
+                        "The native Whisper loader returned an invalid handle.",
+                    )
 
             return Whisper(handle)
         }

@@ -19,8 +19,10 @@ package io.aatricks.llmedge
 import android.content.Context
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.model.ModelFileValidator
 import java.io.File
@@ -300,67 +302,14 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
         private val WAV_FMT = "fmt ".toByteArray()
         private val WAV_DATA = "data".toByteArray()
 
-        private val isAndroidLogAvailable: Boolean =
-                try {
-                    Class.forName("android.util.Log")
-                    true
-                } catch (_: Throwable) {
-                    false
-                }
+        private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
 
-        // Cache reflected Log methods to avoid Class.forName + getMethod on every call
-        private val cachedLogD: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("d", String::class.java, String::class.java) } catch (_: Throwable) { null }
-        }
-        private val cachedLogI: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("i", String::class.java, String::class.java) } catch (_: Throwable) { null }
-        }
-        private val cachedLogW: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("w", String::class.java, String::class.java) } catch (_: Throwable) { null }
-        }
-        private val cachedLogE: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("e", String::class.java, String::class.java, Throwable::class.java) } catch (_: Throwable) { null }
-        }
+        private fun logI(tag: String, message: String) = AndroidLogAdapter.i(tag, message)
 
-        private fun logD(tag: String, message: String) {
-            val method = cachedLogD
-            if (method != null) {
-                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("D/$tag: $message") }
-            } else {
-                println("D/$tag: $message")
-            }
-        }
+        private fun logW(tag: String, message: String) = AndroidLogAdapter.w(tag, message)
 
-        private fun logI(tag: String, message: String) {
-            val method = cachedLogI
-            if (method != null) {
-                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("I/$tag: $message") }
-            } else {
-                println("I/$tag: $message")
-            }
-        }
-
-        private fun logW(tag: String, message: String) {
-            val method = cachedLogW
-            if (method != null) {
-                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("W/$tag: $message") }
-            } else {
-                println("W/$tag: $message")
-            }
-        }
-
-        private fun logE(tag: String, message: String, throwable: Throwable? = null) {
-            val method = cachedLogE
-            if (method != null) {
-                try { method.invoke(null, tag, message, throwable) } catch (_: Throwable) {
-                    System.err.println("E/$tag: $message")
-                    throwable?.printStackTrace()
-                }
-            } else {
-                System.err.println("E/$tag: $message")
-                throwable?.printStackTrace()
-            }
-        }
+        private fun logE(tag: String, message: String, throwable: Throwable? = null) =
+            AndroidLogAdapter.e(tag, message, throwable)
 
         // Native library loading
         init {
@@ -443,30 +392,22 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
                             ModelFileValidator.requireReadableFile(modelPath, "Bark model")
 
                     val handle =
-                            try {
-                                staticInvoker.nativeCreate(
-                                        validatedModel.absolutePath,
-                                        seed,
-                                        temperature,
-                                        fineTemperature,
-                                        verbosity
-                                )
-                            } catch (e: UnsatisfiedLinkError) {
-                                throw NativeBindingException(
-                                        libraryName = "bark_jni",
-                                        detail = "Bark JNI bindings are unavailable.",
-                                        cause = e
-                                )
-                            }
-
-                    if (handle == 0L) {
-
-                        throw ModelLoadException(
+                            NativeCall.requireHandle(
+                                NativeCall.binding(
+                                    "bark_jni",
+                                    "Bark JNI bindings are unavailable.",
+                                ) {
+                                    staticInvoker.nativeCreate(
+                                            validatedModel.absolutePath,
+                                            seed,
+                                            temperature,
+                                            fineTemperature,
+                                            verbosity
+                                    )
+                                },
                                 validatedModel.absolutePath,
-                                "The native Bark loader returned an invalid handle."
-                        )
-
-                    }
+                                "The native Bark loader returned an invalid handle.",
+                            )
 
                     return BarkTTS(handle)
 

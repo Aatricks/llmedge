@@ -5,10 +5,10 @@ import io.aatricks.llmedge.BarkTTS
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.ModelCache
 import io.aatricks.llmedge.Whisper
+import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
-import io.aatricks.llmedge.util.MemoryMetrics
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -77,25 +77,19 @@ class SpeechClient internal constructor(
     private val resolver: ModelResolver,
 ) : AutoCloseable {
     private val whisperCache =
-        ModelCache<ManagedWhisperModel>(
+        ModelCacheFactory.create<ManagedWhisperModel>(
+            context = context,
+            scope = scope,
             maxCacheSize = config.speechCacheSize,
             maxMemoryMB = config.speechCacheMemoryMb,
-            closeScope = scope.coroutineScope,
-        ).apply {
-            systemMemoryProvider = {
-                MemoryMetrics.snapshot(context).availSystemMemBytes / (1024L * 1024L)
-            }
-        }
+        )
     private val barkCache =
-        ModelCache<ManagedBarkModel>(
+        ModelCacheFactory.create<ManagedBarkModel>(
+            context = context,
+            scope = scope,
             maxCacheSize = config.speechCacheSize,
             maxMemoryMB = config.speechCacheMemoryMb,
-            closeScope = scope.coroutineScope,
-        ).apply {
-            systemMemoryProvider = {
-                MemoryMetrics.snapshot(context).availSystemMemBytes / (1024L * 1024L)
-            }
-        }
+        )
     private val whisperLoadMutex = Mutex()
     private val barkLoadMutex = Mutex()
 

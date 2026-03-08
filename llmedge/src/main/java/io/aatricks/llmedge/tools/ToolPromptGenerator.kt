@@ -1,5 +1,7 @@
 package io.aatricks.llmedge.tools
 
+import java.time.LocalDate
+
 /**
  * Generates system prompts to instruct the LLM on how to format its tool calls.
  */
@@ -8,7 +10,8 @@ object ToolPromptGenerator {
     /**
      * Serializes a list of [Tool] definitions into a system prompt string.
      */
-    fun generateSystemPrompt(tools: List<Tool>): String {
+    @JvmStatic
+    fun generateSystemPrompt(tools: List<Tool>, currentDate: LocalDate = LocalDate.now()): String {
         if (tools.isEmpty()) return "You are a helpful assistant."
 
         val promptBuilder = StringBuilder()
@@ -30,7 +33,7 @@ object ToolPromptGenerator {
             3. Once you have the TOOL_RESULT, use it to provide a helpful response to the user in plain text. DO NOT call the tool again with the same arguments.
             4. If you have the final answer, reply in plain text ONLY.
 
-            Current Date: 2026-03-03.
+            Current Date: $currentDate.
         """.trimIndent())
 
         return promptBuilder.toString()

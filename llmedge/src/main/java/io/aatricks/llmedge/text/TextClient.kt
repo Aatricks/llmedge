@@ -4,10 +4,10 @@ import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.ModelCache
 import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
-import io.aatricks.llmedge.util.MemoryMetrics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collect
@@ -73,15 +73,12 @@ class TextClient internal constructor(
     private var lastGenerationMetrics: SmolLM.GenerationMetrics? = null
 
     private val cache =
-        ModelCache<ManagedTextModel>(
+        ModelCacheFactory.create<ManagedTextModel>(
+            context = context,
+            scope = scope,
             maxCacheSize = config.textCacheSize,
             maxMemoryMB = config.textCacheMemoryMb,
-            closeScope = scope.coroutineScope,
-        ).apply {
-            systemMemoryProvider = {
-                MemoryMetrics.snapshot(context).availSystemMemBytes / (1024L * 1024L)
-            }
-        }
+        )
     private val loadMutex = Mutex()
 
     /**

@@ -24,6 +24,7 @@ import android.util.Log
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.InvalidGenerationParametersException
 import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.UnsupportedModelException
@@ -300,70 +301,15 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         private const val LOG_TAG = "StableDiffusion"
         private const val BYTES_IN_MB = 1024L * 1024L
         private const val MEMORY_PRESSURE_THRESHOLD = 0.85f
-        private const val MIN_FRAME_BATCH = 4
-        private const val MAX_FRAME_BATCH = 8
 
-        private val isAndroidLogAvailable: Boolean =
-                try {
-                    Class.forName("android.util.Log")
-                    true
-                } catch (_: Throwable) {
-                    false
-                }
+        private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
 
-        // Cache reflected Log methods to avoid Class.forName + getMethod on every call
-        private val cachedLogD: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("d", String::class.java, String::class.java) } catch (_: Throwable) { null }
-        }
-        private val cachedLogI: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("i", String::class.java, String::class.java) } catch (_: Throwable) { null }
-        }
-        private val cachedLogW: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("w", String::class.java, String::class.java) } catch (_: Throwable) { null }
-        }
-        private val cachedLogE: java.lang.reflect.Method? by lazy {
-            try { Class.forName("android.util.Log").getMethod("e", String::class.java, String::class.java, Throwable::class.java) } catch (_: Throwable) { null }
-        }
+        private fun logI(tag: String, message: String) = AndroidLogAdapter.i(tag, message)
 
-        private fun logD(tag: String, message: String) {
-            val method = cachedLogD
-            if (method != null) {
-                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("D/$tag: $message") }
-            } else {
-                println("D/$tag: $message")
-            }
-        }
+        private fun logW(tag: String, message: String) = AndroidLogAdapter.w(tag, message)
 
-        private fun logI(tag: String, message: String) {
-            val method = cachedLogI
-            if (method != null) {
-                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("I/$tag: $message") }
-            } else {
-                println("I/$tag: $message")
-            }
-        }
-
-        private fun logW(tag: String, message: String) {
-            val method = cachedLogW
-            if (method != null) {
-                try { method.invoke(null, tag, message) } catch (_: Throwable) { println("W/$tag: $message") }
-            } else {
-                println("W/$tag: $message")
-            }
-        }
-
-        private fun logE(tag: String, message: String, throwable: Throwable? = null) {
-            val method = cachedLogE
-            if (method != null) {
-                try { method.invoke(null, tag, message, throwable) } catch (_: Throwable) {
-                    System.err.println("E/$tag: $message")
-                    throwable?.printStackTrace()
-                }
-            } else {
-                System.err.println("E/$tag: $message")
-                throwable?.printStackTrace()
-            }
-        }
+        private fun logE(tag: String, message: String, throwable: Throwable? = null) =
+            AndroidLogAdapter.e(tag, message, throwable)
 
         // Dummy instance used to invoke static native methods that are now at the class level.
         private val staticInvoker: StableDiffusion by lazy { StableDiffusion(0L) }
@@ -372,9 +318,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         // Flag set by tests when overriding the native bridge to a test mock so we avoid
         // calling actual JNI functions like nativeDestroy during Android instrumentation tests.
         private var nativeBridgeOverriddenForTests: Boolean = false
-
-        // T098: Model metadata cache to avoid re-parsing GGUF headers
-        private val metadataCache = mutableMapOf<String, VideoModelMetadata>()
 
         private val defaultNativeBridgeProvider: (StableDiffusion) -> NativeBridge = { instance ->
             object : NativeBridge {
@@ -773,144 +716,25 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 sequentialLoad: Boolean?,
                 preferPerformanceMode: Boolean,
                 activityManagerOverride: ActivityManager? = null,
-        ): Pair<Boolean, Long> {
-            val memoryInfo = ActivityManager.MemoryInfo()
-            val activityManager =
-                    activityManagerOverride
-                            ?: (context.getSystemService(Context.ACTIVITY_SERVICE) as
-                                    ActivityManager)
-            activityManager.getMemoryInfo(memoryInfo)
-            val totalRamGB = memoryInfo.totalMem / (1024L * 1024L * 1024L)
-
-            if (sequentialLoad != null) {
-                return Pair(sequentialLoad, 0L)
-            }
-
-            var estimatedParamBytes = 0L
-            try {
-                val vulkanCount = nativeGetVulkanDeviceCount()
-                val devIdx = if (vulkanCount > 0) 0 else -1
-                estimatedParamBytes = estimateModelParamsMemoryBytes(resolvedModelPath, devIdx)
-            } catch (t: Throwable) {
-                estimatedParamBytes = 0L
-            }
-
-            val rt = Runtime.getRuntime()
-            val heapUsed = rt.totalMemory() - rt.freeMemory()
-            val heapMax = rt.maxMemory()
-            val heapAvail = (heapMax - heapUsed).coerceAtLeast(0L)
-            val sysAvail = memoryInfo.availMem
-
-            val heapThresholdFactor = if (preferPerformanceMode) 0.9 else 0.75
-            val sysThresholdFactor = if (preferPerformanceMode) 0.9 else 0.6
-
-            val heapSeqNeeded =
-                    (estimatedParamBytes > 0) &&
-                            estimatedParamBytes.toDouble() >
-                                    heapAvail.toDouble() * heapThresholdFactor
-            val sysSeqNeeded =
-                    (estimatedParamBytes > 0) &&
-                            estimatedParamBytes.toDouble() >
-                                    sysAvail.toDouble() * sysThresholdFactor
-            val lowRamHint = (totalRamGB < 8)
-
-            val effectiveSequentialLoad = lowRamHint || heapSeqNeeded || sysSeqNeeded
-            return Pair(effectiveSequentialLoad, estimatedParamBytes)
-        }
+        ): Pair<Boolean, Long> =
+            StableDiffusionLoadHeuristics.computeEffectiveSequentialLoad(
+                context = context,
+                resolvedModelPath = resolvedModelPath,
+                sequentialLoad = sequentialLoad,
+                preferPerformanceMode = preferPerformanceMode,
+                activityManagerOverride = activityManagerOverride,
+            )
 
         private suspend fun inferVideoModelMetadata(
                 resolvedModelPath: String,
                 modelId: String?,
                 explicitFilename: String?,
-        ): VideoModelMetadata {
-            android.util.Log.d(
-                    LOG_TAG,
-                    "inferVideoModelMetadata called: path=$resolvedModelPath, exists=${File(resolvedModelPath).exists()}"
+        ): VideoModelMetadata =
+            StableDiffusionMetadataSupport.inferVideoModelMetadata(
+                resolvedModelPath = resolvedModelPath,
+                modelId = modelId,
+                explicitFilename = explicitFilename,
             )
-
-            // T098: Check cache first to avoid re-parsing GGUF
-            val cacheKey = resolvedModelPath
-            metadataCache[cacheKey]?.let {
-                return it
-            }
-
-            val filename = explicitFilename ?: resolvedModelPath.substringAfterLast('/')
-            val lowerName = filename.lowercase(Locale.US)
-            val tags = mutableSetOf<String>()
-
-            // Try to read from GGUF metadata first
-            var architecture: String? = null
-            var parameterCount: String? = null
-            var modelType: String? = null
-
-            // Skip GGUF parsing for video models - they use a different GGUF format
-            // that llama.cpp's parser can't read. Rely on filename-based detection instead.
-            android.util.Log.d(
-                    LOG_TAG,
-                    "Using filename-based video model detection for: $resolvedModelPath"
-            )
-
-            // Fallback to filename-based detection
-            if (architecture == null) {
-                architecture =
-                        when {
-                            !modelId.isNullOrBlank() -> modelId
-                            lowerName.contains("hunyuan") -> "hunyuan_video"
-                            lowerName.contains("wan") -> "wan"
-                            else -> null
-                        }
-            }
-
-            if (modelType == null) {
-                modelType =
-                        when {
-                            lowerName.contains("ti2v") -> "ti2v"
-                            lowerName.contains("i2v") -> "i2v"
-                            lowerName.contains("t2v") -> "t2v"
-                            else -> null
-                        }
-            }
-
-            if (parameterCount == null) {
-                parameterCount =
-                        when {
-                            lowerName.contains("1.3b") || lowerName.contains("1_3b") -> "1.3B"
-                            lowerName.contains("5b") || lowerName.contains("5_b") -> "5B"
-                            lowerName.contains("14b") || lowerName.contains("14_b") -> "14B"
-                            else -> null
-                        }
-            }
-
-            // Determine mobile support based on parameter count
-            val mobileSupported =
-                    when (parameterCount) {
-                        "1.3B", "5B" -> true
-                        "14B" -> false
-                        else -> true // Unknown models assumed supported (will fail at load time if
-                    // too large)
-                    }
-
-            // Build tags
-            if (lowerName.contains("wan")) tags += "wan"
-            if (lowerName.contains("video") || modelType in listOf("t2v", "i2v", "ti2v")) {
-                tags += "text-to-video"
-            }
-            if (lowerName.contains("hunyuan")) tags += "hunyuan"
-
-            val metadata =
-                    VideoModelMetadata(
-                            architecture = architecture,
-                            modelType = modelType,
-                            parameterCount = parameterCount,
-                            mobileSupported = mobileSupported,
-                            tags = tags,
-                            filename = filename,
-                    )
-
-            // T098: Cache the metadata for future loads
-            metadataCache[cacheKey] = metadata
-            return metadata
-        }
 
         private fun validateResolvedAssets(
             modelPath: String,
@@ -919,11 +743,13 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             taesdPath: String?,
             loraModelDir: String?,
         ) {
-            ModelFileValidator.requireReadableFile(modelPath, "Stable Diffusion model")
-            vaePath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion VAE") }
-            t5xxlPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion text encoder") }
-            taesdPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion TAE") }
-            loraModelDir?.let { ModelFileValidator.requireReadableDirectory(it, "LoRA model directory") }
+            StableDiffusionLoadHeuristics.validateResolvedAssets(
+                modelPath = modelPath,
+                vaePath = vaePath,
+                t5xxlPath = t5xxlPath,
+                taesdPath = taesdPath,
+                loraModelDir = loraModelDir,
+            )
         }
 
         suspend fun load(
@@ -1765,7 +1591,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
     fun isVideoModel(): Boolean {
         val metadata = modelMetadata ?: return false
-        return VideoModelDetector.isVideoModel(metadata)
+        return StableDiffusionMetadataSupport.isVideoModel(metadata)
     }
 
     suspend fun txt2vid(
@@ -1865,77 +1691,11 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     )
                 }
 
-                // Heuristic: if native output appears to be fully black/near zero, attempt
-                // a channel-swap fallback (common when channel ordering is reversed or
-                // when a plugin returns bytes in a different layout). This helps surface
-                // real frames instead of blank images in environments with inconsistent
-                // native outputs.
-                fun computeAvgBrightness(bytes: ByteArray): Double {
-                    var s = 0L
-                    var i = 0
-                    val totalPixels = (bytes.size / 3).coerceAtLeast(1)
-                    while (i + 2 < bytes.size) {
-                        val r = bytes[i++].toInt() and 0xFF
-                        val g = bytes[i++].toInt() and 0xFF
-                        val b = bytes[i++].toInt() and 0xFF
-                        s += (r + g + b) / 3
-                    }
-                    return s.toDouble() / totalPixels
-                }
-
-                val avg = frameBytes.map { computeAvgBrightness(it) }.average()
-                Log.d(
-                        LOG_TAG,
-                        "Video frame analysis: ${frameBytes.size} frames, avg brightness=$avg, first frame size=${frameBytes.firstOrNull()?.size ?: 0}"
-                )
-
-                if (avg < 1.0) {
-                    Log.w(
-                            LOG_TAG,
-                            "Detected potentially black frames (avg brightness < 1.0), attempting channel swap..."
-                    )
-                    // Try swapping R and B channels
-                    val swapped =
-                            frameBytes
-                                    .map { bytes ->
-                                        val out = ByteArray(bytes.size)
-                                        var j = 0
-                                        var k = 0
-                                        while (k + 2 < bytes.size) {
-                                            val r = bytes[k]
-                                            val g = bytes[k + 1]
-                                            val b = bytes[k + 2]
-                                            out[j++] = b
-                                            out[j++] = g
-                                            out[j++] = r
-                                            k += 3
-                                        }
-                                        out
-                                    }
-                                    .toTypedArray()
-                    val swappedAvg = swapped.map { computeAvgBrightness(it) }.average()
-                    Log.d(LOG_TAG, "After BGR swap: avg brightness=$swappedAvg")
-                    if (swappedAvg > avg) {
-                        frameBytes = swapped
-                        Log.w(
-                                LOG_TAG,
-                                "Swapped RGB->BGR for video frames to recover non-black output"
-                        )
-                    } else if (avg < 0.1) {
-                        // Still very dark - log raw byte samples for debugging
-                        val sample = frameBytes.firstOrNull()
-                        if (sample != null && sample.size >= 30) {
-                            val sampleBytes = sample.take(30).map { it.toInt() and 0xFF }
-                            Log.e(
-                                    LOG_TAG,
-                                    "Frame appears completely black. First 30 bytes: $sampleBytes"
-                            )
-                        }
-                    }
-                }
+                frameBytes = StableDiffusionOutputSupport.recoverPotentiallyBlackFrames(LOG_TAG, frameBytes)
 
                 val conversionStart = System.nanoTime()
-                val bitmaps = convertFramesToBitmaps(frameBytes, params.width, params.height)
+                val bitmaps =
+                    convertFramesToBitmaps(frameBytes, params.width, params.height)
                 val conversionSeconds = ((System.nanoTime() - conversionStart) / 1_000_000_000f)
                 val totalSeconds = ((System.nanoTime() - startNanos) / 1_000_000_000f)
                 val memoryAfter = readNativeMemoryMb()
@@ -2153,29 +1913,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     private external fun nativeIsEasyCacheSupported(handle: Long): Boolean
 
     private fun bitmapToRgbBytes(bitmap: Bitmap): Triple<ByteArray, Int, Int> {
-        val safeBitmap =
-                if (bitmap.config == Bitmap.Config.ARGB_8888) {
-                    bitmap
-                } else {
-                    bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                }
-        val width = safeBitmap.width
-        val height = safeBitmap.height
-        val pixels = IntArray(width * height)
-        safeBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        val requiredSize = width * height * 3
-        var rgb = rgbBytesThreadLocal.get()
-        if (rgb == null || rgb.size < requiredSize) {
-            rgb = ByteArray(requiredSize)
-            rgbBytesThreadLocal.set(rgb)
-        }
-        var rgbIndex = 0
-        for (pixel in pixels) {
-            rgb[rgbIndex++] = ((pixel shr 16) and 0xFF).toByte()
-            rgb[rgbIndex++] = ((pixel shr 8) and 0xFF).toByte()
-            rgb[rgbIndex++] = (pixel and 0xFF).toByte()
-        }
-        return Triple(rgb, width, height)
+        return StableDiffusionOutputSupport.bitmapToRgbBytes(bitmap, rgbBytesThreadLocal)
     }
 
     private fun convertFramesToBitmaps(
@@ -2183,29 +1921,14 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             width: Int,
             height: Int,
     ): List<Bitmap> {
-        val batchSize = determineBatchSize(frameBytes.size)
-        val bitmaps = ArrayList<Bitmap>(frameBytes.size)
-        // Reuse a single pixel buffer across all frames in this batch
-        val pixelBuffer = IntArray(width * height)
-        var index = 0
-        while (index < frameBytes.size) {
-            val end = min(index + batchSize, frameBytes.size)
-            for (i in index until end) {
-                // Make a defensive copy of the incoming bytes to protect against
-                // native bridges that reuse or alias the same ByteArray for multiple
-                // frames. Cloning ensures we snapshot the bytes for the frame and
-                // prevents later mutations from affecting previously created
-                // Bitmaps.
-                val bytesCopy = frameBytes[i].clone()
-                bitmaps += rgbBytesToBitmap(bytesCopy, width, height, pixelBuffer)
-            }
-            val remaining = frameBytes.size - end
-            if (remaining > 0) {
+        return StableDiffusionOutputSupport.convertFramesToBitmaps(
+            frameBytes = frameBytes,
+            width = width,
+            height = height,
+            onRemainingFrames = { remaining ->
                 warnIfLowMemory(estimateFrameFootprintBytes(width, height, remaining))
-            }
-            index = end
-        }
-        return bitmaps
+            },
+        )
     }
 
     /**
@@ -2366,106 +2089,18 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         return io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(bytes, width, height, pixels)
     }
 
-    private fun determineBatchSize(frameCount: Int): Int =
-            when {
-                frameCount >= 48 -> MIN_FRAME_BATCH
-                frameCount >= 24 -> 6
-                else -> MAX_FRAME_BATCH
-            }
-
     private fun warnIfLowMemory(estimatedAdditionalBytes: Long) {
-        val runtime = Runtime.getRuntime()
-        val maxMemory = runtime.maxMemory().coerceAtLeast(BYTES_IN_MB)
-        val used = runtime.totalMemory() - runtime.freeMemory()
-        val projected = used + estimatedAdditionalBytes.coerceAtLeast(0L)
-        val ratio = projected.toDouble() / maxMemory.toDouble()
-        if (ratio >= MEMORY_PRESSURE_THRESHOLD) {
-            Log.w(
-                    LOG_TAG,
-                    "Memory pressure warning: projected ${(projected / BYTES_IN_MB)} MB of ${(maxMemory / BYTES_IN_MB)} MB heap",
-            )
-        }
+        StableDiffusionOutputSupport.warnIfLowMemory(
+            logTag = LOG_TAG,
+            estimatedAdditionalBytes = estimatedAdditionalBytes,
+            bytesInMb = BYTES_IN_MB,
+            memoryPressureThreshold = MEMORY_PRESSURE_THRESHOLD,
+        )
     }
 
-    private fun estimateFrameFootprintBytes(width: Int, height: Int, frameCount: Int): Long {
-        val pixels = width.toLong() * height.toLong()
-        return pixels * 4L * frameCount
-    }
+    private fun estimateFrameFootprintBytes(width: Int, height: Int, frameCount: Int): Long =
+            StableDiffusionOutputSupport.estimateFrameFootprintBytes(width, height, frameCount)
 
     private fun readNativeMemoryMb(): Long =
-            try {
-                Debug.getNativeHeapAllocatedSize().coerceAtLeast(0L) / BYTES_IN_MB
-            } catch (_: Throwable) {
-                val runtime = Runtime.getRuntime()
-                (runtime.totalMemory() - runtime.freeMemory()) / BYTES_IN_MB
-            }
-
-    private object VideoModelDetector {
-        private val VIDEO_KEYWORDS =
-                setOf(
-                        "wan",
-                        "hunyuan",
-                        "video",
-                        "t2v",
-                        "i2v",
-                        "ti2v",
-                )
-
-        fun isVideoModel(metadata: VideoModelMetadata): Boolean {
-            val architecture = metadata.architecture.orEmpty().lowercase(Locale.US)
-            if (containsKeyword(architecture)) return true
-
-            val modelType = metadata.modelType.orEmpty().lowercase(Locale.US)
-            if (containsKeyword(modelType)) return true
-
-            val filename = metadata.filename.orEmpty().lowercase(Locale.US)
-            if (containsKeyword(filename)) return true
-
-            if (metadata.tags.any { containsKeyword(it.lowercase(Locale.US)) }) {
-                return true
-            }
-
-            return false
-        }
-
-        private fun containsKeyword(value: String): Boolean {
-            if (value.isEmpty()) return false
-            return VIDEO_KEYWORDS.any { keyword -> value.contains(keyword) }
-        }
-    }
-}
-
-object SimpleGenerator {
-    suspend fun generate(
-            context: Context,
-            prompt: String,
-            modelId: String = "wan/wan2.1-t2v-1.3B",
-            isVideo: Boolean = true,
-            outputDir: File = File(context.filesDir, "generations")
-    ): File {
-        if (!outputDir.exists()) outputDir.mkdirs()
-
-        val sd = StableDiffusion.load(context, modelId = modelId)
-        try {
-            if (isVideo) {
-                val params = StableDiffusion.VideoGenerateParams(prompt = prompt)
-                val frames = sd.txt2vid(params)
-                val outputFile =
-                        File(outputDir, "video_${System.currentTimeMillis()}.png") // Placeholder
-
-                frames.firstOrNull()?.let { bmp ->
-                    bmp.compress(Bitmap.CompressFormat.PNG, 100, outputFile.outputStream())
-                }
-                return outputFile
-            } else {
-                val params = StableDiffusion.GenerateParams(prompt = prompt)
-                val bmp = sd.txt2img(params)
-                val outputFile = File(outputDir, "image_${System.currentTimeMillis()}.png")
-                bmp.compress(Bitmap.CompressFormat.PNG, 100, outputFile.outputStream())
-                return outputFile
-            }
-        } finally {
-            sd.close()
-        }
-    }
+            StableDiffusionOutputSupport.readNativeMemoryMb(BYTES_IN_MB)
 }
