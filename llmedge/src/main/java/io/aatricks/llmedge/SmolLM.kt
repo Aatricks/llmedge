@@ -22,6 +22,7 @@ import android.util.Log
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import java.io.File
 import java.io.FileNotFoundException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -443,12 +444,16 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      *                           or omit to let [thinkingMode] decide.
      * ```
      */
-    data class InferenceParams(
-            val minP: Float = 0.1f,
-            val temperature: Float = 0.8f,
-            val storeChats: Boolean = true,
-            val contextSize: Long? = null,
-            val chatTemplate: String? = null,
+        data class InferenceParams(
+                val minP: Float = 0.1f,
+                val temperature: Float = 0.8f,
+                @Deprecated(
+                        message = "Use Kotlin-managed ChatSession for multi-turn state instead of native storeChats.",
+                        replaceWith = ReplaceWith("false"),
+                )
+                val storeChats: Boolean = true,
+                val contextSize: Long? = null,
+                val chatTemplate: String? = null,
             val numThreads: Int = 4,
             val useMmap: Boolean = true,
             val useMlock: Boolean = false,
@@ -693,7 +698,9 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * ```
      * if the model is not loaded.
      */
-    fun getResponseAsFlow(query: String): Flow<String> =
+    fun getResponseAsFlow(query: String): Flow<String> = getResponseAsFlow(query, Dispatchers.IO)
+
+    fun getResponseAsFlow(query: String, dispatcher: CoroutineDispatcher): Flow<String> =
             flow {
                         verifyHandle()
                         nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
@@ -704,7 +711,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         }
                         nativeBridge.stopCompletion(this@SmolLM, nativePtr)
                     }
-                    .flowOn(Dispatchers.Default) // CPU-bound inference; Default has less scheduling overhead than IO
+                    .flowOn(dispatcher)
 
     /**
      * Returns the LLM response to the given query as a String. This function is blocking and will
@@ -801,7 +808,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     }
 
     private fun verifyHandle() {
-        assert(nativePtr != 0L) { "Model is not loaded. Use SmolLM.create to load the model" }
+        check(nativePtr != 0L) { "Model is not loaded. Use SmolLM.create to load the model" }
     }
 
     private external fun loadModel(

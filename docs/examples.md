@@ -18,28 +18,25 @@ The `llmedge-examples` repository contains complete working demonstrations:
 | `TTSActivity` | Text-to-speech synthesis (Bark) |
 | `STTActivity` | Speech-to-text transcription (Whisper) |
 
-Also see the [ChatSession pattern](#chatsession-pattern) below for bounded multi-turn chat UIs backed by `SmolLM`.
+Also see the [ChatSession pattern](#chatsession-pattern) below for bounded multi-turn chat UIs backed by `LLMEdge`.
 
 ---
 
 
 ## LocalAssetDemoActivity
 
-Demonstrates loading a bundled model asset and running inference using `LLMEdgeManager`.
+Demonstrates loading a bundled model asset and running inference using `LLMEdge`.
 
 **Key patterns:**
 
 ```kotlin
 val modelPath = copyAssetIfNeeded("YourModel.gguf")
+val edge = LLMEdge.create(context, lifecycleScope)
 
-// Run inference (Manager handles loading & caching)
-val response = LLMEdgeManager.generateText(
-    context = context,
-    params = LLMEdgeManager.TextGenerationParams(
-        prompt = "Say 'hello from llmedge'.",
-        modelPath = modelPath,
-        modelId = "local-model" // Unique ID for caching
-    )
+// Run inference through the text client
+val response = edge.text.generate(
+    prompt = "Say 'hello from llmedge'.",
+    model = ModelSpec.localFile(modelPath),
 )
 ```
 
@@ -49,30 +46,25 @@ Use this pattern when your app owns a chat UI and you want bounded, Kotlin-manag
 instead of relying on unbounded native chat history:
 
 ```kotlin
-val smol = SmolLM()
-smol.load(
-    modelPath,
-    SmolLM.InferenceParams(
-        storeChats = false,
-        contextSize = 4096L
-    )
-)
+val edge = LLMEdge.create(context, lifecycleScope)
 
-val session = ChatSession(
-    smol,
-    ChatSessionConfig(
-        maxHistoryMessages = 6,
-        stripReasoningFromHistory = true,
-        systemPrompt = "You are a concise assistant."
+val session =
+    edge.text.session(
+        model = ModelSpec.localFile(modelPath),
+        memory = ConversationWindow(maxTurns = 6, maxTokens = 4096, stripThinkTags = true),
+        systemPrompt = "You are a concise assistant.",
     )
-)
+
+session.prepare()
 
 // Blocking reply
-val reply = session.sendMessage("Explain why context windows fill up.")
+val reply = session.reply("Explain why context windows fill up.")
 
 // Streaming reply
-session.sendMessageStream("Now summarize that in 3 bullets.").collect { chunk ->
-    appendToChatUi(chunk)
+session.stream("Now summarize that in 3 bullets.").collect { event ->
+    if (event is TextStreamEvent.Chunk) {
+        appendToChatUi(event.value)
+    }
 }
 ```
 
@@ -89,13 +81,13 @@ session.sendMessageStream("Now summarize that in 3 bullets.").collect { chunk ->
 
 ## ImageToTextActivity
 
-Demonstrates camera integration and OCR text extraction using `LLMEdgeManager`.
+Demonstrates camera integration and OCR text extraction using `LLMEdge`.
 
 **Key features:**
 
 - Camera permission handling
 - High-resolution image capture
-- ML Kit OCR integration via Manager
+- ML Kit OCR integration via `edge.vision`
 
 **Code snippet:**
 
@@ -104,8 +96,10 @@ Demonstrates camera integration and OCR text extraction using `LLMEdgeManager`.
 val bitmap = ImageUtils.fileToBitmap(file)
 ivPreview.setImageBitmap(bitmap)
 
-// Extract text (handles engine lifecycle automatically)
-val text = LLMEdgeManager.extractText(context, bitmap)
+val edge = LLMEdge.create(context, lifecycleScope)
+
+// Extract text
+val text = edge.vision.extractText(bitmap)
 tvResult.text = text.ifEmpty { "(no text detected)" }
 ```
 
@@ -113,7 +107,7 @@ tvResult.text = text.ifEmpty { "(no text detected)" }
 
 ## HuggingFaceDemoActivity
 
-Shows how to download models from Hugging Face Hub and run inference using `LLMEdgeManager`.
+Shows how to download models from Hugging Face Hub and run inference using `LLMEdge`.
 
 **Key features:**
 
@@ -124,23 +118,24 @@ Shows how to download models from Hugging Face Hub and run inference using `LLME
 **Code snippet:**
 
 ```kotlin
+val edge = LLMEdge.create(context, lifecycleScope)
+
 // 1. Download with progress
-LLMEdgeManager.downloadModel(
-    context = context,
-    modelId = "unsloth/Qwen3-0.6B-GGUF",
-    filename = "Qwen3-0.6B-Q4_K_M.gguf",
-    onProgress = { downloaded, total -> /* update UI */ }
+edge.models.prefetch(
+    ModelSpec.huggingFace(
+        repoId = "unsloth/Qwen3-0.6B-GGUF",
+        filename = "Qwen3-0.6B-Q4_K_M.gguf",
+    )
 )
 
 // 2. Generate text (model is now cached)
-val response = LLMEdgeManager.generateText(
-    context = context,
-    params = LLMEdgeManager.TextGenerationParams(
-        prompt = "List two quick facts about running GGUF models on Android.",
-        modelId = "unsloth/Qwen3-0.6B-GGUF",
-        modelFilename = "Qwen3-0.6B-Q4_K_M.gguf",
-        thinkingMode = SmolLM.ThinkingMode.DISABLED // Optional reasoning control
-    )
+val response = edge.text.generate(
+    prompt = "List two quick facts about running GGUF models on Android.",
+    model = ModelSpec.huggingFace(
+        repoId = "unsloth/Qwen3-0.6B-GGUF",
+        filename = "Qwen3-0.6B-Q4_K_M.gguf",
+    ),
+    params = SmolLM.InferenceParams(thinkingMode = SmolLM.ThinkingMode.DISABLED),
 )
 ```
 
@@ -160,27 +155,15 @@ Complete RAG (Retrieval-Augmented Generation) pipeline with PDF indexing and Q&A
 **Full workflow:**
 
 ```kotlin
-// 1. Get shared LLM instance from Manager
-// (Ensures efficient resource sharing with other app components)
-val llm = LLMEdgeManager.getSmolLM(context)
-
-// 2. Initialize RAG engine with embedding config
-val rag = RAGEngine(
-    context = context,
-    smolLM = llm,
-    splitter = TextSplitter(chunkSize = 600, chunkOverlap = 120),
-    embeddingConfig = EmbeddingConfig(
-        modelAssetPath = "embeddings/all-minilm-l6-v2/model.onnx",
-        tokenizerAssetPath = "embeddings/all-minilm-l6-v2/tokenizer.json"
-    )
-)
+val edge = LLMEdge.create(context, lifecycleScope)
+val rag = edge.rag.createSession()
 rag.init()
 
-// 3. Index a PDF document
+// 1. Index a PDF document
 val count = rag.indexPdf(pdfUri)
 Log.d("RAG", "Indexed $count chunks")
 
-// 4. Ask questions
+// 2. Ask questions
 val answer = rag.ask("What are the key points?", topK = 5)
 ```
 
@@ -195,21 +178,22 @@ val answer = rag.ask("What are the key points?", topK = 5)
 
 ## StableDiffusionActivity
 
-Demonstrates on-device image generation using `LLMEdgeManager`.
+Demonstrates on-device image generation using `LLMEdge`.
 
 **Key patterns:**
 
 ```kotlin
-// Generate image (Manager handles downloading, caching, VAE loading, and memory safety)
-val bitmap = LLMEdgeManager.generateImage(
-    context = context,
-    params = LLMEdgeManager.ImageGenerationParams(
+val edge = LLMEdge.create(context, lifecycleScope)
+
+// Generate image
+val bitmap = edge.image.generate(
+    ImageGenerationRequest(
         prompt = "a cute cat",
         width = 256, // Start small on mobile
         height = 256,
         steps = 20,
         cfgScale = 7.0f
-    )
+    ),
 )
 
 // Display result
@@ -219,7 +203,7 @@ imageView.setImageBitmap(bitmap)
 **Important notes:**
 
 - Start with 128×128 or 256x256 on devices with <4GB RAM
-- `LLMEdgeManager` automatically enables CPU offloading if memory is tight
+- `edge.image` automatically enables CPU offloading if memory is tight
 - Generating images is memory-intensive; close other apps for best results
 
 ---
@@ -231,8 +215,10 @@ Demonstrates on-device text-to-video generation using Wan 2.1.
 **Key patterns:**
 
 ```kotlin
+val edge = LLMEdge.create(context, lifecycleScope)
+
 // 1. Configure params for mobile-friendly generation
-val params = LLMEdgeManager.VideoGenerationParams(
+val params = VideoGenerationRequest(
     prompt = "A dog running in the park",
     width = 512,      // Wan models require multiples of 64 between 256-960
     height = 512,
@@ -243,40 +229,40 @@ val params = LLMEdgeManager.VideoGenerationParams(
     forceSequentialLoad = true // Critical for devices with <12GB RAM
 )
 
-// 2. Generate video (returns list of bitmaps)
-val frames = LLMEdgeManager.generateVideo(
-    context = context,
-    params = params
-) { phase, current, total ->
-    // Update progress UI
-    updateProgress("$phase ($current/$total)")
+// 2. Generate video
+edge.image.generateVideo(params).collect { event ->
+    when (event) {
+        is GenerationStreamEvent.Progress ->
+            updateProgress(event.update.message)
+        is GenerationStreamEvent.Completed ->
+            imageView.setImageBitmap(event.frames.first())
+    }
 }
-
-// 3. Display or save frames
-imageView.setImageBitmap(frames.first())
 ```
 
 **Important notes:**
 
 - **Sequential Load:** Video models are large (Wan 2.1 is ~5GB). `forceSequentialLoad = true` is essential for mobile devices; it loads components (T5 encoder, Diffusion model, VAE) one by one to keep peak memory low.
 - **Frame Count:** Generating 8-16 frames takes significant time. Provide progress feedback.
-- **LLMEdgeManager:** This activity uses the high-level `LLMEdgeManager` which handles the complex sequentially loading logic automatically.
+- **LLMEdge:** This activity uses the high-level `LLMEdge` facade, which handles the sequential loading logic automatically.
 
 ---
 
 ## LlavaVisionActivity
 
-Demonstrates vision-capable LLM integration using `LLMEdgeManager`.
+Demonstrates vision-capable LLM integration using `LLMEdge`.
 
 **Key patterns:**
 
 ```kotlin
+val edge = LLMEdge.create(context, lifecycleScope)
+
 // 1. Preprocess image
 val bmp = ImageUtils.imageToBitmap(context, uri)
 val scaledBmp = ImageUtils.preprocessImage(bmp, correctOrientation = true, maxDimension = 1024)
 
 // 2. Run OCR (Optional grounding)
-val ocrText = LLMEdgeManager.extractText(context, scaledBmp)
+val ocrText = edge.vision.extractText(scaledBmp)
 
 // 3. Build Prompt (e.g. ChatML format for Phi-3)
 val prompt = """
@@ -289,22 +275,16 @@ val prompt = """
 """.trimIndent()
 
 // 4. Run Vision Analysis
-val result = LLMEdgeManager.analyzeImage(
-    context = context,
-    params = LLMEdgeManager.VisionAnalysisParams(
-        image = scaledBmp,
-        prompt = prompt
-    )
-)
+val result = edge.vision.analyze(scaledBmp, prompt)
 ```
 
-**Status**: Uses `LLMEdgeManager` to orchestrate the experimental vision pipeline (loading projector, encoding image, running inference).
+**Status**: Uses `LLMEdge` to orchestrate the experimental vision pipeline (loading projector, encoding image, running inference).
 
 ---
 
 ## TTSActivity
 
-Demonstrates text-to-speech synthesis using Bark via `LLMEdgeManager`.
+Demonstrates text-to-speech synthesis using Bark via `LLMEdge`.
 
 **Key features:**
 
@@ -317,20 +297,10 @@ Demonstrates text-to-speech synthesis using Bark via `LLMEdgeManager`.
 **Key patterns:**
 
 ```kotlin
-import io.aatricks.llmedge.LLMEdgeManager
-import io.aatricks.llmedge.BarkTTS
+val edge = LLMEdge.create(context, lifecycleScope)
 
 // Generate speech (model auto-downloads on first use)
-val audio = LLMEdgeManager.synthesizeSpeech(
-    context = context,
-    params = LLMEdgeManager.SpeechSynthesisParams(
-        text = "Hello, world!",
-        nThreads = 8  // Use more threads for better performance
-    )
-) { step: BarkTTS.EncodingStep, progress: Int ->
-    // Update progress UI
-    updateProgress("${step.name}: $progress%")
-}
+val audio = edge.speech.synthesize("Hello, world!")
 
 // Play the generated audio
 val audioTrack = AudioTrack.Builder()
@@ -348,13 +318,6 @@ val audioTrack = AudioTrack.Builder()
 
 audioTrack.write(audio.samples, 0, audio.samples.size, AudioTrack.WRITE_BLOCKING)
 audioTrack.play()
-
-// Save to WAV file
-LLMEdgeManager.synthesizeSpeechToFile(
-    context = context,
-    text = "Hello, world!",
-    outputFile = File(cacheDir, "output.wav")
-)
 ```
 
 ---

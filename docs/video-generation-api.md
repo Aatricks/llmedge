@@ -63,13 +63,12 @@ All three components are required and must be explicitly downloaded:
 **Known Limitations**:
 
 - GGUF quantization of main model blocked by metadata issues
-- Sequential loading: LLMEdgeManager supports a sequential load flow to reduce peak
-    memory usage for low-memory devices. When `forceSequentialLoad=true` is used, the
-    manager will precompute text-conditioning with the T5 encoder and then load the
+- Sequential loading: `edge.image.generateVideo(...)` supports a sequential load flow to
+    reduce peak memory usage for low-memory devices. When `forceSequentialLoad=true` is
+    used, the client precomputes text-conditioning with the T5 encoder and then loads the
     diffusion model without reloading the T5 encoder to avoid duplicating memory usage.
-    Note: For best results with sequential loading, avoid `preferPerformanceMode=true` as
-    that can cause the manager to favor GPU allocation patterns that increase peak
-    memory usage.
+    Note: For best results with sequential loading, avoid GPU-heavy settings that increase
+    peak memory usage on constrained devices.
 - No disk streaming - models must fit in RAM
 - 8GB RAM devices cannot run Wan models (architectural constraint)
 
@@ -825,7 +824,7 @@ val job = CoroutineScope(Dispatchers.IO).launch {
 
 ### EasyCache (for supported models)
 
-For supported models (e.g., DiT architectures like Flux/SD3), EasyCache can significantly reduce generation time by reusing intermediate diffusion steps. `LLMEdgeManager` automatically detects and enables EasyCache if the loaded model supports it.
+For supported models (e.g., DiT architectures like Flux/SD3), EasyCache can significantly reduce generation time by reusing intermediate diffusion steps. `edge.image` automatically detects and enables EasyCache if the loaded model supports it.
 
 If using the low-level `StableDiffusion` API, you can enable EasyCache via `VideoGenerateParams`:
 

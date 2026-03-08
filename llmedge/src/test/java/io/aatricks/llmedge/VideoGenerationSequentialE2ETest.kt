@@ -2,6 +2,7 @@ package io.aatricks.llmedge
 
 import android.content.Context
 import android.graphics.Bitmap
+import io.aatricks.llmedge.image.VideoGenerationRequest
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -286,7 +287,7 @@ class VideoGenerationSequentialE2ETest {
         // 3. Then loads diffusion model and calls txt2VidWithPrecomputedCondition
 
         val params =
-                LLMEdgeManager.VideoGenerationParams(
+                VideoGenerationRequest(
                         prompt = prompt,
                         negative = "",
                         width = width,
@@ -296,7 +297,7 @@ class VideoGenerationSequentialE2ETest {
                         cfgScale = cfgScale,
                         seed = seed,
                         flowShift = Float.POSITIVE_INFINITY, // Auto
-                        flashAttn = true,
+                        flashAttention = true,
                         forceSequentialLoad = true, // THIS IS THE KEY - forces Android path
                         // Enable EasyCache like Android does
                         easyCache =
@@ -308,8 +309,7 @@ class VideoGenerationSequentialE2ETest {
                                 )
                 )
 
-        // We need to set up the model paths since LLMEdgeManager normally downloads from
-        // HuggingFace
+        // We set up model paths directly here instead of resolving from Hugging Face.
         // For this test, we'll directly use StableDiffusion with the sequential loading simulation
 
         println("[SequentialE2E] Step 1: Loading T5 encoder for condition precomputation...")

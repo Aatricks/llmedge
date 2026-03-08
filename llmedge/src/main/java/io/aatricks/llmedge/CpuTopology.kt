@@ -142,7 +142,7 @@ object CpuTopology {
             }
             TaskType.DIFFUSION -> {
                 // Revert to prior behavior: use all available CPU cores for maximum throughput.
-                // This restores the faster generation speed observed before LLMEdgeManager changes.
+                // This restores the faster generation speed observed before the facade refactor.
                 Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
             }
             TaskType.LIGHT_TASK -> {

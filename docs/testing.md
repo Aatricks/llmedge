@@ -30,7 +30,7 @@ Reports:
 ## Linux host LLM chat E2E
 
 For local Linux development, you can run the real SmolLM JNI library against a local GGUF model to
-exercise chat inference end-to-end, including the higher-level `ChatSession` API.
+exercise chat inference end-to-end.
 
 Prerequisites:
 
@@ -50,14 +50,13 @@ Run the host chat E2E tests:
 ```bash
 ./gradlew :llmedge:testDebugUnitTest \
   --tests "*TextInferenceLinuxE2ETest" \
-  --tests "*ChatSessionLinuxE2ETest" \
   --no-daemon
 ```
 
 Coverage:
 
 - `TextInferenceLinuxE2ETest` — direct multi-turn `SmolLM` chat on Linux
-- `ChatSessionLinuxE2ETest` — `ChatSession.sendMessage()`, `sendMessageStream()`, sliding-window replay, and `<think>` stripping with a real model
+- `ConversationWindowTest` / `PromptRendererTest` — Kotlin-managed chat-window trimming, prompt replay, and `<think>` stripping logic
 
 ## Instrumentation tests (managed emulator)
 
@@ -192,7 +191,8 @@ Tip: WAN assets are large. Ensure sufficient disk and network availability.
 
 - Text chat host E2E:
   - `llmedge/src/test/java/io/aatricks/llmedge/TextInferenceLinuxE2ETest.kt`
-  - `llmedge/src/test/java/io/aatricks/llmedge/ChatSessionLinuxE2ETest.kt`
+  - `llmedge/src/test/java/io/aatricks/llmedge/text/ConversationWindowTest.kt`
+  - `llmedge/src/test/java/io/aatricks/llmedge/text/PromptRendererTest.kt`
 - Image (API layer): `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationTest.kt`
 - Native image E2E (opt‑in): `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationE2ENativeTest.kt`
 - Video API & integration tests (progress, cancellation, memory, schedulers, metadata):

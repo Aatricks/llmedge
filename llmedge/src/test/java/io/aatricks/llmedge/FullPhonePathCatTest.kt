@@ -1,19 +1,23 @@
 package io.aatricks.llmedge
 
 import android.content.Context
-import android.graphics.Bitmap
+import io.aatricks.llmedge.image.GenerationStreamEvent
+import io.aatricks.llmedge.image.VideoGenerationRequest
+import io.aatricks.llmedge.model.ModelSpec
+import kotlinx.coroutines.CoroutineScope
 import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.collect
 import org.junit.Assert.*
 import java.io.File
 
 /**
  * High-level E2E test that follows the EXACT same path a phone would,
- * using LLMEdgeManager.generateVideo.
+ * using the instance-based image client.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -65,39 +69,54 @@ class FullPhonePathCatTest {
         println("[FullPhonePathCatTest] libPath: $libPath, exists=${File(libPath).exists()}")
 
         Assume.assumeTrue("Native library not found at $libPath", File(libPath).exists())
-
-        val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
         
-        // Setup LLMEdgeManager state
-        LLMEdgeManager.preferPerformanceMode = false // Simulate low-ish memory/high safety
-
-        val params = LLMEdgeManager.VideoGenerationParams(
-            prompt = "cat",
-            width = 128,
-            height = 128,
-            videoFrames = 5,
-            steps = 1,
-            cfgScale = 1.0f,
-            seed = 42L,
-            forceSequentialLoad = true, // Exact phone path for large models
-            modelPath = MODEL_PATH,
-            vaePath = if (useTaehv) null else VAE_PATH,
-            t5xxlPath = T5_PATH,
-            taehvPath = if (useTaehv) TAEHV_PATH else null
-        )
+        val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
+        val edge =
+            LLMEdge.create(
+                context,
+                CoroutineScope(kotlin.coroutines.coroutineContext),
+                config = LLMEdgeConfig(preferPerformanceMode = false),
+            )
+        val params =
+            VideoGenerationRequest(
+                prompt = "cat",
+                width = 128,
+                height = 128,
+                videoFrames = 5,
+                steps = 1,
+                cfgScale = 1.0f,
+                seed = 42L,
+                forceSequentialLoad = true,
+                model = ModelSpec.localFile(MODEL_PATH),
+                vae = if (useTaehv) null else ModelSpec.localFile(VAE_PATH),
+                textEncoder = ModelSpec.localFile(T5_PATH),
+                taehv = if (useTaehv) ModelSpec.localFile(TAEHV_PATH) else null,
+            )
 
         println("[FullPhonePathCatTest] Starting generation: useTaehv=$useTaehv, output=$outputFilename")
         val startTime = System.currentTimeMillis()
 
-        val bitmaps = try {
-            LLMEdgeManager.generateVideo(context, params) { phase, current, total ->
-                println("[FullPhonePathCatTest] Progress: $phase ($current/$total)")
+        val bitmaps =
+            try {
+                var completedFrames: List<android.graphics.Bitmap> = emptyList()
+                edge.image.generateVideo(params).collect { event ->
+                    when (event) {
+                        is GenerationStreamEvent.Progress ->
+                            println(
+                                "[FullPhonePathCatTest] Progress: ${event.update.message} (${event.update.current}/${event.update.total})",
+                            )
+
+                        is GenerationStreamEvent.Completed -> completedFrames = event.frames
+                    }
+                }
+                completedFrames
+            } catch (e: Exception) {
+                println("[FullPhonePathCatTest] Generation failed: ${e.message}")
+                e.printStackTrace()
+                throw e
+            } finally {
+                edge.close()
             }
-        } catch (e: Exception) {
-            println("[FullPhonePathCatTest] Generation failed: ${e.message}")
-            e.printStackTrace()
-            throw e
-        }
 
         val elapsed = System.currentTimeMillis() - startTime
         println("[FullPhonePathCatTest] Completed in ${elapsed}ms, got ${bitmaps.size} frames")

@@ -1,0 +1,245 @@
+package io.aatricks.llmedge.text
+
+import android.content.Context
+import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.ModelCache
+import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.model.ModelSpec
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+data class TextModelOptions(
+    val contextSize: Long? = null,
+    val numThreads: Int? = null,
+    val minP: Float? = null,
+    val temperature: Float? = null,
+    val useMmap: Boolean? = null,
+    val useMlock: Boolean? = null,
+    val useFlashAttention: Boolean? = null,
+    val thinkingMode: SmolLM.ThinkingMode = SmolLM.ThinkingMode.DEFAULT,
+    val reasoningBudget: Int? = null,
+    val useVulkan: Boolean? = null,
+)
+
+data class TextGenerationRequest(
+    val prompt: String,
+    val model: ModelSpec,
+    val systemPrompt: String? = null,
+    val options: TextModelOptions = TextModelOptions(),
+    val maxTokens: Int = -1,
+    val batchSize: Int = 1,
+)
+
+internal fun TextModelOptions.toInferenceParams(config: LLMEdgeConfig): SmolLM.InferenceParams =
+    SmolLM.InferenceParams(
+        minP = minP ?: config.defaultTextMinP,
+        temperature = temperature ?: config.defaultTextTemperature,
+        storeChats = false,
+        contextSize = contextSize ?: config.defaultTextContextSize,
+        numThreads = numThreads ?: config.defaultTextThreads.coerceAtLeast(1),
+        useMmap = useMmap ?: config.defaultUseMmap,
+        useMlock = useMlock ?: config.defaultUseMlock,
+        useFlashAttn = useFlashAttention ?: config.defaultUseFlashAttention,
+        thinkingMode = thinkingMode,
+        reasoningBudget = reasoningBudget,
+    )
+
+internal class ManagedTextModel(
+    val fileSizeBytes: Long,
+    val model: SmolLM,
+) : AutoCloseable {
+    val mutex: Mutex = Mutex()
+
+    override fun close() {
+        model.close()
+    }
+}
+
+class TextClient internal constructor(
+    private val context: Context,
+    private val scope: LLMEdgeScope,
+    private val config: LLMEdgeConfig,
+    private val modelResolver: ModelResolver,
+) : AutoCloseable {
+    @Volatile
+    private var lastGenerationMetrics: SmolLM.GenerationMetrics? = null
+
+    private val cache =
+        ModelCache<ManagedTextModel>(
+            maxCacheSize = config.textCacheSize,
+            maxMemoryMB = config.textCacheMemoryMb,
+            closeScope = scope.coroutineScope,
+        )
+    private val loadMutex = Mutex()
+
+    suspend fun prepare(
+        model: ModelSpec = config.models.text,
+        options: TextModelOptions = TextModelOptions(),
+    ) {
+        acquire(model, options)
+    }
+
+    suspend fun generate(
+        prompt: String,
+        model: ModelSpec = config.models.text,
+        systemPrompt: String? = null,
+        options: TextModelOptions = TextModelOptions(),
+        maxTokens: Int = -1,
+        batchSize: Int = 1,
+    ): String =
+        generate(
+            TextGenerationRequest(
+                prompt = prompt,
+                model = model,
+                systemPrompt = systemPrompt,
+                options = options,
+                maxTokens = maxTokens,
+                batchSize = batchSize,
+            ),
+        )
+
+    suspend fun generate(request: TextGenerationRequest): String {
+        val runtime = acquire(request.model, request.options)
+        lastGenerationMetrics = null
+        return complete(
+            runtime = runtime,
+            prompt = request.prompt,
+            systemPrompt = request.systemPrompt,
+            options = request.options,
+            maxTokens = request.maxTokens,
+            batchSize = request.batchSize,
+        )
+    }
+
+    fun stream(
+        prompt: String,
+        model: ModelSpec = config.models.text,
+        systemPrompt: String? = null,
+        options: TextModelOptions = TextModelOptions(),
+    ): Flow<TextStreamEvent> =
+        stream(
+            TextGenerationRequest(
+                prompt = prompt,
+                model = model,
+                systemPrompt = systemPrompt,
+                options = options,
+            ),
+        )
+
+    fun stream(request: TextGenerationRequest): Flow<TextStreamEvent> = flow {
+        emit(TextStreamEvent.Started(request.prompt))
+        val runtime = acquire(request.model, request.options)
+        lastGenerationMetrics = null
+        val response = StringBuilder()
+        streamCompletion(runtime, request.prompt, request.systemPrompt, request.options).collect { chunk ->
+            response.append(chunk)
+            emit(TextStreamEvent.Chunk(chunk))
+        }
+        emit(TextStreamEvent.Completed(response.toString()))
+    }
+
+    fun getLastGenerationMetrics(): SmolLM.GenerationMetrics? = lastGenerationMetrics
+
+    fun session(
+        model: ModelSpec = config.models.text,
+        memory: ConversationWindow = ConversationWindow(),
+        systemPrompt: String? = null,
+        options: TextModelOptions = TextModelOptions(),
+    ): ChatSession = ChatSession(this, model, memory, systemPrompt, options)
+
+    internal suspend fun acquire(model: ModelSpec, options: TextModelOptions): ManagedTextModel {
+        val key = buildCacheKey(model, options)
+        cache.get(key)?.let { return it }
+
+        return loadMutex.withLock {
+            cache.get(key)?.let { return@withLock it }
+            val modelFile = modelResolver.resolve(context, model)
+            val smol = SmolLM(useVulkan = options.useVulkan ?: config.textUseVulkan)
+            smol.load(modelFile.absolutePath, options.toInferenceParams(config))
+            val runtime = ManagedTextModel(fileSizeBytes = modelFile.length(), model = smol)
+            cache.put(key, runtime, runtime.fileSizeBytes)
+            runtime
+        }
+    }
+
+    internal suspend fun complete(
+        runtime: ManagedTextModel,
+        prompt: String,
+        systemPrompt: String?,
+        options: TextModelOptions,
+        maxTokens: Int,
+        batchSize: Int,
+    ): String =
+        runtime.mutex.withLock {
+            withContext(scope.inferenceDispatcher) {
+                prepareModel(runtime.model, systemPrompt, options)
+                try {
+                    runtime.model.getResponse(prompt, maxTokens, batchSize).also {
+                        lastGenerationMetrics = runtime.model.getLastGenerationMetrics()
+                    }
+                } finally {
+                    runtime.model.clearKvCache()
+                }
+            }
+        }
+
+    internal fun streamCompletion(
+        runtime: ManagedTextModel,
+        prompt: String,
+        systemPrompt: String?,
+        options: TextModelOptions,
+    ): Flow<String> =
+        flow {
+            runtime.mutex.withLock {
+                withContext(scope.inferenceDispatcher) {
+                    prepareModel(runtime.model, systemPrompt, options)
+                }
+                try {
+                    runtime.model
+                        .getResponseAsFlow(prompt, scope.inferenceDispatcher)
+                        .buffer(64)
+                        .collect { chunk ->
+                            if (chunk != "[EOG]") {
+                                emit(chunk)
+                            }
+                        }
+                    lastGenerationMetrics = runtime.model.getLastGenerationMetrics()
+                } finally {
+                    runtime.model.clearKvCache()
+                }
+            }
+        }
+
+    private fun prepareModel(
+        model: SmolLM,
+        systemPrompt: String?,
+        options: TextModelOptions,
+    ) {
+        model.clearKvCache()
+        systemPrompt?.takeUnless(String::isBlank)?.let(model::addSystemPrompt)
+        model.setThinkingMode(options.thinkingMode)
+        options.reasoningBudget?.let(model::setReasoningBudget)
+    }
+
+    private fun buildCacheKey(model: ModelSpec, options: TextModelOptions): String =
+        listOf(
+            model.cacheKey,
+            "ctx=${options.contextSize ?: config.defaultTextContextSize ?: 0L}",
+            "threads=${options.numThreads ?: config.defaultTextThreads}",
+            "mmap=${options.useMmap ?: config.defaultUseMmap}",
+            "mlock=${options.useMlock ?: config.defaultUseMlock}",
+            "flash=${options.useFlashAttention ?: config.defaultUseFlashAttention}",
+            "vulkan=${options.useVulkan ?: config.textUseVulkan}",
+        ).joinToString("|")
+
+    override fun close() {
+        cache.clear()
+    }
+}

@@ -23,8 +23,8 @@ import java.io.File
  * - Provide a small test model suitable for testing via environment variable
  *   LLMEDGE_TEST_MODEL_PATH (path to a .gguf model). If not set, the test will be skipped.
  *
- * This test directly uses StableDiffusion.load() instead of LLMEdgeManager to bypass
- * the sequential loading logic which has issues with standalone T5 GGUF files.
+ * This test directly uses StableDiffusion.load() to bypass the high-level sequential helper path
+ * when working with standalone T5 GGUF files.
  */
 
 @RunWith(RobolectricTestRunner::class)
@@ -85,7 +85,7 @@ class VideoGenerationLinuxE2ETest {
         val startTime = System.currentTimeMillis()
 
         // Load model directly using StableDiffusion.load() with all components together
-        // This bypasses LLMEdgeManager's sequential loading which has issues with standalone T5 GGUF
+        // This bypasses the high-level sequential loading helper which has issues with standalone T5 GGUF
         println("[VideoGenerationLinuxE2ETest] Loading StableDiffusion model directly...")
         val sd = try {
             StableDiffusion.load(

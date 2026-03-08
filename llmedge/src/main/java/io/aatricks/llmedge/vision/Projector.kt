@@ -10,7 +10,7 @@ import android.util.Log
  * falls back to copying the input image to the output path so callers can
  * continue to operate in a degraded mode.
  */
-class Projector {
+class Projector : AutoCloseable {
     companion object {
         private const val TAG = "Projector"
 
@@ -86,7 +86,7 @@ class Projector {
         }
     }
 
-    fun close() {
+    override fun close() {
         try {
             if (nativePtr != 0L) {
                 nativeCloseProjector(nativePtr)

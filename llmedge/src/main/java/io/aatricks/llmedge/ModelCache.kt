@@ -3,7 +3,6 @@ package io.aatricks.llmedge
 import android.util.Log
 import java.util.LinkedHashMap
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -16,6 +15,7 @@ import kotlinx.coroutines.launch
 class ModelCache<T : AutoCloseable>(
     private val maxCacheSize: Int = 2,
     private val maxMemoryMB: Long = 4096,
+    private val closeScope: CoroutineScope? = null,
     /** Optional provider to compute current available system memory (MB). If provided, cache will use this to be more memory-aware. */
     var systemMemoryProvider: (() -> Long)? = null
 ) {
@@ -157,8 +157,15 @@ class ModelCache<T : AutoCloseable>(
                     "Evicted LRU '$lruKey' (used ${entry.hitCount} times, " +
                             "${entry.sizeBytes / 1024 / 1024}MB)"
             )
-            // Close the evicted model in background to avoid blocking callers
-            CoroutineScope(Dispatchers.IO).launch {
+            if (closeScope != null) {
+                closeScope.launch {
+                    try {
+                        entry.model.close()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error closing evicted entry: ${e.message}")
+                    }
+                }
+            } else {
                 try {
                     entry.model.close()
                 } catch (e: Exception) {

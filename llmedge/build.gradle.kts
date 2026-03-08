@@ -241,6 +241,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
     // Sentence Embeddings (on-device) - provides ONNX-based sentence-transformers
     implementation("io.gitlab.shubham0204:sentence-embeddings:v6")
+    implementation("androidx.lifecycle:lifecycle-common:2.8.7")
 
     // Hugging Face Hub client (Ktor + JSON serialization)
     implementation("io.ktor:ktor-client-core:2.3.12")

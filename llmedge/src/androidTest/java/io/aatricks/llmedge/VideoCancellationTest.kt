@@ -52,6 +52,7 @@ class VideoCancellationTest : BaseVideoIntegrationTest() {
                         initImage: ByteArray?,
                         initWidth: Int,
                         initHeight: Int,
+                        vaceStrength: Float,
                         easyCacheEnabled: Boolean,
                         easyCacheReuseThreshold: Float,
                         easyCacheStartPercent: Float,

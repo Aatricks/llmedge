@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.aatricks.llmedge.util.MemoryMetrics
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,8 +60,8 @@ class PerformanceOptimizationTest {
         // Skip the Vulkan detection test if the native library isn't available
         org.junit.Assume.assumeTrue("Native library not loaded", StableDiffusion.isNativeLibraryLoaded())
 
-        val available = LLMEdgeManager.isVulkanAvailable()
-        val info = LLMEdgeManager.getVulkanDeviceInfo()
+        val available = LLMEdge.isVulkanAvailable()
+        val info = LLMEdge.getVulkanDeviceInfo()
 
         Log.i(TAG, "=== Vulkan Detection Test ===")
         Log.i(TAG, "Vulkan available: $available")
@@ -152,17 +153,9 @@ class PerformanceOptimizationTest {
     fun testPerformanceMonitoring() {
         Log.i(TAG, "=== Performance Monitoring Test ===")
 
-        val snapshot = LLMEdgeManager.getPerformanceSnapshot()
-
-        Log.i(TAG, "Text metrics: ${snapshot.textMetrics}")
-        Log.i(TAG, "Diffusion metrics: ${snapshot.diffusionMetrics}")
-        Log.i(TAG, "Timestamp: ${snapshot.timestamp}")
-
-        // Log performance snapshot (should not crash)
-        LLMEdgeManager.logPerformanceSnapshot()
-
-        // Snapshot should be created successfully
-        assert(snapshot.timestamp > 0) { "Timestamp should be set" }
+        val snapshot = MemoryMetrics.snapshot(context)
+        Log.i(TAG, snapshot.toPretty(context))
+        assert(snapshot.totalSystemMemBytes > 0L) { "Total system memory should be reported" }
     }
 
     /**
