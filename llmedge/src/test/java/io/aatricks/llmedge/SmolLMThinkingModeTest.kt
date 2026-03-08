@@ -41,6 +41,7 @@ class SmolLMThinkingModeTest {
                 override fun completionLoop(instance: SmolLM, modelPtr: Long): String = ""
                 override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String = ""
                 override fun stopCompletion(instance: SmolLM, modelPtr: Long) {}
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) {}
             }
         }
     }

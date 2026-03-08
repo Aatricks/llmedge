@@ -82,6 +82,7 @@ class SmolLMInferenceTest {
             }
 
             override fun stopCompletion(instance: SmolLM, modelPtr: Long) {}
+            override fun clearKvCache(instance: SmolLM, modelPtr: Long) {}
         }
         val bridge = TestBridge()
 

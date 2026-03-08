@@ -74,6 +74,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         fun completionLoop(instance: SmolLM, modelPtr: Long): String
         fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String
         fun stopCompletion(instance: SmolLM, modelPtr: Long)
+        fun clearKvCache(instance: SmolLM, modelPtr: Long)
     }
     companion object {
         private const val LOG_TAG = "SmolLM"
@@ -322,6 +323,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         instance.completionLoopBatch(modelPtr, maxTokens)
                 override fun stopCompletion(instance: SmolLM, modelPtr: Long) =
                         instance.stopCompletion(modelPtr)
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) =
+                        instance.nativeClearKvCache(modelPtr)
             }
         }
 
@@ -336,9 +339,14 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             nativeBridgeProvider = defaultNativeBridgeProvider
         }
 
-        internal fun createLoadedForTests(nativePtr: Long, useVulkan: Boolean = false): SmolLM {
+        internal fun createLoadedForTests(
+                nativePtr: Long,
+                useVulkan: Boolean = false,
+                loadedParams: InferenceParams = InferenceParams(),
+        ): SmolLM {
             val s = SmolLM(useVulkan)
             s.nativePtr = nativePtr
+            s.loadedInferenceParams = loadedParams
             return s
         }
     }
@@ -348,6 +356,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     private var useVulkanGPU = true
     private var currentThinkingMode = ThinkingMode.DEFAULT
     private var currentReasoningBudget = DEFAULT_REASONING_BUDGET
+    internal var loadedInferenceParams: InferenceParams? = null
+        private set
 
     init {
         this.useVulkanGPU = useVulkan
@@ -528,6 +538,11 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 if (pCoreMask != 0L) {
                     setThreadAffinity(nativePtr, pCoreMask)
                 }
+                loadedInferenceParams =
+                        params.copy(
+                                contextSize = resolvedContextSize,
+                                chatTemplate = resolvedChatTemplate,
+                        )
             }
 
     /**
@@ -782,6 +797,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         }
         currentThinkingMode = ThinkingMode.DEFAULT
         currentReasoningBudget = DEFAULT_REASONING_BUDGET
+        loadedInferenceParams = null
     }
 
     private fun verifyHandle() {
@@ -919,7 +935,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     fun clearKvCache() {
         verifyHandle()
         try {
-            nativeClearKvCache(nativePtr)
+            nativeBridge.clearKvCache(this, nativePtr)
         } catch (e: UnsatisfiedLinkError) {
             // ignore if not available
         }

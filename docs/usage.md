@@ -244,6 +244,38 @@ val reply = smol.getResponse("Your prompt here")
 smol.close()  // Free native memory when done
 ```
 
+### Managed chat history with ChatSession
+
+Use `ChatSession` when you want multi-turn chat history without relying on the native KV cache to
+retain earlier turns:
+
+```kotlin
+runBlocking {
+    val smol = SmolLM()
+    smol.load(modelPath, InferenceParams(storeChats = false, contextSize = 4096L))
+
+    val session = ChatSession(
+        smol,
+        ChatSessionConfig(
+            maxHistoryMessages = 6,
+            stripReasoningFromHistory = true,
+            systemPrompt = "You are a concise assistant."
+        )
+    )
+
+    val firstReply = session.sendMessage("Explain KV cache in one paragraph.")
+    session.sendMessageStream("Now summarize that in 3 bullets.").collect { chunk ->
+        print(chunk)
+    }
+
+    smol.close()
+}
+```
+
+`ChatSession` keeps the full transcript in Kotlin memory, clears native chat state before each
+turn, replays only the active sliding window, and strips older `<think>...</think>` traces from
+assistant messages before replaying them back into the model.
+
 See [Examples](examples.md#localassetdemoactivity) for complete working code with coroutines and streaming.
 
 ### Downloading Models from Hugging Face
