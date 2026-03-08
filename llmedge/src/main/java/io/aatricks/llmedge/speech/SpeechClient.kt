@@ -8,6 +8,7 @@ import io.aatricks.llmedge.Whisper
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.util.MemoryMetrics
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -80,16 +81,52 @@ class SpeechClient internal constructor(
             maxCacheSize = config.speechCacheSize,
             maxMemoryMB = config.speechCacheMemoryMb,
             closeScope = scope.coroutineScope,
-        )
+        ).apply {
+            systemMemoryProvider = {
+                MemoryMetrics.snapshot(context).availSystemMemBytes / (1024L * 1024L)
+            }
+        }
     private val barkCache =
         ModelCache<ManagedBarkModel>(
             maxCacheSize = config.speechCacheSize,
             maxMemoryMB = config.speechCacheMemoryMb,
             closeScope = scope.coroutineScope,
-        )
+        ).apply {
+            systemMemoryProvider = {
+                MemoryMetrics.snapshot(context).availSystemMemBytes / (1024L * 1024L)
+            }
+        }
     private val whisperLoadMutex = Mutex()
     private val barkLoadMutex = Mutex()
 
+    /**
+     * Preload a Whisper model into the speech cache so later transcription calls avoid the initial
+     * model-load cost on the calling path.
+     */
+    suspend fun prepareSpeechToText(
+        model: ModelSpec = config.models.speechToText,
+        loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
+    ) {
+        acquireWhisper(model, loadOptions)
+    }
+
+    /**
+     * Preload a Bark model into the speech cache so later synthesis calls avoid the initial
+     * model-load cost on the calling path.
+     */
+    suspend fun prepareTextToSpeech(
+        model: ModelSpec = config.models.textToSpeech,
+        loadOptions: BarkLoadOptions = BarkLoadOptions(),
+    ) {
+        acquireBark(model, loadOptions)
+    }
+
+    /**
+     * Transcribe an audio buffer into timestamped speech segments.
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when model resolution, loading, or native
+     * inference fails.
+     */
     suspend fun transcribe(
         audioSamples: FloatArray,
         model: ModelSpec = config.models.speechToText,
@@ -125,6 +162,11 @@ class SpeechClient internal constructor(
         }
     }
 
+    /**
+     * Create a reusable real-time transcription session.
+     *
+     * Call [StreamingTranscriptionSession.close] when the session is no longer needed.
+     */
     suspend fun createStreamingSession(
         model: ModelSpec = config.models.speechToText,
         params: Whisper.StreamingParams = Whisper.StreamingParams(),
@@ -135,6 +177,12 @@ class SpeechClient internal constructor(
         return scope.resources.register(StreamingTranscriptionSession(transcriber))
     }
 
+    /**
+     * Synthesize speech from text and return the full audio result.
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when model resolution, loading, or native
+     * inference fails.
+     */
     suspend fun synthesize(
         text: String,
         model: ModelSpec = config.models.textToSpeech,
@@ -149,6 +197,11 @@ class SpeechClient internal constructor(
         }
     }
 
+    /**
+     * Stream Bark synthesis progress followed by the final audio result.
+     *
+     * Cancel the returned flow collection to stop listening for the active synthesis result.
+     */
     fun synthesizeStream(
         text: String,
         model: ModelSpec = config.models.textToSpeech,

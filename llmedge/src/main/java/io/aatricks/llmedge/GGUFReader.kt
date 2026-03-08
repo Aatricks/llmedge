@@ -16,6 +16,11 @@
 
 package io.aatricks.llmedge
 
+import io.aatricks.llmedge.core.InvalidModelStateException
+import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.NativeBindingException
+import io.aatricks.llmedge.core.NativeLibraryLoader
+import io.aatricks.llmedge.model.ModelFileValidator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.Closeable
@@ -35,19 +40,11 @@ class GGUFReader : Closeable {
         private var testBridgeProvider: ((GGUFReader) -> NativeBridge)? = null
 
         init {
-            val disableNativeLoad = java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")
-            if (disableNativeLoad) {
-                // Running under unit tests — skip native library load
-                println("[GGUFReader] Native library load disabled via llmedge.disableNativeLoad")
-            } else {
-                try {
-                    System.loadLibrary("ggufreader")
-                } catch (e: UnsatisfiedLinkError) {
-                    println("[GGUFReader] Native library missing or failed to load: ${e.message}")
-                } catch (t: Throwable) {
-                    println("[GGUFReader] Native library failed to load: ${'$'}{t.message}")
-                }
-            }
+            NativeLibraryLoader.ensureGgufReaderLoaded(
+                required = false,
+                onDebug = ::println,
+                onError = { message, _ -> println("[GGUFReader] $message") },
+            )
         }
 
         internal fun overrideNativeBridgeForTests(provider: (GGUFReader) -> NativeBridge) {
@@ -67,11 +64,27 @@ class GGUFReader : Closeable {
             if (nativeHandle != 0L) {
                 close()
             }
-            nativeHandle = nativeBridge.getGGUFContextNativeHandle(modelPath)
+            val validatedModel = ModelFileValidator.requireGgufFile(modelPath, "GGUF model")
+            nativeHandle =
+                try {
+                    nativeBridge.getGGUFContextNativeHandle(validatedModel.absolutePath)
+                } catch (e: UnsatisfiedLinkError) {
+                    throw NativeBindingException(
+                        libraryName = "ggufreader",
+                        detail = "GGUF metadata reader JNI bindings are unavailable.",
+                        cause = e,
+                    )
+                }
+            if (nativeHandle == 0L) {
+                throw ModelLoadException(
+                    validatedModel.absolutePath,
+                    "GGUF metadata reader returned an invalid native handle.",
+                )
+            }
         }
 
     fun getContextSize(): Long? {
-        assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
+        verifyHandle()
         val contextSize = nativeBridge.getContextSize(nativeHandle)
         return if (contextSize == -1L) {
             null
@@ -81,7 +94,7 @@ class GGUFReader : Closeable {
     }
 
     fun getChatTemplate(): String? {
-        assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
+        verifyHandle()
         val chatTemplate = nativeBridge.getChatTemplate(nativeHandle)
         return chatTemplate.ifEmpty {
             null
@@ -92,7 +105,7 @@ class GGUFReader : Closeable {
      * Read the model architecture from GGUF metadata (e.g., "wan", "llama", "stable-diffusion")
      */
     fun getArchitecture(): String? {
-        assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
+        verifyHandle()
         val arch = nativeBridge.getArchitecture(nativeHandle)
         return arch.ifEmpty { null }
     }
@@ -102,7 +115,7 @@ class GGUFReader : Closeable {
      * Falls back to estimating from model file size if not in metadata
      */
     fun getParameterCount(): String? {
-        assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
+        verifyHandle()
         val params = nativeBridge.getParameterCount(nativeHandle)
         return params.ifEmpty { null }
     }
@@ -111,7 +124,7 @@ class GGUFReader : Closeable {
      * Read model name from GGUF metadata
      */
     fun getModelName(): String? {
-        assert(nativeHandle != 0L) { "Use GGUFReader.load() to initialize the reader" }
+        verifyHandle()
         val name = nativeBridge.getModelName(nativeHandle)
         return name.ifEmpty { null }
     }
@@ -120,6 +133,12 @@ class GGUFReader : Closeable {
         if (nativeHandle != 0L) {
             nativeBridge.releaseGGUFContext(nativeHandle)
             nativeHandle = 0L
+        }
+    }
+
+    private fun verifyHandle() {
+        if (nativeHandle == 0L) {
+            throw InvalidModelStateException("Use GGUFReader.load() to initialize the reader")
         }
     }
 

@@ -19,7 +19,10 @@ class DefaultModelResolverTest {
     @Test
     fun `resolve returns local file unchanged`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val file = Files.createTempFile("llmedge", ".gguf").toFile()
+        val file =
+            Files.createTempFile("llmedge", ".gguf").toFile().apply {
+                writeBytes(byteArrayOf(0x01))
+            }
 
         try {
             val resolver = DefaultModelResolver()

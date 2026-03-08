@@ -21,6 +21,13 @@ data class VulkanDeviceInfo(
     val deviceIndex: Int = 0,
 )
 
+/**
+ * High-level facade that groups llmedge's text, speech, image, vision, and RAG clients behind a
+ * single lifecycle-aware object.
+ *
+ * Close this instance when the owning feature or screen is done with inference to release cached
+ * native resources deterministically.
+ */
 class LLMEdge private constructor(
     private val appContext: Context,
     private val edgeScope: LLMEdgeScope,
@@ -60,6 +67,12 @@ class LLMEdge private constructor(
     }
 
     companion object {
+        /**
+         * Create a new [LLMEdge] facade.
+         *
+         * @throws IllegalStateException if one of the managed clients fails during construction or
+         * close.
+         */
         @JvmStatic
         @JvmOverloads
         fun create(

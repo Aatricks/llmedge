@@ -21,6 +21,12 @@ class VisionClient internal constructor(
     private val defaultModel: ModelSpec = config.models.vision.model
     private val defaultProjector: ModelSpec = config.models.vision.projector
 
+    /**
+     * Analyze an image with the configured vision pipeline.
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when the selected vision components cannot
+     * be resolved or invoked.
+     */
     suspend fun analyze(
         request: VisionRequest,
         onStatus: ((String) -> Unit)? = null,
@@ -34,6 +40,11 @@ class VisionClient internal constructor(
         onStatus: ((String) -> Unit)? = null,
     ): String = analyze(VisionRequest(image, prompt, model, projector), onStatus)
 
+    /**
+     * Extract text with the bundled OCR pipeline.
+     *
+     * This is independent from VLM-based analysis and works without loading a vision-language model.
+     */
     suspend fun extractText(image: Bitmap): String {
         val engine = MlKitOcrEngine(context)
         try {

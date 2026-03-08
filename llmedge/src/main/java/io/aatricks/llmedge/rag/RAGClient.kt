@@ -42,6 +42,13 @@ class RAGClient internal constructor(
     private val config: LLMEdgeConfig,
     private val resolver: ModelResolver,
 ) : AutoCloseable {
+    /**
+     * Create a new retrieval-augmented generation session backed by a dedicated [SmolLM] instance.
+     *
+     * Call [RAGSession.close] when the session is no longer needed.
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when model resolution or loading fails.
+     */
     suspend fun createSession(
         model: ModelSpec = config.models.text,
         embeddingConfig: EmbeddingConfig = EmbeddingConfig(),

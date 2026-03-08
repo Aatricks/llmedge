@@ -1,6 +1,7 @@
 package io.aatricks.llmedge.vision
 
 import android.util.Log
+import io.aatricks.llmedge.core.NativeLibraryLoader
 
 /**
  * Native-backed helper for preparing images using an mmproj file.
@@ -15,19 +16,11 @@ class Projector : AutoCloseable {
         private const val TAG = "Projector"
 
         init {
-            // Attempt to trigger SmolLM's static initializer which loads the
-            // preferred native library for the current device. If that fails
-            // fall back to loading the default "smollm" library.
-            try {
-                // This will run SmolLM's companion object static init which loads the native libs.
-                Class.forName("io.aatricks.llmedge.SmolLM")
-            } catch (t: Throwable) {
-                try {
-                    System.loadLibrary("smollm")
-                } catch (t2: Throwable) {
-                    Log.d(TAG, "smollm library load fallback failed: ${t2.message}")
-                }
-            }
+            NativeLibraryLoader.ensureSmolLMLoaded(
+                required = false,
+                onDebug = { message -> Log.d(TAG, message) },
+                onError = { message, throwable -> Log.d(TAG, "$message: ${throwable?.message}") },
+            )
         }
     }
 

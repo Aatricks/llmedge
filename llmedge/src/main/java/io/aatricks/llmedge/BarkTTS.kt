@@ -17,11 +17,13 @@
 package io.aatricks.llmedge
 
 import android.content.Context
-import android.os.Build
-import android.util.Log
+import io.aatricks.llmedge.core.InferenceFailedException
+import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.NativeBindingException
+import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
+import io.aatricks.llmedge.model.ModelFileValidator
 import java.io.File
-import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -156,7 +158,10 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
 
         val samples =
                 nativeGenerate(handle, text, effectiveThreads)
-                        ?: throw RuntimeException("Failed to generate audio")
+                        ?: throw InferenceFailedException(
+                                operation = "Bark audio generation",
+                                detail = "The native Bark runtime returned no audio samples."
+                        )
 
         val sampleRate = nativeGetSampleRate(handle)
         val durationSeconds = samples.size.toFloat() / sampleRate
@@ -359,31 +364,16 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
 
         // Native library loading
         init {
-            val disableNativeLoad = java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")
-            if (disableNativeLoad) {
-                println("[BarkTTS] Native library load disabled via llmedge.disableNativeLoad=true")
-            } else {
-                try {
-                    // Load bark_jni library - same name on all platforms
-                    logD(LOG_TAG, "Loading libbark_jni.so")
-                    System.loadLibrary("bark_jni")
-                } catch (e: UnsatisfiedLinkError) {
-                    logE(LOG_TAG, "Failed to load bark native library: ${e.message}")
-                }
-            }
+            NativeLibraryLoader.ensureBarkLoaded(
+                required = false,
+                onDebug = { message -> logD(LOG_TAG, message) },
+                onError = { message, throwable -> logE(LOG_TAG, message, throwable) },
+            )
         }
 
                 // Dummy instance used to invoke static native methods that are now at the class level.
 
                 private val staticInvoker by lazy { BarkTTS(0L) }
-
-        
-
-                private fun supportsArm64V8a(): Boolean {
-
-                    return Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
-
-                }
 
         
 
@@ -449,21 +439,32 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
 
                 ): BarkTTS {
 
-                    val file = File(modelPath)
+                    val validatedModel =
+                            ModelFileValidator.requireReadableFile(modelPath, "Bark model")
 
-                    if (!file.exists()) {
-
-                        throw FileNotFoundException("Model file not found: $modelPath")
-
-                    }
-
-        
-
-                    val handle = staticInvoker.nativeCreate(modelPath, seed, temperature, fineTemperature, verbosity)
+                    val handle =
+                            try {
+                                staticInvoker.nativeCreate(
+                                        validatedModel.absolutePath,
+                                        seed,
+                                        temperature,
+                                        fineTemperature,
+                                        verbosity
+                                )
+                            } catch (e: UnsatisfiedLinkError) {
+                                throw NativeBindingException(
+                                        libraryName = "bark_jni",
+                                        detail = "Bark JNI bindings are unavailable.",
+                                        cause = e
+                                )
+                            }
 
                     if (handle == 0L) {
 
-                        throw RuntimeException("Failed to load Bark model from: $modelPath")
+                        throw ModelLoadException(
+                                validatedModel.absolutePath,
+                                "The native Bark loader returned an invalid handle."
+                        )
 
                     }
 
@@ -492,27 +493,12 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
                 verbosity: Int = 0
         ): BarkTTS =
                 withContext(Dispatchers.IO) {
-                    val file = File(modelPath)
                     val actualPath =
-                            if (file.exists()) {
-                                modelPath
-                            } else {
-                                // Try to find in cache directory
-                                val cacheFile = File(context.cacheDir, modelPath)
-                                if (cacheFile.exists()) {
-                                    cacheFile.absolutePath
-                                } else {
-                                    // Try to find in files directory
-                                    val filesFile = File(context.filesDir, modelPath)
-                                    if (filesFile.exists()) {
-                                        filesFile.absolutePath
-                                    } else {
-                                        throw FileNotFoundException(
-                                                "Model file not found: $modelPath"
-                                        )
-                                    }
-                                }
-                            }
+                            ModelFileValidator.resolveReadableFile(
+                                    context,
+                                    modelPath,
+                                    "Bark model"
+                            ).absolutePath
 
                     load(actualPath, seed, temperature, fineTemperature, verbosity)
                 }

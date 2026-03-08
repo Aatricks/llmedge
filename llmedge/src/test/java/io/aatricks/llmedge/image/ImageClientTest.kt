@@ -48,9 +48,9 @@ class ImageClientTest {
     fun `sequential video generation loads text encoder before diffusion model`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val baseDir = context.filesDir
-        val modelFile = java.io.File.createTempFile("wan-model", ".gguf", baseDir)
-        val vaeFile = java.io.File.createTempFile("wan-vae", ".safetensors", baseDir)
-        val t5File = java.io.File.createTempFile("umt5", ".gguf", baseDir)
+        val modelFile = java.io.File.createTempFile("wan-model", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val vaeFile = java.io.File.createTempFile("wan-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val t5File = java.io.File.createTempFile("umt5", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
 
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {

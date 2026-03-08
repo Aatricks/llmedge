@@ -518,7 +518,15 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
     gen.easycache.start_percent = (float)jEasyCacheStartPercent;
     gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
-    sd_image_t* out = generate_image(handle->ctx, &gen);
+    sd_image_t* out = nullptr;
+    try {
+        out = generate_image(handle->ctx, &gen);
+    } catch (const std::exception& e) {
+        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
+        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+        throwJavaException(env, "java/lang/RuntimeException", e.what());
+        return nullptr;
+    }
 
     if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
     if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
@@ -1050,7 +1058,16 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
     gen.easycache.start_percent = (float)jEasyCacheStartPercent;
     gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
-    sd_image_t* out = sd_generate_image_with_precomputed_condition(handle->ctx, &gen, cond, uncond);
+    sd_image_t* out = nullptr;
+    try {
+        out = sd_generate_image_with_precomputed_condition(handle->ctx, &gen, cond, uncond);
+    } catch (const std::exception& e) {
+        releaseStrings();
+        sd_free_condition(cond);
+        if (uncond) sd_free_condition(uncond);
+        throwJavaException(env, "java/lang/RuntimeException", e.what());
+        return nullptr;
+    }
 
     releaseStrings();
 
@@ -1101,6 +1118,10 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     }
 
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    if (!handle->ctx) {
+        throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion context is null");
+        return nullptr;
+    }
     handle->cancellationRequested.store(false);
     handle->totalFrames = std::max(1, static_cast<int>(videoFrames));
     handle->currentFrame = 0;

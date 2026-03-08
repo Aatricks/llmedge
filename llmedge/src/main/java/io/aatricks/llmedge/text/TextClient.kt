@@ -7,6 +7,7 @@ import io.aatricks.llmedge.SmolLM
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.util.MemoryMetrics
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collect
@@ -76,9 +77,19 @@ class TextClient internal constructor(
             maxCacheSize = config.textCacheSize,
             maxMemoryMB = config.textCacheMemoryMb,
             closeScope = scope.coroutineScope,
-        )
+        ).apply {
+            systemMemoryProvider = {
+                MemoryMetrics.snapshot(context).availSystemMemBytes / (1024L * 1024L)
+            }
+        }
     private val loadMutex = Mutex()
 
+    /**
+     * Preload a text model into the cache so later generation calls avoid the initial model-load
+     * cost on the calling path.
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when model resolution or loading fails.
+     */
     suspend fun prepare(
         model: ModelSpec = config.models.text,
         options: TextModelOptions = TextModelOptions(),
@@ -86,6 +97,12 @@ class TextClient internal constructor(
         acquire(model, options)
     }
 
+    /**
+     * Generate a complete text response for [prompt].
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when model resolution, loading, or native
+     * inference fails.
+     */
     suspend fun generate(
         prompt: String,
         model: ModelSpec = config.models.text,
@@ -118,6 +135,12 @@ class TextClient internal constructor(
         )
     }
 
+    /**
+     * Stream a text response for [prompt].
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when model resolution, loading, or native
+     * inference fails.
+     */
     fun stream(
         prompt: String,
         model: ModelSpec = config.models.text,
@@ -147,6 +170,11 @@ class TextClient internal constructor(
 
     fun getLastGenerationMetrics(): SmolLM.GenerationMetrics? = lastGenerationMetrics
 
+    /**
+     * Create a Kotlin-managed multi-turn chat session backed by this client.
+     *
+     * Use [ChatSession.prepare] if you want to preload the model before the first reply.
+     */
     fun session(
         model: ModelSpec = config.models.text,
         memory: ConversationWindow = ConversationWindow(),

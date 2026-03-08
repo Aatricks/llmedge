@@ -21,8 +21,15 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.os.Debug
 import android.util.Log
+import io.aatricks.llmedge.core.InferenceFailedException
+import io.aatricks.llmedge.core.InvalidGenerationParametersException
+import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.NativeBindingException
+import io.aatricks.llmedge.core.NativeLibraryLoader
+import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.huggingface.WanModelRegistry
+import io.aatricks.llmedge.model.ModelFileValidator
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
@@ -631,13 +638,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             if (disableNativeLoad) {
                 println("[StableDiffusion] Native load disabled via llmedge.disableNativeLoad=true")
             } else {
-                try {
-                    System.loadLibrary("sdcpp")
-                    check(nativeCheckBindings()) { "Failed to link StableDiffusion JNI bindings" }
-                } catch (e: UnsatisfiedLinkError) {
-                    logE(LOG_TAG, "Failed to load sdcpp native library", e)
-                    throw e
-                }
+                NativeLibraryLoader.ensureStableDiffusionLoaded(
+                    required = true,
+                    onDebug = { message -> Log.d(LOG_TAG, message) },
+                    onError = { message, throwable -> logE(LOG_TAG, message, throwable) },
+                    verifyBindings = ::nativeCheckBindings,
+                )
             }
         }
 
@@ -906,6 +912,20 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             return metadata
         }
 
+        private fun validateResolvedAssets(
+            modelPath: String,
+            vaePath: String?,
+            t5xxlPath: String?,
+            taesdPath: String?,
+            loraModelDir: String?,
+        ) {
+            ModelFileValidator.requireReadableFile(modelPath, "Stable Diffusion model")
+            vaePath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion VAE") }
+            t5xxlPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion text encoder") }
+            taesdPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion TAE") }
+            loraModelDir?.let { ModelFileValidator.requireReadableDirectory(it, "LoRA model directory") }
+        }
+
         suspend fun load(
                 context: Context,
                 modelId: String? = null,
@@ -1012,8 +1032,18 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             resolvedT5xxlPath = t5xxlPath
                         }
                     } else {
-                        throw IllegalArgumentException("Provide either modelPath or modelId")
+                        throw InvalidGenerationParametersException(
+                                "Provide either modelPath or modelId"
+                        )
                     }
+
+                    validateResolvedAssets(
+                            modelPath = resolvedModelPath,
+                            vaePath = resolvedVaePath,
+                            t5xxlPath = resolvedT5xxlPath,
+                            taesdPath = taesdPath,
+                            loraModelDir = loraModelDir,
+                    )
 
                     // T100: Memory pressure detection before loading
                     android.util.Log.d(
@@ -1184,32 +1214,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     }
 
                     var handle =
-                            nativeCreate(
-                                    resolvedModelPath,
-                                    resolvedVaePath,
-                                    resolvedT5xxlPath,
-                                    taesdPath,
-                                    nThreads,
-                                    effectiveOffloadToCpu,
-                                    effectiveKeepClipOnCpu,
-                                    effectiveKeepVaeOnCpu,
-                                    flashAttn,
-                                    vaeDecodeOnly,
-                                    flowShift,
-                                    loraModelDir,
-                                    loraApplyMode.id,
-                            )
-                    // If we requested preferred GPU path but nativeCreate failed, retry with CPU
-                    // offload
-                    if (handle == 0L && forceVulkan) {
-                        android.util.Log.w(
-                                LOG_TAG,
-                                "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback"
-                        )
-                        effectiveOffloadToCpu = true
-                        effectiveKeepClipOnCpu = true
-                        effectiveKeepVaeOnCpu = true
-                        handle =
+                            try {
                                 nativeCreate(
                                         resolvedModelPath,
                                         resolvedVaePath,
@@ -1225,6 +1230,47 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         loraModelDir,
                                         loraApplyMode.id,
                                 )
+                            } catch (e: UnsatisfiedLinkError) {
+                                throw NativeBindingException(
+                                        libraryName = "sdcpp",
+                                        detail = "Stable Diffusion JNI bindings are unavailable.",
+                                        cause = e
+                                )
+                            }
+                    // If we requested preferred GPU path but nativeCreate failed, retry with CPU
+                    // offload
+                    if (handle == 0L && forceVulkan) {
+                        android.util.Log.w(
+                                LOG_TAG,
+                                "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback"
+                        )
+                        effectiveOffloadToCpu = true
+                        effectiveKeepClipOnCpu = true
+                        effectiveKeepVaeOnCpu = true
+                        handle =
+                                try {
+                                    nativeCreate(
+                                            resolvedModelPath,
+                                            resolvedVaePath,
+                                            resolvedT5xxlPath,
+                                            taesdPath,
+                                            nThreads,
+                                            effectiveOffloadToCpu,
+                                            effectiveKeepClipOnCpu,
+                                            effectiveKeepVaeOnCpu,
+                                            flashAttn,
+                                            vaeDecodeOnly,
+                                            flowShift,
+                                            loraModelDir,
+                                            loraApplyMode.id,
+                                    )
+                                } catch (e: UnsatisfiedLinkError) {
+                                    throw NativeBindingException(
+                                            libraryName = "sdcpp",
+                                            detail = "Stable Diffusion JNI bindings are unavailable.",
+                                            cause = e
+                                    )
+                                }
                     } 
                     if (handle == 0L) {
                         val errorMsg = buildString {
@@ -1233,7 +1279,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                             if (resolvedVaePath != null) append(" Custom VAE: $resolvedVaePath.")
                             append(" This often happens due to incompatible VAE/TAE weights or insufficient memory. Check logcat for [SmolSD] errors.")
                         }
-                        throw IllegalStateException(errorMsg)
+                        throw ModelLoadException(resolvedModelPath, errorMsg)
                     }
                     val instance = StableDiffusion(handle)
                     instance.modelMetadata = metadata
@@ -1242,7 +1288,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     if (instance.modelMetadata?.mobileSupported == false) {
                         instance.close()
                         val paramCount = instance.modelMetadata?.parameterCount ?: "14B"
-                        throw UnsupportedOperationException(
+                        throw UnsupportedModelException(
                                 "$paramCount models are not supported on mobile devices. " +
                                         "Please use 1.3B or 5B model variants instead. " +
                                         "14B models require 20-40GB RAM and are designed for desktop/server use only."
@@ -1286,6 +1332,14 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         onProgress?.invoke(modelId, downloaded, total)
                                     },
                             )
+
+                    validateResolvedAssets(
+                            modelPath = modelRes.file.absolutePath,
+                            vaePath = vaeRes?.file?.absolutePath,
+                            t5xxlPath = t5Res?.file?.absolutePath,
+                            taesdPath = taesdPath,
+                            loraModelDir = loraModelDir,
+                    )
 
                     val memoryInfo = ActivityManager.MemoryInfo()
                     val activityManager =
@@ -1397,30 +1451,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     )
 
                     var handle =
-                            nativeCreate(
-                                    modelRes.file.absolutePath,
-                                    vaeRes?.file?.absolutePath,
-                                    t5Res?.file?.absolutePath,
-                                    taesdPath,
-                                    nThreads,
-                                    effectiveOffloadToCpu,
-                                    effectiveKeepClipOnCpu,
-                                    effectiveKeepVaeOnCpu,
-                                    flashAttn,
-                                    vaeDecodeOnly,
-                                    flowShift,
-                                    loraModelDir,
-                                    loraApplyMode.id,
-                            )
-                    if (handle == 0L && forceVulkan) {
-                        android.util.Log.w(
-                                LOG_TAG,
-                                "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback (HF)"
-                        )
-                        effectiveOffloadToCpu = true
-                        effectiveKeepClipOnCpu = true
-                        effectiveKeepVaeOnCpu = true
-                        handle =
+                            try {
                                 nativeCreate(
                                         modelRes.file.absolutePath,
                                         vaeRes?.file?.absolutePath,
@@ -1436,9 +1467,49 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         loraModelDir,
                                         loraApplyMode.id,
                                 )
+                            } catch (e: UnsatisfiedLinkError) {
+                                throw NativeBindingException(
+                                        libraryName = "sdcpp",
+                                        detail = "Stable Diffusion JNI bindings are unavailable.",
+                                        cause = e
+                                )
+                            }
+                    if (handle == 0L && forceVulkan) {
+                        android.util.Log.w(
+                                LOG_TAG,
+                                "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback (HF)"
+                        )
+                        effectiveOffloadToCpu = true
+                        effectiveKeepClipOnCpu = true
+                        effectiveKeepVaeOnCpu = true
+                        handle =
+                                try {
+                                    nativeCreate(
+                                            modelRes.file.absolutePath,
+                                            vaeRes?.file?.absolutePath,
+                                            t5Res?.file?.absolutePath,
+                                            taesdPath,
+                                            nThreads,
+                                            effectiveOffloadToCpu,
+                                            effectiveKeepClipOnCpu,
+                                            effectiveKeepVaeOnCpu,
+                                            flashAttn,
+                                            vaeDecodeOnly,
+                                            flowShift,
+                                            loraModelDir,
+                                            loraApplyMode.id,
+                                    )
+                                } catch (e: UnsatisfiedLinkError) {
+                                    throw NativeBindingException(
+                                            libraryName = "sdcpp",
+                                            detail = "Stable Diffusion JNI bindings are unavailable.",
+                                            cause = e
+                                    )
+                                }
                     }
                     if (handle == 0L)
-                            throw IllegalStateException(
+                            throw ModelLoadException(
+                                    modelRes.file.absolutePath,
                                     "Failed to initialize Stable Diffusion context"
                             )
                     val instance = StableDiffusion(handle)
@@ -1763,7 +1834,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         params.easyCacheParams.startPercent,
                                         params.easyCacheParams.endPercent,
                                 )
-                                        ?: throw IllegalStateException("Video generation failed")
+                                        ?: throw InferenceFailedException(
+                                                operation = "Stable Diffusion video generation",
+                                                detail = "The native runtime reported a generation failure."
+                                        )
                             }
                         } catch (t: Throwable) {
                             if (cancellationRequested.get()) {
@@ -1776,7 +1850,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         }
 
                 if (frameBytes.isEmpty()) {
-                    throw IllegalStateException("Video generation returned no frames")
+                    throw InferenceFailedException(
+                            operation = "Stable Diffusion video generation",
+                            detail = "The native runtime returned no frames."
+                    )
                 }
 
                 // Note: Wan model calculates actual frames as (n-1)/4*4+1
@@ -1919,7 +1996,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                     params.easyCacheParams.startPercent,
                                     params.easyCacheParams.endPercent
                             )
-                                    ?: throw IllegalStateException("Image generation failed")
+                                    ?: throw InferenceFailedException(
+                                            operation = "Stable Diffusion image generation",
+                                            detail = "The native runtime reported a generation failure."
+                                    )
                         }
 
                 // Convert raw RGB bytes to Bitmap
@@ -2214,7 +2294,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                                         params.easyCacheParams.startPercent,
                                         params.easyCacheParams.endPercent,
                                 )
-                                        ?: throw IllegalStateException("Video generation failed")
+                                        ?: throw InferenceFailedException(
+                                                operation = "Stable Diffusion video generation",
+                                                detail = "The native runtime reported a generation failure."
+                                        )
                             }
                         } catch (t: Throwable) {
                             if (cancellationRequested.get()) {
@@ -2227,7 +2310,10 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         }
 
                 if (frameBytes.isEmpty()) {
-                    throw IllegalStateException("Video generation returned no frames")
+                    throw InferenceFailedException(
+                            operation = "Stable Diffusion video generation",
+                            detail = "The native runtime returned no frames."
+                    )
                 }
 
                 // Note: Wan model calculates actual frames as (n-1)/4*4+1

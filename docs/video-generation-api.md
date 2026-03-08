@@ -114,8 +114,9 @@ suspend fun load(
 
 **Throws**:
 
-- `FileNotFoundException`: Model file not found
-- `IllegalStateException`: Model loading failed (e.g., insufficient RAM)
+- `ModelFileNotFoundException`: A required model asset was not found
+- `InvalidModelFileException`: A required model asset was unreadable or empty
+- `ModelLoadException`: Native model initialization failed (for example due to insufficient RAM)
 - `UnsupportedOperationException`: 14B model rejected (mobile unsupported)
 
 **Example**:
@@ -743,7 +744,7 @@ val params = VideoGenerateParams(
 
 #### Model Not Loading
 
-**Symptoms**: `FileNotFoundException` or load failure
+**Symptoms**: `ModelFileNotFoundException`, `InvalidModelFileException`, or native load failure
 
 **Solutions**:
 

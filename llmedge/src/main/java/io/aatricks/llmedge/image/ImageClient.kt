@@ -75,6 +75,15 @@ class ImageClient internal constructor(
     @Volatile
     private var activeModel: StableDiffusion? = null
 
+    /**
+     * Generate a single bitmap from text.
+     *
+     * This client resolves and loads the requested model for the operation, while advanced callers
+     * can use [StableDiffusion] directly when they need to hold a warmed runtime across requests.
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when model resolution, loading, or native
+     * generation fails.
+     */
     suspend fun generate(
         params: ImageGenerationRequest,
     ): Bitmap =
@@ -129,6 +138,14 @@ class ImageClient internal constructor(
             }
         }
 
+    /**
+     * Stream progress and final frames for text-to-video generation.
+     *
+     * Cancel the returned flow collection to stop the active generation.
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when model resolution, loading, or native
+     * generation fails.
+     */
     fun generateVideo(
         params: VideoGenerationRequest,
     ): Flow<GenerationStreamEvent> =
@@ -168,6 +185,7 @@ class ImageClient internal constructor(
             }
         }
 
+    /** Request cancellation for the active generation, if any. */
     fun cancelGeneration() {
         activeModel?.cancelGeneration()
     }

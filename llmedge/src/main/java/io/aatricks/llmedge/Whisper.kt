@@ -17,11 +17,12 @@
 package io.aatricks.llmedge
 
 import android.content.Context
-import android.os.Build
-import android.util.Log
+import io.aatricks.llmedge.core.InferenceFailedException
+import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.NativeBindingException
+import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
-import java.io.File
-import java.io.FileNotFoundException
+import io.aatricks.llmedge.model.ModelFileValidator
 import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -235,7 +236,10 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                         params.suppressBlank,
                         params.printProgress
                 )
-                        ?: return emptyList()
+                        ?: throw InferenceFailedException(
+                                operation = "Whisper transcription",
+                                detail = "The native transcription call returned no segments."
+                        )
 
         return segments.toList()
     }
@@ -702,49 +706,15 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
 
         // Native library loading - similar to SmolLM
         init {
-            val disableNativeLoad = java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")
-            if (disableNativeLoad) {
-                println("[Whisper] Native library load disabled via llmedge.disableNativeLoad=true")
-            } else {
-                try {
-                    // Try to load the whisper native library
-                    // On Android, we have architecture-specific variants
-                    // On desktop/JVM testing, we use whisper_jni
-
-                    // First, check if this is a desktop JVM environment (for testing)
-                    val osName = System.getProperty("os.name")?.lowercase() ?: ""
-                    val isDesktopJvm = osName.contains("linux") && !osName.contains("android")
-
-                    if (isDesktopJvm) {
-                        // Desktop JVM testing - load whisper_jni directly
-                        logD(LOG_TAG, "Loading libwhisper_jni.so for desktop testing")
-                        System.loadLibrary("whisper_jni")
-                    } else {
-                        // Android environment
-                        val isEmulated =
-                                Build.HARDWARE.contains("goldfish") ||
-                                        Build.HARDWARE.contains("ranchu")
-
-                        if (!isEmulated && supportsArm64V8a()) {
-                            logD(LOG_TAG, "Loading libwhisper_arm64.so")
-                            System.loadLibrary("whisper_arm64")
-                        } else {
-                            logD(LOG_TAG, "Loading default libwhisper.so")
-                            System.loadLibrary("whisper")
-                        }
-                    }
-                } catch (e: UnsatisfiedLinkError) {
-                    logE(LOG_TAG, "Failed to load whisper native library: ${e.message}")
-                }
-            }
+            NativeLibraryLoader.ensureWhisperLoaded(
+                required = false,
+                onDebug = { message -> logD(LOG_TAG, message) },
+                onError = { message, throwable -> logE(LOG_TAG, message, throwable) },
+            )
         }
 
         // Dummy instance used to invoke static native methods that are now at the class level.
         private val staticInvoker by lazy { Whisper(0L) }
-
-        private fun supportsArm64V8a(): Boolean {
-            return Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }
-        }
 
         /** Check if native bindings are available. */
         @JvmStatic
@@ -827,14 +797,27 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 flashAttn: Boolean = true,
                 gpuDevice: Int = 0
         ): Whisper {
-            val file = File(modelPath)
-            if (!file.exists()) {
-                throw FileNotFoundException("Model file not found: $modelPath")
-            }
-
-            val handle = staticInvoker.nativeCreate(modelPath, useGpu, flashAttn, gpuDevice)
+            val validatedModel = ModelFileValidator.requireReadableFile(modelPath, "Whisper model")
+            val handle =
+                    try {
+                        staticInvoker.nativeCreate(
+                                validatedModel.absolutePath,
+                                useGpu,
+                                flashAttn,
+                                gpuDevice
+                        )
+                    } catch (e: UnsatisfiedLinkError) {
+                        throw NativeBindingException(
+                                libraryName = "whisper",
+                                detail = "Whisper JNI bindings are unavailable.",
+                                cause = e
+                        )
+                    }
             if (handle == 0L) {
-                throw RuntimeException("Failed to load Whisper model from: $modelPath")
+                throw ModelLoadException(
+                        validatedModel.absolutePath,
+                        "The native Whisper loader returned an invalid handle."
+                )
             }
 
             return Whisper(handle)
@@ -860,27 +843,12 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 gpuDevice: Int = 0
         ): Whisper =
                 withContext(Dispatchers.IO) {
-                    val file = File(modelPath)
                     val actualPath =
-                            if (file.exists()) {
-                                modelPath
-                            } else {
-                                // Try to find in cache directory
-                                val cacheFile = File(context.cacheDir, modelPath)
-                                if (cacheFile.exists()) {
-                                    cacheFile.absolutePath
-                                } else {
-                                    // Try to find in files directory
-                                    val filesFile = File(context.filesDir, modelPath)
-                                    if (filesFile.exists()) {
-                                        filesFile.absolutePath
-                                    } else {
-                                        throw FileNotFoundException(
-                                                "Model file not found: $modelPath"
-                                        )
-                                    }
-                                }
-                            }
+                            ModelFileValidator.resolveReadableFile(
+                                    context,
+                                    modelPath,
+                                    "Whisper model"
+                            ).absolutePath
 
                     load(actualPath, useGpu, flashAttn, gpuDevice)
                 }

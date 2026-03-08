@@ -91,7 +91,9 @@ Use descriptive branch names:
  *
  * @param modelPath Absolute path to the GGUF file.
  * @param params Inference configuration parameters.
- * @throws FileNotFoundException if the model file doesn't exist.
+ * @throws ModelFileNotFoundException if the model file doesn't exist.
+ * @throws InvalidModelFileException if the file is unreadable, empty, or not a GGUF model.
+ * @throws ModelLoadException if the validated model cannot be loaded by the native runtime.
  */
 suspend fun load(
     modelPath: String,

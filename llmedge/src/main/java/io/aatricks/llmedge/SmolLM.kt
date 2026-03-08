@@ -17,13 +17,17 @@
 package io.aatricks.llmedge
 
 import android.content.Context
-import android.os.Build
-import android.util.Log
+import io.aatricks.llmedge.core.InferenceFailedException
+import io.aatricks.llmedge.core.InvalidModelStateException
+import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.NativeBindingException
+import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
-import java.io.File
-import java.io.FileNotFoundException
+import io.aatricks.llmedge.model.ModelFileValidator
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -146,103 +150,12 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         }
 
         init {
-            val logTag = LOG_TAG
-
-            val disableNativeLoad = java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")
-            if (disableNativeLoad) {
-                println("[SmolLM] Native library load disabled via llmedge.disableNativeLoad=true")
-            } else {
-                // check if the following CPU features are available,
-                // and load the native library accordingly
-                val cpuFeatures = getCPUFeatures()
-                val hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp")
-                val hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp")
-                val hasSve = cpuFeatures.contains("sve")
-                val hasI8mm = cpuFeatures.contains("i8mm")
-                val isAtLeastArmV82 =
-                        cpuFeatures.contains("asimd") &&
-                                cpuFeatures.contains("crc32") &&
-                                cpuFeatures.contains(
-                                        "aes",
-                                )
-                val isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat")
-
-                logD(logTag, "CPU features: $cpuFeatures")
-                logD(logTag, "- hasFp16: $hasFp16")
-                logD(logTag, "- hasDotProd: $hasDotProd")
-                logD(logTag, "- hasSve: $hasSve")
-                logD(logTag, "- hasI8mm: $hasI8mm")
-                logD(logTag, "- isAtLeastArmV82: $isAtLeastArmV82")
-                logD(logTag, "- isAtLeastArmV84: $isAtLeastArmV84")
-
-                // Check if the app is running in an emulated device
-                // Note, this is not the OFFICIAL way to check if the app is running
-                // on an emulator
-                val isEmulated =
-                        (Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu"))
-                logD(logTag, "isEmulated: $isEmulated")
-
-                if (!isEmulated) {
-                    if (supportsArm64V8a()) {
-                        if (isAtLeastArmV84 && hasSve && hasI8mm && hasFp16 && hasDotProd) {
-                            logD(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm_sve.so")
-                            System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm_sve")
-                        } else if (isAtLeastArmV84 && hasSve && hasFp16 && hasDotProd) {
-                            logD(logTag, "Loading libsmollm_v8_4_fp16_dotprod_sve.so")
-                            System.loadLibrary("smollm_v8_4_fp16_dotprod_sve")
-                        } else if (isAtLeastArmV84 && hasI8mm && hasFp16 && hasDotProd) {
-                            logD(logTag, "Loading libsmollm_v8_4_fp16_dotprod_i8mm.so")
-                            System.loadLibrary("smollm_v8_4_fp16_dotprod_i8mm")
-                        } else if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
-                            logD(logTag, "Loading libsmollm_v8_4_fp16_dotprod.so")
-                            System.loadLibrary("smollm_v8_4_fp16_dotprod")
-                        } else if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
-                            logD(logTag, "Loading libsmollm_v8_2_fp16_dotprod.so")
-                            System.loadLibrary("smollm_v8_2_fp16_dotprod")
-                        } else if (isAtLeastArmV82 && hasFp16) {
-                            logD(logTag, "Loading libsmollm_v8_2_fp16.so")
-                            System.loadLibrary("smollm_v8_2_fp16")
-                        } else {
-                            logD(logTag, "Loading libsmollm_v8.so")
-                            System.loadLibrary("smollm_v8")
-                        }
-                    } else if (Build.SUPPORTED_32_BIT_ABIS[0]?.equals("armeabi-v7a") == true) {
-                        // armv7a (32bit) device
-                        logD(logTag, "Loading libsmollm_v7a.so")
-                        System.loadLibrary("smollm_v7a")
-                    } else {
-                        logD(logTag, "Loading default libsmollm.so")
-                        System.loadLibrary("smollm")
-                    }
-                } else {
-                    // load the default native library with no ARM
-                    // specific instructions
-                    logD(logTag, "Loading default libsmollm.so")
-                    System.loadLibrary("smollm")
-                }
-            }
+            NativeLibraryLoader.ensureSmolLMLoaded(
+                required = true,
+                onDebug = { message -> logD(LOG_TAG, message) },
+                onError = { message, throwable -> logE(LOG_TAG, message, throwable) },
+            )
         }
-
-        /**
-         * Reads the /proc/cpuinfo file and returns the line starting with 'Features :' that
-         * containing the available CPU features
-         */
-        private fun getCPUFeatures(): String {
-            val cpuInfo =
-                    try {
-                        File("/proc/cpuinfo").readText()
-                    } catch (e: FileNotFoundException) {
-                        ""
-                    }
-            val cpuFeatures =
-                    cpuInfo.substringAfter("Features")
-                            .substringAfter(":")
-                            .substringBefore("\n")
-                            .trim()
-            return cpuFeatures
-        }
-
-        private fun supportsArm64V8a(): Boolean = Build.SUPPORTED_ABIS[0].equals("arm64-v8a")
 
         private val defaultNativeBridgeProvider: (SmolLM) -> NativeBridge = { instance ->
             object : NativeBridge {
@@ -496,13 +409,18 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * @return
      * ```
      * `true` if the model was loaded successfully, `false` otherwise.
-     * @throws FileNotFoundException if the model file is not found at the given path.
+     * @throws io.aatricks.llmedge.core.ModelFileNotFoundException if the model file does not exist.
+     * @throws io.aatricks.llmedge.core.InvalidModelFileException if the file is unreadable, empty,
+     * or not a GGUF model.
+     * @throws io.aatricks.llmedge.core.ModelLoadException if the native runtime fails to load the
+     * validated model.
      */
     suspend fun load(
             modelPath: String,
             params: InferenceParams = InferenceParams(),
     ) =
             withContext(Dispatchers.IO) {
+                val validatedModel = ModelFileValidator.requireGgufFile(modelPath, "SmolLM model")
                 if (nativePtr != 0L) {
                     close()
                 }
@@ -511,7 +429,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 val resolvedContextSize: Long
                 val resolvedChatTemplate: String
                 try {
-                    ggufReader.load(modelPath)
+                    ggufReader.load(validatedModel.absolutePath)
                     val modelContextSize =
                             ggufReader.getContextSize() ?: DefaultInferenceParams.contextSize
                     resolvedContextSize = resolveContextSize(params.contextSize, modelContextSize)
@@ -520,9 +438,10 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                     ggufReader.close()
                 }
                 nativePtr =
+                    try {
                         nativeBridge.loadModel(
                                 this@SmolLM,
-                                modelPath,
+                                validatedModel.absolutePath,
                                 params.minP,
                                 params.temperature,
                                 params.storeChats,
@@ -534,6 +453,25 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                 useVulkanGPU,
                                 params.useFlashAttn
                         )
+                    } catch (e: UnsatisfiedLinkError) {
+                        throw NativeBindingException(
+                            libraryName = "smollm",
+                            detail = "SmolLM JNI bindings are unavailable.",
+                            cause = e,
+                        )
+                    } catch (e: IllegalStateException) {
+                        throw ModelLoadException(
+                            validatedModel.absolutePath,
+                            e.message ?: "The native SmolLM loader reported an unknown error.",
+                            e,
+                        )
+                    }
+                if (nativePtr == 0L) {
+                    throw ModelLoadException(
+                        validatedModel.absolutePath,
+                        "The native SmolLM loader returned an invalid handle.",
+                    )
+                }
                 val reasoningBudget =
                         resolvedReasoningBudget(params.thinkingMode, params.reasoningBudget)
                 applyReasoningState(params.thinkingMode, reasoningBudget)
@@ -703,13 +641,23 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     fun getResponseAsFlow(query: String, dispatcher: CoroutineDispatcher): Flow<String> =
             flow {
                         verifyHandle()
-                        nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
-                        var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-                        while (piece != "[EOG]") {
-                            emit(piece) // Emit immediately for fastest TTFT
-                            piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+                        try {
+                            nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
+                            var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+                            while (piece != "[EOG]") {
+                                currentCoroutineContext().ensureActive()
+                                emit(piece)
+                                piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+                            }
+                        } catch (e: IllegalStateException) {
+                            throw InferenceFailedException(
+                                operation = "SmolLM streaming completion",
+                                detail = e.message ?: "The native completion loop failed.",
+                                cause = e,
+                            )
+                        } finally {
+                            nativeBridge.stopCompletion(this@SmolLM, nativePtr)
                         }
-                        nativeBridge.stopCompletion(this@SmolLM, nativePtr)
                     }
                     .flowOn(dispatcher)
 
@@ -729,56 +677,65 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         verifyHandle()
         logD(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, batchSize=$batchSize, queryLength=${query.length}")
         nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
-        // Pre-allocate: ~4 chars per token is a reasonable estimate
-        val estimatedCapacity = if (maxTokens > 0) maxTokens * 4 else 512
-        val responseBuilder = StringBuilder(estimatedCapacity)
-        var tokensGenerated = 0
+        try {
+            val estimatedCapacity = if (maxTokens > 0) maxTokens * 4 else 512
+            val responseBuilder = StringBuilder(estimatedCapacity)
+            var tokensGenerated = 0
 
-        if (batchSize > 1) {
-            val effectiveBatch = if (maxTokens > 0) minOf(batchSize, maxTokens) else batchSize
-            var piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, effectiveBatch)
-            while (piece != "[EOG]" && piece.isNotEmpty()) {
-                responseBuilder.append(piece)
-                tokensGenerated += effectiveBatch
+            if (batchSize > 1) {
+                val effectiveBatch = if (maxTokens > 0) minOf(batchSize, maxTokens) else batchSize
+                var piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, effectiveBatch)
+                while (piece != "[EOG]" && piece.isNotEmpty()) {
+                    responseBuilder.append(piece)
+                    tokensGenerated += effectiveBatch
 
-                if (maxTokens > 0 && tokensGenerated >= maxTokens) {
-                    logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
-                    break
+                    if (maxTokens > 0 && tokensGenerated >= maxTokens) {
+                        logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
+                        break
+                    }
+
+                    val remaining =
+                        if (maxTokens > 0) minOf(batchSize, maxTokens - tokensGenerated) else batchSize
+                    if (remaining <= 0) break
+                    piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, remaining)
                 }
-
-                val remaining = if (maxTokens > 0) minOf(batchSize, maxTokens - tokensGenerated) else batchSize
-                if (remaining <= 0) break
-                piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, remaining)
-            }
-            if (piece == "[EOG]") {
-                logD(LOG_TAG, "getResponse: [EOG] received after ~$tokensGenerated tokens.")
-            }
-        } else {
-            var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-            while (piece != "[EOG]") {
-                responseBuilder.append(piece)
-                tokensGenerated++
-
-                if (tokensGenerated % 10 == 0) {
-                    logD(LOG_TAG, "Generated $tokensGenerated tokens...")
+                if (piece == "[EOG]") {
+                    logD(LOG_TAG, "getResponse: [EOG] received after ~$tokensGenerated tokens.")
                 }
+            } else {
+                var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+                while (piece != "[EOG]") {
+                    responseBuilder.append(piece)
+                    tokensGenerated++
 
-                if (maxTokens > 0 && tokensGenerated >= maxTokens) {
-                    logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
-                    break
+                    if (tokensGenerated % 10 == 0) {
+                        logD(LOG_TAG, "Generated $tokensGenerated tokens...")
+                    }
+
+                    if (maxTokens > 0 && tokensGenerated >= maxTokens) {
+                        logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
+                        break
+                    }
+
+                    piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
                 }
+                if (piece == "[EOG]") {
+                    logD(LOG_TAG, "getResponse: [EOG] received after $tokensGenerated tokens.")
+                }
+            }
 
-                piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+            return responseBuilder.toString().also { response ->
+                logD(LOG_TAG, "getResponse: finished. Total length=${response.length}")
             }
-            if (piece == "[EOG]") {
-                logD(LOG_TAG, "getResponse: [EOG] received after $tokensGenerated tokens.")
-            }
+        } catch (e: IllegalStateException) {
+            throw InferenceFailedException(
+                operation = "SmolLM completion",
+                detail = e.message ?: "The native completion loop failed.",
+                cause = e,
+            )
+        } finally {
+            nativeBridge.stopCompletion(this, nativePtr)
         }
-
-        nativeBridge.stopCompletion(this, nativePtr)
-        val response = responseBuilder.toString()
-        logD(LOG_TAG, "getResponse: finished. Total length=${response.length}")
-        return response
     }
 
     /** Public helper to stop a currently running completion loop (best effort). */
@@ -808,7 +765,9 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     }
 
     private fun verifyHandle() {
-        check(nativePtr != 0L) { "Model is not loaded. Use SmolLM.create to load the model" }
+        if (nativePtr == 0L) {
+            throw InvalidModelStateException("Model is not loaded. Use SmolLM.load to load the model first.")
+        }
     }
 
     private external fun loadModel(

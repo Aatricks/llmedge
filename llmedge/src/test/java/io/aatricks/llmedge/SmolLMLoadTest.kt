@@ -1,5 +1,6 @@
 package io.aatricks.llmedge
 
+import java.io.File
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -8,6 +9,12 @@ import org.junit.Before
 import org.junit.Test
 
 class SmolLMLoadTest {
+    private fun createTempGgufFile(): File =
+        File.createTempFile("llmedge-smollm", ".gguf").apply {
+            writeBytes(byteArrayOf('G'.code.toByte(), 'G'.code.toByte(), 'U'.code.toByte(), 'F'.code.toByte(), 0x00))
+            deleteOnExit()
+        }
+
     @Before
     fun setUp() {
         System.setProperty("llmedge.disableNativeLoad", "true")
@@ -80,6 +87,7 @@ class SmolLMLoadTest {
         }
 
         val smol = SmolLM()
+        val modelFile = createTempGgufFile()
         val params = SmolLM.InferenceParams(
             contextSize = null,
             chatTemplate = null,
@@ -87,7 +95,7 @@ class SmolLMLoadTest {
             reasoningBudget = null,
         )
 
-        smol.load("/fake/path/model.gguf", params)
+        smol.load(modelFile.absolutePath, params)
 
         // Verify resolved metadata from GGUFReader was used
         assertEquals(4096L, capturedCtx)
