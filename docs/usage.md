@@ -276,7 +276,16 @@ runBlocking {
 turn, replays only the active sliding window, and strips older `<think>...</think>` traces from
 assistant messages before replaying them back into the model.
 
-See [Examples](examples.md#localassetdemoactivity) for complete working code with coroutines and streaming.
+Use `ChatSession` when:
+
+- reasoning-enabled models emit large `<think>...</think>` blocks that would otherwise bloat native chat history
+- you need a bounded sliding window (`maxHistoryMessages`) for long-running chats
+- you want streaming via `sendMessageStream()` while still persisting the completed assistant reply in Kotlin memory
+
+Prefer plain `SmolLM` with `storeChats = true` when you want the fastest native KV-cache reuse and
+your model/chat style does not generate large hidden reasoning traces.
+
+See [Examples](examples.md#chatsession-pattern) for a focused `ChatSession` snippet, or [LocalAssetDemoActivity](examples.md#localassetdemoactivity) for a complete app-level example.
 
 ### Downloading Models from Hugging Face
 
@@ -528,7 +537,9 @@ Note: Choosing the correct dispatcher depends on the workload. JNI calls that us
 - Enable CPU offloading for large models
 - Close model instances when not in use
 - Process images/video in batches with intermediate cleanup
-- **KV Cache**: For LLMs, ensure `storeChats = true` to leverage KV cache for faster multi-turn conversations.
+- **LLM chat memory**:
+  - Use `storeChats = true` for fast native KV-cache reuse in short or compact multi-turn chats.
+  - Use `ChatSession` + `InferenceParams(storeChats = false)` when you need bounded history replay or want to strip older reasoning traces before replay.
 
 **See also:**
 
@@ -549,6 +560,9 @@ Key methods:
 - `SmolLM.getResponseAsFlow(query: String): Flow<String>` — runs streaming generation
 - `SmolLM.addSystemPrompt(prompt: String)` — adds system prompt to chat history
 - `SmolLM.addUserMessage(message: String)` — adds user message to chat history
+- `ChatSession.sendMessage(message: String): String` — runs bounded multi-turn chat with Kotlin-managed history
+- `ChatSession.sendMessageStream(message: String): Flow<String>` — streams a bounded multi-turn chat reply while persisting the final assistant turn
+- `ChatSessionConfig(...)` — configures sliding-window size, reasoning stripping, and optional system prompt replay
 - `SmolLM.close()` — releases native resources
 
 **High-Level Speech API (via LLMEdgeManager):**

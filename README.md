@@ -15,7 +15,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 - **LLM Inference**: Run GGUF models directly on Android using llama.cpp (JNI)
 - **Model Downloads**: Download and cache models from Hugging Face Hub
-- **Optimized Inference**: KV Cache reuse for multi-turn conversations
+- **Optimized Inference**: Native KV cache reuse for compact chats, plus `ChatSession` for bounded history replay on reasoning-heavy models
 - **Speech-to-Text (STT)**: Whisper.cpp integration with timestamp support, language detection, streaming transcription, and SRT generation
 - **Text-to-Speech (TTS)**: Bark.cpp integration with ARM optimizations
 - **Image Generation**: Stable Diffusion with EasyCache and LoRA support
@@ -34,6 +34,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 2. [Usage](#usage)
    - [Downloading Models](#downloading-models)
    - [Reasoning Controls](#reasoning-controls)
+   - [Managed Chat Sessions](#managed-chat-sessions)
    - [Image Text Extraction (OCR)](#image-text-extraction-ocr)
    - [Vision Models](#vision-models)
    - [Speech-to-Text (Whisper)](#speech-to-text-whisper)
@@ -89,7 +90,7 @@ CoroutineScope(Dispatchers.IO).launch {
 }
 ```
 
-For streaming responses or custom model paths, you can also access the underlying `SmolLM` instance directly or use `LLMEdgeManager`'s streaming callbacks (see Usage).
+For streaming responses, custom model paths, or bounded multi-turn chat history, you can also access the underlying `SmolLM` instance directly and optionally wrap it in `ChatSession` (see Usage).
 
 ### Downloading Models
 
@@ -147,6 +148,38 @@ val mode = smol.getThinkingMode()          // inspect the current mode
 ```
 
 Setting the budget to `0` always disables thinking, while `-1` leaves it unrestricted. If you omit `reasoningBudget`, the library chooses `0` when the mode is `DISABLED` and `-1` otherwise. The API also injects the `/no_think` tag automatically when thinking is disabled, so you do not need to modify prompts manually.
+
+### Managed Chat Sessions
+
+Use `ChatSession` when you want multi-turn chat without letting the native engine keep every prior
+assistant message in its own history buffer.
+
+```kotlin
+runBlocking {
+    val smol = SmolLM()
+    smol.load(modelPath, SmolLM.InferenceParams(storeChats = false, contextSize = 4096L))
+
+    val session = ChatSession(
+        smol,
+        ChatSessionConfig(
+            maxHistoryMessages = 6,
+            stripReasoningFromHistory = true,
+            systemPrompt = "You are a concise assistant."
+        )
+    )
+
+    val reply = session.sendMessage("Explain why context windows fill up.")
+    session.sendMessageStream("Now summarize that in 3 bullets.").collect { chunk ->
+        print(chunk)
+    }
+}
+```
+
+`ChatSession` keeps the full transcript in Kotlin memory, rebuilds a bounded conversation transcript
+for each turn, and strips older `<think>...</think>` blocks from replayed assistant messages when
+`stripReasoningFromHistory = true`. Prefer it for reasoning models or any chat UI where unbounded
+native history can exhaust the context window; keep `storeChats = true` for simple low-latency
+multi-turn chats where raw native KV reuse is sufficient.
 
 ### Image Text Extraction (OCR)
 

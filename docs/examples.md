@@ -18,6 +18,8 @@ The `llmedge-examples` repository contains complete working demonstrations:
 | `TTSActivity` | Text-to-speech synthesis (Bark) |
 | `STTActivity` | Speech-to-text transcription (Whisper) |
 
+Also see the [ChatSession pattern](#chatsession-pattern) below for bounded multi-turn chat UIs backed by `SmolLM`.
+
 ---
 
 
@@ -40,6 +42,46 @@ val response = LLMEdgeManager.generateText(
     )
 )
 ```
+
+## ChatSession pattern
+
+Use this pattern when your app owns a chat UI and you want bounded, Kotlin-managed transcript replay
+instead of relying on unbounded native chat history:
+
+```kotlin
+val smol = SmolLM()
+smol.load(
+    modelPath,
+    SmolLM.InferenceParams(
+        storeChats = false,
+        contextSize = 4096L
+    )
+)
+
+val session = ChatSession(
+    smol,
+    ChatSessionConfig(
+        maxHistoryMessages = 6,
+        stripReasoningFromHistory = true,
+        systemPrompt = "You are a concise assistant."
+    )
+)
+
+// Blocking reply
+val reply = session.sendMessage("Explain why context windows fill up.")
+
+// Streaming reply
+session.sendMessageStream("Now summarize that in 3 bullets.").collect { chunk ->
+    appendToChatUi(chunk)
+}
+```
+
+**Why use it:**
+
+- Keeps the full transcript in Kotlin memory
+- Replays only the active sliding window back into the model
+- Strips older `<think>...</think>` traces before replay when enabled
+- Works well for reasoning-enabled models that would otherwise exhaust the native context quickly
 
 
 

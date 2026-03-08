@@ -11,7 +11,7 @@ llmedge is a lightweight toolkit for running LLM inference, vision models, and m
 - Automatic CPU feature detection (FP16, dotprod, SVE, i8mm)
 - Optional Vulkan acceleration for compatible devices
 - Memory-aware context size capping
-- **Optimized Inference**: KV Cache reuse for multi-turn conversations, significantly reducing latency for subsequent prompts.
+- **Optimized Inference**: KV cache reuse for compact multi-turn chats, plus `ChatSession` for bounded Kotlin-managed replay when reasoning traces would otherwise exhaust context.
 
 **Generative AI Capabilities:**
 
@@ -63,6 +63,7 @@ llmedge is a lightweight toolkit for running LLM inference, vision models, and m
 - Comprehensive example apps demonstrating all features
 - Built-in memory metrics and performance monitoring
 - Reasoning control API (thinking mode)
+- Managed chat sessions with sliding-window history replay and `<think>` stripping
 - Streaming and blocking generation modes
 - Detailed documentation and troubleshooting guides
 
