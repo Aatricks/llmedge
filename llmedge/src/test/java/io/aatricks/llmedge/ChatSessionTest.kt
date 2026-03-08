@@ -129,18 +129,24 @@ class ChatSessionTest {
         assertEquals("Second answer", session.sendMessage("Follow up"))
 
         assertEquals(2, bridge.clearKvCacheCount)
-        assertEquals(listOf("", ""), bridge.completionPrompts)
+        assertEquals(
+            listOf(
+                conversationPrompt("User: Hello"),
+                conversationPrompt(
+                    "User: Hello",
+                    "Assistant: Visible answer",
+                    "User: Follow up",
+                ),
+            ),
+            bridge.completionPrompts,
+        )
         assertEquals(
             listOf(
                 listOf(
                     "system" to "System prompt",
-                    "user" to "Hello",
                 ),
                 listOf(
                     "system" to "System prompt",
-                    "user" to "Hello",
-                    "assistant" to "Visible answer",
-                    "user" to "Follow up",
                 ),
             ),
             bridge.injectedTurns,
@@ -162,11 +168,11 @@ class ChatSessionTest {
         session.sendMessage("Q3")
 
         assertEquals(
-            listOf(
-                "assistant" to "A2",
-                "user" to "Q3",
+            conversationPrompt(
+                "Assistant: A2",
+                "User: Q3",
             ),
-            bridge.injectedTurns[2],
+            bridge.completionPrompts[2],
         )
     }
 
@@ -188,13 +194,12 @@ class ChatSessionTest {
         session.sendMessage("Next question")
 
         assertEquals(
-            listOf(
-                "system" to "System prompt",
-                "user" to "Stream please",
-                "assistant" to "Final answer",
-                "user" to "Next question",
+            conversationPrompt(
+                "User: Stream please",
+                "Assistant: Final answer",
+                "User: Next question",
             ),
-            bridge.injectedTurns[1],
+            bridge.completionPrompts[1],
         )
         assertEquals(
             listOf(
@@ -219,11 +224,11 @@ class ChatSessionTest {
         session.sendMessage("Retry")
 
         assertEquals(
-            listOf(
-                "user" to "Interrupted",
-                "user" to "Retry",
+            conversationPrompt(
+                "User: Interrupted",
+                "User: Retry",
             ),
-            bridge.injectedTurns[1],
+            bridge.completionPrompts[1],
         )
         assertEquals(
             listOf(
@@ -273,4 +278,13 @@ class ChatSessionTest {
             )
         return ChatSession(smol, config)
     }
+
+    private fun conversationPrompt(vararg transcriptLines: String): String =
+        buildString {
+            append("Continue the following conversation and reply as the assistant to the final user message.\n\n")
+            transcriptLines.forEach { line ->
+                append(line)
+                append('\n')
+            }
+        }.trimEnd()
 }

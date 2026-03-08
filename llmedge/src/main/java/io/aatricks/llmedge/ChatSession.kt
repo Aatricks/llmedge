@@ -112,9 +112,10 @@ class ChatSession(
             warnIfStoreChatsEnabled()
             history.add(ChatMessage(Role.USER, message))
             val activeWindow = buildActiveWindow()
+            val prompt = buildPrompt(activeWindow)
             withContext(Dispatchers.IO) {
-                rebuildNativeContext(activeWindow)
-                smol.getResponse("")
+                prepareNativeContext(activeWindow)
+                smol.getResponse(prompt)
             }.also { rawReply ->
                 history.add(ChatMessage(Role.ASSISTANT, rawReply))
             }
@@ -125,14 +126,15 @@ class ChatSession(
             warnIfStoreChatsEnabled()
             history.add(ChatMessage(Role.USER, message))
             val activeWindow = buildActiveWindow()
+            val prompt = buildPrompt(activeWindow)
             withContext(Dispatchers.IO) {
-                rebuildNativeContext(activeWindow)
+                prepareNativeContext(activeWindow)
             }
 
             val rawReply = StringBuilder()
             var completed = false
             try {
-                smol.getResponseAsFlow("").buffer(0).collect { chunk ->
+                smol.getResponseAsFlow(prompt).buffer(0).collect { chunk ->
                     rawReply.append(chunk)
                     emit(chunk)
                 }
@@ -159,14 +161,25 @@ class ChatSession(
             }
         }
 
-    private fun rebuildNativeContext(activeWindow: List<ChatMessage>) {
+    private fun buildPrompt(activeWindow: List<ChatMessage>): String =
+        buildString {
+            append("Continue the following conversation and reply as the assistant to the final user message.\n\n")
+            activeWindow
+                .filterNot { it.role == Role.SYSTEM }
+                .forEach { message ->
+                    append(message.role.transcriptLabel)
+                    append(": ")
+                    append(message.content.trim())
+                    append('\n')
+                }
+        }.trimEnd()
+
+    private fun prepareNativeContext(activeWindow: List<ChatMessage>) {
         smol.clearKvCache()
         replaySystemPrompt?.let(smol::addSystemPrompt)
         activeWindow.forEach { message ->
-            when (message.role) {
-                Role.SYSTEM -> smol.addSystemPrompt(message.content)
-                Role.USER -> smol.addUserMessage(message.content)
-                Role.ASSISTANT -> smol.addAssistantMessage(message.content)
+            if (message.role == Role.SYSTEM) {
+                smol.addSystemPrompt(message.content)
             }
         }
     }
@@ -194,3 +207,11 @@ class ChatSession(
         const val LOG_TAG = "ChatSession"
     }
 }
+
+private val Role.transcriptLabel: String
+    get() =
+        when (this) {
+            Role.SYSTEM -> "System"
+            Role.USER -> "User"
+            Role.ASSISTANT -> "Assistant"
+        }

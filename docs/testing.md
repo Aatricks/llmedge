@@ -27,6 +27,38 @@ Reports:
 
 - HTML: `llmedge/build/reports/tests/testDebugUnitTest/index.html`
 
+## Linux host LLM chat E2E
+
+For local Linux development, you can run the real SmolLM JNI library against a local GGUF model to
+exercise chat inference end-to-end, including the higher-level `ChatSession` API.
+
+Prerequisites:
+
+- Build the host JNI library:
+  ```bash
+  ./scripts/build_smollm_linux.sh
+  ```
+- Point the tests at a local GGUF model:
+  ```bash
+  export LLMEDGE_BUILD_NATIVE_LIB_PATH="$PWD/llmedge/build/native/linux-x86_64/libsmollm.so"
+  export LLMEDGE_TEST_TEXT_MODEL_PATH="$PWD/models/SmolLM2-135M-Instruct-Q8_0.gguf"
+  export LD_LIBRARY_PATH="$PWD/llmedge/build/native/linux-x86_64:$LD_LIBRARY_PATH"
+  ```
+
+Run the host chat E2E tests:
+
+```bash
+./gradlew :llmedge:testDebugUnitTest \
+  --tests "*TextInferenceLinuxE2ETest" \
+  --tests "*ChatSessionLinuxE2ETest" \
+  --no-daemon
+```
+
+Coverage:
+
+- `TextInferenceLinuxE2ETest` — direct multi-turn `SmolLM` chat on Linux
+- `ChatSessionLinuxE2ETest` — `ChatSession.sendMessage()`, `sendMessageStream()`, sliding-window replay, and `<think>` stripping with a real model
+
 ## Instrumentation tests (managed emulator)
 
 We use Gradle Managed Devices to provision an emulator automatically (ATD Pixel 6, API 33). This runs all Android instrumentation tests without a plugged‑in device.
@@ -158,6 +190,9 @@ Tip: WAN assets are large. Ensure sufficient disk and network availability.
 
 ## Key test files
 
+- Text chat host E2E:
+  - `llmedge/src/test/java/io/aatricks/llmedge/TextInferenceLinuxE2ETest.kt`
+  - `llmedge/src/test/java/io/aatricks/llmedge/ChatSessionLinuxE2ETest.kt`
 - Image (API layer): `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationTest.kt`
 - Native image E2E (opt‑in): `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationE2ENativeTest.kt`
 - Video API & integration tests (progress, cancellation, memory, schedulers, metadata):
