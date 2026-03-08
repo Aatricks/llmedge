@@ -43,7 +43,7 @@ class GGUFReader : Closeable {
                 try {
                     System.loadLibrary("ggufreader")
                 } catch (e: UnsatisfiedLinkError) {
-                    println("[GGUFReader] Native library missing or failed to load: ${'$'}{e.message}")
+                    println("[GGUFReader] Native library missing or failed to load: ${e.message}")
                 } catch (t: Throwable) {
                     println("[GGUFReader] Native library failed to load: ${'$'}{t.message}")
                 }

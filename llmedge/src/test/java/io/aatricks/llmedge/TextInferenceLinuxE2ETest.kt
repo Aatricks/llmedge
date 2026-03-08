@@ -36,13 +36,10 @@ class TextInferenceLinuxE2ETest {
         // Basic check for native lib existence (informational/fail-fast)
         val projectDir = System.getProperty("user.dir")
         val defaultLibPath = "$projectDir/llmedge/build/native/linux-x86_64/libsmollm.so"
-        val libPath = System.getenv(LIB_PATH_ENV) ?: defaultLibPath
-        
-        // If we are checking specifically for smollm, we might want to check libsmollm.so instead of what LIB_PATH_ENV might point to (which could be libsdcpp.so from the other script)
-        // But let's just check if libsmollm.so exists in the expected location
-        val libFile = File(defaultLibPath)
+        val libPath = System.getenv(LIB_PATH_ENV) ?: System.getProperty(LIB_PATH_ENV) ?: defaultLibPath
+        val libFile = File(libPath)
         if (!libFile.exists()) {
-             println("[TextInferenceLinuxE2ETest] Warning: $defaultLibPath does not exist. Test might fail if not in java.library.path")
+             println("[TextInferenceLinuxE2ETest] Warning: $libPath does not exist. Test might fail if not in java.library.path")
         }
 
         // Use Robolectric context (though SmolLM might not strictly need it for load, loadFromHuggingFace does)

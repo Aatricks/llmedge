@@ -20,20 +20,35 @@ import java.io.File
 class ToolCallingE2ETest {
 
     private val MODEL_PATH_ENV = "LLMEDGE_TEST_TEXT_MODEL_PATH"
+    private val TOOL_MODEL_PATH_ENV = "LLMEDGE_TEST_TOOL_MODEL_PATH"
+
+    private fun resolveToolModelPath(): String? {
+        val explicit = System.getenv(TOOL_MODEL_PATH_ENV) ?: System.getProperty(TOOL_MODEL_PATH_ENV)
+        if (!explicit.isNullOrBlank()) {
+            return explicit
+        }
+
+        val preferredLocal = File("models/SmolLM2-1.7B-Instruct-Q8_0.gguf")
+        return preferredLocal.takeIf(File::exists)?.path
+    }
 
     @Test
     fun `test agent tool calling end-to-end`() = runBlocking {
-        // 1. Check for model
-        val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV) ?: "models/SmolLM2-135M-Instruct-Q8_0.gguf"
+        // 1. Tool calling needs a stronger instruct model than the tiny smoke-test model.
+        val modelPath = resolveToolModelPath()
         println("[ToolCallingE2ETest] modelPath=$modelPath")
-        Assume.assumeTrue("Test model not found at $modelPath", File(modelPath).exists())
+        Assume.assumeTrue(
+            "Tool calling E2E requires $TOOL_MODEL_PATH_ENV or a local models/SmolLM2-1.7B-Instruct-Q8_0.gguf",
+            !modelPath.isNullOrBlank() && File(modelPath).exists()
+        )
+        val resolvedModelPath = modelPath!!
 
         // 2. Initialize SmolLM
         println("[ToolCallingE2ETest] Initializing SmolLM...")
         val smol = SmolLM(useVulkan = false)
         
         try {
-            smol.load(modelPath, SmolLM.InferenceParams(
+            smol.load(resolvedModelPath, SmolLM.InferenceParams(
                 contextSize = 2048,
                 temperature = 0.0f, // Use low temperature for deterministic tool calls
                 storeChats = true

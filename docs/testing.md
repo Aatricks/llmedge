@@ -27,10 +27,10 @@ Reports:
 
 - HTML: `llmedge/build/reports/tests/testDebugUnitTest/index.html`
 
-## Linux host LLM chat E2E
+## Linux host E2E
 
-For local Linux development, you can run the real SmolLM JNI library against a local GGUF model to
-exercise chat inference end-to-end.
+For local Linux development, you can run the real JNI libraries against local models to exercise the
+current Kotlin facade and the low-level engines end-to-end.
 
 Prerequisites:
 
@@ -38,25 +38,45 @@ Prerequisites:
   ```bash
   ./scripts/build_smollm_linux.sh
   ```
-- Point the tests at a local GGUF model:
+- Point the tests at local models:
   ```bash
   export LLMEDGE_BUILD_NATIVE_LIB_PATH="$PWD/llmedge/build/native/linux-x86_64/libsmollm.so"
+  export LLMEDGE_BUILD_WHISPER_LIB_PATH="$PWD/llmedge/build/native/linux-x86_64/libwhisper_jni.so"
+  export LLMEDGE_BUILD_BARK_LIB_PATH="$PWD/llmedge/build/native/linux-x86_64/libbark_jni.so"
   export LLMEDGE_TEST_TEXT_MODEL_PATH="$PWD/models/SmolLM2-135M-Instruct-Q8_0.gguf"
+  export LLMEDGE_TEST_TOOL_MODEL_PATH="$PWD/models/SmolLM2-1.7B-Instruct-Q8_0.gguf"
+  export LLMEDGE_TEST_WHISPER_MODEL_PATH="$PWD/models/ggml-tiny.en.bin"
   export LD_LIBRARY_PATH="$PWD/llmedge/build/native/linux-x86_64:$LD_LIBRARY_PATH"
   ```
 
-Run the host chat E2E tests:
+Run the currently feasible Linux host E2E tests:
 
 ```bash
 ./gradlew :llmedge:testDebugUnitTest \
   --tests "*TextInferenceLinuxE2ETest" \
+  --tests "*ChatSessionLinuxE2ETest" \
+  --tests "*SpeechClientLinuxE2ETest" \
+  --tests "*WhisperLinuxE2ETest" \
+  --tests "*ToolCallingE2ETest" \
+  --tests "*BarkLinuxE2ETest" \
   --no-daemon
 ```
 
 Coverage:
 
 - `TextInferenceLinuxE2ETest` — direct multi-turn `SmolLM` chat on Linux
+- `text/ChatSessionLinuxE2ETest` — current `LLMEdge.text.session(...)` multi-turn facade on Linux
+- `speech/SpeechClientLinuxE2ETest` — current `LLMEdge.speech.transcribe(...)` facade on Linux
+- `WhisperLinuxE2ETest` — low-level Whisper STT pipeline on Linux
+- `ToolCallingE2ETest` — tool-calling loop using a stronger local model (`LLMEDGE_TEST_TOOL_MODEL_PATH`)
+- `BarkLinuxE2ETest` — Bark JNI bindings on Linux, plus full TTS generation when a Bark model is supplied
 - `ConversationWindowTest` / `PromptRendererTest` — Kotlin-managed chat-window trimming, prompt replay, and `<think>` stripping logic
+
+Current Linux host gaps:
+
+- There is no Linux host E2E path yet for RAG, OCR/vision, or high-level image generation.
+- Full Bark Linux generation still requires an external Bark model directory (`LLMEDGE_TEST_BARK_MODEL_PATH`).
+- WAN/video Linux tests require large external Wan/T5/VAE assets and are not covered by the lightweight local model set above.
 
 ## Instrumentation tests (managed emulator)
 
