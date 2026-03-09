@@ -15,6 +15,41 @@ class VisionPromptSupportTest {
     }
 
     @Test
+    fun `projector helpers require readable mmproj file`() {
+        val mmproj = File.createTempFile("vision-mmproj", ".gguf").apply {
+            writeText("mmproj")
+            deleteOnExit()
+        }
+
+        assertTrue(VisionPromptSupport.hasProjectorSupport(mmproj.absolutePath))
+        assertTrue(
+            VisionPromptSupport.isReadyForMultimodalInference(
+                "/tmp/llava-phi.gguf",
+                mmproj.absolutePath,
+            ),
+        )
+        assertFalse(VisionPromptSupport.hasProjectorSupport(null))
+        assertFalse(VisionPromptSupport.hasProjectorSupport("/tmp/missing-mmproj.gguf"))
+        assertFalse(
+            VisionPromptSupport.isReadyForMultimodalInference(
+                "/tmp/plain-llm.gguf",
+                mmproj.absolutePath,
+            ),
+        )
+    }
+
+    @Test
+    fun `unsupportedReason explains missing capability`() {
+        val noVisionModelMessage =
+            VisionPromptSupport.unsupportedReason("/tmp/plain-llm.gguf", "/tmp/mmproj.gguf")
+        val missingProjectorMessage =
+            VisionPromptSupport.unsupportedReason("/tmp/llava-phi.gguf", null)
+
+        assertTrue(noVisionModelMessage.contains("does not appear to be a vision-capable GGUF"))
+        assertTrue(missingProjectorMessage.contains("requires a readable mmproj/projector file"))
+    }
+
+    @Test
     fun `formatVisionPrompt wraps plain prompts`() {
         val formatted = VisionPromptSupport.formatVisionPrompt("Describe this", File("/tmp/image.jpg"))
 

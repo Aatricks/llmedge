@@ -22,7 +22,6 @@ internal class VisionPipeline(
             val smol = SmolLM(useVulkan = false)
 
             try {
-                onStatus?.invoke("Preparing image")
                 val adapter = SmolLMVisionAdapter(context, smol)
                 try {
                     val imageFile = File.createTempFile("vision_input", ".jpg", context.cacheDir)
@@ -30,6 +29,7 @@ internal class VisionPipeline(
                     val metaFile = File(embedFile.absolutePath + ".meta.json")
 
                     try {
+                        onStatus?.invoke("Preparing image")
                         val scaled =
                             ImageUtils.preprocessBitmap(
                                 request.image,
@@ -41,8 +41,9 @@ internal class VisionPipeline(
                         }
 
                         onStatus?.invoke("Loading vision model")
-                        smol.load(
+                        adapter.loadVisionModel(
                             modelPath = modelFile.absolutePath,
+                            mmprojPath = projectorFile.absolutePath,
                             params =
                                 SmolLM.InferenceParams(
                                     numThreads = 2,
@@ -53,28 +54,18 @@ internal class VisionPipeline(
                                 ),
                         )
 
-                        onStatus?.invoke("Encoding image")
-                        val projector = Projector()
-                        projector.init(projectorFile.absolutePath, smol.getNativeModelPointer())
-                        val encoded = projector.encodeImageToFile(imageFile.absolutePath, embedFile.absolutePath)
-                        projector.close()
-
-                        if (!encoded || !metaFile.exists()) {
-                            imageFile.copyTo(embedFile, overwrite = true)
+                        onStatus?.invoke("Preparing multimodal embeddings")
+                        val encoded =
+                            Projector().use { projector ->
+                                projector.init(projectorFile.absolutePath, smol.getNativeModelPointer())
+                                check(projector.isReady()) {
+                                    "Native projector initialization failed for ${projectorFile.name}. Ensure the mmproj file matches the selected model and that projector bindings are available."
+                                }
+                                projector.encodeImageToFile(imageFile.absolutePath, embedFile.absolutePath)
+                            }
+                        check(encoded && metaFile.exists()) {
+                            "Native projector support is unavailable or failed to produce embeddings for ${projectorFile.name}."
                         }
-
-                        onStatus?.invoke("Reloading vision model")
-                        adapter.loadVisionModel(
-                            modelFile.absolutePath,
-                            null,
-                            SmolLM.InferenceParams(
-                                numThreads = 2,
-                                contextSize = 4096L,
-                                storeChats = false,
-                                temperature = 0.6f,
-                                thinkingMode = SmolLM.ThinkingMode.DISABLED,
-                            ),
-                        )
 
                         onStatus?.invoke("Running vision analysis")
                         adapter

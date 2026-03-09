@@ -1,15 +1,14 @@
 package io.aatricks.llmedge.vision
 
-import android.util.Log
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.NativeLibraryLoader
 
 /**
  * Native-backed helper for preparing images using an mmproj file.
  *
- * When the native projector is available this class calls into JNI to
- * produce prepared embeddings. When the native library is not present it
- * falls back to copying the input image to the output path so callers can
- * continue to operate in a degraded mode.
+ * This helper does not emulate projector behavior in Kotlin. If native projector support is
+ * missing or initialization fails, callers must treat that as an unsupported multimodal setup and
+ * fail fast.
  */
 class Projector : AutoCloseable {
     companion object {
@@ -18,8 +17,8 @@ class Projector : AutoCloseable {
         init {
             NativeLibraryLoader.ensureSmolLMLoaded(
                 required = false,
-                onDebug = { message -> Log.d(TAG, message) },
-                onError = { message, throwable -> Log.d(TAG, "$message: ${throwable?.message}") },
+                onDebug = { message -> AndroidLogAdapter.d(TAG, message) },
+                onError = { message, throwable -> AndroidLogAdapter.w(TAG, "$message: ${throwable?.message}") },
             )
         }
     }
@@ -35,7 +34,7 @@ class Projector : AutoCloseable {
         nativePtr = try {
             nativeInitProjector(mmprojPath, 0L)
         } catch (e: UnsatisfiedLinkError) {
-            Log.w(TAG, "nativeInitProjector not available: ${e.message}")
+            AndroidLogAdapter.w(TAG, "nativeInitProjector not available: ${e.message}")
             0L
         }
     }
@@ -49,33 +48,24 @@ class Projector : AutoCloseable {
         nativePtr = try {
             nativeInitProjector(mmprojPath, textModelPtr)
         } catch (e: UnsatisfiedLinkError) {
-            Log.w(TAG, "nativeInitProjector not available: ${e.message}")
+            AndroidLogAdapter.w(TAG, "nativeInitProjector not available: ${e.message}")
             0L
         }
     }
 
+    fun isReady(): Boolean = nativePtr != 0L
+
     fun encodeImageToFile(imagePath: String, outPath: String): Boolean {
         return try {
             if (nativePtr == 0L) {
-                // If native not available, just copy the file as a best-effort placeholder
-                val src = java.io.File(imagePath)
-                val dst = java.io.File(outPath)
-                src.copyTo(dst, overwrite = true)
-                true
+                AndroidLogAdapter.w(TAG, "Projector native support unavailable; cannot prepare image embeddings")
+                false
             } else {
                 nativeEncodeImage(nativePtr, imagePath, outPath)
             }
         } catch (e: UnsatisfiedLinkError) {
-            Log.w(TAG, "nativeEncodeImage not available: ${e.message}")
-            try {
-                val src = java.io.File(imagePath)
-                val dst = java.io.File(outPath)
-                src.copyTo(dst, overwrite = true)
-                true
-            } catch (ex: Exception) {
-                Log.e(TAG, "fallback copy failed: ${ex.message}")
-                false
-            }
+            AndroidLogAdapter.w(TAG, "nativeEncodeImage not available: ${e.message}")
+            false
         }
     }
 
@@ -85,7 +75,7 @@ class Projector : AutoCloseable {
                 nativeCloseProjector(nativePtr)
             }
         } catch (e: UnsatisfiedLinkError) {
-            Log.w(TAG, "nativeCloseProjector not available: ${e.message}")
+            AndroidLogAdapter.w(TAG, "nativeCloseProjector not available: ${e.message}")
         } finally {
             nativePtr = 0L
         }

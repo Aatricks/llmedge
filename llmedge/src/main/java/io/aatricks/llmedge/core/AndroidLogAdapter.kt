@@ -44,7 +44,7 @@ internal object AndroidLogAdapter {
         }
 
         System.err.println("$ERROR_LEVEL/$tag: $message")
-        throwable?.printStackTrace()
+        throwable?.let { System.err.println(it.stackTraceToString()) }
     }
 
     private fun log(method: java.lang.reflect.Method?, level: String, tag: String, message: String) {

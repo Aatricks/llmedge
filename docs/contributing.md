@@ -37,6 +37,12 @@ Thanks for your interest in contributing to `llmedge`! This project contains nat
 
 The root Gradle build only includes `:llmedge`. The example app is a separate Gradle build that consumes the generated AAR, so validate it separately after library changes. For a one-command check from the repository root, run `bash scripts/validate_examples.sh`.
 
+If you have already built `llmedge/build/outputs/aar/llmedge-release.aar` and only want to re-check the example app against that artifact, reuse it with:
+
+```fish
+LLMEDGE_SKIP_LIBRARY_BUILD=true bash scripts/validate_examples.sh
+```
+
 ## Development Workflow
 
 ### Creating a Feature Branch
@@ -351,7 +357,9 @@ llama.cpp structure or open a PR with a fix similar to the existing guarded `fil
 The library currently has two maturity zones:
 
 - **Recommended / more stable:** `LLMEdge`, `TextClient`, `SpeechClient`, `ModelManager`, and the lower-level `SmolLM`/`Whisper`/`BarkTTS` wrappers used in tests.
-- **Evolving / experimental:** vision/VLM flows, on-device RAG, and some image/video-generation integration paths, especially where external model packaging conventions vary.
+- **Evolving / experimental:** projector-based vision/VLM flows, on-device RAG, and some image/video-generation integration paths, especially where external model packaging conventions vary.
+
+For VLM work specifically, assume a matching projector/mmproj file is required; the library now fails fast when that dependency is absent instead of silently degrading to text-only prompting.
 
 When contributing to evolving areas, prefer additive changes and keep the existing high-level facade behavior stable for downstream consumers.
 

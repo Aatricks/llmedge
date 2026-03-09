@@ -16,23 +16,17 @@
 
 package io.aatricks.llmedge
 
-import android.app.ActivityManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Debug
 import io.aatricks.llmedge.core.InferenceFailedException
-import io.aatricks.llmedge.core.InvalidGenerationParametersException
 import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.UnsupportedModelException
-import io.aatricks.llmedge.huggingface.HuggingFaceHub
-import io.aatricks.llmedge.huggingface.WanModelRegistry
 import io.aatricks.llmedge.model.ModelFileValidator
-import java.io.File
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
@@ -649,22 +643,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         @JvmStatic
         private external fun nativeCheckBindings(): Boolean
 
-        @JvmStatic
-        private fun computeEffectiveSequentialLoad(
-                context: Context,
-                resolvedModelPath: String,
-                sequentialLoad: Boolean?,
-                preferPerformanceMode: Boolean,
-                activityManagerOverride: ActivityManager? = null,
-        ): Pair<Boolean, Long> =
-            StableDiffusionLoadHeuristics.computeEffectiveSequentialLoad(
-                context = context,
-                resolvedModelPath = resolvedModelPath,
-                sequentialLoad = sequentialLoad,
-                preferPerformanceMode = preferPerformanceMode,
-                activityManagerOverride = activityManagerOverride,
-            )
-
         private suspend fun inferVideoModelMetadata(
                 resolvedModelPath: String,
                 modelId: String?,
@@ -716,233 +694,40 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
         ): StableDiffusion =
                 withContext(Dispatchers.IO) {
-                    var resolvedModelPath: String
-                    var resolvedVaePath: String?
-                    var resolvedT5xxlPath: String?
-
-                    if (modelPath != null) {
-                        resolvedModelPath = modelPath
-                        resolvedVaePath = vaePath
-                        resolvedT5xxlPath = t5xxlPath
-                    } else if (modelId != null) {
-                        try {
-                            val possibleWan =
-                                        WanModelRegistry.findById(context, modelId)
-                                            ?: WanModelRegistry.findByModelIdPrefix(
-                                                    context,
-                                                    modelId.removePrefix("wan/")
-                                            )
-                            if (possibleWan != null) {
-                                return@withContext loadFromHuggingFace(
-                                        context = context,
-                                        modelId = modelId,
-                                        filename = filename,
-                                        taesdPath = taesdPath,
-                                        nThreads = nThreads,
-                                        offloadToCpu = offloadToCpu,
-                                        keepClipOnCpu = keepClipOnCpu,
-                                        keepVaeOnCpu = keepVaeOnCpu,
-                                        flashAttn = flashAttn,
-                                        vaeDecodeOnly = vaeDecodeOnly,
-                                        sequentialLoad = sequentialLoad,
-                                        preferPerformanceMode = preferPerformanceMode,
-                                        token = token,
-                                        forceDownload = forceDownload,
-                                        preferSystemDownloader = true,
-                                        flowShift = flowShift,
-                                )
-                            }
-                        } catch (t: Throwable) {
-                            // Continue with default downloader
-                        }
-
-                        try {
-                            val res =
-                                    HuggingFaceHub.ensureModelOnDisk(
-                                            context = context,
-                                            modelId = modelId,
-                                            revision = "main",
-                                            preferredQuantizations = emptyList(),
-                                            filename = filename,
-                                            token = token,
-                                            forceDownload = forceDownload,
-                                            preferSystemDownloader = true,
-                                            onProgress = null,
-                                    )
-                            resolvedModelPath = res.file.absolutePath
-                            resolvedVaePath = vaePath
-                            resolvedT5xxlPath = t5xxlPath
-                        } catch (iae: IllegalArgumentException) {
-                            iae.printStackTrace()
-                            val alt =
-                                    HuggingFaceHub.ensureRepoFileOnDisk(
-                                            context = context,
-                                            modelId = modelId,
-                                            revision = "main",
-                                            filename = filename,
-                                            allowedExtensions =
-                                                    listOf(
-                                                            ".gguf",
-                                                            ".safetensors",
-                                                            ".ckpt",
-                                                            ".pt",
-                                                            ".bin"
-                                                    ),
-                                            token = token,
-                                            forceDownload = forceDownload,
-                                            preferSystemDownloader = true,
-                                            onProgress = null,
-                                    )
-                            resolvedModelPath = alt.file.absolutePath
-                            resolvedVaePath = vaePath
-                            resolvedT5xxlPath = t5xxlPath
-                        }
-                    } else {
-                        throw InvalidGenerationParametersException(
-                                "Provide either modelPath or modelId"
-                        )
-                    }
-
-                    validateResolvedAssets(
-                            modelPath = resolvedModelPath,
-                            vaePath = resolvedVaePath,
-                            t5xxlPath = resolvedT5xxlPath,
-                            taesdPath = taesdPath,
-                            loraModelDir = loraModelDir,
-                    )
-
-                    // T100: Memory pressure detection before loading
-                    logD(
-                        LOG_TAG,
-                        "inferVideoModelMetadata: resolvedModelPath=$resolvedModelPath, exists=${File(resolvedModelPath).exists()}, modelId=$modelId, filename=$filename",
-                    )
-
-                    val metadata =
-                            inferVideoModelMetadata(
-                                    resolvedModelPath = resolvedModelPath,
-                                    modelId = modelId,
-                                    explicitFilename = filename,
-                            )
-
-                    val loadPlan =
-                        StableDiffusionLoadHeuristics.planLoad(
+                    val resolved =
+                        StableDiffusionLoadSupport.resolveRequestedAssets(
                             context = context,
-                            resolvedModelPath = resolvedModelPath,
-                            sequentialLoad = sequentialLoad,
-                            preferPerformanceMode = preferPerformanceMode,
-                            offloadToCpu = offloadToCpu,
-                            keepClipOnCpu = keepClipOnCpu,
-                            keepVaeOnCpu = keepVaeOnCpu,
-                            forceVulkan = forceVulkan,
+                            modelId = modelId,
+                            filename = filename,
+                            modelPath = modelPath,
+                            vaePath = vaePath,
+                            t5xxlPath = t5xxlPath,
+                            taesdPath = taesdPath,
+                            token = token,
+                            forceDownload = forceDownload,
+                            loraModelDir = loraModelDir,
+                            validateResolvedAssets = ::validateResolvedAssets,
+                            inferVideoModelMetadata = ::inferVideoModelMetadata,
+                            onFallback = { message -> logW(LOG_TAG, message) },
                         )
-                    StableDiffusionLoadHeuristics.warnIfLargeModelOnLowRam(
-                        metadata = metadata,
-                        memorySnapshot = loadPlan.memorySnapshot,
-                    ) { message -> logW(LOG_TAG, message) }
 
-                    val effectiveSequentialLoad = loadPlan.effectiveSequentialLoad
-                    var effectiveOffloadToCpu = loadPlan.effectiveOffloadToCpu
-                    var effectiveKeepClipOnCpu = loadPlan.effectiveKeepClipOnCpu
-                    var effectiveKeepVaeOnCpu = loadPlan.effectiveKeepVaeOnCpu
-                    val chosenDevice = loadPlan.chosenDevice
-                    val estimatedParams = loadPlan.estimatedDeviceParamsBytes
-                    val freeBytes = loadPlan.freeVulkanBytes
-
-                    // Log final effective flags before creating native handle - this aids debugging
-                    logI(
-                        LOG_TAG,
-                        "Initializing StableDiffusion (effective): modelPath=$resolvedModelPath, " +
-                            "nThreads=$nThreads, sequentialLoad=$effectiveSequentialLoad, " +
-                            "offloadToCpu=$effectiveOffloadToCpu, keepClipOnCpu=$effectiveKeepClipOnCpu, " +
-                            "keepVaeOnCpu=$effectiveKeepVaeOnCpu, flashAttn=$flashAttn",
+                    createLoadedInstance(
+                        context = context,
+                        resolved = resolved,
+                        taesdPath = taesdPath,
+                        nThreads = nThreads,
+                        offloadToCpu = offloadToCpu,
+                        keepClipOnCpu = keepClipOnCpu,
+                        keepVaeOnCpu = keepVaeOnCpu,
+                        flashAttn = flashAttn,
+                        vaeDecodeOnly = vaeDecodeOnly,
+                        sequentialLoad = sequentialLoad,
+                        forceVulkan = forceVulkan,
+                        preferPerformanceMode = preferPerformanceMode,
+                        flowShift = flowShift,
+                        loraModelDir = loraModelDir,
+                        loraApplyMode = loraApplyMode,
                     )
-                    if (chosenDevice >= 0) {
-                        logI(
-                            LOG_TAG,
-                            "Vulkan chosenDevice=$chosenDevice, estimatedModelParamsMB=${String.format("%.2f", estimatedParams / 1024.0 / 1024.0)}, freeMB=${String.format("%.2f", freeBytes / 1024.0 / 1024.0)}",
-                        )
-                    }
-
-                    var handle =
-                            try {
-                                nativeCreate(
-                                        resolvedModelPath,
-                                        resolvedVaePath,
-                                        resolvedT5xxlPath,
-                                        taesdPath,
-                                        nThreads,
-                                        effectiveOffloadToCpu,
-                                        effectiveKeepClipOnCpu,
-                                        effectiveKeepVaeOnCpu,
-                                        flashAttn,
-                                        vaeDecodeOnly,
-                                        flowShift,
-                                        loraModelDir,
-                                        loraApplyMode.id,
-                                )
-                            } catch (e: UnsatisfiedLinkError) {
-                                throw NativeBindingException(
-                                        libraryName = "sdcpp",
-                                        detail = "Stable Diffusion JNI bindings are unavailable.",
-                                        cause = e
-                                )
-                            }
-                    // If we requested preferred GPU path but nativeCreate failed, retry with CPU
-                    // offload
-                    if (handle == 0L && forceVulkan) {
-                        logW(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback")
-                        effectiveOffloadToCpu = true
-                        effectiveKeepClipOnCpu = true
-                        effectiveKeepVaeOnCpu = true
-                        handle =
-                                try {
-                                    nativeCreate(
-                                            resolvedModelPath,
-                                            resolvedVaePath,
-                                            resolvedT5xxlPath,
-                                            taesdPath,
-                                            nThreads,
-                                            effectiveOffloadToCpu,
-                                            effectiveKeepClipOnCpu,
-                                            effectiveKeepVaeOnCpu,
-                                            flashAttn,
-                                            vaeDecodeOnly,
-                                            flowShift,
-                                            loraModelDir,
-                                            loraApplyMode.id,
-                                    )
-                                } catch (e: UnsatisfiedLinkError) {
-                                    throw NativeBindingException(
-                                            libraryName = "sdcpp",
-                                            detail = "Stable Diffusion JNI bindings are unavailable.",
-                                            cause = e
-                                    )
-                                }
-                    } 
-                    if (handle == 0L) {
-                        val errorMsg = buildString {
-                            append("Failed to initialize Stable Diffusion context.")
-                            if (taesdPath != null) append(" Custom TAE/TAEHV: $taesdPath.")
-                            if (resolvedVaePath != null) append(" Custom VAE: $resolvedVaePath.")
-                            append(" This often happens due to incompatible VAE/TAE weights or insufficient memory. Check logcat for [SmolSD] errors.")
-                        }
-                        throw ModelLoadException(resolvedModelPath, errorMsg)
-                    }
-                    val instance = StableDiffusion(handle)
-                    instance.updateModelMetadata(metadata)
-
-                    // T095: Mobile compatibility check - reject 14B models
-                    if (instance.modelMetadata?.mobileSupported == false) {
-                        instance.close()
-                        val paramCount = instance.modelMetadata?.parameterCount ?: "14B"
-                        throw UnsupportedModelException(
-                                "$paramCount models are not supported on mobile devices. " +
-                                        "Please use 1.3B or 5B model variants instead. " +
-                                        "14B models require 20-40GB RAM and are designed for desktop/server use only."
-                        )
-                    }
-
-                    instance
                 }
 
         suspend fun loadFromHuggingFace(
@@ -968,121 +753,249 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)? = null,
         ): StableDiffusion =
                 withContext(Dispatchers.IO) {
-                    val (modelRes, vaeRes, t5Res) =
-                            HuggingFaceHub.ensureWanAssetsOnDisk(
-                                    context = context,
-                                    wanModelId = modelId,
-                                    preferSystemDownloader = preferSystemDownloader,
-                                    token = token,
-                                    forceDownload = forceDownload,
-                                    onProgress = { downloaded, total ->
-                                        onProgress?.invoke(modelId, downloaded, total)
-                                    },
-                            )
-
-                    validateResolvedAssets(
-                            modelPath = modelRes.file.absolutePath,
-                            vaePath = vaeRes?.file?.absolutePath,
-                            t5xxlPath = t5Res?.file?.absolutePath,
-                            taesdPath = taesdPath,
-                            loraModelDir = loraModelDir,
-                    )
-
-                    val loadPlan =
-                        StableDiffusionLoadHeuristics.planLoad(
+                    val resolved =
+                        StableDiffusionLoadSupport.resolveWanAssets(
                             context = context,
-                            resolvedModelPath = modelRes.file.absolutePath,
-                            sequentialLoad = sequentialLoad,
-                            preferPerformanceMode = preferPerformanceMode,
-                            offloadToCpu = offloadToCpu,
-                            keepClipOnCpu = keepClipOnCpu,
-                            keepVaeOnCpu = keepVaeOnCpu,
-                            forceVulkan = forceVulkan,
+                            modelId = modelId,
+                            filename = filename,
+                            taesdPath = taesdPath,
+                            token = token,
+                            forceDownload = forceDownload,
+                            preferSystemDownloader = preferSystemDownloader,
+                            loraModelDir = loraModelDir,
+                            onProgress = onProgress,
+                            validateResolvedAssets = ::validateResolvedAssets,
+                            inferVideoModelMetadata = ::inferVideoModelMetadata,
                         )
 
-                    val effectiveSequentialLoad = loadPlan.effectiveSequentialLoad
-                    var effectiveOffloadToCpu = loadPlan.effectiveOffloadToCpu
-                    var effectiveKeepClipOnCpu = loadPlan.effectiveKeepClipOnCpu
-                    var effectiveKeepVaeOnCpu = loadPlan.effectiveKeepVaeOnCpu
-                    val chosenDevice = loadPlan.chosenDevice
-                    val estimatedParams = loadPlan.estimatedDeviceParamsBytes
-                    val freeBytes = loadPlan.freeVulkanBytes
-
-                    // Debug log for model initialization choices
-                    logI(
-                        LOG_TAG,
-                        "Initializing StableDiffusion from HF (effective): model=${modelRes.file.absolutePath}, nThreads=$nThreads, sequentialLoad=$effectiveSequentialLoad, offloadToCpu=$effectiveOffloadToCpu, keepClipOnCpu=$effectiveKeepClipOnCpu, keepVaeOnCpu=$effectiveKeepVaeOnCpu, flashAttn=$flashAttn",
+                    createLoadedInstance(
+                        context = context,
+                        resolved = resolved,
+                        taesdPath = taesdPath,
+                        nThreads = nThreads,
+                        offloadToCpu = offloadToCpu,
+                        keepClipOnCpu = keepClipOnCpu,
+                        keepVaeOnCpu = keepVaeOnCpu,
+                        flashAttn = flashAttn,
+                        vaeDecodeOnly = vaeDecodeOnly,
+                        sequentialLoad = sequentialLoad,
+                        forceVulkan = forceVulkan,
+                        preferPerformanceMode = preferPerformanceMode,
+                        flowShift = flowShift,
+                        loraModelDir = loraModelDir,
+                        loraApplyMode = loraApplyMode,
                     )
-
-                    var handle =
-                            try {
-                                nativeCreate(
-                                        modelRes.file.absolutePath,
-                                        vaeRes?.file?.absolutePath,
-                                        t5Res?.file?.absolutePath,
-                                        taesdPath,
-                                        nThreads,
-                                        effectiveOffloadToCpu,
-                                        effectiveKeepClipOnCpu,
-                                        effectiveKeepVaeOnCpu,
-                                        flashAttn,
-                                        vaeDecodeOnly,
-                                        flowShift,
-                                        loraModelDir,
-                                        loraApplyMode.id,
-                                )
-                            } catch (e: UnsatisfiedLinkError) {
-                                throw NativeBindingException(
-                                        libraryName = "sdcpp",
-                                        detail = "Stable Diffusion JNI bindings are unavailable.",
-                                        cause = e
-                                )
-                            }
-                    if (handle == 0L && forceVulkan) {
-                        logW(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with offloadToCpu=true as a fallback (HF)")
-                        effectiveOffloadToCpu = true
-                        effectiveKeepClipOnCpu = true
-                        effectiveKeepVaeOnCpu = true
-                        handle =
-                                try {
-                                    nativeCreate(
-                                            modelRes.file.absolutePath,
-                                            vaeRes?.file?.absolutePath,
-                                            t5Res?.file?.absolutePath,
-                                            taesdPath,
-                                            nThreads,
-                                            effectiveOffloadToCpu,
-                                            effectiveKeepClipOnCpu,
-                                            effectiveKeepVaeOnCpu,
-                                            flashAttn,
-                                            vaeDecodeOnly,
-                                            flowShift,
-                                            loraModelDir,
-                                            loraApplyMode.id,
-                                    )
-                                } catch (e: UnsatisfiedLinkError) {
-                                    throw NativeBindingException(
-                                            libraryName = "sdcpp",
-                                            detail = "Stable Diffusion JNI bindings are unavailable.",
-                                            cause = e
-                                    )
-                                }
-                    }
-                    if (handle == 0L)
-                            throw ModelLoadException(
-                                    modelRes.file.absolutePath,
-                                    "Failed to initialize Stable Diffusion context"
-                            )
-                    val instance = StableDiffusion(handle)
-                    instance.updateModelMetadata(
-                        inferVideoModelMetadata(
-                            resolvedModelPath = modelRes.file.absolutePath,
-                            modelId = modelId,
-                            explicitFilename = filename,
-                        ),
-                    )
-                    instance
                 }
+
+        private fun createLoadedInstance(
+            context: Context,
+            resolved: StableDiffusionResolvedAssets,
+            taesdPath: String?,
+            nThreads: Int,
+            offloadToCpu: Boolean,
+            keepClipOnCpu: Boolean,
+            keepVaeOnCpu: Boolean,
+            flashAttn: Boolean,
+            vaeDecodeOnly: Boolean,
+            sequentialLoad: Boolean?,
+            forceVulkan: Boolean,
+            preferPerformanceMode: Boolean,
+            flowShift: Float,
+            loraModelDir: String?,
+            loraApplyMode: LoraApplyMode,
+        ): StableDiffusion {
+            val loadPlan =
+                StableDiffusionLoadHeuristics.planLoad(
+                    context = context,
+                    resolvedModelPath = resolved.modelPath,
+                    sequentialLoad = sequentialLoad,
+                    preferPerformanceMode = preferPerformanceMode,
+                    offloadToCpu = offloadToCpu,
+                    keepClipOnCpu = keepClipOnCpu,
+                    keepVaeOnCpu = keepVaeOnCpu,
+                    forceVulkan = forceVulkan,
+                )
+            StableDiffusionLoadHeuristics.warnIfLargeModelOnLowRam(
+                metadata = resolved.metadata,
+                memorySnapshot = loadPlan.memorySnapshot,
+            ) { message -> logW(LOG_TAG, message) }
+
+            logLoadPlan(
+                resolvedModelPath = resolved.modelPath,
+                nThreads = nThreads,
+                loadPlan = loadPlan,
+                flashAttn = flashAttn,
+            )
+
+            val handle =
+                createHandleWithGpuFallback(
+                    resolved = resolved,
+                    taesdPath = taesdPath,
+                    nThreads = nThreads,
+                    loadPlan = loadPlan,
+                    flashAttn = flashAttn,
+                    vaeDecodeOnly = vaeDecodeOnly,
+                    forceVulkan = forceVulkan,
+                    flowShift = flowShift,
+                    loraModelDir = loraModelDir,
+                    loraApplyMode = loraApplyMode,
+                )
+            if (handle == 0L) {
+                throw ModelLoadException(
+                    resolved.modelPath,
+                    createLoadFailureMessage(
+                        resolvedModelPath = resolved.modelPath,
+                        taesdPath = taesdPath,
+                        resolvedVaePath = resolved.vaePath,
+                    ),
+                )
+            }
+
+            val instance = StableDiffusion(handle)
+            instance.updateModelMetadata(resolved.metadata)
+
+            if (instance.modelMetadata?.mobileSupported == false) {
+                instance.close()
+                val paramCount = instance.modelMetadata?.parameterCount ?: "14B"
+                throw UnsupportedModelException(
+                    "$paramCount models are not supported on mobile devices. " +
+                        "Please use 1.3B or 5B model variants instead. " +
+                        "14B models require 20-40GB RAM and are designed for desktop/server use only.",
+                )
+            }
+
+            return instance
+        }
+
+        private fun logLoadPlan(
+            resolvedModelPath: String,
+            nThreads: Int,
+            loadPlan: StableDiffusionLoadHeuristics.LoadPlan,
+            flashAttn: Boolean,
+        ) {
+            logI(
+                LOG_TAG,
+                "Initializing StableDiffusion (effective): modelPath=$resolvedModelPath, " +
+                    "nThreads=$nThreads, sequentialLoad=${loadPlan.effectiveSequentialLoad}, " +
+                    "offloadToCpu=${loadPlan.effectiveOffloadToCpu}, " +
+                    "keepClipOnCpu=${loadPlan.effectiveKeepClipOnCpu}, " +
+                    "keepVaeOnCpu=${loadPlan.effectiveKeepVaeOnCpu}, flashAttn=$flashAttn",
+            )
+            if (loadPlan.chosenDevice >= 0) {
+                logI(
+                    LOG_TAG,
+                    "Vulkan chosenDevice=${loadPlan.chosenDevice}, estimatedModelParamsMB=${String.format("%.2f", loadPlan.estimatedDeviceParamsBytes / 1024.0 / 1024.0)}, freeMB=${String.format("%.2f", loadPlan.freeVulkanBytes / 1024.0 / 1024.0)}",
+                )
+            }
+        }
+
+        private fun createHandleWithGpuFallback(
+            resolved: StableDiffusionResolvedAssets,
+            taesdPath: String?,
+            nThreads: Int,
+            loadPlan: StableDiffusionLoadHeuristics.LoadPlan,
+            flashAttn: Boolean,
+            vaeDecodeOnly: Boolean,
+            forceVulkan: Boolean,
+            flowShift: Float,
+            loraModelDir: String?,
+            loraApplyMode: LoraApplyMode,
+        ): Long {
+            var effectiveOffloadToCpu = loadPlan.effectiveOffloadToCpu
+            var effectiveKeepClipOnCpu = loadPlan.effectiveKeepClipOnCpu
+            var effectiveKeepVaeOnCpu = loadPlan.effectiveKeepVaeOnCpu
+
+            var handle =
+                nativeCreateOrThrow(
+                    modelPath = resolved.modelPath,
+                    vaePath = resolved.vaePath,
+                    t5xxlPath = resolved.t5xxlPath,
+                    taesdPath = taesdPath,
+                    nThreads = nThreads,
+                    offloadToCpu = effectiveOffloadToCpu,
+                    keepClipOnCpu = effectiveKeepClipOnCpu,
+                    keepVaeOnCpu = effectiveKeepVaeOnCpu,
+                    flashAttn = flashAttn,
+                    vaeDecodeOnly = vaeDecodeOnly,
+                    flowShift = flowShift,
+                    loraModelDir = loraModelDir,
+                    loraApplyMode = loraApplyMode,
+                )
+            if (handle == 0L && forceVulkan) {
+                logW(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with CPU offload as a fallback")
+                effectiveOffloadToCpu = true
+                effectiveKeepClipOnCpu = true
+                effectiveKeepVaeOnCpu = true
+                handle =
+                    nativeCreateOrThrow(
+                        modelPath = resolved.modelPath,
+                        vaePath = resolved.vaePath,
+                        t5xxlPath = resolved.t5xxlPath,
+                        taesdPath = taesdPath,
+                        nThreads = nThreads,
+                        offloadToCpu = effectiveOffloadToCpu,
+                        keepClipOnCpu = effectiveKeepClipOnCpu,
+                        keepVaeOnCpu = effectiveKeepVaeOnCpu,
+                        flashAttn = flashAttn,
+                        vaeDecodeOnly = vaeDecodeOnly,
+                        flowShift = flowShift,
+                        loraModelDir = loraModelDir,
+                        loraApplyMode = loraApplyMode,
+                    )
+            }
+            return handle
+        }
+
+        private fun nativeCreateOrThrow(
+            modelPath: String,
+            vaePath: String?,
+            t5xxlPath: String?,
+            taesdPath: String?,
+            nThreads: Int,
+            offloadToCpu: Boolean,
+            keepClipOnCpu: Boolean,
+            keepVaeOnCpu: Boolean,
+            flashAttn: Boolean,
+            vaeDecodeOnly: Boolean,
+            flowShift: Float,
+            loraModelDir: String?,
+            loraApplyMode: LoraApplyMode,
+        ): Long =
+            try {
+                nativeCreate(
+                    modelPath,
+                    vaePath,
+                    t5xxlPath,
+                    taesdPath,
+                    nThreads,
+                    offloadToCpu,
+                    keepClipOnCpu,
+                    keepVaeOnCpu,
+                    flashAttn,
+                    vaeDecodeOnly,
+                    flowShift,
+                    loraModelDir,
+                    loraApplyMode.id,
+                )
+            } catch (e: UnsatisfiedLinkError) {
+                throw NativeBindingException(
+                    libraryName = "sdcpp",
+                    detail = "Stable Diffusion JNI bindings are unavailable.",
+                    cause = e,
+                )
+            }
+
+        private fun createLoadFailureMessage(
+            resolvedModelPath: String,
+            taesdPath: String?,
+            resolvedVaePath: String?,
+        ): String =
+            buildString {
+                append("Failed to initialize Stable Diffusion context for $resolvedModelPath.")
+                if (taesdPath != null) append(" Custom TAE/TAEHV: $taesdPath.")
+                if (resolvedVaePath != null) append(" Custom VAE: $resolvedVaePath.")
+                append(" This often happens due to incompatible VAE/TAE weights or insufficient memory. Check logcat for [SmolSD] errors.")
+            }
     }
 
     data class GenerateParams(
@@ -1339,128 +1252,30 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     suspend fun txt2vid(
             params: VideoGenerateParams,
             onProgress: VideoProgressCallback? = null,
-    ): List<Bitmap> =
-            withContext(Dispatchers.IO) {
-                check(isNativeLibraryAvailable) {
-                    "Video generation is unavailable on this platform"
-                }
-                params.validate().getOrThrow()
-                check(isVideoModel()) { "Loaded model is not a video model (use txt2img instead)" }
-
-                // T101: Context size capping based on model size
-                val maxFrames =
-                        when (modelMetadata?.parameterCount) {
-                            "5B" -> 32 // 5B models limited to 32 frames on mobile
-                            else -> 64 // 1.3B and unknown models can use full 64 frames
-                        }
-                require(params.videoFrames <= maxFrames) {
-                    "Model ${modelMetadata?.parameterCount ?: "unknown"} supports maximum $maxFrames frames. " +
-                            "Requested ${params.videoFrames} frames. Use a smaller model or reduce frame count."
-                }
-
-                val estimatedBytes =
-                        estimateFrameFootprintBytes(
-                                width = params.width,
-                                height = params.height,
-                                frameCount = params.videoFrames,
-                        )
-                warnIfLowMemory(estimatedBytes)
-
-                val (initBytes, initWidth, initHeight) =
-                        params.initImage?.let { bitmapToRgbBytes(it) } ?: Triple(null, 0, 0)
-
-                val tempCallback = onProgress
-                if (tempCallback != null) {
-                    nativeBridge.setProgressCallback(handle, tempCallback)
-                }
-
-                val startNanos = System.nanoTime()
-                val memoryBefore = readNativeMemoryMb()
-                var frameBytes =
-                        try {
-                            generationMutex.withLock {
-                                cancellationRequested.set(false)
-                                nativeBridge.txt2vid(
-                                        handle,
-                                        params.prompt,
-                                        params.negative,
-                                        params.width,
-                                        params.height,
-                                        params.videoFrames,
-                                        params.steps,
-                                        params.cfgScale,
-                                        params.seed,
-                                        params.sampleMethod,
-                                        params.scheduler,
-                                        params.strength,
-                                        initBytes,
-                                        initWidth,
-                                        initHeight,
-                                        params.vaceStrength,
-                                        params.easyCacheParams.enabled,
-                                        params.easyCacheParams.reuseThreshold,
-                                        params.easyCacheParams.startPercent,
-                                        params.easyCacheParams.endPercent,
-                                )
-                                        ?: throw InferenceFailedException(
-                                                operation = "Stable Diffusion video generation",
-                                                detail = "The native runtime reported a generation failure."
-                                        )
-                            }
-                        } catch (t: Throwable) {
-                            if (cancellationRequested.get()) {
-                                cancellationRequested.set(false)
-                                throw CancellationException("Video generation cancelled", t)
-                            }
-                            throw t
-                        } finally {
-                            cancellationRequested.set(false)
-                        }
-
-                if (frameBytes.isEmpty()) {
-                    throw InferenceFailedException(
-                            operation = "Stable Diffusion video generation",
-                            detail = "The native runtime returned no frames."
-                    )
-                }
-
-                // Note: Wan model calculates actual frames as (n-1)/4*4+1
-                val expectedFrames = params.actualFrameCount()
-                if (frameBytes.size != expectedFrames) {
-                        logW(
-                            LOG_TAG,
-                            "Expected $expectedFrames frames (formula: (${params.videoFrames}-1)/4*4+1) but received ${frameBytes.size}",
-                    )
-                }
-
-                frameBytes = StableDiffusionOutputSupport.recoverPotentiallyBlackFrames(LOG_TAG, frameBytes)
-
-                val conversionStart = System.nanoTime()
-                val bitmaps =
-                    convertFramesToBitmaps(frameBytes, params.width, params.height)
-                val conversionSeconds = ((System.nanoTime() - conversionStart) / 1_000_000_000f)
-                val totalSeconds = ((System.nanoTime() - startNanos) / 1_000_000_000f)
-                val memoryAfter = readNativeMemoryMb()
-
-                lastGenerationMetrics =
-                        GenerationMetrics(
-                                totalTimeSeconds = totalSeconds,
-                                framesPerSecond =
-                                        if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
-                                timePerStep =
-                                        if (params.steps > 0) totalSeconds / params.steps else 0f,
-                                peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
-                                vulkanEnabled = false,
-                                frameConversionTimeSeconds = conversionSeconds,
-                        )
-
-                warnIfLowMemory(estimatedBytes)
-
-                if (tempCallback != null) {
-                    nativeBridge.setProgressCallback(handle, cachedProgressCallback)
-                }
-
-                bitmaps
+        ): List<Bitmap> =
+            executeVideoGeneration(params, onProgress) { initBytes, initWidth, initHeight ->
+            nativeBridge.txt2vid(
+                handle,
+                params.prompt,
+                params.negative,
+                params.width,
+                params.height,
+                params.videoFrames,
+                params.steps,
+                params.cfgScale,
+                params.seed,
+                params.sampleMethod,
+                params.scheduler,
+                params.strength,
+                initBytes,
+                initWidth,
+                initHeight,
+                params.vaceStrength,
+                params.easyCacheParams.enabled,
+                params.easyCacheParams.reuseThreshold,
+                params.easyCacheParams.startPercent,
+                params.easyCacheParams.endPercent,
+            )
             }
 
     fun setProgressCallback(callback: VideoProgressCallback?) {
@@ -1701,89 +1516,110 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             uncond: PrecomputedCondition? = null,
             onProgress: VideoProgressCallback? = null,
     ): List<Bitmap> =
-            withContext(Dispatchers.IO) {
-                check(isNativeLibraryAvailable) {
-                    "Video generation is unavailable on this platform"
+            executeVideoGeneration(params, onProgress) { initBytes, initWidth, initHeight ->
+                nativeBridge.txt2vidWithPrecomputedCondition(
+                        handle,
+                        params.prompt,
+                        params.negative,
+                        params.width,
+                        params.height,
+                        params.videoFrames,
+                        params.steps,
+                        params.cfgScale,
+                        params.seed,
+                        params.sampleMethod,
+                        params.scheduler,
+                        params.strength,
+                        initBytes,
+                        initWidth,
+                        initHeight,
+                        cond,
+                        uncond,
+                        params.vaceStrength,
+                        params.easyCacheParams.enabled,
+                        params.easyCacheParams.reuseThreshold,
+                        params.easyCacheParams.startPercent,
+                        params.easyCacheParams.endPercent,
+                )
+            }
+
+    private suspend fun executeVideoGeneration(
+        params: VideoGenerateParams,
+        onProgress: VideoProgressCallback?,
+        generateFrames: (ByteArray?, Int, Int) -> Array<ByteArray>?,
+    ): List<Bitmap> =
+        withContext(Dispatchers.IO) {
+            check(isNativeLibraryAvailable) {
+                "Video generation is unavailable on this platform"
+            }
+            params.validate().getOrThrow()
+            check(isVideoModel()) { "Loaded model is not a video model (use txt2img instead)" }
+
+            val maxFrames =
+                when (modelMetadata?.parameterCount) {
+                    "5B" -> 32
+                    else -> 64
                 }
-                params.validate().getOrThrow()
-                check(isVideoModel()) { "Loaded model is not a video model (use txt2img instead)" }
+            require(params.videoFrames <= maxFrames) {
+                "Model ${modelMetadata?.parameterCount ?: "unknown"} supports maximum $maxFrames frames. " +
+                    "Requested ${params.videoFrames} frames. Use a smaller model or reduce frame count."
+            }
 
-                val estimatedBytes =
-                        estimateFrameFootprintBytes(
-                                width = params.width,
-                                height = params.height,
-                                frameCount = params.videoFrames,
-                        )
-                warnIfLowMemory(estimatedBytes)
+            val estimatedBytes =
+                estimateFrameFootprintBytes(
+                    width = params.width,
+                    height = params.height,
+                    frameCount = params.videoFrames,
+                )
+            warnIfLowMemory(estimatedBytes)
 
-                val (initBytes, initWidth, initHeight) =
-                        params.initImage?.let { bitmapToRgbBytes(it) } ?: Triple(null, 0, 0)
+            val (initBytes, initWidth, initHeight) =
+                params.initImage?.let { bitmapToRgbBytes(it) } ?: Triple(null, 0, 0)
 
-                val tempCallback = onProgress
-                if (tempCallback != null) {
-                    nativeBridge.setProgressCallback(handle, tempCallback)
-                }
+            val tempCallback = onProgress
+            if (tempCallback != null) {
+                nativeBridge.setProgressCallback(handle, tempCallback)
+            }
 
+            try {
                 val startNanos = System.nanoTime()
                 val memoryBefore = readNativeMemoryMb()
-                val frameBytes =
-                        try {
-                            generationMutex.withLock {
-                                cancellationRequested.set(false)
-                                nativeBridge.txt2vidWithPrecomputedCondition(
-                                        handle,
-                                        params.prompt,
-                                        params.negative,
-                                        params.width,
-                                        params.height,
-                                        params.videoFrames,
-                                        params.steps,
-                                        params.cfgScale,
-                                        params.seed,
-                                        params.sampleMethod,
-                                        params.scheduler,
-                                        params.strength,
-                                        initBytes,
-                                        initWidth,
-                                        initHeight,
-                                        cond,
-                                        uncond,
-                                        params.vaceStrength,
-                                        params.easyCacheParams.enabled,
-                                        params.easyCacheParams.reuseThreshold,
-                                        params.easyCacheParams.startPercent,
-                                        params.easyCacheParams.endPercent,
-                                )
-                                        ?: throw InferenceFailedException(
-                                                operation = "Stable Diffusion video generation",
-                                                detail = "The native runtime reported a generation failure."
-                                        )
-                            }
-                        } catch (t: Throwable) {
-                            if (cancellationRequested.get()) {
-                                cancellationRequested.set(false)
-                                throw CancellationException("Video generation cancelled", t)
-                            }
-                            throw t
-                        } finally {
+                var frameBytes =
+                    try {
+                        generationMutex.withLock {
                             cancellationRequested.set(false)
+                            generateFrames(initBytes, initWidth, initHeight)
+                                ?: throw InferenceFailedException(
+                                    operation = "Stable Diffusion video generation",
+                                    detail = "The native runtime reported a generation failure.",
+                                )
                         }
+                    } catch (t: Throwable) {
+                        if (cancellationRequested.get()) {
+                            cancellationRequested.set(false)
+                            throw CancellationException("Video generation cancelled", t)
+                        }
+                        throw t
+                    } finally {
+                        cancellationRequested.set(false)
+                    }
 
                 if (frameBytes.isEmpty()) {
                     throw InferenceFailedException(
-                            operation = "Stable Diffusion video generation",
-                            detail = "The native runtime returned no frames."
+                        operation = "Stable Diffusion video generation",
+                        detail = "The native runtime returned no frames.",
                     )
                 }
 
-                // Note: Wan model calculates actual frames as (n-1)/4*4+1
                 val expectedFrames = params.actualFrameCount()
                 if (frameBytes.size != expectedFrames) {
-                        logW(
-                            LOG_TAG,
-                            "Expected $expectedFrames frames (formula: (${params.videoFrames}-1)/4*4+1) but received ${frameBytes.size}",
+                    logW(
+                        LOG_TAG,
+                        "Expected $expectedFrames frames (formula: (${params.videoFrames}-1)/4*4+1) but received ${frameBytes.size}",
                     )
                 }
+
+                frameBytes = StableDiffusionOutputSupport.recoverPotentiallyBlackFrames(LOG_TAG, frameBytes)
 
                 val conversionStart = System.nanoTime()
                 val bitmaps = convertFramesToBitmaps(frameBytes, params.width, params.height)
@@ -1792,25 +1628,23 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 val memoryAfter = readNativeMemoryMb()
 
                 lastGenerationMetrics =
-                        GenerationMetrics(
-                                totalTimeSeconds = totalSeconds,
-                                framesPerSecond =
-                                        if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
-                                timePerStep =
-                                        if (params.steps > 0) totalSeconds / params.steps else 0f,
-                                peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
-                                vulkanEnabled = false,
-                                frameConversionTimeSeconds = conversionSeconds,
-                        )
+                    GenerationMetrics(
+                        totalTimeSeconds = totalSeconds,
+                        framesPerSecond = if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
+                        timePerStep = if (params.steps > 0) totalSeconds / params.steps else 0f,
+                        peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
+                        vulkanEnabled = false,
+                        frameConversionTimeSeconds = conversionSeconds,
+                    )
 
                 warnIfLowMemory(estimatedBytes)
-
+                bitmaps
+            } finally {
                 if (tempCallback != null) {
                     nativeBridge.setProgressCallback(handle, cachedProgressCallback)
                 }
-
-                bitmaps
             }
+        }
 
     private fun warnIfLowMemory(estimatedAdditionalBytes: Long) {
         StableDiffusionOutputSupport.warnIfLowMemory(

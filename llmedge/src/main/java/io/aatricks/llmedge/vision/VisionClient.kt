@@ -24,6 +24,10 @@ class VisionClient internal constructor(
     /**
      * Analyze an image with the configured vision pipeline.
      *
+      * This VLM path is experimental. It requires both a vision-capable GGUF and a compatible
+      * projector/mmproj file; otherwise the call fails fast with a descriptive error. For the more
+      * stable OCR-only path, use [extractText].
+      *
      * @throws io.aatricks.llmedge.core.LLMEdgeException when the selected vision components cannot
      * be resolved or invoked.
      */

@@ -57,6 +57,12 @@ jobs:
       run: |
         ./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs="-DGGML_VULKAN=ON -DSD_VULKAN=ON"
 
+    - name: Validate Example App
+      env:
+        LLMEDGE_SKIP_LIBRARY_BUILD: "true"
+      run: |
+        bash scripts/validate_examples.sh
+
     - name: Download Test Models
       run: .github/scripts/download_models.sh
 

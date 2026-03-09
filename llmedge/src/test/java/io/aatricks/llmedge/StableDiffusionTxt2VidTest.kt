@@ -9,6 +9,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -475,6 +476,91 @@ class StableDiffusionTxt2VidTest {
         sd.txt2vid(params)
 
         assertTrue(setProgressInvocations.isEmpty())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun txt2vidRestoresCachedProgressCallbackAfterFailure() = runTest {
+        val setProgressInvocations = mutableListOf<StableDiffusion.VideoProgressCallback?>()
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray? = null
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: StableDiffusion.SampleMethod,
+                    scheduler: StableDiffusion.Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = null
+
+                override fun setProgressCallback(
+                    handle: Long,
+                    callback: StableDiffusion.VideoProgressCallback?,
+                ) {
+                    setProgressInvocations += callback
+                }
+
+                override fun cancelGeneration(handle: Long) = Unit
+
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): StableDiffusion.PrecomputedCondition? = null
+            }
+        }
+        val sd = testableStableDiffusion()
+        val cachedCallback = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> }
+        val tempCallback = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> }
+        sd.setProgressCallback(cachedCallback)
+
+        val params = StableDiffusion.VideoGenerateParams(
+            prompt = "wan",
+            width = TEST_DIMENSION,
+            height = TEST_DIMENSION,
+            videoFrames = TEST_FRAMES,
+        )
+
+        val result = runCatching { sd.txt2vid(params, tempCallback) }
+
+        assertTrue(result.exceptionOrNull() is IllegalStateException)
+        assertEquals(3, setProgressInvocations.size)
+        assertSame(cachedCallback, setProgressInvocations[0])
+        assertSame(tempCallback, setProgressInvocations[1])
+        assertSame(cachedCallback, setProgressInvocations[2])
     }
 
     private fun testableStableDiffusion(): StableDiffusion {

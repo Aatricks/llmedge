@@ -32,13 +32,14 @@ Diagram (image captioning):
 
 1. Capture or pick image (camera/file). Normalize orientation and scale to model input size.
 2. Optionally run OCR (MlKit or other) to extract text first.
-3. Run an image encoder/captioner to produce text caption or features.
-4. If using LLM: convert caption/features into a prompt and call `SmolLM` to expand into richer descriptions.
+3. For VLM flows, encode the image with the matching projector/mmproj file into prepared embeddings.
+4. Replay those embeddings into the current `SmolLM` context and run the multimodal prompt.
 
 ### Implementation notes
 
 - Resize images before sending to the model to avoid memory spikes.
 - Use background threads (Dispatchers.IO) for image processing.
+- The VLM path is intentionally fail-fast: if the projector/mmproj file is missing or native projector support is unavailable, the library now reports that explicitly instead of pretending a text-only fallback is equivalent.
 
 ## JNI / Native model loading flow
 
@@ -77,6 +78,8 @@ Diagram (JNI loading):
 - `llmedge/src/main/java/io/aatricks/llmedge/vision/OcrEngine.kt`
 - `llmedge/src/main/java/io/aatricks/llmedge/vision/ocr/MlKitOcrEngine.kt`
 - `llmedge/src/main/java/io/aatricks/llmedge/vision/VisionModelAnalyzer.kt`
+
+Note: OCR support is the more stable image-understanding path today. Projector-based VLM analysis is still evolving and depends on a compatible mmproj + model pairing.
 
 **Core LLM:**
 
