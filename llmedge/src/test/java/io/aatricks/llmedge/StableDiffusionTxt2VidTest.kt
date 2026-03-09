@@ -44,7 +44,7 @@ class StableDiffusionTxt2VidTest {
     @Test
     fun txt2vidConvertsFramesToBitmaps() = runTest {
         val frames = buildFrames(frameCount = TEST_FRAMES, width = TEST_DIMENSION, height = TEST_DIMENSION)
-        val progressRegistrations = mutableListOf<StableDiffusion.VideoProgressCallback?>()
+        val progressRegistrations = mutableListOf<VideoProgressCallback?>()
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
                 override fun txt2img(
@@ -72,8 +72,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -85,7 +85,7 @@ class StableDiffusionTxt2VidTest {
                     easyCacheEndPercent: Float,
                 ): Array<ByteArray> = frames.map { it.clone() }.toTypedArray()
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {
                     progressRegistrations += callback
                 }
 
@@ -97,13 +97,13 @@ class StableDiffusionTxt2VidTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
 
-        val callback = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> }
-        val params = StableDiffusion.VideoGenerateParams(
+        val callback = VideoProgressCallback { _, _, _, _, _ -> }
+        val params = VideoGenerateParams(
             prompt = "go",
             width = TEST_DIMENSION,
             height = TEST_DIMENSION,
@@ -125,7 +125,7 @@ class StableDiffusionTxt2VidTest {
     fun txt2vidRejectsFrameCountBelowMinimum() = runTest {
         val sd = testableStableDiffusion()
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "wan",
             width = TEST_DIMENSION,
             height = TEST_DIMENSION,
@@ -142,7 +142,7 @@ class StableDiffusionTxt2VidTest {
     fun txt2vidRejectsZeroFrameRequests() = runTest {
         val sd = testableStableDiffusion()
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "wan",
             width = TEST_DIMENSION,
             height = TEST_DIMENSION,
@@ -159,7 +159,7 @@ class StableDiffusionTxt2VidTest {
     fun txt2vidRejectsSeedBelowNegativeOne() = runTest {
         val sd = testableStableDiffusion()
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "wan",
             width = TEST_DIMENSION,
             height = TEST_DIMENSION,
@@ -206,8 +206,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -224,7 +224,7 @@ class StableDiffusionTxt2VidTest {
                     return frames.map { it.clone() }.toTypedArray()
                 }
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
                 override fun precomputeCondition(
@@ -234,7 +234,7 @@ class StableDiffusionTxt2VidTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
@@ -242,7 +242,7 @@ class StableDiffusionTxt2VidTest {
         val initBitmap = Bitmap.createBitmap(TEST_DIMENSION, TEST_DIMENSION, Bitmap.Config.ARGB_8888).apply {
             eraseColor(Color.CYAN)
         }
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "wan",
             width = TEST_DIMENSION,
             height = TEST_DIMENSION,
@@ -291,8 +291,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -304,7 +304,7 @@ class StableDiffusionTxt2VidTest {
                     easyCacheEndPercent: Float,
                 ): Array<ByteArray> = emptyArray()
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
                 override fun precomputeCondition(
@@ -314,12 +314,12 @@ class StableDiffusionTxt2VidTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "wan",
             width = TEST_DIMENSION,
             height = TEST_DIMENSION,
@@ -360,8 +360,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -376,7 +376,7 @@ class StableDiffusionTxt2VidTest {
                     throw RuntimeException("native aborted")
                 }
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
                 override fun precomputeCondition(
@@ -386,12 +386,12 @@ class StableDiffusionTxt2VidTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "wan",
             width = TEST_DIMENSION,
             height = TEST_DIMENSION,
@@ -406,7 +406,7 @@ class StableDiffusionTxt2VidTest {
     @Test
     fun txt2vidSkipsProgressRegistrationWhenCallbackNull() = runTest {
         val frames = buildFrames(frameCount = TEST_FRAMES, width = TEST_DIMENSION, height = TEST_DIMENSION)
-        val setProgressInvocations = mutableListOf<StableDiffusion.VideoProgressCallback?>()
+        val setProgressInvocations = mutableListOf<VideoProgressCallback?>()
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
                 override fun txt2img(
@@ -434,8 +434,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -449,7 +449,7 @@ class StableDiffusionTxt2VidTest {
 
                 override fun setProgressCallback(
                     handle: Long,
-                    callback: StableDiffusion.VideoProgressCallback?,
+                    callback: VideoProgressCallback?,
                 ) {
                     setProgressInvocations += callback
                 }
@@ -462,11 +462,11 @@ class StableDiffusionTxt2VidTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "wan",
             width = TEST_DIMENSION,
             height = TEST_DIMENSION,
@@ -481,7 +481,7 @@ class StableDiffusionTxt2VidTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun txt2vidRestoresCachedProgressCallbackAfterFailure() = runTest {
-        val setProgressInvocations = mutableListOf<StableDiffusion.VideoProgressCallback?>()
+        val setProgressInvocations = mutableListOf<VideoProgressCallback?>()
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
                 override fun txt2img(
@@ -510,8 +510,8 @@ class StableDiffusionTxt2VidTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -525,7 +525,7 @@ class StableDiffusionTxt2VidTest {
 
                 override fun setProgressCallback(
                     handle: Long,
-                    callback: StableDiffusion.VideoProgressCallback?,
+                    callback: VideoProgressCallback?,
                 ) {
                     setProgressInvocations += callback
                 }
@@ -539,15 +539,15 @@ class StableDiffusionTxt2VidTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = testableStableDiffusion()
-        val cachedCallback = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> }
-        val tempCallback = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> }
+        val cachedCallback = VideoProgressCallback { _, _, _, _, _ -> }
+        val tempCallback = VideoProgressCallback { _, _, _, _, _ -> }
         sd.setProgressCallback(cachedCallback)
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "wan",
             width = TEST_DIMENSION,
             height = TEST_DIMENSION,
@@ -567,7 +567,7 @@ class StableDiffusionTxt2VidTest {
         val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
         constructor.isAccessible = true
         val instance = constructor.newInstance(1L)
-        instance.updateModelMetadata(StableDiffusion.VideoModelMetadata(
+        instance.updateModelMetadata(VideoModelMetadata(
             architecture = "wan",
             modelType = "t2v",
             parameterCount = "1.3B",

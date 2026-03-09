@@ -54,8 +54,8 @@ class VideoGenerationTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -81,7 +81,7 @@ class VideoGenerationTest {
                     }
                 }
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {}
                 override fun cancelGeneration(handle: Long) {}
                 override fun precomputeCondition(
                     handle: Long,
@@ -90,7 +90,7 @@ class VideoGenerationTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         true
@@ -101,7 +101,7 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "a cat walking",
             width = 256,
             height = 256,
@@ -128,7 +128,7 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         // Don't set video model metadata
 
-        val params = StableDiffusion.VideoGenerateParams(prompt = "test")
+        val params = VideoGenerateParams(prompt = "test")
 
         val thrown = runCatching { sd.txt2vid(params) }.exceptionOrNull()
         assertTrue(thrown is IllegalStateException)
@@ -141,7 +141,7 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val params = StableDiffusion.VideoGenerateParams(prompt = "fail") // Triggers null return
+        val params = VideoGenerateParams(prompt = "fail") // Triggers null return
 
         val thrown = runCatching { sd.txt2vid(params) }.exceptionOrNull()
         assertTrue(thrown is IllegalStateException)
@@ -154,7 +154,7 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata(parameterCount = "5B"))
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test",
             videoFrames = 64 // Over limit for 5B model
         )
@@ -199,8 +199,8 @@ class VideoGenerationTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -228,7 +228,7 @@ class VideoGenerationTest {
                     }
                 }
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {}
                 override fun cancelGeneration(handle: Long) {}
             }
         }
@@ -236,7 +236,7 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val params = StableDiffusion.VideoGenerateParams(prompt = "test")
+        val params = VideoGenerateParams(prompt = "test")
 
         // Start generation in a separate thread and cancel shortly after to simulate user cancellation
         val thrownHolder = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
@@ -268,8 +268,8 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val callback = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> }
-        val params = StableDiffusion.VideoGenerateParams(prompt = "test")
+        val callback = VideoProgressCallback { _, _, _, _, _ -> }
+        val params = VideoGenerateParams(prompt = "test")
 
         // Set callback before generation
         sd.setProgressCallback(callback)
@@ -289,7 +289,7 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val invalidParams = StableDiffusion.VideoGenerateParams(
+        val invalidParams = VideoGenerateParams(
             prompt = "", // Invalid: blank prompt
             width = 256,
             height = 256
@@ -307,7 +307,7 @@ class VideoGenerationTest {
         sd.updateModelMetadata(createVideoModelMetadata())
 
         val initImage = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test",
             initImage = initImage,
             strength = 0.8f
@@ -322,7 +322,7 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test",
             initImage = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888),
             strength = 0.0f // Invalid: strength must be > 0 for I2V
@@ -338,7 +338,7 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val params = StableDiffusion.VideoGenerateParams(prompt = "test")
+        val params = VideoGenerateParams(prompt = "test")
 
         // The method should use generationMutex.withLock
         // We verify this by ensuring the method completes successfully
@@ -351,7 +351,7 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test",
             width = 256,
             height = 256,
@@ -372,10 +372,10 @@ class VideoGenerationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val schedulers = StableDiffusion.Scheduler.values()
+        val schedulers = Scheduler.values()
 
         for (scheduler in schedulers) {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "test with $scheduler",
                 scheduler = scheduler
             )
@@ -409,8 +409,8 @@ class VideoGenerationTest {
     private fun createVideoModelMetadata(
         architecture: String = "wan",
         parameterCount: String = "1.3B"
-    ): StableDiffusion.VideoModelMetadata {
-        return StableDiffusion.VideoModelMetadata(
+    ): VideoModelMetadata {
+        return VideoModelMetadata(
             architecture = architecture,
             modelType = "t2v",
             parameterCount = parameterCount,

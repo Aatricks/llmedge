@@ -83,7 +83,7 @@ class VideoI2VAndLoraE2ETest {
 
         val startTime = System.currentTimeMillis()
         val bitmaps = try {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "a beautiful sunset animation, smooth motion",
                 negative = "blurry, static",
                 width = width,
@@ -198,7 +198,7 @@ class VideoI2VAndLoraE2ETest {
                 flashAttn = true,
                 sequentialLoad = false,
                 loraModelDir = loraDir.absolutePath,
-                loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
+                loraApplyMode = LoraApplyMode.AUTO
             )
         } catch (e: Exception) {
             println("[LoRATest] Model loading with LoRA dir failed: ${e.message}")
@@ -211,7 +211,7 @@ class VideoI2VAndLoraE2ETest {
             
             // Try generating with LoRA path set
             val bitmaps = try {
-                val params = StableDiffusion.VideoGenerateParams(
+                val params = VideoGenerateParams(
                     prompt = "a simple test",
                     width = 256,
                     height = 256,
@@ -279,14 +279,14 @@ class VideoI2VAndLoraE2ETest {
             flashAttn = true,
             sequentialLoad = false,
             loraModelDir = loraDir,
-            loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
+            loraApplyMode = LoraApplyMode.AUTO
         )
 
         println("[LoRATest] Model loaded with LoRA, generating...")
 
         val startTime = System.currentTimeMillis()
         val bitmaps = try {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "UKR style war footage movie clip, military vehicles, dramatic scene",
                 negative = "peaceful, calm, cartoon",
                 width = 256,

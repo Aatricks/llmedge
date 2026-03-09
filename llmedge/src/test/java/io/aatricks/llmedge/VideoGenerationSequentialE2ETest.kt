@@ -301,7 +301,7 @@ class VideoGenerationSequentialE2ETest {
                         forceSequentialLoad = true, // THIS IS THE KEY - forces Android path
                         // Enable EasyCache like Android does
                         easyCache =
-                                StableDiffusion.EasyCacheParams(
+                                EasyCacheParams(
                                         enabled = true,
                                         reuseThreshold = 0.2f,
                                         startPercent = 0.15f,
@@ -382,7 +382,7 @@ class VideoGenerationSequentialE2ETest {
 
         // Generate video using precomputed conditions (the key Android path!)
         val videoParams =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = prompt,
                         negative = "",
                         width = width,
@@ -396,7 +396,7 @@ class VideoGenerationSequentialE2ETest {
                 )
 
         val progressCallback =
-                StableDiffusion.VideoProgressCallback {
+                VideoProgressCallback {
                         step,
                         totalSteps,
                         currentFrame,
@@ -578,7 +578,7 @@ class VideoGenerationSequentialE2ETest {
         // Step 3: Generate video with init image
         println("[SequentialE2E-I2V] Step 3: Generating I2V with precomputed conditions...")
         val videoParams =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = prompt,
                         negative = "",
                         width = width,
@@ -589,7 +589,7 @@ class VideoGenerationSequentialE2ETest {
                         seed = seed,
                         initImage = initBitmap,
                         strength = strength,
-                        easyCacheParams = StableDiffusion.EasyCacheParams(enabled = true)
+                        easyCacheParams = EasyCacheParams(enabled = true)
                 )
 
         val bitmaps =

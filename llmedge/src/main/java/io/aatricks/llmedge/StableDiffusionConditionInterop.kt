@@ -1,7 +1,7 @@
 package io.aatricks.llmedge
 
 internal object StableDiffusionConditionInterop {
-    fun fromNativeRaw(raw: Array<Any?>): StableDiffusion.PrecomputedCondition? {
+    fun fromNativeRaw(raw: Array<Any?>): PrecomputedCondition? {
         val cross = raw.getOrNull(0) as? FloatArray
         val crossDims = raw.getOrNull(1) as? IntArray
         val vector = raw.getOrNull(2) as? FloatArray
@@ -11,7 +11,7 @@ internal object StableDiffusionConditionInterop {
         if (cross == null && vector == null && concat == null) {
             return null
         }
-        return StableDiffusion.PrecomputedCondition(
+        return PrecomputedCondition(
             cCrossAttn = cross,
             cCrossAttnDims = crossDims,
             cVector = vector,
@@ -21,7 +21,7 @@ internal object StableDiffusionConditionInterop {
         )
     }
 
-    fun toNativeArray(condition: StableDiffusion.PrecomputedCondition?): Array<Any?>? =
+    fun toNativeArray(condition: PrecomputedCondition?): Array<Any?>? =
         condition?.let {
             arrayOf<Any?>(
                 it.cCrossAttn,

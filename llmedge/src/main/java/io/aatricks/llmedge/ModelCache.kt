@@ -2,6 +2,9 @@ package io.aatricks.llmedge
 
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import java.util.LinkedHashMap
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -52,6 +55,8 @@ class ModelCache<T : AutoCloseable>(
     // LinkedHashMap with access-order for LRU
     private val cache = LinkedHashMap<String, CacheEntry<T>>(16, 0.75f, true)
 
+    private val lock = ReentrantReadWriteLock()
+
     // Running total of cached bytes to avoid O(n) sumOf on every put/evict/query
     private var totalCachedBytes: Long = 0L
 
@@ -64,8 +69,7 @@ class ModelCache<T : AutoCloseable>(
      * Get model from cache
      * @return model if found, null otherwise
      */
-    @Synchronized
-    fun get(key: String): T? {
+    fun get(key: String): T? = lock.write {
         val entry = cache[key]
         if (entry != null) {
             refreshEntrySize(entry)
@@ -73,11 +77,11 @@ class ModelCache<T : AutoCloseable>(
             entry.hitCount++
             hits++
             AndroidLogAdapter.d(TAG, "Cache HIT for '$key' (used ${entry.hitCount} times)")
-            return entry.model
+            return@write entry.model
         }
         misses++
         AndroidLogAdapter.d(TAG, "Cache MISS for '$key'")
-        return null
+        return@write null
     }
 
     /**
@@ -87,12 +91,10 @@ class ModelCache<T : AutoCloseable>(
      * @param sizeBytes Estimated model size in bytes
      * @param loadTimeMs Time taken to load the model
      */
-    @Synchronized
     fun put(key: String, model: T, sizeBytes: Long, loadTimeMs: Long = 0) {
         put(key, model, sizeBytes, loadTimeMs, null)
     }
 
-    @Synchronized
     fun put(
         key: String,
         model: T,
@@ -100,35 +102,33 @@ class ModelCache<T : AutoCloseable>(
         loadTimeMs: Long = 0,
         sizeProvider: (() -> Long)? = null,
     ) {
-        val resolvedSizeBytes = sizeProvider?.invoke()?.coerceAtLeast(0L) ?: sizeBytes
-        // Check if we need to evict
-        while (shouldEvict(resolvedSizeBytes)) {
-            evictLRU()
-        }
-
-        // Remove existing entry if present
-        cache[key]?.let { oldEntry ->
-            totalCachedBytes -= oldEntry.sizeBytes
-            try {
-                oldEntry.model.close()
-            } catch (e: Exception) {
-                AndroidLogAdapter.w(TAG, "Error closing old cache entry: ${e.message}")
+        val toClose = mutableListOf<T>()
+        lock.write {
+            val resolvedSizeBytes = sizeProvider?.invoke()?.coerceAtLeast(0L) ?: sizeBytes
+            while (shouldEvict(resolvedSizeBytes)) {
+                evictLRULocked(toClose)
             }
+
+            cache[key]?.let { oldEntry ->
+                totalCachedBytes -= oldEntry.sizeBytes
+                toClose.add(oldEntry.model)
+            }
+
+            val entry =
+                    CacheEntry(
+                            model = model,
+                            sizeBytes = resolvedSizeBytes,
+                            loadTimeMs = loadTimeMs,
+                            sizeProvider = sizeProvider,
+                            lastUsedMs = System.currentTimeMillis()
+                    )
+
+            cache[key] = entry
+            totalCachedBytes += resolvedSizeBytes
+            AndroidLogAdapter.i(TAG, "Cached '$key' (${resolvedSizeBytes / 1024 / 1024}MB, loaded in ${loadTimeMs}ms)")
+            logStats()
         }
-
-        val entry =
-                CacheEntry(
-                        model = model,
-                        sizeBytes = resolvedSizeBytes,
-                        loadTimeMs = loadTimeMs,
-                        sizeProvider = sizeProvider,
-                        lastUsedMs = System.currentTimeMillis()
-                )
-
-        cache[key] = entry
-        totalCachedBytes += resolvedSizeBytes
-        AndroidLogAdapter.i(TAG, "Cached '$key' (${resolvedSizeBytes / 1024 / 1024}MB, loaded in ${loadTimeMs}ms)")
-        logStats()
+        closeModels(toClose)
     }
 
     /** Check if we should evict based on cache size and memory limits */
@@ -170,12 +170,19 @@ class ModelCache<T : AutoCloseable>(
         cache.values.forEach(::refreshEntrySize)
     }
 
-    /** Evict least recently used entry, closing the evicted model asynchronously */
-    @Synchronized
+    /** Evict least recently used entry, closing the evicted model outside the lock */
     fun evictLRU() {
+        val toClose = mutableListOf<T>()
+        lock.write {
+            evictLRULocked(toClose)
+        }
+        closeModels(toClose)
+    }
+
+    /** Internal eviction that collects models to close — must be called while holding write lock */
+    private fun evictLRULocked(toClose: MutableList<T>) {
         if (cache.isEmpty()) return
 
-        // LinkedHashMap in access-order: first entry is LRU
         val lruKey = cache.keys.first()
         val lruEntry = cache.remove(lruKey)
 
@@ -187,17 +194,24 @@ class ModelCache<T : AutoCloseable>(
                     "Evicted LRU '$lruKey' (used ${entry.hitCount} times, " +
                             "${entry.sizeBytes / 1024 / 1024}MB)"
             )
+            toClose.add(entry.model)
+        }
+    }
+
+    /** Close models outside any lock to avoid blocking concurrent readers */
+    private fun closeModels(models: List<T>) {
+        for (model in models) {
             if (closeScope != null) {
                 closeScope.launch {
                     try {
-                        entry.model.close()
+                        model.close()
                     } catch (e: Exception) {
                         AndroidLogAdapter.w(TAG, "Error closing evicted entry: ${e.message}")
                     }
                 }
             } else {
                 try {
-                    entry.model.close()
+                    model.close()
                 } catch (e: Exception) {
                     AndroidLogAdapter.w(TAG, "Error closing evicted entry: ${e.message}")
                 }
@@ -206,31 +220,38 @@ class ModelCache<T : AutoCloseable>(
     }
 
     /** Clear all cached models */
-    @Synchronized
     fun clear() {
-        AndroidLogAdapter.i(TAG, "Clearing cache (${cache.size} entries)")
-        cache.values.forEach { entry ->
+        val toClose: List<T>
+        lock.write {
+            AndroidLogAdapter.i(TAG, "Clearing cache (${cache.size} entries)")
+            toClose = cache.values.map { it.model }
+            cache.clear()
+            totalCachedBytes = 0L
+            hits = 0
+            misses = 0
+            evictions = 0
+        }
+        for (model in toClose) {
             try {
-                entry.model.close()
+                model.close()
             } catch (e: Exception) {
                 AndroidLogAdapter.w(TAG, "Error closing cache entry: ${e.message}")
             }
         }
-        cache.clear()
-        totalCachedBytes = 0L
-        hits = 0
-        misses = 0
-        evictions = 0
     }
 
     /** Remove specific entry from cache */
-    @Synchronized
     fun remove(key: String): Boolean {
-        val entry = cache.remove(key)
+        val entry: CacheEntry<T>?
+        lock.write {
+            entry = cache.remove(key)
+            if (entry != null) {
+                totalCachedBytes -= entry!!.sizeBytes
+            }
+        }
         if (entry != null) {
-            totalCachedBytes -= entry.sizeBytes
             try {
-                entry.model.close()
+                entry!!.model.close()
                 AndroidLogAdapter.i(TAG, "Removed '$key' from cache")
                 return true
             } catch (e: Exception) {
@@ -241,11 +262,10 @@ class ModelCache<T : AutoCloseable>(
     }
 
     /** Get cache statistics */
-    @Synchronized
-    fun getStats(): CacheStats {
+    fun getStats(): CacheStats = lock.write {
         refreshAllEntrySizes()
         val totalSize = totalCachedBytes / 1024 / 1024
-        return CacheStats(
+        CacheStats(
                 entries = cache.size,
                 totalSizeMB = totalSize,
                 hits = hits,
@@ -261,15 +281,13 @@ class ModelCache<T : AutoCloseable>(
     }
 
     /** Get current cache size in MB */
-    @Synchronized
-    fun getCurrentSizeMB(): Long {
+    fun getCurrentSizeMB(): Long = lock.write {
         refreshAllEntrySizes()
-        return totalCachedBytes / 1024 / 1024
+        totalCachedBytes / 1024 / 1024
     }
 
     /** Check if key exists in cache */
-    @Synchronized
-    fun contains(key: String): Boolean {
-        return cache.containsKey(key)
+    fun contains(key: String): Boolean = lock.read {
+        cache.containsKey(key)
     }
 }

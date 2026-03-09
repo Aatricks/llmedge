@@ -352,7 +352,7 @@ class VideoGenerationExportTest {
         val bitmaps =
                 try {
                     val params =
-                            StableDiffusion.VideoGenerateParams(
+                            VideoGenerateParams(
                                     prompt = prompt,
                                     negative = negative,
                                     width = width,

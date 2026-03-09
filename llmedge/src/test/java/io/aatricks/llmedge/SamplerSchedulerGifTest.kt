@@ -61,15 +61,15 @@ class SamplerSchedulerGifTest {
         val schedulerName = System.getenv("LLMEDGE_TEST_SCHEDULER") ?: "DEFAULT"
         
         val sampleMethod = try {
-            StableDiffusion.SampleMethod.valueOf(samplerName)
+            SampleMethod.valueOf(samplerName)
         } catch (e: Exception) {
-            StableDiffusion.SampleMethod.DEFAULT
+            SampleMethod.DEFAULT
         }
         
         val scheduler = try {
-            StableDiffusion.Scheduler.valueOf(schedulerName)
+            Scheduler.valueOf(schedulerName)
         } catch (e: Exception) {
-            StableDiffusion.Scheduler.DEFAULT
+            Scheduler.DEFAULT
         }
 
         // Test parameters
@@ -100,7 +100,7 @@ class SamplerSchedulerGifTest {
         )
 
         try {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = prompt,
                 width = width,
                 height = height,

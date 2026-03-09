@@ -47,8 +47,8 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -76,7 +76,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
 
             override fun setProgressCallback(
                     handle: Long,
-                    callback: StableDiffusion.VideoProgressCallback?
+                    callback: VideoProgressCallback?
             ) = Unit
             override fun cancelGeneration(handle: Long) = Unit
             override fun precomputeCondition(
@@ -86,7 +86,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-            ): StableDiffusion.PrecomputedCondition? = null
+            ): PrecomputedCondition? = null
         }
     }
 
@@ -118,8 +118,8 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -147,7 +147,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
 
             override fun setProgressCallback(
                     handle: Long,
-                    callback: StableDiffusion.VideoProgressCallback?
+                    callback: VideoProgressCallback?
             ) = Unit
             override fun cancelGeneration(handle: Long) = Unit
             override fun precomputeCondition(
@@ -157,7 +157,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-            ): StableDiffusion.PrecomputedCondition? = null
+            ): PrecomputedCondition? = null
         }
     }
 
@@ -172,7 +172,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
 
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "a cat walking",
                         width = 256,
                         height = 256,
@@ -213,7 +213,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
 
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "a cat walking",
                         width = 256,
                         height = 256,
@@ -257,7 +257,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
 
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "a cat walking",
                         width = 256,
                         height = 256,

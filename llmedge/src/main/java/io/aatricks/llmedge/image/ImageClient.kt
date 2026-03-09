@@ -7,6 +7,15 @@ import io.aatricks.llmedge.FlashAttentionHelper
 import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.StableDiffusion
+import io.aatricks.llmedge.EasyCacheParams
+import io.aatricks.llmedge.GenerateParams
+import io.aatricks.llmedge.GenerationMetrics
+import io.aatricks.llmedge.LoraApplyMode
+import io.aatricks.llmedge.PrecomputedCondition
+import io.aatricks.llmedge.SampleMethod
+import io.aatricks.llmedge.Scheduler
+import io.aatricks.llmedge.VideoGenerateParams
+import io.aatricks.llmedge.VideoProgressCallback
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.ProgressEvent
 import io.aatricks.llmedge.model.ModelResolver
@@ -28,9 +37,9 @@ data class ImageGenerationRequest(
     val seed: Long = -1L,
     val flashAttention: Boolean = true,
     val forceSequentialLoad: Boolean = false,
-    val easyCache: StableDiffusion.EasyCacheParams = StableDiffusion.EasyCacheParams(),
+    val easyCache: EasyCacheParams = EasyCacheParams(),
     val loraModelDir: String? = null,
-    val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO,
+    val loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
     val model: ModelSpec? = null,
 )
 
@@ -48,11 +57,11 @@ data class VideoGenerationRequest(
     val forceSequentialLoad: Boolean = false,
     val initImage: Bitmap? = null,
     val strength: Float = 1.0f,
-    val sampleMethod: StableDiffusion.SampleMethod = StableDiffusion.SampleMethod.DEFAULT,
-    val scheduler: StableDiffusion.Scheduler = StableDiffusion.Scheduler.DEFAULT,
-    val easyCache: StableDiffusion.EasyCacheParams = StableDiffusion.EasyCacheParams(),
+    val sampleMethod: SampleMethod = SampleMethod.DEFAULT,
+    val scheduler: Scheduler = Scheduler.DEFAULT,
+    val easyCache: EasyCacheParams = EasyCacheParams(),
     val loraModelDir: String? = null,
-    val loraApplyMode: StableDiffusion.LoraApplyMode = StableDiffusion.LoraApplyMode.AUTO,
+    val loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
     val taehv: ModelSpec? = null,
     val model: ModelSpec? = null,
     val vae: ModelSpec? = null,
@@ -68,7 +77,7 @@ class ImageClient internal constructor(
     private val resolver: ModelResolver,
 ) : AutoCloseable {
     @Volatile
-    private var lastGenerationMetrics: StableDiffusion.GenerationMetrics? = null
+    private var lastGenerationMetrics: GenerationMetrics? = null
 
     private val generationMutex = Mutex()
 
@@ -114,7 +123,7 @@ class ImageClient internal constructor(
             try {
                 val easyCache = resolveEasyCache(model, params.easyCache)
                 model.txt2img(
-                    StableDiffusion.GenerateParams(
+                    GenerateParams(
                         prompt = params.prompt,
                         negative = params.negative,
                         width = params.width,
@@ -185,7 +194,7 @@ class ImageClient internal constructor(
         activeModel?.cancelGeneration()
     }
 
-    fun getLastGenerationMetrics(): StableDiffusion.GenerationMetrics? = lastGenerationMetrics
+    fun getLastGenerationMetrics(): GenerationMetrics? = lastGenerationMetrics
 
     private suspend fun generateVideoDirect(
         params: VideoGenerationRequest,
@@ -223,7 +232,7 @@ class ImageClient internal constructor(
             val easyCache = resolveEasyCache(model, params.easyCache)
             return model.txt2vid(
                 params =
-                    StableDiffusion.VideoGenerateParams(
+                    VideoGenerateParams(
                         prompt = params.prompt,
                         negative = params.negative,
                         width = params.width,
@@ -239,7 +248,7 @@ class ImageClient internal constructor(
                         easyCacheParams = easyCache,
                     ),
                 onProgress =
-                    StableDiffusion.VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
+                    VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
                         onProgress?.invoke(
                             "Generating frame $currentFrame/$totalFrames",
                             step,
@@ -279,8 +288,8 @@ class ImageClient internal constructor(
                 flashAttn = params.flashAttention,
             )
 
-        val cond: StableDiffusion.PrecomputedCondition?
-        val uncond: StableDiffusion.PrecomputedCondition?
+        val cond: PrecomputedCondition?
+        val uncond: PrecomputedCondition?
         try {
             onProgress?.invoke("Precomputing prompt conditioning", 0, params.steps)
             cond =
@@ -328,7 +337,7 @@ class ImageClient internal constructor(
             val easyCache = resolveEasyCache(diffusionModel, params.easyCache)
             return diffusionModel.txt2VidWithPrecomputedCondition(
                 params =
-                    StableDiffusion.VideoGenerateParams(
+                    VideoGenerateParams(
                         prompt = params.prompt,
                         negative = params.negative,
                         width = params.width,
@@ -346,7 +355,7 @@ class ImageClient internal constructor(
                 cond = cond,
                 uncond = uncond,
                 onProgress =
-                    StableDiffusion.VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
+                    VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
                         onProgress?.invoke(
                             "Generating frame $currentFrame/$totalFrames",
                             step,
@@ -386,8 +395,8 @@ class ImageClient internal constructor(
 
     private fun resolveEasyCache(
         model: StableDiffusion,
-        requested: StableDiffusion.EasyCacheParams,
-    ): StableDiffusion.EasyCacheParams =
+        requested: EasyCacheParams,
+    ): EasyCacheParams =
         if (model.isEasyCacheSupported()) {
             requested.copy(enabled = true)
         } else {

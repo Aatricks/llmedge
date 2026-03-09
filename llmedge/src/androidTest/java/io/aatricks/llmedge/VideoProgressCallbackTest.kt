@@ -15,7 +15,7 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
         val frames = buildFrames(frameCount = 4, width = 256, height = 256)
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
-                private var callback: StableDiffusion.VideoProgressCallback? = null
+                private var callback: VideoProgressCallback? = null
 
                 override fun txt2img(
                         handle: Long,
@@ -43,8 +43,8 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
                         steps: Int,
                         cfg: Float,
                         seed: Long,
-                        sampleMethod: StableDiffusion.SampleMethod,
-                        scheduler: StableDiffusion.Scheduler,
+                        sampleMethod: SampleMethod,
+                        scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
                         initWidth: Int,
@@ -69,7 +69,7 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
 
                 override fun setProgressCallback(
                         handle: Long,
-                        callback: StableDiffusion.VideoProgressCallback?
+                        callback: VideoProgressCallback?
                 ) {
                     this.callback = callback
                 }
@@ -82,13 +82,13 @@ class VideoProgressCallbackTest : BaseVideoIntegrationTest() {
                         width: Int,
                         height: Int,
                         clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = createStableDiffusion()
         val progressEvents = mutableListOf<Pair<Int, Int>>()
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "wan fox in snow",
                         width = 256,
                         height = 256,

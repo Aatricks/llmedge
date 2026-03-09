@@ -110,7 +110,7 @@ class VideoGenerationLinuxE2ETest {
         println("[VideoGenerationLinuxE2ETest] Model loaded, generating video...")
 
         val bitmaps = try {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = prompt,
                 negative = "",
                 width = width,
@@ -267,7 +267,7 @@ class VideoGenerationLinuxE2ETest {
         println("[VideoGenerationLinuxE2ETest-I2V] Model loaded, generating I2V...")
 
         val bitmaps = try {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = prompt,
                 negative = "",
                 width = width,
@@ -348,10 +348,10 @@ class VideoGenerationLinuxE2ETest {
         try {
             // Test all sample methods
             println("[SamplerSchedulerTest] Testing all sample methods...")
-            for (sampleMethod in StableDiffusion.SampleMethod.values()) {
+            for (sampleMethod in SampleMethod.values()) {
                 println("[SamplerSchedulerTest] Testing sampler: $sampleMethod (id=${sampleMethod.id})")
 
-                val params = StableDiffusion.VideoGenerateParams(
+                val params = VideoGenerateParams(
                     prompt = prompt,
                     width = width,
                     height = height,
@@ -360,7 +360,7 @@ class VideoGenerationLinuxE2ETest {
                     cfgScale = cfgScale,
                     seed = seed,
                     sampleMethod = sampleMethod,
-                    scheduler = StableDiffusion.Scheduler.DEFAULT
+                    scheduler = Scheduler.DEFAULT
                 )
 
                 try {
@@ -375,10 +375,10 @@ class VideoGenerationLinuxE2ETest {
 
             // Test all schedulers
             println("[SamplerSchedulerTest] Testing all schedulers...")
-            for (scheduler in StableDiffusion.Scheduler.values()) {
+            for (scheduler in Scheduler.values()) {
                 println("[SamplerSchedulerTest] Testing scheduler: $scheduler (id=${scheduler.id})")
 
-                val params = StableDiffusion.VideoGenerateParams(
+                val params = VideoGenerateParams(
                     prompt = prompt,
                     width = width,
                     height = height,
@@ -386,7 +386,7 @@ class VideoGenerationLinuxE2ETest {
                     steps = steps,
                     cfgScale = cfgScale,
                     seed = seed,
-                    sampleMethod = StableDiffusion.SampleMethod.DEFAULT,
+                    sampleMethod = SampleMethod.DEFAULT,
                     scheduler = scheduler
                 )
 
@@ -423,7 +423,7 @@ class VideoGenerationLinuxE2ETest {
         )
 
         for ((input, expected) in testCases) {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "test",
                 videoFrames = input
             )

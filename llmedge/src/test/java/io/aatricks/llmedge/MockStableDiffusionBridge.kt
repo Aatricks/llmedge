@@ -34,11 +34,11 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
 
     // Tracking for verification
     val txt2VidCalls = mutableListOf<Txt2VidCall>()
-    val setProgressCallbackCalls = mutableListOf<Pair<Long, StableDiffusion.VideoProgressCallback?>>()
+    val setProgressCallbackCalls = mutableListOf<Pair<Long, VideoProgressCallback?>>()
     val cancelGenerationCalls = mutableListOf<Long>()
 
     // State for progress simulation
-    private val activeProgressCallback = AtomicReference<StableDiffusion.VideoProgressCallback?>()
+    private val activeProgressCallback = AtomicReference<VideoProgressCallback?>()
     private val isCancelled = AtomicBoolean(false)
 
     data class Txt2VidCall(
@@ -51,8 +51,8 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         val steps: Int,
         val cfg: Float,
         val seed: Long,
-        val sampleMethod: StableDiffusion.SampleMethod,
-        val scheduler: StableDiffusion.Scheduler,
+        val sampleMethod: SampleMethod,
+        val scheduler: Scheduler,
         val strength: Float,
         val initImage: ByteArray?,
         val initWidth: Int,
@@ -74,8 +74,8 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         steps: Int,
         cfg: Float,
         seed: Long,
-        sampleMethod: StableDiffusion.SampleMethod,
-        scheduler: StableDiffusion.Scheduler,
+        sampleMethod: SampleMethod,
+        scheduler: Scheduler,
         strength: Float,
         initImage: ByteArray?,
         initWidth: Int,
@@ -129,7 +129,7 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         }
     }
 
-    override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {
+    override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {
         setProgressCallbackCalls.add(handle to callback)
         activeProgressCallback.set(callback)
     }
@@ -179,5 +179,5 @@ class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         width: Int,
         height: Int,
         clipSkip: Int,
-    ): StableDiffusion.PrecomputedCondition? = null
+    ): PrecomputedCondition? = null
 }

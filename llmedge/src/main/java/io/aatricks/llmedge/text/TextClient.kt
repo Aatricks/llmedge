@@ -82,6 +82,8 @@ class TextClient internal constructor(
 ) : AutoCloseable {
     private companion object {
         private const val LOG_TAG = "TextClient"
+        /** Cap for chat state snapshots — skip snapshotting if state exceeds 64 MB. */
+        private const val MAX_CHAT_STATE_BYTES = 64L * 1024L * 1024L
     }
 
     @Volatile
@@ -266,6 +268,44 @@ class TextClient internal constructor(
                 } finally {
                     runtime.model.clearKvCache()
                 }
+            }
+        }
+
+    /**
+     * Chat-oriented completion that captures the KV-cache state after generation
+     * so callers can restore it on the next turn, avoiding full re-tokenization.
+     *
+     * @param restoreState If non-null, restores this state before generation instead
+     *                     of re-preparing the model from scratch.
+     * @return Pair of (response text, state snapshot). The snapshot may be null if
+     *         the native runtime does not support state capture or the state exceeds
+     *         [maxStateBytes].
+     */
+    internal suspend fun chatTurn(
+        runtime: ManagedTextModel,
+        prompt: String,
+        systemPrompt: String?,
+        options: TextModelOptions,
+        maxTokens: Int,
+        batchSize: Int,
+        restoreState: ByteArray? = null,
+        maxStateBytes: Long = MAX_CHAT_STATE_BYTES,
+    ): Pair<String, ByteArray?> =
+        runtime.mutex.withLock {
+            withContext(scope.inferenceDispatcher) {
+                if (restoreState != null) {
+                    runtime.model.setStateBytes(restoreState)
+                    runtime.model.setThinkingMode(options.thinkingMode)
+                    options.reasoningBudget?.let(runtime.model::setReasoningBudget)
+                } else {
+                    prepareModel(runtime.model, systemPrompt, options)
+                }
+                val effectiveBatchSize = resolveBatchSize(batchSize, maxTokens)
+                val response = runtime.model.getResponse(prompt, maxTokens, effectiveBatchSize)
+                lastGenerationMetrics = runtime.model.getLastGenerationMetrics()
+                val stateBytes = runtime.model.getStateBytes()?.takeIf { it.size <= maxStateBytes }
+                runtime.model.clearKvCache()
+                response to stateBytes
             }
         }
 

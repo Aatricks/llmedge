@@ -245,7 +245,7 @@ class LLMEdgeCoreE2ETest {
         
         try {
             // Generate a small test image (minimize time and memory)
-            val params = StableDiffusion.GenerateParams(
+            val params = GenerateParams(
                 prompt = "a simple red circle",
                 width = 64,  // Minimal size for fast test
                 height = 64,
@@ -283,7 +283,7 @@ class LLMEdgeCoreE2ETest {
         Log.i(TAG, "Testing video generation parameter validation...")
         
         // Test valid params
-        val validParams = StableDiffusion.VideoGenerateParams(
+        val validParams = VideoGenerateParams(
             prompt = "a cat walking",
             width = 256,
             height = 256,
@@ -295,7 +295,7 @@ class LLMEdgeCoreE2ETest {
         assertTrue("Valid params should validate", validResult.isSuccess)
         
         // Test invalid params
-        val invalidParams = StableDiffusion.VideoGenerateParams(
+        val invalidParams = VideoGenerateParams(
             prompt = "",  // Empty prompt should fail
             width = 256,
             height = 256,
@@ -405,8 +405,8 @@ class LLMEdgeCoreE2ETest {
         System.gc()
         Thread.sleep(300)
         
-        var cond: StableDiffusion.PrecomputedCondition? = null
-        var uncond: StableDiffusion.PrecomputedCondition? = null
+        var cond: PrecomputedCondition? = null
+        var uncond: PrecomputedCondition? = null
         
         try {
             val t5Model = StableDiffusion.load(
@@ -493,7 +493,7 @@ class LLMEdgeCoreE2ETest {
         try {
             assertTrue("Should detect as video model", diffusionModel.isVideoModel())
             
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "simple animation",
                 width = 256,
                 height = 256,

@@ -51,7 +51,7 @@ class RAGEngine(
         embeddingProvider.init()
     }
 
-    suspend fun indexPdf(uri: Uri): Int = withContext(Dispatchers.Default) {
+    suspend fun indexPdf(uri: Uri): Int = withContext(Dispatchers.IO) {
         val text = PDFReader.readAllText(context, uri).trim()
         Log.d(TAG, "PDF extracted chars=${text.length}")
         val chunks = splitter.split(text)
@@ -66,7 +66,7 @@ class RAGEngine(
         return@withContext entries.size
     }
 
-    suspend fun ask(question: String, topK: Int = 5): String = withContext(Dispatchers.Default) {
+    suspend fun ask(question: String, topK: Int = 5): String = withContext(Dispatchers.IO) {
         checkNotNull(smolLM) { "SmolLM must be initialized and loaded with a model before calling ask()" }
         val contextText = contextFor(question, topK)
         if (contextText.isBlank()) {
@@ -78,7 +78,7 @@ class RAGEngine(
         val answer = smolLM.getResponse(prompt)
         return@withContext answer.trim()
     }
-    suspend fun contextFor(question: String, topK: Int = 5): String = withContext(Dispatchers.Default) {
+    suspend fun contextFor(question: String, topK: Int = 5): String = withContext(Dispatchers.IO) {
         val hitsWithScores = retrieve(question, topK)
         if (hitsWithScores.isEmpty()) {
             lastContext = ""
@@ -106,12 +106,12 @@ class RAGEngine(
         return RAGPromptSupport.buildContextFromHits(hitsWithScores)
     }
 
-    suspend fun retrieve(question: String, topK: Int = 5): List<Pair<VectorEntry, Float>> = withContext(Dispatchers.Default) {
+    suspend fun retrieve(question: String, topK: Int = 5): List<Pair<VectorEntry, Float>> = withContext(Dispatchers.IO) {
         val qEmb = embeddingProvider.encode(question)
         vectorStore.topKWithScores(qEmb, topK)
     }
 
-    suspend fun retrievalPreview(question: String, topK: Int = 5): String = withContext(Dispatchers.Default) {
+    suspend fun retrievalPreview(question: String, topK: Int = 5): String = withContext(Dispatchers.IO) {
         val hits = retrieve(question, topK)
         RAGPromptSupport.formatRetrievalPreview(hits)
     }

@@ -41,8 +41,8 @@ class VideoMemoryRegressionTest : BaseVideoIntegrationTest() {
                         steps: Int,
                         cfg: Float,
                         seed: Long,
-                        sampleMethod: StableDiffusion.SampleMethod,
-                        scheduler: StableDiffusion.Scheduler,
+                        sampleMethod: SampleMethod,
+                        scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
                         initWidth: Int,
@@ -56,7 +56,7 @@ class VideoMemoryRegressionTest : BaseVideoIntegrationTest() {
 
                 override fun setProgressCallback(
                         handle: Long,
-                        callback: StableDiffusion.VideoProgressCallback?
+                        callback: VideoProgressCallback?
                 ) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
@@ -67,12 +67,12 @@ class VideoMemoryRegressionTest : BaseVideoIntegrationTest() {
                         width: Int,
                         height: Int,
                         clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = createStableDiffusion()
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "wan skyline",
                         width = 256,
                         height = 256,

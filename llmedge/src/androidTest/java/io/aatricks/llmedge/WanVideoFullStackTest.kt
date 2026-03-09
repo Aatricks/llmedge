@@ -98,7 +98,7 @@ class WanVideoFullStackTest {
 
                     // Use minimal parameters to reduce memory pressure
                     val params =
-                            StableDiffusion.VideoGenerateParams(
+                            VideoGenerateParams(
                                     prompt = "a cat walking",
                                     width = 256,
                                     height = 256,
@@ -106,7 +106,7 @@ class WanVideoFullStackTest {
                                     steps = 10,
                                     cfgScale = 7.0f,
                                     seed = 42L,
-                                    sampleMethod = StableDiffusion.SampleMethod.EULER_A
+                                    sampleMethod = SampleMethod.EULER_A
                             )
 
                     android.util.Log.i(TAG, "Generation parameters:")

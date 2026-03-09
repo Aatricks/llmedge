@@ -52,7 +52,7 @@ class WanVideoE2ETest {
 
         engine.use { sd ->
             assertTrue("Wan model should be detected as video-capable", sd.isVideoModel())
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "a cinematic shot of a friendly robot waving",
                 width = 256,
                 height = 256,
@@ -122,7 +122,7 @@ class WanVideoE2ETest {
         result.file
     }
 
-    private fun assertBitmapDimensions(bitmap: Bitmap, params: StableDiffusion.VideoGenerateParams) {
+    private fun assertBitmapDimensions(bitmap: Bitmap, params: VideoGenerateParams) {
         assertEquals(params.width, bitmap.width)
         assertEquals(params.height, bitmap.height)
     }

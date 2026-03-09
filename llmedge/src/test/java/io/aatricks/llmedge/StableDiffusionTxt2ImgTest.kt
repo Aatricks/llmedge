@@ -64,8 +64,8 @@ class StableDiffusionTxt2ImgTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -77,7 +77,7 @@ class StableDiffusionTxt2ImgTest {
                     easyCacheEndPercent: Float,
                 ): Array<ByteArray>? = null
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {}
                 override fun cancelGeneration(handle: Long) {}
                 override fun precomputeCondition(
                     handle: Long,
@@ -86,14 +86,14 @@ class StableDiffusionTxt2ImgTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
 
         val sd = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType).apply { isAccessible = true }
             .newInstance(1L)
 
-        val bmp = sd.txt2img(StableDiffusion.GenerateParams(prompt = "hi", width = width, height = height, steps = 1))
+        val bmp = sd.txt2img(GenerateParams(prompt = "hi", width = width, height = height, steps = 1))
         assertEquals(width, bmp.width)
         assertEquals(height, bmp.height)
         assertEquals(Color.rgb(0x10, 0x20, 0x30), bmp.getPixel(0, 0))

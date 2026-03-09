@@ -5,6 +5,11 @@ import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.StableDiffusion
+import io.aatricks.llmedge.PrecomputedCondition
+import io.aatricks.llmedge.SampleMethod
+import io.aatricks.llmedge.Scheduler
+import io.aatricks.llmedge.VideoModelMetadata
+import io.aatricks.llmedge.VideoProgressCallback
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.DefaultModelResolver
 import io.aatricks.llmedge.model.ModelSpec
@@ -80,8 +85,8 @@ class ImageClientTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -101,8 +106,8 @@ class ImageClientTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition =
-                    StableDiffusion.PrecomputedCondition(
+                ): PrecomputedCondition =
+                    PrecomputedCondition(
                         cCrossAttn = floatArrayOf(1.0f),
                         cCrossAttnDims = intArrayOf(1, 1),
                         cVector = floatArrayOf(1.0f),
@@ -121,14 +126,14 @@ class ImageClientTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                    cond: StableDiffusion.PrecomputedCondition?,
-                    uncond: StableDiffusion.PrecomputedCondition?,
+                    cond: PrecomputedCondition?,
+                    uncond: PrecomputedCondition?,
                     vaceStrength: Float,
                     easyCacheEnabled: Boolean,
                     easyCacheReuseThreshold: Float,
@@ -137,7 +142,7 @@ class ImageClientTest {
                 ): Array<ByteArray> =
                     Array(videoFrames) { ByteArray(width * height * 3) { 5 } }
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
             }
@@ -181,7 +186,7 @@ class ImageClientTest {
             constructor.isAccessible = true
             val instance = constructor.newInstance(1L)
             instance.updateModelMetadata(
-                StableDiffusion.VideoModelMetadata(
+                VideoModelMetadata(
                     architecture = "Wan 2.1 T2V",
                     modelType = null,
                     parameterCount = "1.3B",
@@ -281,8 +286,8 @@ class ImageClientTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -294,7 +299,7 @@ class ImageClientTest {
                     easyCacheEndPercent: Float,
                 ): Array<ByteArray>? = null
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
                 override fun cancelGeneration(handle: Long) = Unit
                 override fun precomputeCondition(
                     handle: Long,
@@ -303,7 +308,7 @@ class ImageClientTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
 
@@ -316,7 +321,7 @@ class ImageClientTest {
             constructor.isAccessible = true
             constructor.newInstance(1L).apply {
                 updateModelMetadata(
-                    StableDiffusion.VideoModelMetadata(
+                    VideoModelMetadata(
                         architecture = "Flux",
                         modelType = null,
                         parameterCount = null,
@@ -395,8 +400,8 @@ class ImageClientTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
@@ -415,8 +420,8 @@ class ImageClientTest {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition =
-                    StableDiffusion.PrecomputedCondition(
+                ): PrecomputedCondition =
+                    PrecomputedCondition(
                         cCrossAttn = floatArrayOf(1.0f),
                         cCrossAttnDims = intArrayOf(1, 1),
                         cVector = floatArrayOf(1.0f),
@@ -435,14 +440,14 @@ class ImageClientTest {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
-                    cond: StableDiffusion.PrecomputedCondition?,
-                    uncond: StableDiffusion.PrecomputedCondition?,
+                    cond: PrecomputedCondition?,
+                    uncond: PrecomputedCondition?,
                     vaceStrength: Float,
                     easyCacheEnabled: Boolean,
                     easyCacheReuseThreshold: Float,
@@ -453,7 +458,7 @@ class ImageClientTest {
                     return Array(videoFrames) { ByteArray(width * height * 3) { 5 } }
                 }
 
-                override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) = Unit
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
                 override fun cancelGeneration(handle: Long) = Unit
             }
         }
@@ -470,7 +475,7 @@ class ImageClientTest {
                 val modelPathArg = callArgs[3] as String?
                 val metadata =
                     if (modelPathArg == modelFile.absolutePath) {
-                        StableDiffusion.VideoModelMetadata(
+                        VideoModelMetadata(
                             architecture = "Wan 2.1 T2V",
                             modelType = null,
                             parameterCount = "1.3B",
@@ -479,7 +484,7 @@ class ImageClientTest {
                             filename = modelFile.name,
                         )
                     } else {
-                        StableDiffusion.VideoModelMetadata(
+                        VideoModelMetadata(
                             architecture = "text-encoder",
                             modelType = null,
                             parameterCount = null,

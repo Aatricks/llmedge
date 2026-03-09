@@ -62,7 +62,7 @@ class ImageGenerationE2ENativeTest {
             )
 
             sd.use { engine ->
-                val params = StableDiffusion.GenerateParams(
+                val params = GenerateParams(
                     prompt = "a scenic landscape, high quality",
                     width = 64,
                     height = 64,

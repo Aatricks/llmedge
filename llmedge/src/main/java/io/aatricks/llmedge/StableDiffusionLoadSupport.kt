@@ -10,7 +10,7 @@ internal data class StableDiffusionResolvedAssets(
     val modelPath: String,
     val vaePath: String?,
     val t5xxlPath: String?,
-    val metadata: StableDiffusion.VideoModelMetadata,
+    val metadata: VideoModelMetadata,
 )
 
 internal object StableDiffusionLoadSupport {
@@ -26,7 +26,7 @@ internal object StableDiffusionLoadSupport {
         forceDownload: Boolean,
         loraModelDir: String?,
         validateResolvedAssets: (String, String?, String?, String?, String?) -> Unit,
-        inferVideoModelMetadata: suspend (String, String?, String?) -> StableDiffusion.VideoModelMetadata,
+        inferVideoModelMetadata: suspend (String, String?, String?) -> VideoModelMetadata,
         onFallback: (String) -> Unit = {},
     ): StableDiffusionResolvedAssets =
         withContext(Dispatchers.IO) {
@@ -129,7 +129,7 @@ internal object StableDiffusionLoadSupport {
         loraModelDir: String?,
         onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)?,
         validateResolvedAssets: (String, String?, String?, String?, String?) -> Unit,
-        inferVideoModelMetadata: suspend (String, String?, String?) -> StableDiffusion.VideoModelMetadata,
+        inferVideoModelMetadata: suspend (String, String?, String?) -> VideoModelMetadata,
     ): StableDiffusionResolvedAssets =
         withContext(Dispatchers.IO) {
             val (modelRes, vaeRes, t5Res) =

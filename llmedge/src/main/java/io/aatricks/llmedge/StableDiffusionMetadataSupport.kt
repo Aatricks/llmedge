@@ -6,7 +6,7 @@ import java.util.Locale
 
 internal object StableDiffusionMetadataSupport {
     private const val LOG_TAG = "StableDiffusion"
-    private val metadataCache = mutableMapOf<String, StableDiffusion.VideoModelMetadata>()
+    private val metadataCache = mutableMapOf<String, VideoModelMetadata>()
     private val lock = Any()
     private val videoKeywords =
         setOf(
@@ -33,7 +33,7 @@ internal object StableDiffusionMetadataSupport {
         resolvedModelPath: String,
         modelId: String?,
         explicitFilename: String?,
-    ): StableDiffusion.VideoModelMetadata {
+    ): VideoModelMetadata {
         synchronized(lock) {
             metadataCache[resolvedModelPath]?.let { return it }
         }
@@ -89,7 +89,7 @@ internal object StableDiffusionMetadataSupport {
         }
         if (lowerName.contains("hunyuan")) tags += "hunyuan"
 
-        return StableDiffusion.VideoModelMetadata(
+        return VideoModelMetadata(
             architecture = architecture,
             modelType = modelType,
             parameterCount = parameterCount,
@@ -103,7 +103,7 @@ internal object StableDiffusionMetadataSupport {
         }
     }
 
-    fun isVideoModel(metadata: StableDiffusion.VideoModelMetadata): Boolean {
+    fun isVideoModel(metadata: VideoModelMetadata): Boolean {
         val architecture = metadata.architecture.orEmpty().lowercase(Locale.US)
         if (containsKeyword(architecture)) return true
 
@@ -121,7 +121,7 @@ internal object StableDiffusionMetadataSupport {
         return videoKeywords.any { keyword -> value.contains(keyword) }
     }
 
-    fun supportsEasyCache(metadata: StableDiffusion.VideoModelMetadata): Boolean {
+    fun supportsEasyCache(metadata: VideoModelMetadata): Boolean {
         val candidates =
             listOf(
                 metadata.architecture,

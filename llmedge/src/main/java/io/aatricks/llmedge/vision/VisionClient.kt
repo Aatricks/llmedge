@@ -86,5 +86,7 @@ class VisionClient internal constructor(
 
     fun getLastRuntimeMemory(): VisionRuntimeMemory? = lastRuntimeMemory
 
-    override fun close() = Unit
+    override fun close() {
+        pipeline.close()
+    }
 }

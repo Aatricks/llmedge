@@ -28,8 +28,11 @@ import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.model.ModelFileValidator
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.Executors
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -296,6 +299,15 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         private const val LOG_TAG = "StableDiffusion"
         private const val BYTES_IN_MB = 1024L * 1024L
         private const val MEMORY_PRESSURE_THRESHOLD = 0.85f
+
+        /**
+         * Dedicated single-thread dispatcher for diffusion workloads. Keeps heavy generation
+         * tasks off the shared IO pool so they don't starve network/disk operations.
+         */
+        val diffusionDispatcher: CoroutineDispatcher =
+            Executors.newSingleThreadExecutor { r ->
+                Thread(r, "llmedge-diffusion").apply { isDaemon = true }
+            }.asCoroutineDispatcher()
 
         private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
 
@@ -998,97 +1010,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             }
     }
 
-    data class GenerateParams(
-            val prompt: String,
-            val negative: String = "",
-            val width: Int = 512,
-            val height: Int = 512,
-            val steps: Int = 20,
-            val cfgScale: Float = 7.0f,
-            val seed: Long = 42L,
-            val vaeTiling: Boolean = true,
-            val easyCacheParams: EasyCacheParams = EasyCacheParams()
-    )
-
-    data class EasyCacheParams(
-            val enabled: Boolean = false,
-            val reuseThreshold: Float = 0.2f,
-            val startPercent: Float = 0.15f,
-            val endPercent: Float = 0.95f,
-    )
-
-    /** Sample methods for diffusion models. Maps to native sample_method_t enum values. */
-    enum class SampleMethod(val id: Int) {
-        /** Let native code choose the default for the model type */
-        DEFAULT(0),
-        /** Euler sampler - Default and recommended for DiT models (Flux/SD3/Wan) */
-        EULER(1),
-        /** Heun sampler - Higher quality, 2x computation. Works with all models. */
-        HEUN(2),
-        /** DPM2 sampler - Best for U-Net models (SD1.x/SD2.x/SDXL). Not recommended for Wan. */
-        DPM2(3),
-        /** DPM++ 2S Ancestral - Best for U-Net models. Not recommended for Wan. */
-        DPMPP2S_A(4),
-        /** DPM++ 2M - Best for U-Net models. Not recommended for Wan video generation. */
-        DPMPP2M(5),
-        /** DPM++ 2M v2 - Best for U-Net models. Not recommended for Wan. */
-        DPMPP2MV2(6),
-        /** IPNDM - Fast sampler */
-        IPNDM(7),
-        /** IPNDM v */
-        IPNDM_V(8),
-        /** Latent Consistency Models - Requires LCM-distilled models. NOT compatible with Wan. */
-        LCM(9),
-        /** DDIM Trailing */
-        DDIM_TRAILING(10),
-        /** TCD */
-        TCD(11),
-        /**
-         * Euler Ancestral - Default for U-Net models (SD1.x/SD2.x/SDXL). May work with Wan but
-         * EULER is preferred.
-         */
-        EULER_A(12);
-
-        companion object {
-            fun fromId(id: Int): SampleMethod = values().firstOrNull { it.id == id } ?: DEFAULT
-
-            /** Samplers recommended for Wan video generation */
-            val WAN_RECOMMENDED = listOf(DEFAULT, EULER, HEUN)
-
-            /** Samplers that are NOT compatible with Wan (produce blank/noise output) */
-            val WAN_INCOMPATIBLE = listOf(LCM, DPMPP2M, DPMPP2MV2, DPM2, DPMPP2S_A)
-        }
-    }
-
-    /** Noise schedulers for diffusion models. Maps to native scheduler_t enum values. */
-    enum class Scheduler(val id: Int) {
-        /** Let native code choose the default scheduler */
-        DEFAULT(0),
-        /** Discrete scheduler */
-        DISCRETE(1),
-        /** Karras scheduler - Often better quality */
-        KARRAS(2),
-        /** Exponential scheduler */
-        EXPONENTIAL(3),
-        /** AYS scheduler */
-        AYS(4),
-        /** GITS scheduler */
-        GITS(5),
-        /** SGM Uniform scheduler */
-        SGM_UNIFORM(6),
-        /** Simple scheduler */
-        SIMPLE(7),
-        /** Smoothstep scheduler */
-        SMOOTHSTEP(8);
-
-        companion object {
-            fun fromId(id: Int): Scheduler = values().firstOrNull { it.id == id } ?: DEFAULT
-
-            /** Schedulers known to work reliably with Wan video generation */
-            val WAN_RECOMMENDED = listOf(DEFAULT)
-        }
-    }
-
     // Legacy alias for backward compatibility
     @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
     val EULER_A = SampleMethod.EULER_A
@@ -1096,143 +1017,6 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     val DDIM = SampleMethod.DDIM_TRAILING
     @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
     val LCM = SampleMethod.LCM
-
-    data class VideoGenerateParams(
-            val prompt: String,
-            val negative: String = "",
-            val width: Int = 512,
-            val height: Int = 512,
-            val videoFrames: Int = 16,
-            val steps: Int = 20,
-            val cfgScale: Float = 7.0f,
-            val seed: Long = -1L,
-            val initImage: Bitmap? = null,
-            val strength: Float = 0.8f,
-            val vaceStrength: Float = 1.0f,
-            val sampleMethod: SampleMethod = SampleMethod.DEFAULT,
-            val scheduler: Scheduler = Scheduler.DEFAULT,
-            val easyCacheParams: EasyCacheParams = EasyCacheParams()
-    ) {
-        /**
-         * Calculate the actual number of frames that will be generated. Wan model uses formula:
-         * actual_frames = (videoFrames-1)/4*4+1 Examples: 5→5, 8→5, 9→9, 10→9, 12→9, 13→13
-         */
-        fun actualFrameCount(): Int = (videoFrames - 1) / 4 * 4 + 1
-
-        fun validate(): Result<Unit> = runCatching {
-            require(prompt.isNotBlank()) { "Prompt cannot be blank" }
-            require(width % 64 == 0 && width in 128..960) {
-                "Width must be a multiple of 64 in range 128..960"
-            }
-            require(height % 64 == 0 && height in 128..960) {
-                "Height must be a multiple of 64 in range 128..960"
-            }
-            // Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
-            // So 1-4 -> 1 frame, 5-8 -> 5 frames, 9-12 -> 9 frames, etc.
-            require(videoFrames in 5..64) {
-                "Frame count must be between 5 and 64. Note: Wan model rounds to (n-1)/4*4+1, so use 5+ for multiple frames"
-            }
-            require(steps in 1..50) { "Steps must be between 1 and 50" }
-            require(cfgScale in 1.0f..15.0f) { "CFG scale must be between 1.0 and 15.0" }
-            require(strength in 0.0f..1.0f) { "Strength must be between 0.0 and 1.0" }
-            require(seed >= -1L) { "Seed must be -1 or non-negative" }
-
-            // Validate init image + strength consistency (I2V mode)
-            if (initImage != null) {
-                require(strength > 0.0f) {
-                    "When initImage is provided (I2V mode), strength must be > 0.0"
-                }
-            }
-        }
-
-        fun withPrompt(prompt: String): VideoGenerateParams = copy(prompt = prompt)
-
-        companion object {
-            fun default(prompt: String = "") = VideoGenerateParams(prompt = prompt)
-
-            /**
-             * Get the recommended videoFrames value to generate exactly N frames. Since Wan uses
-             * (n-1)/4*4+1, to get exactly N frames you need: 1 frame → 1-4, 5 frames → 5-8, 9
-             * frames → 9-12, etc.
-             */
-            fun recommendedFrameInput(desiredFrames: Int): Int {
-                require(desiredFrames >= 1) { "Desired frames must be at least 1" }
-                // Reverse the formula: to get N, input N is fine if N = (N-1)/4*4+1
-                // Otherwise input N+3 at most
-                return if (desiredFrames == 1) 1 else ((desiredFrames - 1) / 4) * 4 + 5
-            }
-        }
-    }
-
-    enum class LoraApplyMode(val id: Int) {
-        AUTO(0),
-        IMMEDIATELY(1),
-        AT_RUNTIME(2);
-        companion object {
-            fun fromId(id: Int): LoraApplyMode = values().firstOrNull { it.id == id } ?: AUTO
-        }
-    }
-
-    data class GenerationMetrics(
-            val totalTimeSeconds: Float,
-            val framesPerSecond: Float,
-            val timePerStep: Float,
-            val peakMemoryUsageMb: Long,
-            val vulkanEnabled: Boolean,
-            val frameConversionTimeSeconds: Float = 0f,
-    ) {
-        val averageFrameTime: Float
-            get() = if (framesPerSecond > 0f) 1f / framesPerSecond else 0f
-
-        val stepsPerSecond: Float
-            get() = if (timePerStep > 0f) 1f / timePerStep else 0f
-
-        val throughput: String
-            get() = String.format("%.2f fps", framesPerSecond)
-
-        fun toPrettyString(): String =
-                """
-            Total time: ${String.format("%.2f", totalTimeSeconds)}s
-            Throughput: ${String.format("%.2f", framesPerSecond)} fps
-            Average time/step: ${String.format("%.3f", timePerStep)}s
-            Peak memory: ${peakMemoryUsageMb}MB
-            Vulkan: ${if (vulkanEnabled) "enabled" else "disabled"}
-            Frame conversion: ${String.format("%.2f", frameConversionTimeSeconds)}s
-        """.trimIndent()
-    }
-
-    fun interface VideoProgressCallback {
-        fun onProgress(
-                step: Int,
-                totalSteps: Int,
-                currentFrame: Int,
-                totalFrames: Int,
-                timePerStep: Float,
-        )
-    }
-
-    /**
-     * Container for precomputed text-conditioning arrays returned by the native
-     * `sd_precompute_condition` API. Each field is optional and will be null if that tensor is not
-     * used for the given model / prompt.
-     */
-    data class PrecomputedCondition(
-            val cCrossAttn: FloatArray? = null,
-            val cCrossAttnDims: IntArray? = null,
-            val cVector: FloatArray? = null,
-            val cVectorDims: IntArray? = null,
-            val cConcat: FloatArray? = null,
-            val cConcatDims: IntArray? = null,
-    )
-
-    internal data class VideoModelMetadata(
-            val architecture: String?,
-            val modelType: String?,
-            val parameterCount: String?,
-            val mobileSupported: Boolean,
-            val tags: Set<String>,
-            val filename: String,
-    )
 
     internal fun updateModelMetadata(metadata: VideoModelMetadata?) {
         modelMetadata = metadata
@@ -1293,7 +1077,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     fun getLastGenerationMetrics(): GenerationMetrics? = lastGenerationMetrics
 
     suspend fun txt2img(params: GenerateParams): Bitmap =
-            withContext(Dispatchers.IO) {
+            withContext(diffusionDispatcher) {
                 val bytes =
                         generationMutex.withLock {
                             nativeBridge.txt2img(
@@ -1491,16 +1275,14 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
      * an empty prompt or your negative prompt) and pass it as `uncond` to
      * [txt2VidWithPrecomputedCondition].
      */
-    fun precomputeCondition(
+    suspend fun precomputeCondition(
             prompt: String,
             negative: String = "",
             width: Int = 512,
             height: Int = 512,
             clipSkip: Int = -1
-    ): PrecomputedCondition? {
-        // Delegate to the native bridge (which will call into JNI nativePrecomputeCondition by
-        // default)
-        return nativeBridge.precomputeCondition(handle, prompt, negative, width, height, clipSkip)
+    ): PrecomputedCondition? = withContext(diffusionDispatcher) {
+        nativeBridge.precomputeCondition(handle, prompt, negative, width, height, clipSkip)
     }
 
     /**
@@ -1548,7 +1330,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         onProgress: VideoProgressCallback?,
         generateFrames: (ByteArray?, Int, Int) -> Array<ByteArray>?,
     ): List<Bitmap> =
-        withContext(Dispatchers.IO) {
+        withContext(diffusionDispatcher) {
             check(isNativeLibraryAvailable) {
                 "Video generation is unavailable on this platform"
             }

@@ -67,7 +67,7 @@ class WanCatGifTask {
         // Kotlin: StableDiffusion.txt2vid calls nativeTxt2Vid
         // JNI: Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid
         // C++: generate_video performs diffusion and decoding
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = prompt,
             width = 256,
             height = 256,

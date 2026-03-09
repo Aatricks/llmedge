@@ -91,7 +91,7 @@ internal object StableDiffusionLoadHeuristics {
     }
 
     fun warnIfLargeModelOnLowRam(
-        metadata: StableDiffusion.VideoModelMetadata,
+        metadata: VideoModelMetadata,
         memorySnapshot: MemorySnapshot,
         warn: (String) -> Unit,
     ) {

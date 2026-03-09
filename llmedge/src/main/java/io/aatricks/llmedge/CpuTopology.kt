@@ -185,4 +185,52 @@ object CpuTopology {
         }
         return mask
     }
+
+    /**
+     * Recommends an inference batch size based on device capabilities and task type.
+     * Adapts to P-core count, available memory, and model size.
+     *
+     * @param taskType The type of inference task
+     * @param modelSizeMB Approximate model size in megabytes (0 if unknown)
+     * @return Recommended batch size (always >= 1)
+     */
+    fun recommendBatchSize(taskType: TaskType, modelSizeMB: Long = 0): Int {
+        val coreInfo = detectCoreTopology()
+        val availableMemMB = Runtime.getRuntime().let { rt ->
+            (rt.maxMemory() - (rt.totalMemory() - rt.freeMemory())) / (1024 * 1024)
+        }
+
+        return when (taskType) {
+            TaskType.PROMPT_PROCESSING -> {
+                // Prompt processing benefits from larger batches on capable devices
+                val coreBased = when {
+                    coreInfo.performanceCores >= 8 -> 512
+                    coreInfo.performanceCores >= 4 -> 256
+                    else -> 128
+                }
+                // Reduce if model is large relative to available memory
+                if (modelSizeMB > 0 && availableMemMB < modelSizeMB * 3) {
+                    (coreBased / 2).coerceAtLeast(64)
+                } else {
+                    coreBased
+                }
+            }
+            TaskType.TOKEN_GENERATION -> {
+                // Token generation is sequential — small batch is optimal
+                if (coreInfo.performanceCores >= 4) 8 else 4
+            }
+            TaskType.DIFFUSION -> {
+                // Diffusion steps are already batched internally; batch=1 per image is typical
+                1
+            }
+            TaskType.LIGHT_TASK -> {
+                // Vision/OCR — moderate batch based on available cores
+                when {
+                    coreInfo.performanceCores >= 6 -> 64
+                    coreInfo.performanceCores >= 4 -> 32
+                    else -> 16
+                }
+            }
+        }
+    }
 }

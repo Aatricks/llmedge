@@ -61,7 +61,7 @@ class VideoGenerationHQTest {
                 sequentialLoad = false
             )
             
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "A high quality close up of a magical glowing butterfly in a forest, highly detailed, cinematic",
                 width = 256,
                 height = 256,
