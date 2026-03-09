@@ -468,6 +468,188 @@ Java_io_aatricks_llmedge_vision_Projector_nativeCloseProjector(JNIEnv* env, jobj
     Java_io_aatricks_llmedge_Projector_nativeCloseProjector(env, thiz, nativePtr);
 }
 
+// Buffer-based image encoding: accepts JPEG bytes, returns [FloatArray embeddings, IntArray metadata]
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_io_aatricks_llmedge_vision_Projector_nativeEncodeImageBuffer(JNIEnv* env, jobject thiz, jlong nativePtr, jbyteArray jpegData) {
+    if (!jpegData) return nullptr;
+
+    mtmd_context* ctx = reinterpret_cast<mtmd_context*>(nativePtr);
+    if (!ctx) return nullptr;
+
+    jsize dataLen = env->GetArrayLength(jpegData);
+    if (dataLen <= 0) return nullptr;
+
+    jbyte* rawBytes = env->GetByteArrayElements(jpegData, nullptr);
+    if (!rawBytes) return nullptr;
+
+    mtmd_bitmap* bmp = mtmd_helper_bitmap_init_from_buf(ctx,
+        reinterpret_cast<const unsigned char*>(rawBytes), static_cast<size_t>(dataLen));
+    env->ReleaseByteArrayElements(jpegData, rawBytes, JNI_ABORT);
+    if (!bmp) return nullptr;
+
+    const mtmd_bitmap* bitmaps[1] = { bmp };
+    mtmd_input_text txt = { "<__media__>", false, false };
+    mtmd_input_chunks* chunks = mtmd_input_chunks_init();
+    int32_t tokRes = mtmd_tokenize(ctx, chunks, &txt, bitmaps, 1);
+    if (tokRes != 0) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+
+    // Find and encode the first image chunk
+    float* embd = nullptr;
+    size_t n_tokens = 0;
+    int embd_dim = 0;
+    int nx = 0, ny = 0;
+    bool encoded = false;
+
+    for (size_t i = 0; i < mtmd_input_chunks_size(chunks); ++i) {
+        const mtmd_input_chunk* c = mtmd_input_chunks_get(chunks, i);
+        if (c && mtmd_input_chunk_get_type(c) == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            int32_t res = mtmd_encode_chunk(ctx, c);
+            if (res == 0) {
+                embd = mtmd_get_output_embd(ctx);
+                n_tokens = static_cast<size_t>(mtmd_input_chunk_get_n_tokens(c));
+                {
+                    std::lock_guard<std::mutex> lk(g_mtmd_map_mutex);
+                    auto it = g_mtmd_model_map.find(ctx);
+                    if (it != g_mtmd_model_map.end() && it->second) {
+                        embd_dim = llama_model_n_embd(it->second);
+                    }
+                }
+                if (embd_dim <= 0) {
+                    mtmd_bitmap_free(bmp);
+                    mtmd_input_chunks_free(chunks);
+                    return nullptr;
+                }
+                const mtmd_image_tokens* image_tokens = mtmd_input_chunk_get_tokens_image(c);
+                if (image_tokens) {
+                    nx = static_cast<int>(mtmd_image_tokens_get_nx(image_tokens));
+                    ny = static_cast<int>(mtmd_image_tokens_get_ny(image_tokens));
+                }
+                encoded = true;
+            }
+            break;
+        }
+    }
+
+    if (!encoded || !embd) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+
+    bool use_mrope = mtmd_decode_use_mrope(ctx);
+    bool use_non_causal = mtmd_decode_use_non_causal(ctx);
+    size_t n_floats = n_tokens * static_cast<size_t>(embd_dim);
+
+    // Build result: Object[] { float[], int[] }
+    jfloatArray embdArray = env->NewFloatArray(static_cast<jsize>(n_floats));
+    if (!embdArray) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(embdArray, 0, static_cast<jsize>(n_floats), embd);
+
+    // metadata: [n_tokens, nx, ny, embd_dim, use_mrope, use_non_causal]
+    jint meta[6] = {
+        static_cast<jint>(n_tokens), static_cast<jint>(nx), static_cast<jint>(ny),
+        static_cast<jint>(embd_dim), use_mrope ? 1 : 0, use_non_causal ? 1 : 0
+    };
+    jintArray metaArray = env->NewIntArray(6);
+    if (!metaArray) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+    env->SetIntArrayRegion(metaArray, 0, 6, meta);
+
+    jclass objClass = env->FindClass("java/lang/Object");
+    jobjectArray result = env->NewObjectArray(2, objClass, nullptr);
+    env->SetObjectArrayElement(result, 0, embdArray);
+    env->SetObjectArrayElement(result, 1, metaArray);
+
+    mtmd_bitmap_free(bmp);
+    mtmd_input_chunks_free(chunks);
+
+    return result;
+}
+
+// Buffer-based embedding decoding: accepts float array + metadata, populates KV cache
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_SmolLM_nativeDecodeEmbeddingsBuffer(JNIEnv* env, jobject thiz, jlong modelPtr,
+                                                              jfloatArray embeddings, jint nTokens, jint nx, jint ny,
+                                                              jint embdDim, jboolean useMrope, jboolean useNonCausal,
+                                                              jint nBatch) {
+    if (!embeddings || nTokens <= 0 || embdDim <= 0 || nBatch <= 0) return JNI_FALSE;
+
+    jsize arrLen = env->GetArrayLength(embeddings);
+    size_t expected = static_cast<size_t>(nTokens) * static_cast<size_t>(embdDim);
+    if (static_cast<size_t>(arrLen) < expected) return JNI_FALSE;
+
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) return JNI_FALSE;
+
+    llama_context* lctx = llmInference->getContext();
+    if (!lctx) return JNI_FALSE;
+
+    jfloat* embdData = env->GetFloatArrayElements(embeddings, nullptr);
+    if (!embdData) return JNI_FALSE;
+
+    int n_pos_per_embd = useMrope ? 4 : 1;
+    int32_t n_img_batches = (nTokens + nBatch - 1) / nBatch;
+    bool success = true;
+
+    for (int32_t i_batch = 0; i_batch < n_img_batches && success; ++i_batch) {
+        int pos_offset = i_batch * nBatch;
+        int n_tokens_batch = std::min(static_cast<int>(nBatch), static_cast<int>(nTokens) - pos_offset);
+
+        llama_batch batch = llama_batch_init(n_tokens_batch, 0, 1);
+        batch.embd = embdData + static_cast<size_t>(pos_offset) * static_cast<size_t>(embdDim);
+
+        std::vector<llama_pos> pos(n_tokens_batch * n_pos_per_embd);
+        if (n_pos_per_embd == 1) {
+            for (int i = 0; i < n_tokens_batch; ++i) pos[i] = static_cast<llama_pos>(pos_offset + i);
+        } else {
+            if (nx > 0 && ny > 0) {
+                for (int y = 0; y < ny; ++y) {
+                    for (int x = 0; x < nx; ++x) {
+                        int idx = y * nx + x;
+                        if (idx < pos_offset || idx >= pos_offset + n_tokens_batch) continue;
+                        int out_idx = idx - pos_offset;
+                        pos[out_idx] = static_cast<llama_pos>(idx);
+                    }
+                }
+            } else {
+                for (int i = 0; i < n_tokens_batch; ++i) pos[i] = static_cast<llama_pos>(pos_offset + i);
+            }
+        }
+
+        llama_batch decode_batch = {
+            /*n_tokens=*/ n_tokens_batch,
+            /*token=*/ nullptr,
+            /*embd=*/ batch.embd,
+            /*pos=*/ pos.data(),
+            /*n_seq_id=*/ nullptr,
+            /*seq_id=*/ nullptr,
+            /*logits=*/ nullptr,
+        };
+
+        int32_t ret = llama_decode(lctx, decode_batch);
+        if (ret != 0) success = false;
+    }
+
+    env->ReleaseFloatArrayElements(embeddings, embdData, JNI_ABORT);
+
+    if (success) {
+        llmInference->markPreparedKvForNextCompletion();
+    }
+
+    return success ? JNI_TRUE : JNI_FALSE;
+}
+
 // Return the internal llama_model* as jlong for advanced native integrations (caller must not free)
 extern "C" JNIEXPORT jlong JNICALL
 Java_io_aatricks_llmedge_SmolLM_getNativeModelPtr(JNIEnv* env, jobject thiz, jlong modelPtr) {

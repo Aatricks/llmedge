@@ -166,6 +166,20 @@ class SmolLMVisionAdapter(
         }
     }
     
+    /**
+     * Decode pre-computed vision embeddings directly from memory into the KV cache, avoiding
+     * all file I/O. Returns true on success.
+     */
+    fun decodeEmbeddingsBuffer(embeddings: VisionEmbeddings, nBatch: Int = 1): Boolean {
+        if (!hasVisionCapabilities()) return false
+        return try {
+            smolLM.decodeEmbeddingsBuffer(embeddings, nBatch)
+        } catch (e: UnsatisfiedLinkError) {
+            AndroidLogAdapter.w(TAG, "decodeEmbeddingsBuffer not available: ${e.message}")
+            false
+        }
+    }
+
     override fun hasVisionCapabilities(): Boolean {
         // This will check native vision support when implemented
         return hasVisionSupport

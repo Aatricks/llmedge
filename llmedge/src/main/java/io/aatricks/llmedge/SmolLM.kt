@@ -101,6 +101,18 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 metaPath: String,
                 nBatch: Int
         ): Boolean
+        fun nativeDecodeEmbeddingsBuffer(
+                instance: SmolLM,
+                modelPtr: Long,
+                embeddings: FloatArray,
+                nTokens: Int,
+                nx: Int,
+                ny: Int,
+                embdDim: Int,
+                useMrope: Boolean,
+                useNonCausal: Boolean,
+                nBatch: Int
+        ): Boolean = false
         fun close(instance: SmolLM, modelPtr: Long)
         fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String)
         fun completionLoop(instance: SmolLM, modelPtr: Long): String
@@ -236,6 +248,29 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                 modelPtr,
                                 embdPath,
                                 metaPath,
+                                nBatch
+                        )
+                override fun nativeDecodeEmbeddingsBuffer(
+                        instance: SmolLM,
+                        modelPtr: Long,
+                        embeddings: FloatArray,
+                        nTokens: Int,
+                        nx: Int,
+                        ny: Int,
+                        embdDim: Int,
+                        useMrope: Boolean,
+                        useNonCausal: Boolean,
+                        nBatch: Int
+                ): Boolean =
+                        instance.nativeDecodeEmbeddingsBuffer(
+                                modelPtr,
+                                embeddings,
+                                nTokens,
+                                nx,
+                                ny,
+                                embdDim,
+                                useMrope,
+                                useNonCausal,
                                 nBatch
                         )
                 override fun close(instance: SmolLM, modelPtr: Long) = instance.close(modelPtr)
@@ -871,6 +906,19 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             nBatch: Int
     ): Boolean
 
+    // Buffer-based embedding decoding: accepts float array + metadata directly
+    private external fun nativeDecodeEmbeddingsBuffer(
+            modelPtr: Long,
+            embeddings: FloatArray,
+            nTokens: Int,
+            nx: Int,
+            ny: Int,
+            embdDim: Int,
+            useMrope: Boolean,
+            useNonCausal: Boolean,
+            nBatch: Int
+    ): Boolean
+
         // State persistence helpers (KV cache and other context state)
         private external fun nativeGetStateBytes(modelPtr: Long): ByteArray?
         private external fun nativeSetStateBytes(modelPtr: Long, state: ByteArray): Boolean
@@ -889,6 +937,25 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         verifyHandle()
         return try {
             nativeBridge.nativeDecodePreparedEmbeddings(this, nativePtr, embdPath, metaPath, nBatch)
+        } catch (e: UnsatisfiedLinkError) {
+            false
+        }
+    }
+
+    /**
+     * Decode vision embeddings directly from an in-memory buffer, avoiding temporary file I/O.
+     * The embeddings should have been produced by [io.aatricks.llmedge.vision.Projector.encodeImageBuffer].
+     * Returns true on success.
+     */
+    fun decodeEmbeddingsBuffer(embeddings: io.aatricks.llmedge.vision.VisionEmbeddings, nBatch: Int = 1): Boolean {
+        verifyHandle()
+        return try {
+            nativeBridge.nativeDecodeEmbeddingsBuffer(
+                this, nativePtr, embeddings.data,
+                embeddings.nTokens, embeddings.nx, embeddings.ny,
+                embeddings.embdDim, embeddings.useMrope, embeddings.useNonCausal,
+                nBatch,
+            )
         } catch (e: UnsatisfiedLinkError) {
             false
         }

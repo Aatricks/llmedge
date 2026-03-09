@@ -72,18 +72,64 @@ internal class VisionPipeline(
             }
 
             try {
+                onStatus?.invoke("Preparing image")
+                val scaled =
+                    ImageUtils.preprocessBitmap(
+                        request.image,
+                        maxDimension = 672,
+                        enhance = false,
+                    )
+
+                // Try buffer-based path first (zero disk I/O)
+                val bufferSuccess = try {
+                    val jpegStream = java.io.ByteArrayOutputStream()
+                    scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, jpegStream)
+                    val jpegBytes = jpegStream.toByteArray()
+
+                    onStatus?.invoke("Preparing multimodal embeddings")
+                    val embeddings = projector.encodeImageBuffer(jpegBytes)
+                    if (embeddings != null) {
+                        onStatus?.invoke("Running vision analysis")
+                        val adapter = SmolLMVisionAdapter(context, smol)
+                        val decodeOk = smol.decodeEmbeddingsBuffer(embeddings, nBatch = 1)
+                        check(decodeOk) {
+                            "Buffer-based embedding decode failed for ${projectorFile.name}."
+                        }
+
+                        val visionPrompt = request.prompt
+                        val response = smol.getResponse(
+                            query = visionPrompt,
+                            batchSize = 1,
+                        )
+
+                        if (!isWarm) {
+                            runtimeCache.put(cacheKey, VisionRuntimeCache.CachedRuntime(smol, projector))
+                        }
+
+                        VisionPipelineResult(
+                            text = response,
+                            runtimeMemory = VisionRuntimeMemory(
+                                nativeBytes = smol.getEstimatedNativeMemoryBytes(),
+                                stateBytes = smol.getEstimatedStateMemoryBytes(),
+                            ),
+                        )
+                    } else {
+                        null
+                    }
+                } catch (_: UnsatisfiedLinkError) {
+                    null
+                }
+
+                if (bufferSuccess != null) {
+                    return@withContext bufferSuccess
+                }
+
+                // Fallback: file-based path
                 val imageFile = File.createTempFile("vision_input", ".jpg", context.cacheDir)
                 val embedFile = File.createTempFile("vision_prepared", ".bin", context.cacheDir)
                 val metaFile = File(embedFile.absolutePath + ".meta.json")
 
                 try {
-                    onStatus?.invoke("Preparing image")
-                    val scaled =
-                        ImageUtils.preprocessBitmap(
-                            request.image,
-                            maxDimension = 672,
-                            enhance = false,
-                        )
                     imageFile.outputStream().use { out ->
                         scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
                     }
@@ -103,7 +149,6 @@ internal class VisionPipeline(
                             VisionParams(),
                         )
 
-                    // Cache the runtime for reuse on subsequent calls
                     if (!isWarm) {
                         runtimeCache.put(cacheKey, VisionRuntimeCache.CachedRuntime(smol, projector))
                     }
