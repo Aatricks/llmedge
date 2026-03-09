@@ -1,6 +1,8 @@
 package io.aatricks.llmedge
 
 import io.aatricks.llmedge.model.ModelRegistry
+import io.aatricks.llmedge.runtime.CpuTopology
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 data class LLMEdgeConfig(
     val models: ModelRegistry = ModelRegistry(),

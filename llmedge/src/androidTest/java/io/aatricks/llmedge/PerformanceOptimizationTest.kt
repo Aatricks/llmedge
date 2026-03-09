@@ -8,6 +8,11 @@ import io.aatricks.llmedge.util.MemoryMetrics
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.runtime.CpuTopology
+import io.aatricks.llmedge.runtime.FlashAttentionHelper
+import io.aatricks.llmedge.runtime.ModelCache
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 /** End-to-end performance tests to validate Phase 1-3 optimizations */
 @RunWith(AndroidJUnit4::class)

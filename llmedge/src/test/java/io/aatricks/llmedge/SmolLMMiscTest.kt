@@ -6,6 +6,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import io.aatricks.llmedge.image.diffusion.GenerationMetrics
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 class SmolLMMiscTest {
     private class TestBridge : SmolLM.NativeBridge {

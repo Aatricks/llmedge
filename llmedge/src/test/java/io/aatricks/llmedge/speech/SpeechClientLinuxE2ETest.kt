@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.Whisper
+import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.model.ModelSpec
 import java.io.File
 import kotlin.math.sin

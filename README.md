@@ -217,6 +217,13 @@ Practical defaults:
 - `textCacheMemoryMb`: upper bound for text-model cache accounting; the cache now refreshes against
   native model/state footprint instead of only the GGUF file size
 
+Batch-size guidance:
+
+- `1`: lowest latency per chunk, highest JNI overhead
+- `4`: good default for streaming UI updates
+- `8`: good default for blocking text responses
+- `12+`: better throughput for longer offline generations, but can delay intermediate updates
+
 ### Image Text Extraction (OCR)
 
 llmedge uses Google ML Kit Text Recognition for extracting text from images.
@@ -267,6 +274,9 @@ val description = edge.vision.analyze(
     Log.d("Vision", "Status: $status")
 }
 ```
+
+The current high-level vision path creates a fresh `SmolLM` runtime per request, so it favors
+isolation and predictable cleanup over pooled high-throughput reuse.
 
 The manager handles the complex pipeline of:
 1. Preprocessing the image

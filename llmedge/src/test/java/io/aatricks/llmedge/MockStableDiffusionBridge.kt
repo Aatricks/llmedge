@@ -3,6 +3,11 @@ package io.aatricks.llmedge
 import android.graphics.Bitmap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 /**
  * Configurable mock implementation of StableDiffusion.NativeBridge for testing.

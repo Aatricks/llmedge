@@ -11,6 +11,10 @@ import org.robolectric.annotation.Config
 import java.io.File
 import java.io.FileOutputStream
 import java.io.ByteArrayOutputStream
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 
 /**
  * E2E test that generates a video with a specific sampler and scheduler,

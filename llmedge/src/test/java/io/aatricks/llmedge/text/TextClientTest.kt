@@ -2,9 +2,9 @@ package io.aatricks.llmedge.text
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import io.aatricks.llmedge.GGUFReader
+import io.aatricks.llmedge.runtime.GGUFReader
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec

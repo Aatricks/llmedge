@@ -9,6 +9,12 @@ import org.junit.Before
 import org.junit.Test
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])

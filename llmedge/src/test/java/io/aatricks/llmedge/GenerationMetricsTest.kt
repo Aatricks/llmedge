@@ -3,6 +3,7 @@ package io.aatricks.llmedge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 
 class GenerationMetricsTest {
 

@@ -12,6 +12,8 @@ import java.io.File
 import kotlin.reflect.full.declaredFunctions
 import kotlin.reflect.full.callSuspend
 import kotlin.reflect.jvm.isAccessible
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 class MetadataInferenceTest {
 

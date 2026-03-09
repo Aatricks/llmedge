@@ -8,6 +8,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.speech.tts.BarkTTS
 
 /**
  * Linux-host end-to-end test for Bark TTS using a real native library (libbark_jni.so) and a local

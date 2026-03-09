@@ -11,6 +11,8 @@ import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.speech.tts.BarkTTS
 
 /**
  * Android E2E test for Bark TTS to measure performance on real device.

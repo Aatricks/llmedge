@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.aatricks.llmedge
+package io.aatricks.llmedge.runtime
 
 import io.aatricks.llmedge.core.InvalidModelStateException
 import io.aatricks.llmedge.core.ModelLoadException

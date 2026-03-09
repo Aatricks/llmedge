@@ -1,7 +1,7 @@
 package io.aatricks.llmedge.core
 
 import android.content.Context
-import io.aatricks.llmedge.ModelCache
+import io.aatricks.llmedge.runtime.ModelCache
 import io.aatricks.llmedge.util.MemoryMetrics
 
 internal object ModelCacheFactory {

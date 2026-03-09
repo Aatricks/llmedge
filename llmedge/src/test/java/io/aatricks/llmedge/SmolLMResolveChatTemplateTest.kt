@@ -1,9 +1,10 @@
 package io.aatricks.llmedge
 
-import io.aatricks.llmedge.GGUFReader
+import io.aatricks.llmedge.runtime.GGUFReader
 import io.mockk.*
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 class SmolLMResolveChatTemplateTest {
     @Test

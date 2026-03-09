@@ -6,6 +6,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 class SmolLMInferenceTest {
     @Before

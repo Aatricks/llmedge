@@ -1,6 +1,6 @@
 package io.aatricks.llmedge.tools
 
-import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONException

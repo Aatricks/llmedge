@@ -1,6 +1,7 @@
-package io.aatricks.llmedge
+package io.aatricks.llmedge.runtime
 
 import android.util.Log
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
 
 /**
  * Helper for determining optimal flash attention settings based on generation parameters and

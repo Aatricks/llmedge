@@ -7,6 +7,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
+import io.aatricks.llmedge.runtime.GGUFReader
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 class SmolLMLoadTest {
     private fun createTempGgufFile(): File =

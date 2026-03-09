@@ -10,6 +10,9 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.runtime.CpuTopology
 
 /**
  * Opt-in native end-to-end test for txt2img.
@@ -55,7 +58,7 @@ class ImageGenerationE2ENativeTest {
                 modelPath = modelPath,
                 vaePath = vaePath,
                 t5xxlPath = null,
-                nThreads = io.aatricks.llmedge.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.CpuTopology.TaskType.DIFFUSION).coerceAtLeast(2),
+                nThreads = io.aatricks.llmedge.runtime.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.runtime.CpuTopology.TaskType.DIFFUSION).coerceAtLeast(2),
                 offloadToCpu = false,
                 keepClipOnCpu = false,
                 keepVaeOnCpu = false,

@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import java.io.File
 import kotlin.math.sin
+import io.aatricks.llmedge.speech.stt.Whisper
 
 /**
  * Linux-host end-to-end test for Whisper speech transcription using a real native library

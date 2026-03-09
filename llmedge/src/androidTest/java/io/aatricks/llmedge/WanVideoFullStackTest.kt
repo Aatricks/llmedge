@@ -16,6 +16,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.runtime.CpuTopology
 
 /**
  * Full stack test for Wan 2.1 T2V video generation WITH T5XXL encoder.
@@ -78,8 +82,8 @@ class WanVideoFullStackTest {
                                 vaePath = files.vae.absolutePath,
                                 t5xxlPath = files.t5xxl.absolutePath, // *** INCLUDE T5XXL ***
                                 nThreads =
-                                        io.aatricks.llmedge.CpuTopology.getOptimalThreadCount(
-                                                        io.aatricks.llmedge.CpuTopology.TaskType
+                                        io.aatricks.llmedge.runtime.CpuTopology.getOptimalThreadCount(
+                                                        io.aatricks.llmedge.runtime.CpuTopology.TaskType
                                                                 .DIFFUSION
                                                 )
                                                 .coerceAtMost(4),

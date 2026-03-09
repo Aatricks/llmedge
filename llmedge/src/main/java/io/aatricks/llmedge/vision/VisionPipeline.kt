@@ -1,7 +1,7 @@
 package io.aatricks.llmedge.vision
 
 import android.content.Context
-import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
 import kotlinx.coroutines.Dispatchers

@@ -289,12 +289,12 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeCheckBindings(JNIEnv*, jclass) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCheckBindings(JNIEnv*, jclass) {
     return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceCount(JNIEnv* env, jclass clazz) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceCount(JNIEnv* env, jclass clazz) {
     (void)env;
     (void)clazz;
 #ifdef SD_USE_VULKAN
@@ -305,7 +305,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceCount(JNIEnv* env,
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceMemory(JNIEnv* env, jclass clazz, jint deviceIndex) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceMemory(JNIEnv* env, jclass clazz, jint deviceIndex) {
     (void)clazz;
 #ifdef SD_USE_VULKAN
     size_t free_mem = 0, total_mem = 0;
@@ -327,7 +327,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceMemory(JNIEnv* env
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeEstimateModelParamsMemory(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeEstimateModelParamsMemory(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
     (void)clazz;
     if (!jModelPath) return (jlong)-1;
     const char* modelPath = env->GetStringUTFChars(jModelPath, nullptr);
@@ -351,7 +351,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeEstimateModelParamsMemory(JNIEnv*
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeEstimateModelParamsMemoryDetailed(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeEstimateModelParamsMemoryDetailed(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
     (void)clazz;
     if (!jModelPath) return nullptr;
     const char* modelPath = env->GetStringUTFChars(jModelPath, nullptr);
@@ -399,7 +399,7 @@ static void sd_android_log_cb(enum sd_log_level_t level, const char* text, void*
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     JNIEnv* env, jclass clazz,
         jstring jModelPath,
         jstring jVaePath,
@@ -498,7 +498,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlong handlePtr) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlong handlePtr) {
     if (handlePtr == 0) return;
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
     clearProgressCallback(env, handle);
@@ -517,7 +517,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlo
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeIsEasyCacheSupported(JNIEnv* env, jobject, jlong handlePtr) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeIsEasyCacheSupported(JNIEnv* env, jobject, jlong handlePtr) {
     (void)env;
     if (handlePtr == 0) {
         return JNI_FALSE;
@@ -532,7 +532,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeIsEasyCacheSupported(JNIEnv* env,
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     JNIEnv* env, jobject thiz, jlong handlePtr,
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
@@ -610,7 +610,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
     JNIEnv* env, jobject thiz, jlong handlePtr,
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
@@ -759,7 +759,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
 
 // JNI wrapper: precompute condition for a given prompt & video params
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeCondition(
         JNIEnv* env, jobject thiz, jlong handlePtr,
         jstring jPrompt, jstring jNegative,
         jint width, jint height, jint clipSkip) {
@@ -965,7 +965,7 @@ static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condA
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
     JNIEnv* env, jobject thiz, jlong handlePtr,
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
@@ -1061,7 +1061,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         JNIEnv* env, jobject thiz, jlong handlePtr,
         jstring jPrompt, jstring jNegative,
         jint width, jint height,
@@ -1212,7 +1212,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeSetProgressCallback(
         JNIEnv* env, jobject, jlong handlePtr, jobject progressCallback) {
     if (handlePtr == 0) {
         throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
@@ -1256,7 +1256,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeCancelGeneration(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCancelGeneration(
         JNIEnv* env, jobject, jlong handlePtr) {
     (void)env;
     if (handlePtr == 0) return;

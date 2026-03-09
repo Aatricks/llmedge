@@ -3,6 +3,8 @@ package io.aatricks.llmedge
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 class VideoModelDetectorTest {
 

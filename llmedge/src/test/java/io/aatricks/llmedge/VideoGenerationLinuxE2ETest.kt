@@ -11,6 +11,10 @@ import org.robolectric.annotation.Config
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import java.io.File
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 
 /**
  * Linux-host end-to-end test for video generation using a real native library (libsdcpp.so)

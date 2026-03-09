@@ -1,4 +1,4 @@
-package io.aatricks.llmedge
+package io.aatricks.llmedge.runtime
 
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import java.util.LinkedHashMap

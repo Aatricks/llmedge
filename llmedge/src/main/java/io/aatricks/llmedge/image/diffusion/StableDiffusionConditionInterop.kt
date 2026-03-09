@@ -1,4 +1,4 @@
-package io.aatricks.llmedge
+package io.aatricks.llmedge.image.diffusion
 
 internal object StableDiffusionConditionInterop {
     fun fromNativeRaw(raw: Array<Any?>): PrecomputedCondition? {

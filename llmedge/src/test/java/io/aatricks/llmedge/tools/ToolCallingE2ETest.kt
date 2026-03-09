@@ -1,7 +1,7 @@
 package io.aatricks.llmedge.tools
 
 import android.content.Context
-import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Assume

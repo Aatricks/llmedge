@@ -1,4 +1,4 @@
-package io.aatricks.llmedge
+package io.aatricks.llmedge.text.runtime
 
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope

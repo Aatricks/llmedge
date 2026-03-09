@@ -2,8 +2,8 @@ package io.aatricks.llmedge.text
 
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.ModelCache
-import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.runtime.ModelCache
+import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.ModelCacheFactory

@@ -161,7 +161,7 @@ class VisionTest {
     fun `SmolLMVisionAdapter checkVisionSupport works correctly`() {
         // Test with mocked SmolLMVisionAdapter to access private method
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
@@ -182,7 +182,7 @@ class VisionTest {
     @Test
     fun `SmolLMVisionAdapter formatVisionPrompt works correctly`() {
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
@@ -216,7 +216,7 @@ class VisionTest {
     @Test
     fun `SmolLMVisionAdapter estimateTokens works correctly`() {
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
@@ -234,7 +234,7 @@ class VisionTest {
     @Test
     fun `SmolLMVisionAdapter getModelId works correctly when no model loaded`() {
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
@@ -244,7 +244,7 @@ class VisionTest {
     @Test
     fun `SmolLMVisionAdapter hasVisionCapabilities works correctly when no model loaded`() {
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
@@ -254,7 +254,7 @@ class VisionTest {
     @Test
     fun `SmolLMVisionAdapter analyze uses single-token generation after decoding embeddings`() = runTest {
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
         val workDir = createTempDir(prefix = "vision-adapter-test")
         val embdFile = java.io.File(workDir, "vision_prepared.bin").apply { writeBytes(byteArrayOf(4, 5, 6)) }

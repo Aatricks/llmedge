@@ -72,6 +72,11 @@ jobs:
         LLMEDGE_SKIP_E2E_IN_UNIT: "true"
       run: ./gradlew :llmedge:testDebugUnitTest
 
+    - name: Run Vision Smoke Test (Managed Device)
+      run: |
+        ./gradlew :llmedge:pixel6api33DebugAndroidTest \
+          -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.VisionSmokeTest
+
     - name: Run E2E Tests (Whisper)
       env:
         LLMEDGE_TEST_WHISPER_MODEL_PATH: ${{ github.workspace }}/models/ggml-tiny.en.bin

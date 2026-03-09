@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.aatricks.llmedge
+package io.aatricks.llmedge.image.diffusion
 
 import android.graphics.Bitmap
 

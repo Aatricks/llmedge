@@ -1,4 +1,4 @@
-package io.aatricks.llmedge
+package io.aatricks.llmedge.image.diffusion
 
 import android.content.Context
 import io.aatricks.llmedge.huggingface.HuggingFaceHub

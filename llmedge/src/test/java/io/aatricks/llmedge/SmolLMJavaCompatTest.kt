@@ -7,6 +7,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import io.aatricks.llmedge.text.runtime.SmolLM
+import io.aatricks.llmedge.text.runtime.SmolLMJavaCompat
 
 class SmolLMJavaCompatTest {
 

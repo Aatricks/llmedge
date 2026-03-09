@@ -1,6 +1,6 @@
 package io.aatricks.llmedge.speech
 
-import io.aatricks.llmedge.BarkTTS
+import io.aatricks.llmedge.speech.tts.BarkTTS
 
 sealed interface AudioStreamEvent {
     data object Started : AudioStreamEvent

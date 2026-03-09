@@ -18,6 +18,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.io.FileOutputStream
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.runtime.CpuTopology
 
 @LargeTest
 @RunWith(AndroidJUnit4::class)
@@ -44,7 +47,7 @@ class WanVideoE2ETest {
             modelPath = wanAssets.model.absolutePath,
             vaePath = wanAssets.vae.absolutePath,
             t5xxlPath = wanAssets.textEncoder.absolutePath,
-            nThreads = io.aatricks.llmedge.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.CpuTopology.TaskType.DIFFUSION).coerceAtMost(4),
+            nThreads = io.aatricks.llmedge.runtime.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.runtime.CpuTopology.TaskType.DIFFUSION).coerceAtMost(4),
             offloadToCpu = false,
             keepClipOnCpu = false,
             keepVaeOnCpu = false,

@@ -3,7 +3,7 @@ package io.aatricks.llmedge.rag
 import android.content.Context
 import android.net.Uri
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec

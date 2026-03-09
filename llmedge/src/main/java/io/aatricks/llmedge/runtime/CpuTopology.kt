@@ -1,4 +1,4 @@
-package io.aatricks.llmedge
+package io.aatricks.llmedge.runtime
 
 import android.util.Log
 import java.io.File

@@ -108,12 +108,12 @@ static void bark_progress_callback_wrapper(struct bark_context* bctx,
 extern "C" {
 
 JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_BarkTTS_nativeCheckBindings(JNIEnv*, jclass) {
+Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeCheckBindings(JNIEnv*, jclass) {
     return JNI_TRUE;
 }
 
 JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_BarkTTS_nativeCreate(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeCreate(JNIEnv* env, jclass,
                                                jstring jModelPath,
                                                jint seed,
                                                jfloat temp,
@@ -164,7 +164,7 @@ Java_io_aatricks_llmedge_BarkTTS_nativeCreate(JNIEnv* env, jclass,
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_BarkTTS_nativeDestroy(JNIEnv* env, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeDestroy(JNIEnv* env, jclass, jlong handlePtr) {
     auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
     if (!handle) return;
 
@@ -183,7 +183,7 @@ Java_io_aatricks_llmedge_BarkTTS_nativeDestroy(JNIEnv* env, jclass, jlong handle
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_BarkTTS_nativeSetProgressCallback(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeSetProgressCallback(JNIEnv* env, jclass,
                                                             jlong handlePtr,
                                                             jobject callback) {
     auto* handle = requireBarkHandle(env, handlePtr, "Bark context not initialized");
@@ -207,7 +207,7 @@ Java_io_aatricks_llmedge_BarkTTS_nativeSetProgressCallback(JNIEnv* env, jclass,
 }
 
 JNIEXPORT jfloatArray JNICALL
-Java_io_aatricks_llmedge_BarkTTS_nativeGenerate(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeGenerate(JNIEnv* env, jclass,
                                                  jlong handlePtr,
                                                  jstring jText,
                                                  jint nThreads) {
@@ -264,28 +264,28 @@ Java_io_aatricks_llmedge_BarkTTS_nativeGenerate(JNIEnv* env, jclass,
 }
 
 JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_BarkTTS_nativeGetSampleRate(JNIEnv* env, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeGetSampleRate(JNIEnv* env, jclass, jlong handlePtr) {
     auto* handle = requireBarkHandle(env, handlePtr, "Bark context not initialized");
     if (!handle) return 24000;
     return handle->sampleRate;
 }
 
 JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_BarkTTS_nativeGetLoadTime(JNIEnv* env, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeGetLoadTime(JNIEnv* env, jclass, jlong handlePtr) {
     auto* handle = requireBarkHandle(env, handlePtr, "Bark context not initialized");
     if (!handle) return 0;
     return bark_get_load_time(handle->ctx);
 }
 
 JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_BarkTTS_nativeGetEvalTime(JNIEnv* env, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeGetEvalTime(JNIEnv* env, jclass, jlong handlePtr) {
     auto* handle = requireBarkHandle(env, handlePtr, "Bark context not initialized");
     if (!handle) return 0;
     return bark_get_eval_time(handle->ctx);
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_BarkTTS_nativeResetStatistics(JNIEnv* env, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeResetStatistics(JNIEnv* env, jclass, jlong handlePtr) {
     auto* handle = requireBarkHandle(env, handlePtr, "Bark context not initialized");
     if (!handle) return;
     bark_reset_statistics(handle->ctx);

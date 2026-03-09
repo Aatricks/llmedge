@@ -9,6 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.After
 import java.lang.reflect.Method
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
 
 class MemoryManagementTest {
     @After

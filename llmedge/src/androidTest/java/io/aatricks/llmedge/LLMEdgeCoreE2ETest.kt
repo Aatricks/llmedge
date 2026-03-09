@@ -44,6 +44,12 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.runtime.CpuTopology
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 /**
  * Comprehensive headless E2E tests for LLMEdge core functionality.

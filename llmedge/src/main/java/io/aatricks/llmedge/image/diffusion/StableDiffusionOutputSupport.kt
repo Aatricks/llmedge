@@ -1,4 +1,4 @@
-package io.aatricks.llmedge
+package io.aatricks.llmedge.image.diffusion
 
 import android.graphics.Bitmap
 import android.os.Debug

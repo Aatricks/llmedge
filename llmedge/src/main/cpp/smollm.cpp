@@ -63,7 +63,7 @@ LLMInference* requireInference(JNIEnv* env, jlong modelPtr, const char* operatio
 } // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring modelPath, jfloat minP,
+Java_io_aatricks_llmedge_text_runtime_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring modelPath, jfloat minP,
                                              jfloat temperature, jboolean storeChats, jlong contextSize,
                                              jstring chatTemplate, jint nThreads, jboolean useMmap, jboolean useMlock,
                                              jboolean useVulkan, jboolean useFlashAttn) {
@@ -85,7 +85,7 @@ Java_io_aatricks_llmedge_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring mod
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_addChatMessage(JNIEnv* env, jobject thiz, jlong modelPtr, jstring message,
+Java_io_aatricks_llmedge_text_runtime_SmolLM_addChatMessage(JNIEnv* env, jobject thiz, jlong modelPtr, jstring message,
                                                   jstring role) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
@@ -104,7 +104,7 @@ Java_io_aatricks_llmedge_SmolLM_addChatMessage(JNIEnv* env, jobject thiz, jlong 
 }
 
 extern "C" JNIEXPORT jfloat JNICALL
-Java_io_aatricks_llmedge_SmolLM_getResponseGenerationSpeed(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getResponseGenerationSpeed(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return 0.0f;
@@ -113,7 +113,7 @@ Java_io_aatricks_llmedge_SmolLM_getResponseGenerationSpeed(JNIEnv* env, jobject 
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_getResponseGeneratedTokenCount(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getResponseGeneratedTokenCount(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return 0;
@@ -122,7 +122,7 @@ Java_io_aatricks_llmedge_SmolLM_getResponseGeneratedTokenCount(JNIEnv* env, jobj
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_getResponseGenerationDurationMicros(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getResponseGenerationDurationMicros(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return 0;
@@ -131,7 +131,7 @@ Java_io_aatricks_llmedge_SmolLM_getResponseGenerationDurationMicros(JNIEnv* env,
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeGetLastGenerationMetrics(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetLastGenerationMetrics(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return nullptr;
@@ -159,7 +159,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeGetLastGenerationMetrics(JNIEnv* env, jobj
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_SmolLM_getContextSizeUsed(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getContextSizeUsed(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return 0;
@@ -168,7 +168,7 @@ Java_io_aatricks_llmedge_SmolLM_getContextSizeUsed(JNIEnv* env, jobject thiz, jl
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeConfigureThreading(JNIEnv* env, jobject thiz, jlong modelPtr,
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeConfigureThreading(JNIEnv* env, jobject thiz, jlong modelPtr,
                                                          jint generationThreads, jint promptThreads) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
@@ -178,7 +178,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeConfigureThreading(JNIEnv* env, jobject th
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeGetEstimatedMemoryBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetEstimatedMemoryBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return 0;
@@ -187,7 +187,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeGetEstimatedMemoryBytes(JNIEnv* env, jobje
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeGetEstimatedStateMemoryBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetEstimatedStateMemoryBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return 0;
@@ -196,7 +196,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeGetEstimatedStateMemoryBytes(JNIEnv* env, 
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_close(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_close(JNIEnv* env, jobject thiz, jlong modelPtr) {
     if (!modelPtr) {
         return;
     }
@@ -205,7 +205,7 @@ Java_io_aatricks_llmedge_SmolLM_close(JNIEnv* env, jobject thiz, jlong modelPtr)
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return;
@@ -222,7 +222,7 @@ Java_io_aatricks_llmedge_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_setReasoningOptions(JNIEnv* env, jobject thiz, jlong modelPtr, jboolean disableThinking,
+Java_io_aatricks_llmedge_text_runtime_SmolLM_setReasoningOptions(JNIEnv* env, jobject thiz, jlong modelPtr, jboolean disableThinking,
                                                     jint reasoningBudget) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
@@ -233,7 +233,7 @@ Java_io_aatricks_llmedge_SmolLM_setReasoningOptions(JNIEnv* env, jobject thiz, j
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return nullptr;
@@ -248,7 +248,7 @@ Java_io_aatricks_llmedge_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong 
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_SmolLM_completionLoopBatch(JNIEnv* env, jobject thiz, jlong modelPtr, jint maxTokens) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_completionLoopBatch(JNIEnv* env, jobject thiz, jlong modelPtr, jint maxTokens) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return nullptr;
@@ -263,7 +263,7 @@ Java_io_aatricks_llmedge_SmolLM_completionLoopBatch(JNIEnv* env, jobject thiz, j
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_setThreadAffinity(JNIEnv* env, jobject thiz, jlong modelPtr, jlong coreMask) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_setThreadAffinity(JNIEnv* env, jobject thiz, jlong modelPtr, jlong coreMask) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (llmInference) {
         llmInference->setThreadAffinity(static_cast<uint64_t>(coreMask));
@@ -271,7 +271,7 @@ Java_io_aatricks_llmedge_SmolLM_setThreadAffinity(JNIEnv* env, jobject thiz, jlo
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_stopCompletion(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_stopCompletion(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
         return;
@@ -579,7 +579,7 @@ Java_io_aatricks_llmedge_vision_Projector_nativeEncodeImageBuffer(JNIEnv* env, j
 
 // Buffer-based embedding decoding: accepts float array + metadata, populates KV cache
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeDecodeEmbeddingsBuffer(JNIEnv* env, jobject thiz, jlong modelPtr,
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeDecodeEmbeddingsBuffer(JNIEnv* env, jobject thiz, jlong modelPtr,
                                                               jfloatArray embeddings, jint nTokens, jint nx, jint ny,
                                                               jint embdDim, jboolean useMrope, jboolean useNonCausal,
                                                               jint nBatch) {
@@ -652,7 +652,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeDecodeEmbeddingsBuffer(JNIEnv* env, jobjec
 
 // Return the internal llama_model* as jlong for advanced native integrations (caller must not free)
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_getNativeModelPtr(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getNativeModelPtr(JNIEnv* env, jobject thiz, jlong modelPtr) {
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) return 0;
     return reinterpret_cast<jlong>(llmInference->getModel());
@@ -660,7 +660,7 @@ Java_io_aatricks_llmedge_SmolLM_getNativeModelPtr(JNIEnv* env, jobject thiz, jlo
 
 // Decode prepared embeddings (.bin) using the already-loaded llama_context inside LLMInference
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobject thiz, jlong modelPtr,
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobject thiz, jlong modelPtr,
                                                                jstring embdPath, jstring metaPath, jint nBatch) {
     if (!embdPath || !metaPath) return JNI_FALSE;
     ScopedUtfChars embdC(env, embdPath);
@@ -803,7 +803,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobj
 
 // Retrieve the full state blob for the llama context (includes RNG, logits and KV cache)
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeGetStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
     if (!modelPtr) return nullptr;
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
@@ -824,7 +824,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeGetStateBytes(JNIEnv* env, jobject thiz, j
 
 // Set the full state blob for the llama context
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeSetStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jbyteArray state) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeSetStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jbyteArray state) {
     if (!modelPtr || !state) return JNI_FALSE;
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
@@ -842,7 +842,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeSetStateBytes(JNIEnv* env, jobject thiz, j
 
 // Get state for a specific sequence (KV slot)
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeGetSequenceStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint seqId) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetSequenceStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint seqId) {
     if (!modelPtr) return nullptr;
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
@@ -863,7 +863,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeGetSequenceStateBytes(JNIEnv* env, jobject
 
 // Set sequence state bytes (restore into KV slot)
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeSetSequenceStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint seqId, jbyteArray state) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeSetSequenceStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint seqId, jbyteArray state) {
     if (!modelPtr || !state) return JNI_FALSE;
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
@@ -880,7 +880,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeSetSequenceStateBytes(JNIEnv* env, jobject
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeClearKvCache(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeClearKvCache(JNIEnv* env, jobject thiz, jlong modelPtr) {
     if (!modelPtr) return;
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
@@ -892,7 +892,7 @@ Java_io_aatricks_llmedge_SmolLM_nativeClearKvCache(JNIEnv* env, jobject thiz, jl
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeClearMessages(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeClearMessages(JNIEnv* env, jobject thiz, jlong modelPtr) {
     if (!modelPtr) return;
     auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {

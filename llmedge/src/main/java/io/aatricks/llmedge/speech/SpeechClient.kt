@@ -1,10 +1,10 @@
 package io.aatricks.llmedge.speech
 
 import android.content.Context
-import io.aatricks.llmedge.BarkTTS
+import io.aatricks.llmedge.speech.tts.BarkTTS
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.ModelCache
-import io.aatricks.llmedge.Whisper
+import io.aatricks.llmedge.runtime.ModelCache
+import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver

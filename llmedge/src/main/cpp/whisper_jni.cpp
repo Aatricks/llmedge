@@ -144,24 +144,24 @@ static void whisper_new_segment_callback_wrapper(struct whisper_context* ctx,
 extern "C" {
 
 JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeCheckBindings(JNIEnv*, jclass) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCheckBindings(JNIEnv*, jclass) {
     return JNI_TRUE;
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetVersion(JNIEnv* env, jclass) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetVersion(JNIEnv* env, jclass) {
     const char* version = whisper_version();
     return env->NewStringUTF(version ? version : "unknown");
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetSystemInfo(JNIEnv* env, jclass) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetSystemInfo(JNIEnv* env, jclass) {
     const char* info = whisper_print_system_info();
     return env->NewStringUTF(info ? info : "");
 }
 
 JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeCreate(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCreate(JNIEnv* env, jclass,
                                                jstring jModelPath,
                                                jboolean useGpu,
                                                jboolean flashAttn,
@@ -203,7 +203,7 @@ Java_io_aatricks_llmedge_Whisper_nativeCreate(JNIEnv* env, jclass,
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeDestroy(JNIEnv* env, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeDestroy(JNIEnv* env, jclass, jlong handlePtr) {
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle) return;
 
@@ -225,12 +225,12 @@ Java_io_aatricks_llmedge_Whisper_nativeDestroy(JNIEnv* env, jclass, jlong handle
 }
 
 JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetMaxLanguageId(JNIEnv*, jclass) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetMaxLanguageId(JNIEnv*, jclass) {
     return whisper_lang_max_id();
 }
 
 JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetLanguageId(JNIEnv* env, jclass, jstring jLang) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetLanguageId(JNIEnv* env, jclass, jstring jLang) {
     if (!jLang) return -1;
     const char* lang = env->GetStringUTFChars(jLang, nullptr);
     if (!lang) return -1;
@@ -240,20 +240,20 @@ Java_io_aatricks_llmedge_Whisper_nativeGetLanguageId(JNIEnv* env, jclass, jstrin
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetLanguageString(JNIEnv* env, jclass, jint langId) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetLanguageString(JNIEnv* env, jclass, jint langId) {
     const char* lang = whisper_lang_str(langId);
     return env->NewStringUTF(lang ? lang : "");
 }
 
 JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeIsMultilingual(JNIEnv*, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeIsMultilingual(JNIEnv*, jclass, jlong handlePtr) {
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle || !handle->ctx) return JNI_FALSE;
     return whisper_is_multilingual(handle->ctx) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetModelType(JNIEnv* env, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetModelType(JNIEnv* env, jclass, jlong handlePtr) {
     auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
     if (!handle) {
         return nullptr;
@@ -263,7 +263,7 @@ Java_io_aatricks_llmedge_Whisper_nativeGetModelType(JNIEnv* env, jclass, jlong h
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeSetProgressCallback(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetProgressCallback(JNIEnv* env, jclass,
                                                             jlong handlePtr,
                                                             jobject callback) {
     auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
@@ -287,7 +287,7 @@ Java_io_aatricks_llmedge_Whisper_nativeSetProgressCallback(JNIEnv* env, jclass,
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeSetSegmentCallback(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetSegmentCallback(JNIEnv* env, jclass,
                                                            jlong handlePtr,
                                                            jobject callback) {
     auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
@@ -311,7 +311,7 @@ Java_io_aatricks_llmedge_Whisper_nativeSetSegmentCallback(JNIEnv* env, jclass,
 }
 
 JNIEXPORT jobjectArray JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeTranscribe(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeTranscribe(JNIEnv* env, jclass,
                                                    jlong handlePtr,
                                                    jfloatArray jSamples,
                                                    jint nThreads,
@@ -434,7 +434,7 @@ Java_io_aatricks_llmedge_Whisper_nativeTranscribe(JNIEnv* env, jclass,
 }
 
 JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeDetectLanguage(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeDetectLanguage(JNIEnv* env, jclass,
                                                        jlong handlePtr,
                                                        jfloatArray jSamples,
                                                        jint nThreads,
@@ -472,7 +472,7 @@ Java_io_aatricks_llmedge_Whisper_nativeDetectLanguage(JNIEnv* env, jclass,
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetFullText(JNIEnv* env, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetFullText(JNIEnv* env, jclass, jlong handlePtr) {
     auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
     if (!handle) {
         return nullptr;
@@ -494,14 +494,14 @@ Java_io_aatricks_llmedge_Whisper_nativeGetFullText(JNIEnv* env, jclass, jlong ha
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeResetTimings(JNIEnv*, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeResetTimings(JNIEnv*, jclass, jlong handlePtr) {
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle || !handle->ctx) return;
     whisper_reset_timings(handle->ctx);
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativePrintTimings(JNIEnv*, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativePrintTimings(JNIEnv*, jclass, jlong handlePtr) {
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle || !handle->ctx) return;
     whisper_print_timings(handle->ctx);

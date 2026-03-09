@@ -9,6 +9,7 @@ import org.robolectric.annotation.Config
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import java.io.File
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 /**
  * Linux-host end-to-end test for text inference using a real native library (libsmollm.so)

@@ -11,6 +11,9 @@ import org.robolectric.annotation.Config
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import java.io.File
+import io.aatricks.llmedge.image.diffusion.LoraApplyMode
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 
 /**
  * Linux-host E2E tests for:

@@ -17,7 +17,7 @@
 package io.aatricks.llmedge.vision
 
 import android.content.Context
-import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

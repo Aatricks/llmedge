@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.aatricks.llmedge
+package io.aatricks.llmedge.speech.tts
 
 import android.content.Context
 import io.aatricks.llmedge.core.InferenceFailedException

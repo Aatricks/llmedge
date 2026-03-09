@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
-package io.aatricks.llmedge
+package io.aatricks.llmedge.image.diffusion
+
+import io.aatricks.llmedge.runtime.CpuTopology
 
 import android.content.Context
 import android.graphics.Bitmap

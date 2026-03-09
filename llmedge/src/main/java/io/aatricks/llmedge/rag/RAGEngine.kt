@@ -18,7 +18,7 @@ package io.aatricks.llmedge.rag
 
 import android.content.Context
 import android.net.Uri
-import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.text.runtime.SmolLM
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

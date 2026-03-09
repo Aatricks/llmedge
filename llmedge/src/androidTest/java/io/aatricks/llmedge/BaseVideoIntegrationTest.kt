@@ -3,6 +3,12 @@ package io.aatricks.llmedge
 import android.graphics.Color
 import org.junit.After
 import org.junit.Before
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 abstract class BaseVideoIntegrationTest {
     companion object {
