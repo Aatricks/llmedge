@@ -46,7 +46,11 @@ internal class VisionPipeline(
                             mmprojPath = projectorFile.absolutePath,
                             params =
                                 SmolLM.InferenceParams(
-                                    numThreads = 2,
+                                    numThreads = request.numThreads?.coerceAtLeast(1) ?: 2,
+                                    generationThreads =
+                                        request.generationThreads?.coerceAtLeast(1)
+                                            ?: request.numThreads?.coerceAtLeast(1)
+                                            ?: 2,
                                     contextSize = null,
                                     storeChats = false,
                                     temperature = 0.0f,

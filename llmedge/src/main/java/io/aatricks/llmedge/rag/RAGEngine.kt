@@ -56,7 +56,7 @@ class RAGEngine(
         Log.d(TAG, "PDF extracted chars=${text.length}")
         val chunks = splitter.split(text)
         Log.d(TAG, "Chunk count=${chunks.size}")
-        val entries = chunks.mapIndexed { idx, chunk ->
+        val entries = chunks.map { chunk ->
             val id = UUID.randomUUID().toString()
             val emb = embeddingProvider.encode(chunk)
             VectorEntry(id = id, text = chunk, embedding = emb)

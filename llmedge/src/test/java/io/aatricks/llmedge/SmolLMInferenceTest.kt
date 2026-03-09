@@ -25,6 +25,8 @@ class SmolLMInferenceTest {
         class TestBridge : SmolLM.NativeBridge {
             var messages = mutableListOf<Pair<String, String>>()
             private var queue = ArrayDeque<String>()
+            var completionLoopCalls = 0
+            var completionLoopBatchCalls = 0
             
 
             override fun loadModel(
@@ -68,9 +70,11 @@ class SmolLMInferenceTest {
             }
 
             override fun completionLoop(instance: SmolLM, modelPtr: Long): String {
+                completionLoopCalls++
                 return queue.removeFirst()
             }
             override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String {
+                completionLoopBatchCalls++
                 val result = StringBuilder()
                 repeat(maxTokens) {
                     if (queue.isEmpty()) return result.toString()
@@ -93,6 +97,8 @@ class SmolLMInferenceTest {
         // Test getResponse
         val out = smol.getResponse("test prompt")
         assertEquals("Hello world", out)
+        assertEquals(0, bridge.completionLoopCalls)
+        assertEquals(2, bridge.completionLoopBatchCalls)
 
         // Test flow
         SmolLM.overrideNativeBridgeForTests { _ -> bridge }

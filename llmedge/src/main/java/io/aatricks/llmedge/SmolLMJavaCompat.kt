@@ -80,6 +80,7 @@ object SmolLMJavaCompat {
         private var contextSize: Long? = null
         private var chatTemplate: String? = null
         private var numThreads: Int = 4
+        private var generationThreads: Int? = null
         private var useMmap: Boolean = true
         private var useMlock: Boolean = false
         private var thinkingMode: SmolLM.ThinkingMode = SmolLM.ThinkingMode.DEFAULT
@@ -95,6 +96,7 @@ object SmolLMJavaCompat {
         fun setContextSize(v: Long?) = apply { contextSize = v }
         fun setChatTemplate(v: String?) = apply { chatTemplate = v }
         fun setNumThreads(v: Int) = apply { numThreads = v }
+        fun setGenerationThreads(v: Int?) = apply { generationThreads = v }
         fun setUseMmap(v: Boolean) = apply { useMmap = v }
         fun setUseMlock(v: Boolean) = apply { useMlock = v }
         fun setThinkingMode(v: SmolLM.ThinkingMode) = apply { thinkingMode = v }
@@ -108,6 +110,7 @@ object SmolLMJavaCompat {
             contextSize = contextSize,
             chatTemplate = chatTemplate,
             numThreads = numThreads,
+            generationThreads = generationThreads,
             useMmap = useMmap,
             useMlock = useMlock,
             thinkingMode = thinkingMode,

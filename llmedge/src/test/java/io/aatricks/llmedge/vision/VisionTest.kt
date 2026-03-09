@@ -45,6 +45,22 @@ class VisionTest {
     }
 
     @Test
+    fun `VisionRequest carries optional thread configuration`() {
+        val request = VisionRequest(
+            image = mockk(),
+            prompt = "Describe this image",
+            model = mockk(),
+            projector = mockk(),
+            numThreads = 6,
+            generationThreads = 2,
+        )
+
+        assertEquals("Describe this image", request.prompt)
+        assertEquals(6, request.numThreads)
+        assertEquals(2, request.generationThreads)
+    }
+
+    @Test
     fun `OcrParams data class works correctly`() {
         val params = OcrParams(
             language = "eng",

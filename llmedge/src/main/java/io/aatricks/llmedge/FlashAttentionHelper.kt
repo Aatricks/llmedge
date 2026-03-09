@@ -56,7 +56,7 @@ object FlashAttentionHelper {
 
         Log.d(
                 TAG,
-                "Flash attention decision: width=$width, height=$height, " +
+            "Flash attention decision: width=$width, height=$height, steps=$steps, " +
                         "seqLen=$seqLen, divisible=$isDivisible, long=$isLongEnough, " +
                         "vulkan=$hasVulkan -> $shouldUse"
         )

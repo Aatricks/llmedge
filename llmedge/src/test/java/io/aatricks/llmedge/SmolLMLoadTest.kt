@@ -43,6 +43,7 @@ class SmolLMLoadTest {
     fun `load resolves context and template and applies reasoning options`() = runTest {
         var capturedCtx: Long = -1
         var capturedTemplate: String? = null
+        val configuredThreads = mutableListOf<Pair<Int, Int>>()
         val setReasoningArgs = mutableListOf<Pair<Boolean, Int>>()
 
         SmolLM.overrideNativeBridgeForTests { _ ->
@@ -64,6 +65,15 @@ class SmolLMLoadTest {
                     capturedCtx = contextSize
                     capturedTemplate = chatTemplate
                     return 123L
+                }
+
+                override fun configureThreading(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    generationThreads: Int,
+                    promptThreads: Int,
+                ) {
+                    configuredThreads += generationThreads to promptThreads
                 }
 
                 override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) {
@@ -91,6 +101,8 @@ class SmolLMLoadTest {
         val params = SmolLM.InferenceParams(
             contextSize = null,
             chatTemplate = null,
+            numThreads = 6,
+            generationThreads = 2,
             thinkingMode = SmolLM.ThinkingMode.DEFAULT,
             reasoningBudget = null,
         )
@@ -102,6 +114,7 @@ class SmolLMLoadTest {
         assertEquals("<|im_start|>system {{content}}<|im_end|>", capturedTemplate)
         // Verify reasoning options applied at least once
         assertNotNull(smol.getThinkingMode()) // ensure instance is usable
+        assertEquals(listOf(2 to 6), configuredThreads)
         // We can't assert exact calls, but at least one call should have been recorded
         assertEquals(true, setReasoningArgs.isNotEmpty())
     }

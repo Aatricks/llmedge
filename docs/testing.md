@@ -182,6 +182,26 @@ Run on a connected arm64 device:
 
 Tip: WAN assets are large. Ensure sufficient disk and network availability.
 
+## Example App Validation
+
+The example app lives in a separate Gradle build, so root `:llmedge` tasks do **not** validate it.
+Use the helper script from the repository root:
+
+```bash
+bash scripts/validate_examples.sh
+```
+
+Useful environment variables:
+
+```bash
+# Reuse an already-built release AAR
+LLMEDGE_SKIP_LIBRARY_BUILD=true bash scripts/validate_examples.sh
+
+# Run multiple example tasks in one pass
+LLMEDGE_EXAMPLES_GRADLE_TASKS=':app:assembleDebug :app:assembleRelease' \
+  bash scripts/validate_examples.sh
+```
+
 ## Tips & Troubleshooting
 
 - Accept SDK licenses if prompted:
@@ -202,6 +222,10 @@ Tip: WAN assets are large. Ensure sufficient disk and network availability.
 - Out‑of‑memory during downloads/inference:
   - Use smaller resolutions/steps for tests
   - Ensure system downloader is used for large files, and prefer the managed device flow to keep memory usage predictable
+
+- Example validation nuances:
+  - `scripts/validate_examples.sh` copies the freshly built release AAR into `llmedge-examples/app/libs/`
+  - If you are working in the `llmedge-examples` submodule directly, revert `app/libs/llmedge-release.aar` after validation if you do not want a binary diff in your workspace
 
 - Native JNI is skipped in most tests:
   - Test harness sets `llmedge.disableNativeLoad=true` automatically for non‑E2E tests

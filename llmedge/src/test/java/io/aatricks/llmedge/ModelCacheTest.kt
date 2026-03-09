@@ -58,4 +58,34 @@ class ModelCacheTest {
         assertEquals(0, cache.getStats().misses)
         assertEquals(0, cache.getStats().evictions)
     }
+
+    @Test
+    fun `dynamic size provider refreshes cache accounting before eviction`() {
+        val cache = ModelCache<DummyModel>(maxCacheSize = 4, maxMemoryMB = 1024)
+        cache.systemMemoryProvider = { 400L }
+
+        val first = DummyModel()
+        val second = DummyModel()
+        var firstSizeBytes = 150L * 1024L * 1024L
+
+        cache.put(
+            key = "first",
+            model = first,
+            sizeBytes = firstSizeBytes,
+            sizeProvider = { firstSizeBytes },
+        )
+        firstSizeBytes = 300L * 1024L * 1024L
+        cache.put(
+            key = "second",
+            model = second,
+            sizeBytes = 100L * 1024L * 1024L,
+        )
+
+        assertTrue(first.closed)
+        assertFalse(second.closed)
+        assertFalse(cache.contains("first"))
+        assertTrue(cache.contains("second"))
+        assertEquals(100L, cache.getCurrentSizeMB())
+        assertEquals(1, cache.getStats().evictions)
+    }
 }

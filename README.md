@@ -10,7 +10,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 > This library is in early development and may change significantly.
 
 > [!IMPORTANT]
-> API maturity is uneven by feature area. `LLMEdge`, text inference, speech inference, and model management are the most stable entry points today. Vision, RAG, and some image/video-generation flows are available and tested, but should still be treated as evolving APIs.
+> API maturity is uneven by feature area. `LLMEdge`, text inference, speech inference, and model management are the most stable entry points today. OCR via `edge.vision.extractText(...)` is also reliable. Vision/VLM analysis, RAG, and some image/video-generation flows are available and tested, but should still be treated as evolving APIs.
 
 ---
 
@@ -18,7 +18,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 - **LLM Inference**: Run GGUF models directly on Android using llama.cpp (JNI)
 - **Model Downloads**: Download and cache models from Hugging Face Hub
-- **Optimized Inference**: Native KV cache reuse for compact chats, plus `ChatSession` for bounded history replay on reasoning-heavy models
+- **Optimized Inference**: Native KV cache reuse for compact chats, default batched blocking and streaming text generation, separate prompt vs generation thread tuning, and Kotlin-managed `ChatSession` replay for reasoning-heavy models
 - **Speech-to-Text (STT)**: Whisper.cpp integration with timestamp support, language detection, streaming transcription, and SRT generation
 - **Text-to-Speech (TTS)**: Bark.cpp integration with ARM optimizations
 - **Image Generation**: Stable Diffusion with EasyCache and LoRA support
@@ -84,13 +84,17 @@ val edge = LLMEdge.create(
 
 viewModelScope.launch {
     val reply = edge.text.generate(
-        prompt = "Summarize on-device LLMs in one sentence."
+        prompt = "Summarize on-device LLMs in one sentence.",
     )
     outputView.text = reply
 }
 ```
 
 Low-level wrappers like `SmolLM`, `StableDiffusion`, `Whisper`, and `BarkTTS` remain available for expert workflows, but new code should prefer `LLMEdge`.
+
+By default, `edge.text.generate(...)` uses batched native decoding for lower JNI overhead, while
+`edge.text.stream(...)` uses smaller batched chunks so UI updates stay responsive without paying a
+JNI crossing per token.
 
 ### Downloading Models
 
@@ -179,6 +183,40 @@ viewModelScope.launch {
 
 The new session API keeps transcript state in Kotlin, applies sliding-window trimming, and strips replayed `<think>...</think>` blocks by default so reasoning-heavy models do not exhaust the context window as quickly.
 
+### Text Generation Performance Tuning
+
+The text stack now separates prompt/batch processing from single-token generation so you can tune
+the two phases independently:
+
+```kotlin
+val edge = LLMEdge.create(
+    context = context,
+    scope = viewModelScope,
+    config = LLMEdgeConfig(
+        defaultTextThreads = 6,            // prompt/batch phase
+        defaultTextGenerationThreads = 2,  // token-by-token phase
+        defaultTextBatchSize = 8,
+        defaultTextStreamBatchSize = 4,
+        textCacheMemoryMb = 1536,
+    ),
+)
+
+val reply = edge.text.generate(
+    prompt = "Explain speculative decoding.",
+    options = TextModelOptions(numThreads = 8, generationThreads = 3),
+    batchSize = 12,
+)
+```
+
+Practical defaults:
+
+- `defaultTextThreads`: prompt/batch decode threads
+- `defaultTextGenerationThreads`: single-token generation threads
+- `defaultTextBatchSize`: blocking text batch size (default `8`)
+- `defaultTextStreamBatchSize`: streaming batch size (default `4`)
+- `textCacheMemoryMb`: upper bound for text-model cache accounting; the cache now refreshes against
+  native model/state footprint instead of only the GGUF file size
+
 ### Image Text Extraction (OCR)
 
 llmedge uses Google ML Kit Text Recognition for extracting text from images.
@@ -214,12 +252,17 @@ enum class VisionMode {
 
 Analyze images using Vision Language Models (like LLaVA or Phi-3 Vision) via `edge.vision`.
 
+> [!WARNING]
+> The VLM path is experimental. It requires a vision-capable GGUF and a matching mmproj/projector file. When those components are unavailable or incompatible, `edge.vision.analyze(...)` now fails fast with a clear error instead of silently falling back to text-only prompting. OCR remains available through `edge.vision.extractText(...)`.
+
 ```kotlin
 val edge = LLMEdge.create(context, viewModelScope)
 
 val description = edge.vision.analyze(
     image = bitmap,
     prompt = "Describe this image in detail.",
+    numThreads = 4,
+    generationThreads = 2,
 ) { status ->
     Log.d("Vision", "Status: $status")
 }
@@ -545,6 +588,10 @@ You can measure RAM usage at runtime:
 ```kotlin
 val snapshot = MemoryMetrics.snapshot(context)
 Log.d("Memory", snapshot.toPretty(context))
+
+val smol = SmolLM()
+smol.load(modelPath)
+Log.d("Memory", "native=${smol.getEstimatedNativeMemoryBytes()} state=${smol.getEstimatedStateMemoryBytes()}")
 ```
 
 Typical measurement points:
@@ -562,6 +609,9 @@ Typical measurement points:
 - `otherPssKb`: Miscellaneous memory.
 
 Monitor `nativePssKb` closely during model loading and inference to understand LLM memory footprint.
+Use `SmolLM.getEstimatedNativeMemoryBytes()` for the model-plus-state estimate and
+`SmolLM.getEstimatedStateMemoryBytes()` when you specifically want to watch KV/runtime state
+growth over time.
 
 ## Notes
 

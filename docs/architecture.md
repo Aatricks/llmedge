@@ -58,6 +58,9 @@ Diagram (JNI loading):
 ### Implementation notes
 
 - Avoid calling native load/generation on the main thread.
+- Text inference now distinguishes **prompt/batch threads** from **single-token generation threads** via the underlying llama.cpp `llama_set_n_threads(ctx, n_threads, n_threads_batch)` split.
+- High-level blocking text generation uses batched native completion calls by default, while streaming uses smaller batched chunks to reduce JNI crossings without delaying UI updates too much.
+- Text-model cache sizing is refreshed from native model/state memory estimates so eviction policy follows actual runtime footprint more closely than GGUF file size alone.
 - Ensure ABIs packaged in `lib/` match device architecture (arm64-v8a is recommended for modern devices).
 - Include `System.loadLibrary(...)` in a static initializer or trusted module; guard with try/catch and surface meaningful errors to the user.
 

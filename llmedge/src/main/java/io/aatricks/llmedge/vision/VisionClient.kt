@@ -11,6 +11,10 @@ data class VisionRequest(
     val prompt: String,
     val model: ModelSpec,
     val projector: ModelSpec,
+    /** Prompt/batch processing threads for the underlying SmolLM runtime. */
+    val numThreads: Int? = null,
+    /** Single-token generation threads for the underlying SmolLM runtime. */
+    val generationThreads: Int? = null,
 )
 
 class VisionClient internal constructor(
@@ -20,6 +24,9 @@ class VisionClient internal constructor(
 ) : AutoCloseable {
     private val defaultModel: ModelSpec = config.models.vision.model
     private val defaultProjector: ModelSpec = config.models.vision.projector
+    private val defaultPromptThreads: Int = config.defaultTextThreads.coerceAtLeast(1)
+    private val defaultGenerationThreads: Int =
+        config.defaultTextGenerationThreads.coerceAtLeast(1)
 
     /**
      * Analyze an image with the configured vision pipeline.
@@ -41,8 +48,21 @@ class VisionClient internal constructor(
         prompt: String,
         model: ModelSpec = defaultModel,
         projector: ModelSpec = defaultProjector,
+        numThreads: Int = defaultPromptThreads,
+        generationThreads: Int = defaultGenerationThreads,
         onStatus: ((String) -> Unit)? = null,
-    ): String = analyze(VisionRequest(image, prompt, model, projector), onStatus)
+    ): String =
+        analyze(
+            VisionRequest(
+                image = image,
+                prompt = prompt,
+                model = model,
+                projector = projector,
+                numThreads = numThreads,
+                generationThreads = generationThreads,
+            ),
+            onStatus,
+        )
 
     /**
      * Extract text with the bundled OCR pipeline.

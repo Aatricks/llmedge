@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 data class TextModelOptions(
     val contextSize: Long? = null,
     val numThreads: Int? = null,
+    val generationThreads: Int? = null,
     val minP: Float? = null,
     val temperature: Float? = null,
     val useMmap: Boolean? = null,
@@ -35,7 +36,7 @@ data class TextGenerationRequest(
     val systemPrompt: String? = null,
     val options: TextModelOptions = TextModelOptions(),
     val maxTokens: Int = -1,
-    val batchSize: Int = 1,
+    val batchSize: Int = 0,
 )
 
 internal fun TextModelOptions.toInferenceParams(config: LLMEdgeConfig): SmolLM.InferenceParams =
@@ -45,6 +46,7 @@ internal fun TextModelOptions.toInferenceParams(config: LLMEdgeConfig): SmolLM.I
         storeChats = false,
         contextSize = contextSize ?: config.defaultTextContextSize,
         numThreads = numThreads ?: config.defaultTextThreads.coerceAtLeast(1),
+        generationThreads = generationThreads ?: numThreads ?: config.defaultTextGenerationThreads.coerceAtLeast(1),
         useMmap = useMmap ?: config.defaultUseMmap,
         useMlock = useMlock ?: config.defaultUseMlock,
         useFlashAttn = useFlashAttention ?: config.defaultUseFlashAttention,
@@ -57,6 +59,13 @@ internal class ManagedTextModel(
     val model: SmolLM,
 ) : AutoCloseable {
     val mutex: Mutex = Mutex()
+
+    fun estimatedNativeMemoryBytes(): Long =
+        maxOf(
+            model.getEstimatedNativeMemoryBytes().takeIf { it > 0L } ?: 0L,
+            fileSizeBytes + model.getEstimatedStateMemoryBytes().coerceAtLeast(0L),
+            fileSizeBytes,
+        )
 
     override fun close() {
         model.close()
@@ -106,7 +115,7 @@ class TextClient internal constructor(
         systemPrompt: String? = null,
         options: TextModelOptions = TextModelOptions(),
         maxTokens: Int = -1,
-        batchSize: Int = 1,
+        batchSize: Int = 0,
     ): String =
         generate(
             TextGenerationRequest(
@@ -143,6 +152,7 @@ class TextClient internal constructor(
         model: ModelSpec = config.models.text,
         systemPrompt: String? = null,
         options: TextModelOptions = TextModelOptions(),
+        batchSize: Int = 0,
     ): Flow<TextStreamEvent> =
         stream(
             TextGenerationRequest(
@@ -150,6 +160,7 @@ class TextClient internal constructor(
                 model = model,
                 systemPrompt = systemPrompt,
                 options = options,
+                batchSize = batchSize,
             ),
         )
 
@@ -158,7 +169,7 @@ class TextClient internal constructor(
         val runtime = acquire(request.model, request.options)
         lastGenerationMetrics = null
         val response = StringBuilder()
-        streamCompletion(runtime, request.prompt, request.systemPrompt, request.options).collect { chunk ->
+        streamCompletion(runtime, request.prompt, request.systemPrompt, request.options, request.batchSize).collect { chunk ->
             response.append(chunk)
             emit(TextStreamEvent.Chunk(chunk))
         }
@@ -189,7 +200,12 @@ class TextClient internal constructor(
             val smol = SmolLM(useVulkan = options.useVulkan ?: config.textUseVulkan)
             smol.load(modelFile.absolutePath, options.toInferenceParams(config))
             val runtime = ManagedTextModel(fileSizeBytes = modelFile.length(), model = smol)
-            cache.put(key, runtime, runtime.fileSizeBytes)
+            cache.put(
+                key = key,
+                model = runtime,
+                sizeBytes = runtime.estimatedNativeMemoryBytes(),
+                sizeProvider = runtime::estimatedNativeMemoryBytes,
+            )
             runtime
         }
     }
@@ -206,7 +222,8 @@ class TextClient internal constructor(
             withContext(scope.inferenceDispatcher) {
                 prepareModel(runtime.model, systemPrompt, options)
                 try {
-                    runtime.model.getResponse(prompt, maxTokens, batchSize).also {
+                    val effectiveBatchSize = resolveBatchSize(batchSize, maxTokens)
+                    runtime.model.getResponse(prompt, maxTokens, effectiveBatchSize).also {
                         lastGenerationMetrics = runtime.model.getLastGenerationMetrics()
                     }
                 } finally {
@@ -220,6 +237,7 @@ class TextClient internal constructor(
         prompt: String,
         systemPrompt: String?,
         options: TextModelOptions,
+        batchSize: Int,
     ): Flow<String> =
         flow {
             runtime.mutex.withLock {
@@ -227,8 +245,9 @@ class TextClient internal constructor(
                     prepareModel(runtime.model, systemPrompt, options)
                 }
                 try {
+                    val effectiveBatchSize = resolveStreamBatchSize(batchSize)
                     runtime.model
-                        .getResponseAsFlow(prompt, scope.inferenceDispatcher)
+                        .getResponseAsFlow(prompt, scope.inferenceDispatcher, effectiveBatchSize)
                         .buffer(64)
                         .collect { chunk ->
                             if (chunk != "[EOG]") {
@@ -253,11 +272,36 @@ class TextClient internal constructor(
         options.reasoningBudget?.let(model::setReasoningBudget)
     }
 
+    private fun resolveStreamBatchSize(requestedBatchSize: Int): Int {
+        val configuredBatchSize = config.defaultTextStreamBatchSize.coerceAtLeast(1)
+        return when {
+            requestedBatchSize == 0 -> configuredBatchSize
+            requestedBatchSize > 0 -> requestedBatchSize
+            else -> 1
+        }
+    }
+
+    private fun resolveBatchSize(requestedBatchSize: Int, maxTokens: Int): Int {
+        val configuredBatchSize = config.defaultTextBatchSize.coerceAtLeast(1)
+        val preferredBatchSize =
+            when {
+                requestedBatchSize == 0 -> configuredBatchSize
+                requestedBatchSize > 0 -> requestedBatchSize
+                else -> 1
+            }
+        return if (maxTokens > 0) {
+            minOf(preferredBatchSize, maxTokens.coerceAtLeast(1))
+        } else {
+            preferredBatchSize
+        }
+    }
+
     private fun buildCacheKey(model: ModelSpec, options: TextModelOptions): String =
         listOf(
             model.cacheKey,
             "ctx=${options.contextSize ?: config.defaultTextContextSize ?: 0L}",
             "threads=${options.numThreads ?: config.defaultTextThreads}",
+            "genThreads=${options.generationThreads ?: options.numThreads ?: config.defaultTextGenerationThreads}",
             "mmap=${options.useMmap ?: config.defaultUseMmap}",
             "mlock=${options.useMlock ?: config.defaultUseMlock}",
             "flash=${options.useFlashAttention ?: config.defaultUseFlashAttention}",

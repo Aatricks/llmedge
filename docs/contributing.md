@@ -43,6 +43,12 @@ If you have already built `llmedge/build/outputs/aar/llmedge-release.aar` and on
 LLMEDGE_SKIP_LIBRARY_BUILD=true bash scripts/validate_examples.sh
 ```
 
+To validate both example variants in one pass:
+
+```fish
+LLMEDGE_EXAMPLES_GRADLE_TASKS=':app:assembleDebug :app:assembleRelease' bash scripts/validate_examples.sh
+```
+
 ## Development Workflow
 
 ### Creating a Feature Branch
@@ -83,6 +89,11 @@ Use descriptive branch names:
    Because the example app is a separate build, validate it explicitly:
    ```fish
    bash scripts/validate_examples.sh
+   ```
+
+   If your change affects packaging or release-only behavior, validate both variants:
+   ```fish
+   LLMEDGE_EXAMPLES_GRADLE_TASKS=':app:assembleDebug :app:assembleRelease' bash scripts/validate_examples.sh
    ```
 
 4. **Check for warnings** in build output
@@ -182,7 +193,9 @@ Java_io_aatricks_llmedge_SmolLM_loadModel(
 
 - Measure inference speed with `getLastGenerationMetrics()`
 - Profile memory with `MemoryMetrics.snapshot()`
-- Test with different `numThreads` values
+- Test with different prompt/generation thread splits (`numThreads` vs `generationThreads`)
+- Measure the effect of `defaultTextBatchSize` / `defaultTextStreamBatchSize` on JNI overhead and UI responsiveness
+- Check `getEstimatedNativeMemoryBytes()` / `getEstimatedStateMemoryBytes()` when changing cache or context behavior
 - Compare before/after for performance-affecting changes
 - Include performance notes in PR description
 

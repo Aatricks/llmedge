@@ -27,6 +27,42 @@ val response = edge.text.generate(
 )
 ```
 
+The high-level text client defaults to **batched blocking generation** to reduce JNI overhead.
+Override it when needed:
+
+```kotlin
+val response = edge.text.generate(
+    prompt = "Summarize the latest release notes.",
+    maxTokens = 256,
+    batchSize = 12,
+    options = TextModelOptions(
+        numThreads = 8,          // prompt/batch processing
+        generationThreads = 3,   // single-token generation
+    ),
+)
+```
+
+Streaming uses smaller batched native chunks by default. This keeps UI updates responsive without
+crossing JNI once per token:
+
+```kotlin
+edge.text.stream(
+    prompt = "List the key takeaways.",
+    batchSize = 6,
+    options = TextModelOptions(
+        numThreads = 6,
+        generationThreads = 2,
+    ),
+).collect { event ->
+    if (event is TextStreamEvent.Chunk) {
+        appendToUi(event.value)
+    }
+}
+```
+
+Default batch sizes are currently `8` for blocking generation and `4` for streaming. Passing
+`batchSize = 0` uses the configured default for the relevant path.
+
 ### Image Generation
 
 Handles model resolution and memory-safe loading through the `edge.image` client.
@@ -88,6 +124,18 @@ Analyze images using a Vision Language Model (VLM).
 ```kotlin
 val edge = LLMEdge.create(context, viewModelScope)
 val description = edge.vision.analyze(bitmap, "What is in this image?")
+```
+
+Vision analysis also exposes separate prompt and generation thread counts for the underlying
+SmolLM runtime:
+
+```kotlin
+val description = edge.vision.analyze(
+    image = bitmap,
+    prompt = "What is in this image?",
+    numThreads = 4,
+    generationThreads = 2,
+)
 ```
 
 ### OCR (Text Extraction)
@@ -496,6 +544,9 @@ See [StableDiffusionActivity example](examples.md#stablediffusionactivity) for c
 - Enable CPU offloading for large models
 - Close model instances when not in use
 - Process images/video in batches with intermediate cleanup
+- Prefer batched text generation (`batchSize > 1`) for blocking calls that do not need token-level UI updates
+- Use different thread counts for prompt/batch work and single-token generation when tuning for big.LITTLE devices
+- Text-model cache sizing is now refreshed from the native model/state footprint, so `textCacheMemoryMb` is a meaningful guardrail instead of just a file-size hint
 - **LLM chat memory**:
     - `storeChats` is deprecated but still available for tightly scoped low-level compatibility flows that intentionally keep chat state inside one native runtime.
   - Use `edge.text.session(...)` when you need bounded history replay or want to strip older reasoning traces before replay.
@@ -514,6 +565,9 @@ Key methods:
 - `edge.text.generate(...)` — high-level text generation
 - `edge.text.stream(...)` — high-level text streaming
 - `edge.text.session(...)` — creates a Kotlin-managed multi-turn chat session
+- `TextGenerationRequest.batchSize` — blocking generation batch size (`0` = use configured default)
+- `edge.text.stream(..., batchSize = ...)` / `text.ChatSession.stream(..., batchSize = ...)` — streaming batch size override (`0` = use configured default)
+- `TextModelOptions.numThreads` / `generationThreads` — prompt/batch vs single-token thread counts
 - `edge.image.generate(...)` — high-level image generation
 - `edge.image.generateVideo(...)` — high-level video generation
 - `edge.speech.transcribe(...)` — high-level speech-to-text
@@ -522,6 +576,7 @@ Key methods:
 - `SmolLM.loadFromHuggingFace(...)` — downloads and loads a model from Hugging Face
 - `SmolLM.getResponse(query: String): String` — runs blocking generation and returns complete text
 - `SmolLM.getResponseAsFlow(query: String): Flow<String>` — runs streaming generation
+- `SmolLM.getEstimatedNativeMemoryBytes()` / `getEstimatedStateMemoryBytes()` — expose native model/state memory estimates
 - `SmolLM.addSystemPrompt(prompt: String)` — adds system prompt to chat history
 - `SmolLM.addUserMessage(message: String)` — adds user message to chat history
 - `text.ChatSession.reply(message: String): String` — runs bounded multi-turn chat with Kotlin-managed history

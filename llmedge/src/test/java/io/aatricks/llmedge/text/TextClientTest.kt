@@ -9,6 +9,7 @@ import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
 import java.io.File
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -88,10 +89,14 @@ class TextClientTest {
         var startCalls = 0
         var clearKvCacheCalls = 0
         var closeCalls = 0
+        var completionLoopCalls = 0
+        val completionLoopBatchArgs = mutableListOf<Int>()
 
         SmolLM.overrideNativeBridgeForTests {
             object : SmolLM.NativeBridge {
                 private var queue = ArrayDeque<String>()
+
+                private fun nextPiece(): String = queue.removeFirst()
 
                 override fun loadModel(
                     instance: SmolLM,
@@ -152,10 +157,15 @@ class TextClientTest {
                     queue = ArrayDeque(listOf("ok", "[EOG]"))
                 }
 
-                override fun completionLoop(instance: SmolLM, modelPtr: Long): String = queue.removeFirst()
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String {
+                    completionLoopCalls++
+                    return nextPiece()
+                }
 
-                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String =
-                    completionLoop(instance, modelPtr)
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String {
+                    completionLoopBatchArgs += maxTokens
+                    return nextPiece()
+                }
 
                 override fun stopCompletion(instance: SmolLM, modelPtr: Long) = Unit
 
@@ -170,7 +180,7 @@ class TextClientTest {
             TextClient(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(textCacheSize = 2, textCacheMemoryMb = 64),
+                config = LLMEdgeConfig(textCacheSize = 2, textCacheMemoryMb = 64, defaultTextBatchSize = 6),
                 modelResolver = resolver,
             )
 
@@ -184,11 +194,441 @@ class TextClientTest {
             assertEquals(1, loadCalls)
             assertEquals(2, startCalls)
             assertTrue(clearKvCacheCalls >= 4)
+            assertEquals(0, completionLoopCalls)
+            assertEquals(listOf(6, 6, 6, 6), completionLoopBatchArgs)
 
             client.close()
             advanceUntilIdle()
             assertEquals(1, closeCalls)
         } finally {
+            edgeScope.close()
+        }
+    }
+
+    @Test
+    fun `explicit single token batch size keeps single token loop`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile = createTempGgufFile(context.cacheDir)
+        val modelSpec = ModelSpec.localFile(modelFile)
+        val resolver =
+            object : ModelResolver {
+                override suspend fun resolve(
+                    context: Context,
+                    spec: ModelSpec,
+                    onProgress: ((io.aatricks.llmedge.core.ProgressEvent.Downloading) -> Unit)?,
+                ): File =
+                    when (spec) {
+                        is ModelSpec.LocalFile -> spec.file
+                        else -> error("Unexpected spec: $spec")
+                    }
+            }
+
+        var completionLoopCalls = 0
+        var completionLoopBatchCalls = 0
+
+        SmolLM.overrideNativeBridgeForTests {
+            object : SmolLM.NativeBridge {
+                private var queue = ArrayDeque<String>()
+
+                private fun nextPiece(): String = queue.removeFirst()
+
+                override fun loadModel(
+                    instance: SmolLM,
+                    modelPath: String,
+                    minP: Float,
+                    temperature: Float,
+                    storeChats: Boolean,
+                    contextSize: Long,
+                    chatTemplate: String,
+                    nThreads: Int,
+                    useMmap: Boolean,
+                    useMlock: Boolean,
+                    useVulkan: Boolean,
+                    useFlashAttn: Boolean,
+                ): Long = 1L
+
+                override fun setReasoningOptions(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    disableThinking: Boolean,
+                    reasoningBudget: Int,
+                ) = Unit
+
+                override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) = Unit
+
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = 1f
+
+                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = 1L
+
+                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = 1L
+
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 1
+
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0L
+
+                override fun nativeDecodePreparedEmbeddings(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    embdPath: String,
+                    metaPath: String,
+                    nBatch: Int,
+                ): Boolean = true
+
+                override fun close(instance: SmolLM, modelPtr: Long) = Unit
+
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {
+                    queue = ArrayDeque(listOf("x", "[EOG]"))
+                }
+
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String {
+                    completionLoopCalls++
+                    return nextPiece()
+                }
+
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String {
+                    completionLoopBatchCalls++
+                    return nextPiece()
+                }
+
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) = Unit
+
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) = Unit
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            TextClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(textCacheSize = 1, textCacheMemoryMb = 64, defaultTextBatchSize = 6),
+                modelResolver = resolver,
+            )
+
+        try {
+            assertEquals("x", client.generate(prompt = "hello", model = modelSpec, batchSize = 1))
+            assertTrue(completionLoopCalls > 0)
+            assertEquals(0, completionLoopBatchCalls)
+        } finally {
+            client.close()
+            edgeScope.close()
+        }
+    }
+
+    @Test
+    fun `stream uses configured batched native path`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile = createTempGgufFile(context.cacheDir)
+        val modelSpec = ModelSpec.localFile(modelFile)
+        val resolver =
+            object : ModelResolver {
+                override suspend fun resolve(
+                    context: Context,
+                    spec: ModelSpec,
+                    onProgress: ((io.aatricks.llmedge.core.ProgressEvent.Downloading) -> Unit)?,
+                ): File =
+                    when (spec) {
+                        is ModelSpec.LocalFile -> spec.file
+                        else -> error("Unexpected spec: $spec")
+                    }
+            }
+
+        var completionLoopCalls = 0
+        val completionLoopBatchArgs = mutableListOf<Int>()
+
+        SmolLM.overrideNativeBridgeForTests {
+            object : SmolLM.NativeBridge {
+                private var queue = ArrayDeque<String>()
+
+                private fun nextPiece(): String = queue.removeFirst()
+
+                override fun loadModel(
+                    instance: SmolLM,
+                    modelPath: String,
+                    minP: Float,
+                    temperature: Float,
+                    storeChats: Boolean,
+                    contextSize: Long,
+                    chatTemplate: String,
+                    nThreads: Int,
+                    useMmap: Boolean,
+                    useMlock: Boolean,
+                    useVulkan: Boolean,
+                    useFlashAttn: Boolean,
+                ): Long = 1L
+
+                override fun setReasoningOptions(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    disableThinking: Boolean,
+                    reasoningBudget: Int,
+                ) = Unit
+
+                override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) = Unit
+
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = 1f
+
+                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = 1L
+
+                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = 1L
+
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 1
+
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0L
+
+                override fun nativeDecodePreparedEmbeddings(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    embdPath: String,
+                    metaPath: String,
+                    nBatch: Int,
+                ): Boolean = true
+
+                override fun close(instance: SmolLM, modelPtr: Long) = Unit
+
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {
+                    queue = ArrayDeque(listOf("chunk", "[EOG]"))
+                }
+
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String {
+                    completionLoopCalls++
+                    return nextPiece()
+                }
+
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String {
+                    completionLoopBatchArgs += maxTokens
+                    return nextPiece()
+                }
+
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) = Unit
+
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) = Unit
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            TextClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(defaultTextStreamBatchSize = 3),
+                modelResolver = resolver,
+            )
+
+        try {
+            val events = client.stream(prompt = "hello", model = modelSpec).toList()
+            assertEquals(0, completionLoopCalls)
+            assertEquals(listOf(3, 3), completionLoopBatchArgs)
+            assertTrue(events.filterIsInstance<TextStreamEvent.Chunk>().map { it.value }.contains("chunk"))
+        } finally {
+            client.close()
+            edgeScope.close()
+        }
+    }
+
+    @Test
+    fun `stream request batch size overrides configured default`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile = createTempGgufFile(context.cacheDir)
+        val modelSpec = ModelSpec.localFile(modelFile)
+        val resolver =
+            object : ModelResolver {
+                override suspend fun resolve(
+                    context: Context,
+                    spec: ModelSpec,
+                    onProgress: ((io.aatricks.llmedge.core.ProgressEvent.Downloading) -> Unit)?,
+                ): File =
+                    when (spec) {
+                        is ModelSpec.LocalFile -> spec.file
+                        else -> error("Unexpected spec: $spec")
+                    }
+            }
+
+        val completionLoopBatchArgs = mutableListOf<Int>()
+
+        SmolLM.overrideNativeBridgeForTests {
+            object : SmolLM.NativeBridge {
+                private var queue = ArrayDeque<String>()
+
+                private fun nextPiece(): String = queue.removeFirst()
+
+                override fun loadModel(
+                    instance: SmolLM,
+                    modelPath: String,
+                    minP: Float,
+                    temperature: Float,
+                    storeChats: Boolean,
+                    contextSize: Long,
+                    chatTemplate: String,
+                    nThreads: Int,
+                    useMmap: Boolean,
+                    useMlock: Boolean,
+                    useVulkan: Boolean,
+                    useFlashAttn: Boolean,
+                ): Long = 1L
+
+                override fun setReasoningOptions(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    disableThinking: Boolean,
+                    reasoningBudget: Int,
+                ) = Unit
+
+                override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) = Unit
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = 1f
+                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = 1L
+                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = 1L
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 1
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0L
+                override fun nativeDecodePreparedEmbeddings(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    embdPath: String,
+                    metaPath: String,
+                    nBatch: Int,
+                ): Boolean = true
+                override fun close(instance: SmolLM, modelPtr: Long) = Unit
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {
+                    queue = ArrayDeque(listOf("chunk", "[EOG]"))
+                }
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String = nextPiece()
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String {
+                    completionLoopBatchArgs += maxTokens
+                    return nextPiece()
+                }
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) = Unit
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) = Unit
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            TextClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(defaultTextStreamBatchSize = 4),
+                modelResolver = resolver,
+            )
+
+        try {
+            val events =
+                client.stream(
+                    request = TextGenerationRequest(
+                        prompt = "hello",
+                        model = modelSpec,
+                        batchSize = 2,
+                    ),
+                ).toList()
+
+            assertEquals(listOf(2, 2), completionLoopBatchArgs)
+            assertTrue(events.filterIsInstance<TextStreamEvent.Chunk>().map { it.value }.contains("chunk"))
+        } finally {
+            client.close()
+            edgeScope.close()
+        }
+    }
+
+    @Test
+    fun `text client forwards separate prompt and generation thread counts`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile = createTempGgufFile(context.cacheDir)
+        val modelSpec = ModelSpec.localFile(modelFile)
+        val resolver =
+            object : ModelResolver {
+                override suspend fun resolve(
+                    context: Context,
+                    spec: ModelSpec,
+                    onProgress: ((io.aatricks.llmedge.core.ProgressEvent.Downloading) -> Unit)?,
+                ): File =
+                    when (spec) {
+                        is ModelSpec.LocalFile -> spec.file
+                        else -> error("Unexpected spec: $spec")
+                    }
+            }
+
+        val configuredThreads = mutableListOf<Pair<Int, Int>>()
+
+        SmolLM.overrideNativeBridgeForTests {
+            object : SmolLM.NativeBridge {
+                private var queue = ArrayDeque<String>()
+
+                override fun loadModel(
+                    instance: SmolLM,
+                    modelPath: String,
+                    minP: Float,
+                    temperature: Float,
+                    storeChats: Boolean,
+                    contextSize: Long,
+                    chatTemplate: String,
+                    nThreads: Int,
+                    useMmap: Boolean,
+                    useMlock: Boolean,
+                    useVulkan: Boolean,
+                    useFlashAttn: Boolean,
+                ): Long = 1L
+
+                override fun configureThreading(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    generationThreads: Int,
+                    promptThreads: Int,
+                ) {
+                    configuredThreads += generationThreads to promptThreads
+                }
+
+                override fun setReasoningOptions(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    disableThinking: Boolean,
+                    reasoningBudget: Int,
+                ) = Unit
+
+                override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) = Unit
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = 1f
+                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = 1L
+                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = 1L
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 1
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0L
+                override fun getEstimatedNativeMemoryBytes(instance: SmolLM, modelPtr: Long): Long = 512L
+                override fun nativeDecodePreparedEmbeddings(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    embdPath: String,
+                    metaPath: String,
+                    nBatch: Int,
+                ): Boolean = true
+                override fun close(instance: SmolLM, modelPtr: Long) = Unit
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {
+                    queue = ArrayDeque(listOf("ok", "[EOG]"))
+                }
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String = queue.removeFirst()
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String =
+                    completionLoop(instance, modelPtr)
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) = Unit
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) = Unit
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            TextClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(defaultTextThreads = 6, defaultTextGenerationThreads = 2),
+                modelResolver = resolver,
+            )
+
+        try {
+            client.generate(prompt = "hello", model = modelSpec)
+            client.generate(
+                prompt = "custom",
+                model = modelSpec,
+                options = TextModelOptions(numThreads = 5, generationThreads = 3),
+            )
+
+            assertEquals(listOf(2 to 6, 3 to 5), configuredThreads)
+        } finally {
+            client.close()
             edgeScope.close()
         }
     }

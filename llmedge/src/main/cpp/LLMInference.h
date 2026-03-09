@@ -66,6 +66,10 @@ class LLMInference {
 
     int64_t getResponseGenerationTimeMicros() const;
 
+    uint64_t getEstimatedMemoryBytes() const;
+
+    uint64_t getStateMemoryBytes() const;
+
     int getContextSizeUsed() const;
 
     void startCompletion(const char* query);
@@ -77,6 +81,8 @@ class LLMInference {
     void stopCompletion();
 
     void setReasoningOptions(bool disableThinking, int reasoningBudget);
+
+    void configureThreading(int generationThreads, int promptThreads);
 
     void setThreadAffinity(uint64_t coreMask);
 

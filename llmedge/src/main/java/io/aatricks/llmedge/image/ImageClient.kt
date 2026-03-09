@@ -364,7 +364,7 @@ class ImageClient internal constructor(
 
     private suspend fun resolveVideoVae(params: VideoGenerationRequest): java.io.File? {
         val spec = params.vae ?: config.models.video.vae
-        return spec?.let { resolver.resolve(context, it) }
+        return spec.let { resolver.resolve(context, it) }
     }
 
     private suspend fun resolveRequiredVideoVae(params: VideoGenerationRequest): java.io.File {
@@ -375,7 +375,7 @@ class ImageClient internal constructor(
 
     private suspend fun resolveVideoTextEncoder(params: VideoGenerationRequest): java.io.File? {
         val spec = params.textEncoder ?: config.models.video.textEncoder
-        return spec?.let { resolver.resolve(context, it) }
+        return spec.let { resolver.resolve(context, it) }
     }
 
     private suspend fun resolveRequiredVideoTextEncoder(params: VideoGenerationRequest): java.io.File {

@@ -68,6 +68,29 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float
         fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long
         fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long
+        fun getLastGenerationMetrics(instance: SmolLM, modelPtr: Long): GenerationMetrics {
+            val elapsedMicros = getResponseGenerationDurationMicros(instance, modelPtr)
+            val tokenCount = getResponseGeneratedTokenCount(instance, modelPtr)
+            val tokensPerSecond =
+                if (elapsedMicros <= 0L || tokenCount <= 0L) {
+                    0f
+                } else {
+                    getResponseGenerationSpeed(instance, modelPtr)
+                }
+            return GenerationMetrics(
+                tokensPerSecond = tokensPerSecond,
+                tokenCount = tokenCount,
+                elapsedMicros = elapsedMicros,
+            )
+        }
+            fun configureThreading(
+                instance: SmolLM,
+                modelPtr: Long,
+                generationThreads: Int,
+                promptThreads: Int,
+            ) = Unit
+            fun getEstimatedNativeMemoryBytes(instance: SmolLM, modelPtr: Long): Long = 0L
+            fun getEstimatedStateMemoryBytes(instance: SmolLM, modelPtr: Long): Long = 0L
         fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int
         fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long
         fun nativeDecodePreparedEmbeddings(
@@ -89,6 +112,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         private const val DEFAULT_CONTEXT_SIZE_CAP: Long = 8_192L
         private const val MIN_CONTEXT_SIZE: Long = 1_024L
         private const val DEFAULT_REASONING_BUDGET: Int = -1
+        const val DEFAULT_BLOCKING_BATCH_SIZE: Int = 8
 
         private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
 
@@ -161,6 +185,39 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         instance: SmolLM,
                         modelPtr: Long
                 ): Long = instance.getResponseGenerationDurationMicros(modelPtr)
+                override fun getLastGenerationMetrics(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                ): GenerationMetrics {
+                    val packed = instance.nativeGetLastGenerationMetrics(modelPtr)
+                    if (packed == null || packed.size < 3) {
+                        return super<NativeBridge>.getLastGenerationMetrics(instance, modelPtr)
+                    }
+                    val elapsedMicros = packed[0]
+                    val tokenCount = packed[1]
+                    val tokensPerSecondBits = packed[2].toInt()
+                    val tokensPerSecond =
+                        if (elapsedMicros <= 0L || tokenCount <= 0L) {
+                            0f
+                        } else {
+                            Float.fromBits(tokensPerSecondBits)
+                        }
+                    return GenerationMetrics(
+                        tokensPerSecond = tokensPerSecond,
+                        tokenCount = tokenCount,
+                        elapsedMicros = elapsedMicros,
+                    )
+                }
+                    override fun configureThreading(
+                        instance: SmolLM,
+                        modelPtr: Long,
+                        generationThreads: Int,
+                        promptThreads: Int,
+                    ) = instance.nativeConfigureThreading(modelPtr, generationThreads, promptThreads)
+                    override fun getEstimatedNativeMemoryBytes(instance: SmolLM, modelPtr: Long): Long =
+                        instance.nativeGetEstimatedMemoryBytes(modelPtr)
+                    override fun getEstimatedStateMemoryBytes(instance: SmolLM, modelPtr: Long): Long =
+                        instance.nativeGetEstimatedStateMemoryBytes(modelPtr)
                 override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int =
                         instance.getContextSizeUsed(modelPtr)
                 override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long =
@@ -283,7 +340,11 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      *                        model file. (Default: null)
      * @property numThreads
      * ```
-     * The number of threads to use for inference. (Default: 4)
+    * The number of threads to use for prompt/batch processing. (Default: 4)
+    * @property generationThreads
+    * ```
+    * Optional thread count for single-token generation. If omitted, [numThreads]
+    * is reused for both prompt and generation phases.
      * @property useMmap Whether to use memory-mapped file I/O for loading the model.
      * ```
      *                   This can improve loading times and reduce memory usage. (Default: true)
@@ -317,6 +378,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 val contextSize: Long? = null,
                 val chatTemplate: String? = null,
             val numThreads: Int = 4,
+            val generationThreads: Int? = null,
             val useMmap: Boolean = true,
             val useMlock: Boolean = false,
             val useFlashAttn: Boolean = true,
@@ -388,16 +450,19 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 }
                 nativePtr =
                     try {
+                        @Suppress("DEPRECATION")
+                        val storeChats = params.storeChats
+                        val promptThreads = params.numThreads.coerceAtLeast(1)
                         NativeCall.binding("smollm", "SmolLM JNI bindings are unavailable.") {
                             nativeBridge.loadModel(
                                     this@SmolLM,
                                     validatedModel.absolutePath,
                                     params.minP,
                                     params.temperature,
-                                    params.storeChats,
+                                    storeChats,
                                     resolvedContextSize,
                                     resolvedChatTemplate,
-                                    params.numThreads,
+                                    promptThreads,
                                     params.useMmap,
                                     params.useMlock,
                                     useVulkanGPU,
@@ -419,6 +484,9 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         validatedModel.absolutePath,
                         "The native SmolLM loader returned an invalid handle.",
                     )
+                val promptThreads = params.numThreads.coerceAtLeast(1)
+                val generationThreads = (params.generationThreads ?: promptThreads).coerceAtLeast(1)
+                nativeBridge.configureThreading(this@SmolLM, nativePtr, generationThreads, promptThreads)
                 val reasoningBudget =
                         resolvedReasoningBudget(params.thinkingMode, params.reasoningBudget)
                 applyReasoningState(params.thinkingMode, reasoningBudget)
@@ -432,6 +500,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         params.copy(
                                 contextSize = resolvedContextSize,
                                 chatTemplate = resolvedChatTemplate,
+                        numThreads = promptThreads,
+                        generationThreads = generationThreads,
                         )
             }
 
@@ -546,19 +616,17 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      */
     fun getLastGenerationMetrics(): GenerationMetrics {
         verifyHandle()
-        val elapsedMicros = nativeBridge.getResponseGenerationDurationMicros(this, nativePtr)
-        val tokenCount = nativeBridge.getResponseGeneratedTokenCount(this, nativePtr)
-        val tokensPerSecond =
-                if (elapsedMicros <= 0L || tokenCount <= 0L) {
-                    0f
-                } else {
-                    nativeBridge.getResponseGenerationSpeed(this, nativePtr)
-                }
-        return GenerationMetrics(
-                tokensPerSecond = tokensPerSecond,
-                tokenCount = tokenCount,
-                elapsedMicros = elapsedMicros
-        )
+        return nativeBridge.getLastGenerationMetrics(this, nativePtr)
+    }
+
+    fun getEstimatedNativeMemoryBytes(): Long {
+        verifyHandle()
+        return nativeBridge.getEstimatedNativeMemoryBytes(this, nativePtr)
+    }
+
+    fun getEstimatedStateMemoryBytes(): Long {
+        verifyHandle()
+        return nativeBridge.getEstimatedStateMemoryBytes(this, nativePtr)
     }
 
     /**
@@ -586,15 +654,31 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     fun getResponseAsFlow(query: String): Flow<String> = getResponseAsFlow(query, Dispatchers.IO)
 
     fun getResponseAsFlow(query: String, dispatcher: CoroutineDispatcher): Flow<String> =
+            getResponseAsFlow(query, dispatcher, 1)
+
+    fun getResponseAsFlow(
+        query: String,
+        dispatcher: CoroutineDispatcher,
+        batchSize: Int,
+    ): Flow<String> =
             flow {
                         verifyHandle()
                         try {
                             nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
-                            var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-                            while (piece != "[EOG]") {
-                                currentCoroutineContext().ensureActive()
-                                emit(piece)
-                                piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+                            if (batchSize > 1) {
+                                var piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, batchSize)
+                                while (piece != "[EOG]" && piece.isNotEmpty()) {
+                                    currentCoroutineContext().ensureActive()
+                                    emit(piece)
+                                    piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, batchSize)
+                                }
+                            } else {
+                                var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+                                while (piece != "[EOG]") {
+                                    currentCoroutineContext().ensureActive()
+                                    emit(piece)
+                                    piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
+                                }
                             }
                         } catch (e: IllegalStateException) {
                             throw InferenceFailedException(
@@ -615,12 +699,16 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * @param query The user's query/prompt for the LLM.
      * @param maxTokens Maximum number of tokens to generate. -1 for infinite (until EOS).
      * @param batchSize Number of tokens to generate per JNI call. Values > 1 use batched
-     *     generation to reduce JNI boundary crossings. Default is 1 (single-token path).
+     *     generation to reduce JNI boundary crossings. Default is [DEFAULT_BLOCKING_BATCH_SIZE].
      * @return The complete response from the LLM.
      * @throws IllegalStateException if the model is not loaded.
      */
     @JvmOverloads
-    fun getResponse(query: String, maxTokens: Int = -1, batchSize: Int = 1): String {
+    fun getResponse(
+        query: String,
+        maxTokens: Int = -1,
+        batchSize: Int = DEFAULT_BLOCKING_BATCH_SIZE,
+    ): String {
         verifyHandle()
         logD(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, batchSize=$batchSize, queryLength=${query.length}")
         nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
@@ -748,6 +836,14 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     private external fun getResponseGeneratedTokenCount(modelPtr: Long): Long
 
     private external fun getResponseGenerationDurationMicros(modelPtr: Long): Long
+
+    private external fun nativeGetLastGenerationMetrics(modelPtr: Long): LongArray?
+
+    private external fun nativeConfigureThreading(modelPtr: Long, generationThreads: Int, promptThreads: Int)
+
+    private external fun nativeGetEstimatedMemoryBytes(modelPtr: Long): Long
+
+    private external fun nativeGetEstimatedStateMemoryBytes(modelPtr: Long): Long
 
     private external fun getContextSizeUsed(modelPtr: Long): Int
 

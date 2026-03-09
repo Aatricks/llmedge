@@ -24,7 +24,7 @@ class ChatSession internal constructor(
     suspend fun reply(
         message: String,
         maxTokens: Int = -1,
-        batchSize: Int = 1,
+        batchSize: Int = 0,
     ): String =
         sessionMutex.withLock {
             val runtime = client.acquire(model, options)
@@ -44,7 +44,7 @@ class ChatSession internal constructor(
                 }
         }
 
-    fun stream(message: String): Flow<TextStreamEvent> = flow {
+    fun stream(message: String, batchSize: Int = 0): Flow<TextStreamEvent> = flow {
         sessionMutex.withLock {
             val runtime = client.acquire(model, options)
             history.add(ConversationMessage(ConversationRole.USER, message))
@@ -52,7 +52,7 @@ class ChatSession internal constructor(
             val prompt = PromptRenderer.render(window, systemPrompt)
             val fullText = StringBuilder()
             emit(TextStreamEvent.Started(prompt))
-            client.streamCompletion(runtime, prompt, systemPrompt, options).collect { chunk ->
+            client.streamCompletion(runtime, prompt, systemPrompt, options, batchSize).collect { chunk ->
                 fullText.append(chunk)
                 emit(TextStreamEvent.Chunk(chunk))
             }

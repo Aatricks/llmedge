@@ -60,6 +60,7 @@ jobs:
     - name: Validate Example App
       env:
         LLMEDGE_SKIP_LIBRARY_BUILD: "true"
+        LLMEDGE_EXAMPLES_GRADLE_TASKS: ":app:assembleDebug :app:assembleRelease"
       run: |
         bash scripts/validate_examples.sh
 

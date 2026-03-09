@@ -218,14 +218,16 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
 
             // Convert float samples to 16-bit PCM
             val requiredBytes = samples.size * 2
-            var buffer = pcmBuffer
-            if (buffer == null || buffer.capacity() < requiredBytes) {
-                buffer = ByteBuffer.allocate(requiredBytes).order(ByteOrder.LITTLE_ENDIAN)
-                pcmBuffer = buffer
-            } else {
-                buffer.clear()
-                buffer.order(ByteOrder.LITTLE_ENDIAN)
-            }
+            val buffer =
+                pcmBuffer
+                    ?.takeIf { it.capacity() >= requiredBytes }
+                    ?.apply {
+                        clear()
+                        order(ByteOrder.LITTLE_ENDIAN)
+                    }
+                    ?: ByteBuffer.allocate(requiredBytes)
+                        .order(ByteOrder.LITTLE_ENDIAN)
+                        .also { pcmBuffer = it }
             for (sample in samples) {
                 // Clamp and convert to 16-bit
                 val clamped = sample.coerceIn(-1.0f, 1.0f)

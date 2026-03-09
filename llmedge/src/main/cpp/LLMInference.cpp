@@ -62,6 +62,7 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
     // Smaller micro-batches improve cache locality on ARM
     ctx_params.n_ubatch = 128;
     ctx_params.n_threads = nThreads;
+    ctx_params.n_threads_batch = nThreads;
     ctx_params.no_perf = true;
     // Flash attention: let llama.cpp auto-detect the best mode
     ctx_params.flash_attn_type = useFlashAttn ? LLAMA_FLASH_ATTN_TYPE_AUTO : LLAMA_FLASH_ATTN_TYPE_DISABLED;
@@ -133,6 +134,17 @@ LLMInference::getResponseTokenCount() const {
 int64_t
 LLMInference::getResponseGenerationTimeMicros() const {
     return _responseGenerationTime;
+}
+
+uint64_t
+LLMInference::getEstimatedMemoryBytes() const {
+    const uint64_t modelBytes = _model ? llama_model_size(_model) : 0ULL;
+    return modelBytes + getStateMemoryBytes();
+}
+
+uint64_t
+LLMInference::getStateMemoryBytes() const {
+    return _ctx ? static_cast<uint64_t>(llama_state_get_size(_ctx)) : 0ULL;
 }
 
 int
@@ -452,6 +464,18 @@ LLMInference::setReasoningOptions(bool disableThinking, int reasoningBudget) {
     _disableThinking = requestedNoThink;
     _reasoningBudget = reasoningBudget;
     LOGi("Reasoning controls: disableThinking=%d, reasoningBudget=%d", _disableThinking, _reasoningBudget);
+}
+
+void
+LLMInference::configureThreading(int generationThreads, int promptThreads) {
+    if (!_ctx) {
+        return;
+    }
+    const int effectiveGenerationThreads = std::max(1, generationThreads);
+    const int effectivePromptThreads = std::max(1, promptThreads);
+    llama_set_n_threads(_ctx, effectiveGenerationThreads, effectivePromptThreads);
+    LOGi("Configured llama threads: generation=%d, prompt_batch=%d",
+         effectiveGenerationThreads, effectivePromptThreads);
 }
 
 void
