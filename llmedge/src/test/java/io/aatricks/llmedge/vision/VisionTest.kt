@@ -45,6 +45,14 @@ class VisionTest {
     }
 
     @Test
+    fun `VisionRuntimeMemory data class works correctly`() {
+        val memory = VisionRuntimeMemory(nativeBytes = 1024L, stateBytes = 256L)
+
+        assertEquals(1024L, memory.nativeBytes)
+        assertEquals(256L, memory.stateBytes)
+    }
+
+    @Test
     fun `VisionRequest carries optional thread configuration`() {
         val request = VisionRequest(
             image = mockk(),

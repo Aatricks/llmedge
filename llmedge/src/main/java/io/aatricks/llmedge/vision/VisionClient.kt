@@ -27,6 +27,8 @@ class VisionClient internal constructor(
     private val defaultPromptThreads: Int = config.defaultTextThreads.coerceAtLeast(1)
     private val defaultGenerationThreads: Int =
         config.defaultTextGenerationThreads.coerceAtLeast(1)
+    @Volatile
+    private var lastRuntimeMemory: VisionRuntimeMemory? = null
 
     /**
      * Analyze an image with the configured vision pipeline.
@@ -41,7 +43,11 @@ class VisionClient internal constructor(
     suspend fun analyze(
         request: VisionRequest,
         onStatus: ((String) -> Unit)? = null,
-    ): String = pipeline.analyze(request, onStatus)
+    ): String {
+        val result = pipeline.analyze(request, onStatus)
+        lastRuntimeMemory = result.runtimeMemory
+        return result.text
+    }
 
     suspend fun analyze(
         image: Bitmap,
@@ -77,6 +83,8 @@ class VisionClient internal constructor(
             engine.close()
         }
     }
+
+    fun getLastRuntimeMemory(): VisionRuntimeMemory? = lastRuntimeMemory
 
     override fun close() = Unit
 }

@@ -40,6 +40,7 @@ Diagram (image captioning):
 - Resize images before sending to the model to avoid memory spikes.
 - Use background threads (Dispatchers.IO) for image processing.
 - The VLM path is intentionally fail-fast: if the projector/mmproj file is missing or native projector support is unavailable, the library now reports that explicitly instead of pretending a text-only fallback is equivalent.
+- The current high-level vision path creates a fresh `SmolLM` runtime per request rather than using a shared cache, so it behaves as a sequential-per-request path.
 
 ## JNI / Native model loading flow
 

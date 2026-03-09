@@ -63,6 +63,17 @@ edge.text.stream(
 Default batch sizes are currently `8` for blocking generation and `4` for streaming. Passing
 `batchSize = 0` uses the configured default for the relevant path.
 
+### Batch Size Tuning
+
+| Workload | Suggested batch size | Why |
+|---|---:|---|
+| Token-by-token UI streaming | `1-4` | keeps updates frequent and reduces perceived latency |
+| General chat replies | `4-8` | good balance between JNI overhead and responsiveness |
+| Longer offline generation | `8-16` | better throughput when intermediate updates matter less |
+
+If you are tuning on big.LITTLE devices, adjust `batchSize` together with `numThreads` and
+`generationThreads` rather than treating them in isolation.
+
 ### Image Generation
 
 Handles model resolution and memory-safe loading through the `edge.image` client.
@@ -137,6 +148,9 @@ val description = edge.vision.analyze(
     generationThreads = 2,
 )
 ```
+
+The current high-level vision pipeline creates a fresh runtime per call, so it prioritizes
+isolation and predictable cleanup over model reuse.
 
 ### OCR (Text Extraction)
 

@@ -51,6 +51,11 @@ data class VisionResult(
     val tokensOut: Int
 )
 
+data class VisionRuntimeMemory(
+    val nativeBytes: Long,
+    val stateBytes: Long,
+)
+
 /**
  * Interface for vision-capable language models.
  */

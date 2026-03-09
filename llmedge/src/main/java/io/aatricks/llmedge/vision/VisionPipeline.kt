@@ -12,10 +12,15 @@ internal class VisionPipeline(
     private val context: Context,
     private val resolver: ModelResolver,
 ) {
+    internal data class VisionPipelineResult(
+        val text: String,
+        val runtimeMemory: VisionRuntimeMemory,
+    )
+
     suspend fun analyze(
         request: VisionRequest,
         onStatus: ((String) -> Unit)? = null,
-    ): String =
+    ): VisionPipelineResult =
         withContext(Dispatchers.IO) {
             val modelFile = resolver.resolve(context, request.model)
             val projectorFile = resolver.resolve(context, request.projector)
@@ -72,12 +77,20 @@ internal class VisionPipeline(
                         }
 
                         onStatus?.invoke("Running vision analysis")
-                        adapter
-                            .analyze(
+                        val analysis =
+                            adapter.analyze(
                                 ImageSource.FileSource(embedFile),
                                 request.prompt,
                                 VisionParams(),
-                            ).text
+                            )
+                        VisionPipelineResult(
+                            text = analysis.text,
+                            runtimeMemory =
+                                VisionRuntimeMemory(
+                                    nativeBytes = smol.getEstimatedNativeMemoryBytes(),
+                                    stateBytes = smol.getEstimatedStateMemoryBytes(),
+                                ),
+                        )
                     } finally {
                         if (metaFile.exists()) {
                             metaFile.delete()
