@@ -27,6 +27,57 @@ Reports:
 
 - HTML: `llmedge/build/reports/tests/testDebugUnitTest/index.html`
 
+## Linux host E2E
+
+For local Linux development, you can run the real JNI libraries against local models to exercise the
+current Kotlin facade and the low-level engines end-to-end.
+
+Prerequisites:
+
+- Build the host JNI library:
+  ```bash
+  ./scripts/build_smollm_linux.sh
+  ```
+- Point the tests at local models:
+  ```bash
+  export LLMEDGE_BUILD_NATIVE_LIB_PATH="$PWD/llmedge/build/native/linux-x86_64/libsmollm.so"
+  export LLMEDGE_BUILD_WHISPER_LIB_PATH="$PWD/llmedge/build/native/linux-x86_64/libwhisper_jni.so"
+  export LLMEDGE_BUILD_BARK_LIB_PATH="$PWD/llmedge/build/native/linux-x86_64/libbark_jni.so"
+  export LLMEDGE_TEST_TEXT_MODEL_PATH="$PWD/models/SmolLM2-135M-Instruct-Q8_0.gguf"
+  export LLMEDGE_TEST_TOOL_MODEL_PATH="$PWD/models/SmolLM2-1.7B-Instruct-Q8_0.gguf"
+  export LLMEDGE_TEST_WHISPER_MODEL_PATH="$PWD/models/ggml-tiny.en.bin"
+  export LD_LIBRARY_PATH="$PWD/llmedge/build/native/linux-x86_64:$LD_LIBRARY_PATH"
+  ```
+
+Run the currently feasible Linux host E2E tests:
+
+```bash
+./gradlew :llmedge:testDebugUnitTest \
+  --tests "*TextInferenceLinuxE2ETest" \
+  --tests "*ChatSessionLinuxE2ETest" \
+  --tests "*SpeechClientLinuxE2ETest" \
+  --tests "*WhisperLinuxE2ETest" \
+  --tests "*ToolCallingE2ETest" \
+  --tests "*BarkLinuxE2ETest" \
+  --no-daemon
+```
+
+Coverage:
+
+- `TextInferenceLinuxE2ETest` — direct multi-turn `SmolLM` chat on Linux
+- `text/ChatSessionLinuxE2ETest` — current `LLMEdge.text.session(...)` multi-turn facade on Linux
+- `speech/SpeechClientLinuxE2ETest` — current `LLMEdge.speech.transcribe(...)` facade on Linux
+- `WhisperLinuxE2ETest` — low-level Whisper STT pipeline on Linux
+- `ToolCallingE2ETest` — tool-calling loop using a stronger local model (`LLMEDGE_TEST_TOOL_MODEL_PATH`)
+- `BarkLinuxE2ETest` — Bark JNI bindings on Linux, plus full TTS generation when a Bark model is supplied
+- `ConversationWindowTest` / `PromptRendererTest` — Kotlin-managed chat-window trimming, prompt replay, and `<think>` stripping logic
+
+Current Linux host gaps:
+
+- There is no Linux host E2E path yet for RAG, OCR/vision, or high-level image generation.
+- Full Bark Linux generation still requires an external Bark model directory (`LLMEDGE_TEST_BARK_MODEL_PATH`).
+- WAN/video Linux tests require large external Wan/T5/VAE assets and are not covered by the lightweight local model set above.
+
 ## Instrumentation tests (managed emulator)
 
 We use Gradle Managed Devices to provision an emulator automatically (ATD Pixel 6, API 33). This runs all Android instrumentation tests without a plugged‑in device.
@@ -131,6 +182,26 @@ Run on a connected arm64 device:
 
 Tip: WAN assets are large. Ensure sufficient disk and network availability.
 
+## Example App Validation
+
+The example app lives in a separate Gradle build, so root `:llmedge` tasks do **not** validate it.
+Use the helper script from the repository root:
+
+```bash
+bash scripts/validate_examples.sh
+```
+
+Useful environment variables:
+
+```bash
+# Reuse an already-built release AAR
+LLMEDGE_SKIP_LIBRARY_BUILD=true bash scripts/validate_examples.sh
+
+# Run multiple example tasks in one pass
+LLMEDGE_EXAMPLES_GRADLE_TASKS=':app:assembleDebug :app:assembleRelease' \
+  bash scripts/validate_examples.sh
+```
+
 ## Tips & Troubleshooting
 
 - Accept SDK licenses if prompted:
@@ -152,12 +223,20 @@ Tip: WAN assets are large. Ensure sufficient disk and network availability.
   - Use smaller resolutions/steps for tests
   - Ensure system downloader is used for large files, and prefer the managed device flow to keep memory usage predictable
 
+- Example validation nuances:
+  - `scripts/validate_examples.sh` copies the freshly built release AAR into `llmedge-examples/app/libs/`
+  - If you are working in the `llmedge-examples` submodule directly, revert `app/libs/llmedge-release.aar` after validation if you do not want a binary diff in your workspace
+
 - Native JNI is skipped in most tests:
   - Test harness sets `llmedge.disableNativeLoad=true` automatically for non‑E2E tests
   - The opt‑in E2E explicitly runs native inference
 
 ## Key test files
 
+- Text chat host E2E:
+  - `llmedge/src/test/java/io/aatricks/llmedge/TextInferenceLinuxE2ETest.kt`
+  - `llmedge/src/test/java/io/aatricks/llmedge/text/ConversationWindowTest.kt`
+  - `llmedge/src/test/java/io/aatricks/llmedge/text/PromptRendererTest.kt`
 - Image (API layer): `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationTest.kt`
 - Native image E2E (opt‑in): `llmedge/src/androidTest/java/io/aatricks/llmedge/ImageGenerationE2ENativeTest.kt`
 - Video API & integration tests (progress, cancellation, memory, schedulers, metadata):

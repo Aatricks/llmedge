@@ -3,8 +3,7 @@
 
 <head>
     <script>
-        // for search plugin notably
-        const base_url = "https://aatricks.github.io/llmedge/";
+        const base_url = "https://aatricks.github.io/llmedge/"; /* for search plugin notably */
     </script>
     <script>
     const darkTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -36,7 +35,7 @@
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Usage - llmedge</title>
+
     
 
 
@@ -47,6 +46,8 @@
 
 
 
+
+<meta name="author" content="Aatricks">
 
 
 
@@ -104,8 +105,9 @@
     <script src="js/callbacks.js"></script>
 
     
-    <!-- katex -->
-<link rel="stylesheet" href="css/katex.min.css">
+    
+<!-- katex -->
+<link rel="stylesheet" href="css/katex.min.css" >
 <!-- The loading of KaTeX is deferred to speed up page rendering -->
 <script defer src="js/katex.min.js"></script>
 <!-- To automatically render math in text elements, include the auto-render extension: -->
@@ -348,17 +350,12 @@
             
             <div class="ml-auto flex items-center gap-2 md:flex-1 md:justify-end">
                 <div class="hidden w-full flex-1 md:flex md:w-auto md:flex-none">
-                    <button data-slot="dialog-trigger" onclick="onSearchBarClick(event)"
-    class="inline-flex items-center gap-2 whitespace-nowrap rounded-md text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg:not([class*='size-'])]:size-4 shrink-0 [&amp;_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive hover:bg-secondary/80 px-4 py-2 has-[&gt;svg]:px-3 bg-surface text-surface-foreground/60 dark:bg-card relative h-8 w-full justify-start pl-2.5 font-normal shadow-none sm:pr-12 md:w-40 lg:w-56 xl:w-64"
-    type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="radix-«R66plb»" data-state="closed">
-    <span class="text-muted-foreground hidden lg:inline-flex">Search documentation...</span>
-    <span class="text-muted-foreground inline-flex lg:hidden">Search...</span>
-    <div class="absolute top-1.5 right-1.5 hidden gap-1 sm:flex">
-        <kbd
-            class="bg-background text-muted-foreground pointer-events-none flex h-5 items-center justify-center gap-1 rounded border px-1 font-sans text-[0.7rem] font-medium select-none [&amp;_svg:not([class*='size-'])]:size-3">Ctrl</kbd><kbd
-            class="bg-background text-muted-foreground pointer-events-none flex h-5 items-center justify-center gap-1 rounded border px-1 font-sans text-[0.7rem] font-medium select-none [&amp;_svg:not([class*='size-'])]:size-3 aspect-square">K</kbd>
-    </div>
-</button>
+                    <div class="hidden w-full flex-1 md:flex md:w-auto md:flex-none">
+    <button onclick="onSearchBarClick(event)" data-slot="dialog-trigger" data-variant="outline" data-size="default" class="inline-flex shrink-0 items-center gap-2 text-sm whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 [&amp;_svg:not([class*='size-'])]:size-4 border bg-background hover:text-accent-foreground dark:border-input dark:hover:bg-input/50 px-4 py-2 has-[&gt;svg]:px-3 relative h-8 w-full justify-start rounded-lg pl-3 font-normal text-foreground shadow-none hover:bg-muted/50 sm:pr-12 md:w-48 lg:w-56 xl:w-64 dark:bg-card" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="radix-_r_1_" data-state="closed">
+        <span class="hidden lg:inline-flex">Search documentation...</span>
+        <span class="inline-flex lg:hidden">Search...</span>
+    </button>
+</div>
 <dialog id="search-dialog" onclick="onSearchDialogClick(event)"
     class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background rounded-lg shadow-lg border overflow-hidden p-0">
     <div class="w-lg gap-4">
@@ -443,36 +440,36 @@
 </header>
         <main class="flex flex-1 flex-col">
             <div class="container-wrapper flex flex-1 flex-col px-2">
-                <div data-slot="sidebar-wrapper" style="--sidebar-width: 16rem; --sidebar-width-icon: 3rem;"
+                <div data-slot="sidebar-wrapper" style="--sidebar-width:calc(var(--spacing) * 72);--sidebar-width-icon:3rem;"
                     class="group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex w-full 3xl:fixed:container 3xl:fixed:px-3 min-h-min flex-1 items-start px-0 [--sidebar-width:220px] [--top-spacing:0] lg:grid lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)] lg:[--sidebar-width:240px] lg:[--top-spacing:calc(var(--spacing)*4)]">
                     <div data-slot="sidebar"
-                        class="text-sidebar-foreground w-(--sidebar-width) flex-col sticky top-[calc(var(--header-height)+1px)] z-30 hidden h-[calc(100svh-var(--header-height)-var(--footer-height))] bg-transparent lg:flex">
-                        <div data-slot="sidebar-content" data-sidebar="content"
-                            class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden no-scrollbar px-2 pb-12">
-                            <div class="h-(--top-spacing) shrink-0"></div>
-                            <div view-transition-name="sidebar" data-slot="sidebar-group" data-sidebar="group"
-    class="relative flex w-full min-w-0 flex-col p-2 no-scrollbar">
-    
+                        class="w-(--sidebar-width) flex-col text-sidebar-foreground sticky top-[calc(var(--header-height)+0.6rem)] z-30 hidden h-[calc(100svh-10rem)] overscroll-none bg-transparent [--sidebar-menu-width:--spacing(56)] lg:flex">
+                        <div class="h-9"></div>
+                        <div class="absolute top-8 z-10 h-8 w-(--sidebar-menu-width) shrink-0 bg-gradient-to-b from-background via-background/80 to-background/50 blur-xs"></div>
+                        <div class="absolute top-12 right-2 bottom-0 hidden h-full w-px bg-gradient-to-b from-transparent via-border to-transparent lg:flex"></div>
+                        <div data-slot="sidebar-content" data-sidebar="content" view-transition-name="sidebar"
+                            class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden mx-auto no-scrollbar w-(--sidebar-menu-width) overflow-x-hidden px-2">
+                            
 
-    
-    
-    
 
-    
 
-    
-    
 
-    
-    <div data-slot="sidebar-group" data-sidebar="group" class="relative flex w-full min-w-0 flex-col p-2">
-        <div data-slot="sidebar-group-content" data-sidebar="group-content" class="w-full text-sm">
-            <ul data-slot="sidebar-menu" data-sidebar="menu" class="flex w-full min-w-0 flex-col gap-0.5">
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+
+
+
+
+
+
+
+<div data-slot="sidebar-group" data-sidebar="group" class="relative flex w-full min-w-0 flex-col p-2 pt-6">
+    <div data-slot="sidebar-group-content" data-sidebar="group-content" class="w-full text-sm">
+        <ul data-slot="sidebar-menu" data-sidebar="menu" class="flex w-full min-w-0 flex-col gap-0.5">
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
         data-size="default" href="/llmedge/index.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Home
@@ -485,13 +482,13 @@
         
     </a>
 </li>
-                
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+            
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
         data-size="default" href="/llmedge/installation.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Installation
@@ -504,13 +501,13 @@
         
     </a>
 </li>
-                
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+            
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="true" data-sidebar="menu-button"
         data-size="default" href="/llmedge/usage.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Usage
@@ -523,13 +520,13 @@
         
     </a>
 </li>
-                
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+            
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
         data-size="default" href="/llmedge/examples.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Examples
@@ -542,13 +539,13 @@
         
     </a>
 </li>
-                
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+            
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
         data-size="default" href="/llmedge/video-generation-api.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Video Generation
@@ -561,13 +558,13 @@
         
     </a>
 </li>
-                
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+            
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
         data-size="default" href="/llmedge/architecture.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Architecture
@@ -580,13 +577,13 @@
         
     </a>
 </li>
-                
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+            
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
         data-size="default" href="/llmedge/quirks.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Quirks & Troubleshooting
@@ -599,13 +596,13 @@
         
     </a>
 </li>
-                
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+            
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
         data-size="default" href="/llmedge/faq.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         FAQ
@@ -618,13 +615,13 @@
         
     </a>
 </li>
-                
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+            
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
         data-size="default" href="/llmedge/testing.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Testing
@@ -637,13 +634,13 @@
         
     </a>
 </li>
-                
-                
-                
-                <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
+            
+            
+            
+            <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
         data-size="default" href="/llmedge/contributing.html"
-        class="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer/menu-button flex items-center gap-2 rounded-md p-2 text-left outline-hidden ring-sidebar-ring transition-[width,height,padding] focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 data-[active=true]:bg-accent data-[active=true]:border-accent 3xl:fixed:w-full 3xl:fixed:max-w-48 relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md">
+        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Contributing
@@ -656,18 +653,18 @@
         
     </a>
 </li>
-                
-                
-            </ul>
-        </div>
+            
+            
+        </ul>
     </div>
-    
-
-    
-
-
-    
 </div>
+
+
+
+
+
+
+<div class="sticky -bottom-1 z-10 h-16 shrink-0 bg-gradient-to-t from-background via-background/80 to-background/50 blur-xs"></div>
                         </div>
                     </div>
                     <div class="h-full w-full">
@@ -757,53 +754,84 @@
   <div class="typography w-full flex-1 *:data-[slot=alert]:first:mt-0">
     <p>This page explains how to use <code>llmedge</code>'s Kotlin API. The library offers two layers of abstraction:</p>
 <ol>
-<li><strong>High-Level API (<code>LLMEdgeManager</code>)</strong>: Recommended for most use cases. Handles loading, caching, threading, and memory management automatically.</li>
+<li><strong>High-Level API (<code>LLMEdge</code>)</strong>: Recommended for most use cases. It exposes instance-scoped clients for text, speech, image, vision, and RAG while keeping model resolution and cleanup explicit.</li>
 <li><strong>Low-Level API (<code>SmolLM</code>, <code>StableDiffusion</code>)</strong>: For advanced users who need fine-grained control over model lifecycle and parameters.</li>
 </ol>
 <p>Examples reference the <code>llmedge-examples</code> <a href="https://github.com/aatricks/llmedge-examples">repo</a>.</p>
 <hr />
-<h2 id="high-level-api-llmedgemanager">High-Level API (LLMEdgeManager)</h2>
-<p>The <code>LLMEdgeManager</code> singleton simplifies interactions by managing model instances and resources for you.</p>
+<h2 id="high-level-api-llmedge">High-Level API (LLMEdge)</h2>
+<p>Create an <code>LLMEdge</code> instance from an Android-aware coroutine scope, then use the domain clients exposed by the facade.</p>
 <h3 id="text-generation">Text Generation</h3>
-<pre class="codehilite"><code class="language-kotlin">val response = LLMEdgeManager.generateText(
-    context = context,
-    params = LLMEdgeManager.TextGenerationParams(
-        prompt = &quot;Write a haiku about Kotlin.&quot;,
-        modelId = &quot;HuggingFaceTB/SmolLM-135M-Instruct-GGUF&quot;, // Optional: defaults to this model
-        modelFilename = &quot;smollm-135m-instruct.q4_k_m.gguf&quot;
-    )
+<pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
+
+val response = edge.text.generate(
+    prompt = &quot;Write a haiku about Kotlin.&quot;,
+    model = ModelSpec.huggingFace(
+        repoId = &quot;HuggingFaceTB/SmolLM-135M-Instruct-GGUF&quot;,
+        filename = &quot;smollm-135m-instruct.q4_k_m.gguf&quot;,
+    ),
 )
 </code></pre>
 
+<p>The high-level text client defaults to <strong>batched blocking generation</strong> to reduce JNI overhead.
+Override it when needed:</p>
+<pre class="codehilite"><code class="language-kotlin">val response = edge.text.generate(
+    prompt = &quot;Summarize the latest release notes.&quot;,
+    maxTokens = 256,
+    batchSize = 12,
+    options = TextModelOptions(
+        numThreads = 8,          // prompt/batch processing
+        generationThreads = 3,   // single-token generation
+    ),
+)
+</code></pre>
+
+<p>Streaming uses smaller batched native chunks by default. This keeps UI updates responsive without
+crossing JNI once per token:</p>
+<pre class="codehilite"><code class="language-kotlin">edge.text.stream(
+    prompt = &quot;List the key takeaways.&quot;,
+    batchSize = 6,
+    options = TextModelOptions(
+        numThreads = 6,
+        generationThreads = 2,
+    ),
+).collect { event -&gt;
+    if (event is TextStreamEvent.Chunk) {
+        appendToUi(event.value)
+    }
+}
+</code></pre>
+
+<p>Default batch sizes are currently <code>8</code> for blocking generation and <code>4</code> for streaming. Passing
+<code>batchSize = 0</code> uses the configured default for the relevant path.</p>
 <h3 id="image-generation">Image Generation</h3>
-<p>Automatically handles model downloading (MeinaMix), caching, and memory-safe loading.</p>
-<pre class="codehilite"><code class="language-kotlin">val bitmap = LLMEdgeManager.generateImage(
-    context = context,
-    params = LLMEdgeManager.ImageGenerationParams(
+<p>Handles model resolution and memory-safe loading through the <code>edge.image</code> client.</p>
+<pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
+
+val bitmap = edge.image.generate(
+    ImageGenerationRequest(
         prompt = &quot;A cyberpunk city street at night, neon lights &lt;lora:detail_tweaker_lora_sd15:1.0&gt;&quot;,
         width = 512,
         height = 512,
         steps = 20,
-        // Optional: Specify LoRA model details.
-        // The example app automatically downloads 'imagepipeline/Detail-Tweaker-LoRA-SD1.5'
-        // and appends the appropriate LoRA tag to the prompt when the toggle is enabled.
         loraModelDir = getExternalFilesDir(&quot;loras&quot;)?.absolutePath + &quot;/detail-tweaker-lora-sd15&quot;,
         loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
-    )
+    ),
 )
 </code></pre>
 
 <p><strong>Key Optimizations for Image Generation:</strong></p>
 <ul>
-<li><strong>EasyCache</strong>: Automatically detected and enabled by <code>LLMEdgeManager</code> for supported Diffusion Transformer (DiT) models (e.g., Flux, Wan), significantly accelerating generation by reusing intermediate diffusion states. It is disabled for UNet-based models (like SD 1.5).</li>
-<li><strong>LoRA Support</strong>: <code>LLMEdgeManager</code> can be configured with <code>loraModelDir</code> and <code>loraApplyMode</code> to use Low-Rank Adaptation models for fine-tuning outputs.</li>
+<li><strong>EasyCache</strong>: Automatically enabled by <code>edge.image</code> for supported Diffusion Transformer (DiT) models such as Flux, SD3, Wan, Qwen Image, and Z-Image. It remains disabled for classic UNet-based pipelines such as SD 1.5/SDXL.</li>
+<li><strong>LoRA Support</strong>: <code>ImageGenerationRequest</code> accepts <code>loraModelDir</code> and <code>loraApplyMode</code> for on-the-fly fine-tuning.</li>
 <li><strong>Flash Attention</strong>: Automatically enabled for compatible image dimensions.</li>
 </ul>
 <h3 id="video-generation-wan-21">Video Generation (Wan 2.1)</h3>
 <p>Handles the complex multi-model loading (Diffusion, VAE, T5) and sequential processing required for video generation on mobile.</p>
-<pre class="codehilite"><code class="language-kotlin">val frames = LLMEdgeManager.generateVideo(
-    context = context,
-    params = LLMEdgeManager.VideoGenerationParams(
+<pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
+
+val request =
+    VideoGenerationRequest(
         prompt = &quot;A robot dancing in the rain&quot;,
         videoFrames = 16,
         width = 512,
@@ -811,68 +839,63 @@
         steps = 20,
         cfgScale = 7.0f,
         flowShift = 3.0f,
-        forceSequentialLoad = true // Recommended for devices with &lt;12GB RAM
+        forceSequentialLoad = true,
     )
-) { status, currentFrame, totalFrames -&gt;
-    // Optional progress callback
-    Log.d(&quot;Video&quot;, &quot;$status&quot;)
+
+viewModelScope.launch {
+    edge.image.generateVideo(request).collect { event -&gt;
+        when (event) {
+            is GenerationStreamEvent.Progress -&gt; Log.d(&quot;Video&quot;, event.update.message)
+            is GenerationStreamEvent.Completed -&gt; previewImageView.setImageBitmap(event.frames.first())
+        }
+    }
 }
 </code></pre>
 
 <h3 id="vision-analysis">Vision Analysis</h3>
 <p>Analyze images using a Vision Language Model (VLM).</p>
-<pre class="codehilite"><code class="language-kotlin">val description = LLMEdgeManager.analyzeImage(
-    context = context,
-    params = LLMEdgeManager.VisionAnalysisParams(
-        image = bitmap,
-        prompt = &quot;What is in this image?&quot;
-    )
+<pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
+val description = edge.vision.analyze(bitmap, &quot;What is in this image?&quot;)
+</code></pre>
+
+<p>Vision analysis also exposes separate prompt and generation thread counts for the underlying
+SmolLM runtime:</p>
+<pre class="codehilite"><code class="language-kotlin">val description = edge.vision.analyze(
+    image = bitmap,
+    prompt = &quot;What is in this image?&quot;,
+    numThreads = 4,
+    generationThreads = 2,
 )
 </code></pre>
 
 <h3 id="ocr-text-extraction">OCR (Text Extraction)</h3>
 <p>Extract text using ML Kit.</p>
-<pre class="codehilite"><code class="language-kotlin">val text = LLMEdgeManager.extractText(context, bitmap)
+<pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
+val text = edge.vision.extractText(bitmap)
 </code></pre>
 
 <h3 id="speech-to-text-whisper">Speech-to-Text (Whisper)</h3>
 <p>Transcribe audio using the high-level API:</p>
-<pre class="codehilite"><code class="language-kotlin">import io.aatricks.llmedge.LLMEdgeManager
+<pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
 
-// Simple transcription to text
-val text = LLMEdgeManager.transcribeAudioToText(
-    context = context,
-    audioSamples = audioSamples  // 16kHz mono PCM float32
-)
+val text = edge.speech.transcribeToText(audioSamples)
 
-// Full transcription with segments and timing
-val segments = LLMEdgeManager.transcribeAudio(
-    context = context,
-    params = LLMEdgeManager.TranscriptionParams(
+val segments =
+    edge.speech.transcribe(
         audioSamples = audioSamples,
-        language = &quot;en&quot;,  // null for auto-detect
-        translate = false  // set true to translate to English
+        params = Whisper.TranscribeParams(language = &quot;en&quot;, translate = false),
     )
-) { progress -&gt;
-    Log.d(&quot;Whisper&quot;, &quot;Progress: $progress%&quot;)
-}
 
-// Language detection
-val lang = LLMEdgeManager.detectLanguage(context, audioSamples)
-
-// Generate SRT subtitles
-val srt = LLMEdgeManager.transcribeToSrt(context, audioSamples)
+val lang = edge.speech.detectLanguage(audioSamples)
 </code></pre>
 
 <h3 id="streaming-transcription-real-time-captioning">Streaming Transcription (Real-time Captioning)</h3>
 <p>For live transcription from a microphone or audio stream, use the streaming API:</p>
-<pre class="codehilite"><code class="language-kotlin">import io.aatricks.llmedge.LLMEdgeManager
-import kotlinx.coroutines.launch
+<pre class="codehilite"><code class="language-kotlin">import kotlinx.coroutines.launch
 
-// Create a streaming transcriber with sliding window approach
-val transcriber = LLMEdgeManager.createStreamingTranscriber(
-    context = context,
-    params = LLMEdgeManager.StreamingTranscriptionParams(
+val edge = LLMEdge.create(context, lifecycleScope)
+val transcriber = edge.speech.createStreamingSession(
+    params = Whisper.StreamingParams(
         stepMs = 3000,      // Run transcription every 3 seconds
         lengthMs = 10000,   // Use 10-second audio windows
         keepMs = 200,       // Keep 200ms overlap for context
@@ -883,7 +906,7 @@ val transcriber = LLMEdgeManager.createStreamingTranscriber(
 
 // Collect real-time transcription results
 launch {
-    transcriber.start().collect { segment -&gt;
+    transcriber.events().collect { segment -&gt;
         runOnUiThread {
             textView.append(&quot;${segment.text}\n&quot;)
         }
@@ -900,7 +923,6 @@ audioRecorder.setOnAudioDataListener { samples -&gt;
 // Stop when done
 fun stopTranscription() {
     transcriber.stop()
-    LLMEdgeManager.stopStreamingTranscription()
 }
 </code></pre>
 
@@ -949,33 +971,15 @@ fun stopTranscription() {
 </ul>
 <h3 id="text-to-speech-bark">Text-to-Speech (Bark)</h3>
 <p>Generate speech using the high-level API:</p>
-<pre class="codehilite"><code class="language-kotlin">import io.aatricks.llmedge.LLMEdgeManager
+<pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
 
-// Generate speech (model auto-downloads on first use)
-val audio = LLMEdgeManager.synthesizeSpeech(
-    context = context,
-    params = LLMEdgeManager.SpeechSynthesisParams(
-        text = &quot;Hello, world!&quot;,
-        nThreads = 8  // Use more threads for faster generation
-    )
-) { step, progress -&gt;
-    Log.d(&quot;Bark&quot;, &quot;${step.name}: $progress%&quot;)
-}
-
-// Save directly to file
-LLMEdgeManager.synthesizeSpeechToFile(
-    context = context,
-    text = &quot;Hello, world!&quot;,
-    outputFile = File(cacheDir, &quot;output.wav&quot;)
-)
-
-// Unload when done to free memory
-LLMEdgeManager.unloadSpeechModels()
+val audio = edge.speech.synthesize(&quot;Hello, world!&quot;)
+audioPlayer.play(audio.samples, audio.sampleRate)
 </code></pre>
 
 <hr />
 <h2 id="low-level-api">Low-Level API</h2>
-<p>Direct usage of <code>SmolLM</code> and <code>StableDiffusion</code> classes. Use this if you need to manage the model lifecycle manually (e.g., keeping a model loaded across multiple disparate activities) or require specific configuration not exposed by the Manager.</p>
+<p>Direct usage of <code>SmolLM</code> and <code>StableDiffusion</code> classes. Use this if you need to manage the model lifecycle manually (e.g., keeping a model loaded across multiple disparate activities) or require configuration not exposed by <code>LLMEdge</code>.</p>
 <h3 id="core-components">Core components</h3>
 <ul>
 <li><code>SmolLM</code> — Kotlin front-end class that wraps native inference calls.</li>
@@ -993,7 +997,42 @@ val reply = smol.getResponse(&quot;Your prompt here&quot;)
 smol.close()  // Free native memory when done
 </code></pre>
 
-<p>See <a href="examples.html#localassetdemoactivity">Examples</a> for complete working code with coroutines and streaming.</p>
+<h3 id="managed-chat-history-with-edgetextsession">Managed chat history with <code>edge.text.session(...)</code></h3>
+<p>Use a Kotlin-managed chat session when you want bounded multi-turn history without relying on the
+native KV cache to retain earlier turns:</p>
+<pre class="codehilite"><code class="language-kotlin">runBlocking {
+    val edge = LLMEdge.create(context, this)
+
+    val session =
+        edge.text.session(
+            model = ModelSpec.localFile(modelPath),
+            memory = ConversationWindow(maxTurns = 6, maxTokens = 4096, stripThinkTags = true),
+            systemPrompt = &quot;You are a concise assistant.&quot;,
+        )
+
+    session.prepare()
+    val firstReply = session.reply(&quot;Explain KV cache in one paragraph.&quot;)
+    session.stream(&quot;Now summarize that in 3 bullets.&quot;).collect { event -&gt;
+        if (event is TextStreamEvent.Chunk) {
+            print(event.value)
+        }
+    }
+
+    edge.close()
+}
+</code></pre>
+
+<p><code>edge.text.session(...)</code> keeps the transcript in Kotlin memory, replays only the active sliding
+window, and strips older <code>&lt;think&gt;...&lt;/think&gt;</code> traces before replaying assistant messages.</p>
+<p>Use it when:</p>
+<ul>
+<li>reasoning-enabled models emit large <code>&lt;think&gt;...&lt;/think&gt;</code> blocks that would otherwise bloat native chat history</li>
+<li>you need a bounded sliding window (<code>ConversationWindow</code>) for long-running chats</li>
+<li>you want streaming via <code>stream()</code> while still persisting the completed assistant reply in Kotlin memory</li>
+</ul>
+<p>Prefer plain <code>SmolLM</code> with <code>storeChats = true</code> only for tightly scoped native-KV-cache flows where
+you explicitly want the model runtime to own all chat history.</p>
+<p>See <a href="examples.html#chatsession-pattern">Examples</a> for a focused session snippet, or <a href="examples.html#localassetdemoactivity">LocalAssetDemoActivity</a> for a complete app-level example.</p>
 <h3 id="downloading-models-from-hugging-face">Downloading Models from Hugging Face</h3>
 <p>Download and load models directly from Hugging Face Hub:</p>
 <pre class="codehilite"><code class="language-kotlin">val download = smol.loadFromHuggingFace(
@@ -1079,12 +1118,11 @@ val whisper = Whisper.load(
 )
 
 // Configure transcription parameters
-val params = Whisper.TranscriptionParams(
+val params = Whisper.TranscribeParams(
     language = &quot;en&quot;,           // null for auto-detect
     translate = false,         // translate to English
-    maxTokens = 0,             // 0 = no limit
-    speedUp = false,           // experimental 2x speedup
-    audioCtx = 0               // audio context size
+    tokenTimestamps = true,
+    beamSize = 1,
 )
 
 // Transcribe (16kHz mono PCM float32)
@@ -1094,7 +1132,7 @@ segments.forEach { segment -&gt;
 }
 
 // Utility functions
-val srt = whisper.transcribeToSrt(audioSamples)
+val srt = whisper.generateSrt(segments)
 val lang = whisper.detectLanguage(audioSamples)
 val isMultilingual = whisper.isMultilingual()
 val modelType = whisper.getModelType()
@@ -1114,18 +1152,15 @@ whisper.close()
 // Load model
 val tts = BarkTTS.load(
     modelPath = &quot;/path/to/bark-small_weights-f16.bin&quot;,
-    useGpu = false
+    temperature = 0.7f,
+    fineTemperature = 0.5f,
 )
 
-// Generate audio with progress tracking
-val audio = tts.generate(
-    text = &quot;Hello, world!&quot;,
-    onProgress = { step, progress -&gt;
-        // step: SEMANTIC, COARSE, or FINE
-        // progress: 0.0 to 1.0
-        Log.d(&quot;Bark&quot;, &quot;${step.name}: ${(progress * 100).toInt()}%&quot;)
-    }
-)
+tts.setProgressCallback { step, progress -&gt;
+    Log.d(&quot;Bark&quot;, &quot;${step.name}: $progress%&quot;)
+}
+
+val audio = tts.generate(&quot;Hello, world!&quot;, BarkTTS.GenerateParams(nThreads = 4))
 
 // AudioResult contains:
 // - samples: FloatArray (32-bit PCM)
@@ -1198,19 +1233,25 @@ sd.close()
 <h3 id="best-practices">Best Practices</h3>
 <p><strong>Threading:</strong></p>
 <ul>
-<li>For heavy CPU-bound native inference (StableDiffusion CPU generation, large LLM decoding), prefer <code>Dispatchers.Default</code> so work schedules onto CPU-optimized thread pool sized to the device cores.</li>
-<li>For blocking calls that wait on I/O (downloads, filesystem access, or JNI calls that wait on network/IO), prefer <code>Dispatchers.IO</code>.</li>
+<li>Route blocking JNI/native work through <code>Dispatchers.IO</code> (or the library inference dispatcher used by <code>LLMEdge</code>).</li>
+<li>Reserve <code>Dispatchers.Default</code> for pure Kotlin/Java CPU work such as post-processing that does not block on JNI calls.</li>
 <li>Update UI only via <code>withContext(Dispatchers.Main)</code>.</li>
 <li>Call <code>.close()</code> in <code>onDestroy()</code> to free native memory.</li>
 </ul>
-<p>Note: Choosing the correct dispatcher depends on the workload. JNI calls that use CPU-bound native kernels (like <code>txt2img</code>) should use Default; calls that perform blocking I/O should use IO.</p>
 <p><strong>Optimization Strategies</strong>:</p>
 <ul>
 <li>Use quantized models (Q4_K_M) for lower memory footprint</li>
 <li>Enable CPU offloading for large models</li>
 <li>Close model instances when not in use</li>
 <li>Process images/video in batches with intermediate cleanup</li>
-<li><strong>KV Cache</strong>: For LLMs, ensure <code>storeChats = true</code> to leverage KV cache for faster multi-turn conversations.</li>
+<li>Prefer batched text generation (<code>batchSize &gt; 1</code>) for blocking calls that do not need token-level UI updates</li>
+<li>Use different thread counts for prompt/batch work and single-token generation when tuning for big.LITTLE devices</li>
+<li>Text-model cache sizing is now refreshed from the native model/state footprint, so <code>textCacheMemoryMb</code> is a meaningful guardrail instead of just a file-size hint</li>
+<li><strong>LLM chat memory</strong>:<ul>
+<li><code>storeChats</code> is deprecated but still available for tightly scoped low-level compatibility flows that intentionally keep chat state inside one native runtime.</li>
+</ul>
+</li>
+<li>Use <code>edge.text.session(...)</code> when you need bounded history replay or want to strip older reasoning traces before replay.</li>
 </ul>
 <p><strong>See also:</strong></p>
 <ul>
@@ -1221,29 +1262,40 @@ sd.close()
 <h3 id="api-reference">API reference</h3>
 <p>Key methods:</p>
 <ul>
-<li><code>LLMEdgeManager.generateText(...)</code> — High-level text generation</li>
-<li><code>LLMEdgeManager.generateImage(...)</code> — High-level image generation</li>
-<li><code>LLMEdgeManager.generateVideo(...)</code> — High-level video generation</li>
+<li><code>LLMEdge.create(...)</code> — creates the instance-based high-level facade</li>
+<li><code>edge.text.generate(...)</code> — high-level text generation</li>
+<li><code>edge.text.stream(...)</code> — high-level text streaming</li>
+<li><code>edge.text.session(...)</code> — creates a Kotlin-managed multi-turn chat session</li>
+<li><code>TextGenerationRequest.batchSize</code> — blocking generation batch size (<code>0</code> = use configured default)</li>
+<li><code>edge.text.stream(..., batchSize = ...)</code> / <code>text.ChatSession.stream(..., batchSize = ...)</code> — streaming batch size override (<code>0</code> = use configured default)</li>
+<li><code>TextModelOptions.numThreads</code> / <code>generationThreads</code> — prompt/batch vs single-token thread counts</li>
+<li><code>edge.image.generate(...)</code> — high-level image generation</li>
+<li><code>edge.image.generateVideo(...)</code> — high-level video generation</li>
+<li><code>edge.speech.transcribe(...)</code> — high-level speech-to-text</li>
+<li><code>edge.speech.synthesize(...)</code> — high-level text-to-speech</li>
 <li><code>SmolLM.load(modelPath: String, params: InferenceParams)</code> — loads a GGUF model from a path</li>
 <li><code>SmolLM.loadFromHuggingFace(...)</code> — downloads and loads a model from Hugging Face</li>
 <li><code>SmolLM.getResponse(query: String): String</code> — runs blocking generation and returns complete text</li>
 <li><code>SmolLM.getResponseAsFlow(query: String): Flow&lt;String&gt;</code> — runs streaming generation</li>
+<li><code>SmolLM.getEstimatedNativeMemoryBytes()</code> / <code>getEstimatedStateMemoryBytes()</code> — expose native model/state memory estimates</li>
 <li><code>SmolLM.addSystemPrompt(prompt: String)</code> — adds system prompt to chat history</li>
 <li><code>SmolLM.addUserMessage(message: String)</code> — adds user message to chat history</li>
+<li><code>text.ChatSession.reply(message: String): String</code> — runs bounded multi-turn chat with Kotlin-managed history</li>
+<li><code>text.ChatSession.stream(message: String): Flow&lt;TextStreamEvent&gt;</code> — streams a bounded reply while persisting the final assistant turn</li>
+<li><code>ConversationWindow(...)</code> — configures sliding-window size, token budget, and reasoning stripping</li>
 <li><code>SmolLM.close()</code> — releases native resources</li>
 </ul>
-<p><strong>High-Level Speech API (via LLMEdgeManager):</strong>
-- <code>LLMEdgeManager.transcribeAudioToText(context, audioSamples, language?)</code> — simple audio transcription
-- <code>LLMEdgeManager.transcribeAudio(context, params, onProgress?)</code> — full transcription with segments
-- <code>LLMEdgeManager.detectLanguage(context, audioSamples)</code> — detect spoken language
-- <code>LLMEdgeManager.transcribeToSrt(context, audioSamples, language?)</code> — generate SRT subtitles
-- <code>LLMEdgeManager.synthesizeSpeech(context, params, onProgress?)</code> — generate speech from text
-- <code>LLMEdgeManager.synthesizeSpeechToFile(context, text, outputFile, onProgress?)</code> — generate and save WAV
-- <code>LLMEdgeManager.unloadSpeechModels()</code> — unload all speech models</p>
+<p><strong>High-Level Speech API (via <code>LLMEdge</code>):</strong>
+- <code>edge.speech.transcribeToText(audioSamples, model?, params?, loadOptions?)</code> — simple audio transcription
+- <code>edge.speech.transcribe(audioSamples, model?, params?, loadOptions?)</code> — full transcription with segments
+- <code>edge.speech.detectLanguage(audioSamples, model?, loadOptions?)</code> — detect spoken language
+- <code>edge.speech.createStreamingSession(model?, params?, loadOptions?)</code> — create a reusable streaming transcriber
+- <code>edge.speech.synthesize(text, model?, params?, loadOptions?)</code> — generate speech from text
+- <code>edge.speech.synthesizeStream(text, model?, params?, loadOptions?)</code> — stream speech generation events</p>
 <p><strong>Low-Level Speech API:</strong>
-- <code>Whisper.load(modelPath: String, useGpu: Boolean)</code> — loads a Whisper model
+- <code>Whisper.load(modelPath: String, useGpu: Boolean, flashAttn: Boolean = true, gpuDevice: Int = 0)</code> — loads a Whisper model
 - <code>Whisper.loadFromHuggingFace(...)</code> — downloads and loads Whisper from HuggingFace
-- <code>Whisper.transcribe(samples: FloatArray, params: TranscriptionParams)</code> — transcribes audio
+- <code>Whisper.transcribe(samples: FloatArray, params: TranscribeParams)</code> — transcribes audio
 - <code>Whisper.detectLanguage(samples: FloatArray)</code> — detects spoken language
 - <code>Whisper.close()</code> — releases native resources
 - <code>BarkTTS.load(modelPath: String, ...)</code> — loads a Bark TTS model
@@ -1378,7 +1430,7 @@ sd.close()
 </dialog>
                             </div>
                             <div
-                                class="sticky top-[calc(var(--header-height)+1px)] z-30 ml-auto hidden h-[calc(100svh-var(--header-height)-var(--footer-height))] w-72 flex-col gap-4 overflow-hidden overscroll-none pb-8 xl:flex">
+                                class="sticky top-[calc(var(--header-height)+1px)] ml-auto hidden h-[calc(100svh-var(--header-height)-var(--footer-height))] w-72 flex-col gap-4 overflow-hidden overscroll-none pb-8 xl:flex">
                                 <div class="h-(--top-spacing) shrink-0"></div>
                                 <div view-transition-name="toc" class="no-scrollbar overflow-y-auto px-8">
     <div class="flex flex-col gap-2 p-4 pt-0 text-sm">
@@ -1387,10 +1439,10 @@ sd.close()
         
         
         
-        <a href="#high-level-api-llmedgemanager"
+        <a href="#high-level-api-llmedge"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="2">
-            High-Level API (LLMEdgeManager)
+            High-Level API (LLMEdge)
         </a>
         
         
@@ -1462,6 +1514,12 @@ sd.close()
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
             Basic LLM Inference
+        </a>
+        
+        <a href="#managed-chat-history-with-edgetextsession"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Managed chat history with edge.text.session(...)
         </a>
         
         <a href="#downloading-models-from-hugging-face"
@@ -1659,7 +1717,7 @@ sd.close()
   "prerender": [
     {
       "where": {
-          "selector_matches": ["#next-button", "#previous-button"],
+          "selector_matches": ["#next-button", "#previous-button"]
       }
     }
   ]

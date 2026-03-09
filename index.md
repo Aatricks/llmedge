@@ -11,13 +11,13 @@ llmedge is a lightweight toolkit for running LLM inference, vision models, and m
 - Automatic CPU feature detection (FP16, dotprod, SVE, i8mm)
 - Optional Vulkan acceleration for compatible devices
 - Memory-aware context size capping
-- **Optimized Inference**: KV Cache reuse for multi-turn conversations, significantly reducing latency for subsequent prompts.
+- **Optimized Inference**: KV cache reuse for compact multi-turn chats, plus `ChatSession` for bounded Kotlin-managed replay when reasoning traces would otherwise exhaust context.
 
 **Generative AI Capabilities:**
 
 - **Image Generation**: Stable Diffusion integration for on-device image generation with:
 
-    - **EasyCache**: Automatically detected and enabled for supported models (DiT architecture) to accelerate generation.
+    - **EasyCache**: Automatically enabled by `edge.image` for supported DiT models (Flux, SD3, Wan, Qwen Image, Z-Image) to accelerate generation.
     - **LoRA Support**: Apply Low-Rank Adaptation models (e.g., for style transfer) with automatic downloading from Hugging Face.
 
 - **Video Generation**: Generate short video clips (4-64 frames) from text using Wan models with sequential loading for lower RAM usage.
@@ -63,6 +63,7 @@ llmedge is a lightweight toolkit for running LLM inference, vision models, and m
 - Comprehensive example apps demonstrating all features
 - Built-in memory metrics and performance monitoring
 - Reasoning control API (thinking mode)
+- Managed chat sessions with sliding-window history replay and `<think>` stripping
 - Streaming and blocking generation modes
 - Detailed documentation and troubleshooting guides
 

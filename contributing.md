@@ -28,10 +28,26 @@ Thanks for your interest in contributing to `llmedge`! This project contains nat
 4. **Build the project:**
    ```fish
    ./gradlew :llmedge:assembleDebug
-   ./gradlew :llmedge-examples:app:assembleDebug
+   ./gradlew :llmedge:assembleRelease
+   cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
+   cd llmedge-examples && ./gradlew :app:assembleDebug
    ```
 
 5. **Run examples on a device or emulator** to verify setup
+
+The root Gradle build only includes `:llmedge`. The example app is a separate Gradle build that consumes the generated AAR, so validate it separately after library changes. For a one-command check from the repository root, run `bash scripts/validate_examples.sh`.
+
+If you have already built `llmedge/build/outputs/aar/llmedge-release.aar` and only want to re-check the example app against that artifact, reuse it with:
+
+```fish
+LLMEDGE_SKIP_LIBRARY_BUILD=true bash scripts/validate_examples.sh
+```
+
+To validate both example variants in one pass:
+
+```fish
+LLMEDGE_EXAMPLES_GRADLE_TASKS=':app:assembleDebug :app:assembleRelease' bash scripts/validate_examples.sh
+```
 
 ## Development Workflow
 
@@ -70,6 +86,16 @@ Use descriptive branch names:
 
 3. **Run example apps** to verify functionality
 
+   Because the example app is a separate build, validate it explicitly:
+   ```fish
+   bash scripts/validate_examples.sh
+   ```
+
+   If your change affects packaging or release-only behavior, validate both variants:
+   ```fish
+   LLMEDGE_EXAMPLES_GRADLE_TASKS=':app:assembleDebug :app:assembleRelease' bash scripts/validate_examples.sh
+   ```
+
 4. **Check for warnings** in build output
 
 ## Coding Style
@@ -84,6 +110,17 @@ Use descriptive branch names:
 - Document public APIs with KDoc
 - Use `@JvmStatic` for JNI-exposed methods
 
+#### Native wrapper checklist
+
+When editing a JNI-backed wrapper such as `SmolLM`, `StableDiffusion`, `Whisper`, `BarkTTS`, or `GGUFReader`, update the full wrapper surface instead of only the production path:
+
+- Keep JNI-exposed entry points annotated with `@JvmStatic` where required.
+- Update wrapper-side bridge interfaces and their default provider implementations.
+- Update test override/reset hooks used by unit and instrumentation tests.
+- Update every mocked bridge implementation in tests that depends on the changed methods.
+- Keep blocking native calls off the main thread by routing them through `Dispatchers.IO` or the library inference dispatcher.
+- Preserve exception translation (`NativeBindingException`, `ModelLoadException`, `InferenceFailedException`) so diagnostics remain consistent.
+
 **Example:**
 ```kotlin
 /**
@@ -91,7 +128,9 @@ Use descriptive branch names:
  *
  * @param modelPath Absolute path to the GGUF file.
  * @param params Inference configuration parameters.
- * @throws FileNotFoundException if the model file doesn't exist.
+ * @throws ModelFileNotFoundException if the model file doesn't exist.
+ * @throws InvalidModelFileException if the file is unreadable, empty, or not a GGUF model.
+ * @throws ModelLoadException if the validated model cannot be loaded by the native runtime.
  */
 suspend fun load(
     modelPath: String,
@@ -154,7 +193,9 @@ Java_io_aatricks_llmedge_SmolLM_loadModel(
 
 - Measure inference speed with `getLastGenerationMetrics()`
 - Profile memory with `MemoryMetrics.snapshot()`
-- Test with different `numThreads` values
+- Test with different prompt/generation thread splits (`numThreads` vs `generationThreads`)
+- Measure the effect of `defaultTextBatchSize` / `defaultTextStreamBatchSize` on JNI overhead and UI responsiveness
+- Check `getEstimatedNativeMemoryBytes()` / `getEstimatedStateMemoryBytes()` when changing cache or context behavior
 - Compare before/after for performance-affecting changes
 - Include performance notes in PR description
 
@@ -174,6 +215,7 @@ Run all example activities:
 ### PR Checklist
 
 - [ ] Code builds without errors or warnings
+- [ ] `bash scripts/validate_examples.sh` passes if the change can affect the example app
 - [ ] All example apps run successfully
 - [ ] Changes are focused and well-scoped
 - [ ] Code follows project style guidelines
@@ -277,6 +319,11 @@ rm -rf llmedge/.cxx
 ./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs="-DGGML_VULKAN=ON -DSD_VULKAN=ON"
 ```
 
+On Linux/macOS hosts the Gradle build enables Vulkan by default. On Windows hosts it now defaults
+to `OFF` because the upstream shader-generator step is still fragile under the Android cross-build
+toolchain; opt back in explicitly with `-DGGML_VULKAN=ON -DSD_VULKAN=ON` only when that path is
+known to work in your environment.
+
 ### Debugging Native Code
 
 1. **Build debug variant:**
@@ -317,6 +364,17 @@ source files under `src/models/*.cpp`, as well as newer llama.cpp versions that 
 implementations into `llama-model.cpp`. If you update the submodule and encounter CMake errors about
 missing source files, ensure the `llmedge/src/main/cpp/CMakeLists.txt` file reflects the current
 llama.cpp structure or open a PR with a fix similar to the existing guarded `file(GLOB ...)` approach.
+
+## API Stability
+
+The library currently has two maturity zones:
+
+- **Recommended / more stable:** `LLMEdge`, `TextClient`, `SpeechClient`, `ModelManager`, and the lower-level `SmolLM`/`Whisper`/`BarkTTS` wrappers used in tests.
+- **Evolving / experimental:** projector-based vision/VLM flows, on-device RAG, and some image/video-generation integration paths, especially where external model packaging conventions vary.
+
+For VLM work specifically, assume a matching projector/mmproj file is required; the library now fails fast when that dependency is absent instead of silently degrading to text-only prompting.
+
+When contributing to evolving areas, prefer additive changes and keep the existing high-level facade behavior stable for downstream consumers.
 
 ## Documentation
 
