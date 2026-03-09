@@ -4,6 +4,8 @@ import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.ModelCache
 import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
@@ -78,6 +80,10 @@ class TextClient internal constructor(
     private val config: LLMEdgeConfig,
     private val modelResolver: ModelResolver,
 ) : AutoCloseable {
+    private companion object {
+        private const val LOG_TAG = "TextClient"
+    }
+
     @Volatile
     private var lastGenerationMetrics: SmolLM.GenerationMetrics? = null
 
@@ -129,8 +135,16 @@ class TextClient internal constructor(
         )
 
     suspend fun generate(request: TextGenerationRequest): String {
-        val runtime = acquire(request.model, request.options)
         lastGenerationMetrics = null
+        return try {
+            generateOnce(request)
+        } catch (error: InferenceFailedException) {
+            retryGenerateIfNeeded(request, error)
+        }
+    }
+
+    private suspend fun generateOnce(request: TextGenerationRequest): String {
+        val runtime = acquire(request.model, request.options)
         return complete(
             runtime = runtime,
             prompt = request.prompt,
@@ -139,6 +153,29 @@ class TextClient internal constructor(
             maxTokens = request.maxTokens,
             batchSize = request.batchSize,
         )
+    }
+
+    private suspend fun retryGenerateIfNeeded(
+        request: TextGenerationRequest,
+        error: InferenceFailedException,
+    ): String {
+        val fallbackRequest = buildSafeRetryRequest(request) ?: throw error
+        if (!isDecodeFailure(error)) {
+            throw error
+        }
+
+        AndroidLogAdapter.w(
+            LOG_TAG,
+            "Retrying text generation with CPU-safe settings after decode failure for '${request.model.cacheKey}'",
+        )
+        invalidateRuntime(request.model, request.options)
+
+        return try {
+            generateOnce(fallbackRequest)
+        } catch (retryError: InferenceFailedException) {
+            retryError.addSuppressed(error)
+            throw retryError
+        }
     }
 
     /**
@@ -266,6 +303,7 @@ class TextClient internal constructor(
         systemPrompt: String?,
         options: TextModelOptions,
     ) {
+        model.clearMessages()
         model.clearKvCache()
         systemPrompt?.takeUnless(String::isBlank)?.let(model::addSystemPrompt)
         model.setThinkingMode(options.thinkingMode)
@@ -311,4 +349,27 @@ class TextClient internal constructor(
     override fun close() {
         cache.clear()
     }
+
+    private fun invalidateRuntime(model: ModelSpec, options: TextModelOptions) {
+        cache.remove(buildCacheKey(model, options))
+    }
+
+    private fun buildSafeRetryRequest(request: TextGenerationRequest): TextGenerationRequest? {
+        val effectiveUsesVulkan = request.options.useVulkan ?: config.textUseVulkan
+        val effectiveUsesFlashAttention = request.options.useFlashAttention ?: config.defaultUseFlashAttention
+        val effectiveBatchSize = resolveBatchSize(request.batchSize, request.maxTokens)
+
+        if (!effectiveUsesVulkan && !effectiveUsesFlashAttention && effectiveBatchSize == 1) {
+            return null
+        }
+
+        return request.copy(
+            options = request.options.copy(useVulkan = false, useFlashAttention = false),
+            batchSize = 1,
+        )
+    }
+
+    private fun isDecodeFailure(error: InferenceFailedException): Boolean =
+        error.message?.contains("llama_decode() failed") == true ||
+            error.cause?.message?.contains("llama_decode() failed") == true
 }

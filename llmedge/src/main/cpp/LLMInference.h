@@ -80,6 +80,8 @@ class LLMInference {
 
     void stopCompletion();
 
+    void clearMessages();
+
     void setReasoningOptions(bool disableThinking, int reasoningBudget);
 
     void configureThreading(int generationThreads, int promptThreads);

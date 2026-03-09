@@ -10,6 +10,7 @@ import org.junit.Test
 class SmolLMMiscTest {
     private class TestBridge : SmolLM.NativeBridge {
         var closeCalled = false
+        var clearMessagesCalled = false
 
         override fun loadModel(
             instance: SmolLM,
@@ -34,6 +35,7 @@ class SmolLMMiscTest {
         override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 314
         override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0xCAFEL
         override fun nativeDecodePreparedEmbeddings(instance: SmolLM, modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean = true
+        override fun clearMessages(instance: SmolLM, modelPtr: Long) { clearMessagesCalled = true }
         override fun close(instance: SmolLM, modelPtr: Long) { closeCalled = true }
         override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) { /* no-op */ }
         override fun completionLoop(instance: SmolLM, modelPtr: Long): String = "[EOG]"
@@ -74,6 +76,8 @@ class SmolLMMiscTest {
         assertEquals(314, smol.getContextLengthUsed())
         assertEquals(0xCAFEL, smol.getNativeModelPointer())
         assertTrue(smol.decodePreparedEmbeddings("/tmp/embd.bin", "/tmp/meta.json", nBatch = 2))
+        smol.clearMessages()
+        assertTrue(bridge.clearMessagesCalled)
 
         // Flip thinking mode to non-default, then ensure close() resets it
         smol.setThinkingEnabled(false)

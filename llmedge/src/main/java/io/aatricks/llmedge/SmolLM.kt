@@ -83,14 +83,15 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 elapsedMicros = elapsedMicros,
             )
         }
-            fun configureThreading(
-                instance: SmolLM,
-                modelPtr: Long,
-                generationThreads: Int,
-                promptThreads: Int,
-            ) = Unit
-            fun getEstimatedNativeMemoryBytes(instance: SmolLM, modelPtr: Long): Long = 0L
-            fun getEstimatedStateMemoryBytes(instance: SmolLM, modelPtr: Long): Long = 0L
+        fun configureThreading(
+            instance: SmolLM,
+            modelPtr: Long,
+            generationThreads: Int,
+            promptThreads: Int,
+        ) = Unit
+        fun getEstimatedNativeMemoryBytes(instance: SmolLM, modelPtr: Long): Long = 0L
+        fun getEstimatedStateMemoryBytes(instance: SmolLM, modelPtr: Long): Long = 0L
+        fun clearMessages(instance: SmolLM, modelPtr: Long) = Unit
         fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int
         fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long
         fun nativeDecodePreparedEmbeddings(
@@ -208,16 +209,18 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         elapsedMicros = elapsedMicros,
                     )
                 }
-                    override fun configureThreading(
-                        instance: SmolLM,
-                        modelPtr: Long,
-                        generationThreads: Int,
-                        promptThreads: Int,
-                    ) = instance.nativeConfigureThreading(modelPtr, generationThreads, promptThreads)
-                    override fun getEstimatedNativeMemoryBytes(instance: SmolLM, modelPtr: Long): Long =
-                        instance.nativeGetEstimatedMemoryBytes(modelPtr)
-                    override fun getEstimatedStateMemoryBytes(instance: SmolLM, modelPtr: Long): Long =
-                        instance.nativeGetEstimatedStateMemoryBytes(modelPtr)
+                override fun configureThreading(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    generationThreads: Int,
+                    promptThreads: Int,
+                ) = instance.nativeConfigureThreading(modelPtr, generationThreads, promptThreads)
+                override fun getEstimatedNativeMemoryBytes(instance: SmolLM, modelPtr: Long): Long =
+                    instance.nativeGetEstimatedMemoryBytes(modelPtr)
+                override fun getEstimatedStateMemoryBytes(instance: SmolLM, modelPtr: Long): Long =
+                    instance.nativeGetEstimatedStateMemoryBytes(modelPtr)
+                override fun clearMessages(instance: SmolLM, modelPtr: Long) =
+                    instance.nativeClearMessages(modelPtr)
                 override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int =
                         instance.getContextSizeUsed(modelPtr)
                 override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long =
@@ -875,6 +878,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         private external fun nativeSetSequenceStateBytes(modelPtr: Long, seqId: Int, state: ByteArray): Boolean
         private external fun nativeClearKvCache(modelPtr: Long)
 
+        private external fun nativeClearMessages(modelPtr: Long)
+
     /**
      * Decode prepared embeddings previously produced by Projector.encodeImageToFile. This will
      * replay the required llama.decode steps using the current loaded model/context so the image
@@ -945,6 +950,16 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         verifyHandle()
         try {
             nativeBridge.clearKvCache(this, nativePtr)
+        } catch (e: UnsatisfiedLinkError) {
+            // ignore if not available
+        }
+    }
+
+    /** Clears any native chat/system messages stored on this runtime. */
+    fun clearMessages() {
+        verifyHandle()
+        try {
+            nativeBridge.clearMessages(this, nativePtr)
         } catch (e: UnsatisfiedLinkError) {
             // ignore if not available
         }

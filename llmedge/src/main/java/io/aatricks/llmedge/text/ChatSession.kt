@@ -30,7 +30,7 @@ class ChatSession internal constructor(
             val runtime = client.acquire(model, options)
             history.add(ConversationMessage(ConversationRole.USER, message))
             val window = memory.trim(history)
-            val prompt = PromptRenderer.render(window, systemPrompt)
+            val prompt = PromptRenderer.render(window)
             client
                 .complete(
                     runtime = runtime,
@@ -49,7 +49,7 @@ class ChatSession internal constructor(
             val runtime = client.acquire(model, options)
             history.add(ConversationMessage(ConversationRole.USER, message))
             val window = memory.trim(history)
-            val prompt = PromptRenderer.render(window, systemPrompt)
+            val prompt = PromptRenderer.render(window)
             val fullText = StringBuilder()
             emit(TextStreamEvent.Started(prompt))
             client.streamCompletion(runtime, prompt, systemPrompt, options, batchSize).collect { chunk ->

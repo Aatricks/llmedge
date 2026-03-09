@@ -58,9 +58,9 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         LOGi("contextSize %ld adjusted to %ld to fit llama context limits", contextSize, safeContext);
     }
     ctx_params.n_ctx = static_cast<uint32_t>(safeContext);
-    ctx_params.n_batch = std::min(static_cast<int>(safeContext), 512);
+    ctx_params.n_batch = static_cast<uint32_t>(safeContext);
     // Smaller micro-batches improve cache locality on ARM
-    ctx_params.n_ubatch = 128;
+    ctx_params.n_ubatch = std::min(ctx_params.n_batch, 128u);
     ctx_params.n_threads = nThreads;
     ctx_params.n_threads_batch = nThreads;
     ctx_params.no_perf = true;
@@ -456,6 +456,29 @@ LLMInference::stopCompletion() {
     }
     _response.clear();
     _cacheResponseTokens.clear();
+}
+
+void
+LLMInference::clearMessages() {
+    for (llama_chat_message &message: _messages) {
+        free(const_cast<char *>(message.role));
+        free(const_cast<char *>(message.content));
+    }
+    _messages.clear();
+    _prevLen = 0;
+    _nPast = 0;
+    _nCtxUsed = 0;
+    _response.clear();
+    _cacheResponseTokens.clear();
+    _promptTokens.clear();
+    if (_batch) {
+        std::memset(_batch, 0, sizeof(llama_batch));
+    }
+    if (_ctx) {
+        _formattedMessages.assign(llama_n_ctx(_ctx), 0);
+    } else {
+        _formattedMessages.clear();
+    }
 }
 
 void

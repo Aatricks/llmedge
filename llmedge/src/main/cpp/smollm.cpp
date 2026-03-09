@@ -706,3 +706,13 @@ Java_io_aatricks_llmedge_SmolLM_nativeClearKvCache(JNIEnv* env, jobject thiz, jl
     if (!ctx) return;
     llama_memory_clear(llama_get_memory(ctx), true);
 }
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_SmolLM_nativeClearMessages(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    if (!modelPtr) return;
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return;
+    }
+    llmInference->clearMessages();
+}
