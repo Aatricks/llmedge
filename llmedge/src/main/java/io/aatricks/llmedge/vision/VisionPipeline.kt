@@ -59,7 +59,8 @@ internal class VisionPipeline(
                                     contextSize = null,
                                     storeChats = false,
                                     temperature = 0.0f,
-                                    thinkingMode = SmolLM.ThinkingMode.DISABLED,
+                                    useFlashAttn = false,
+                                    thinkingMode = SmolLM.ThinkingMode.DEFAULT,
                                 ),
                         )
 

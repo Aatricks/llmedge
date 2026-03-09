@@ -614,6 +614,8 @@ Java_io_aatricks_llmedge_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobj
         i_batch++;
     }
 
+    llmInference->markPreparedKvForNextCompletion();
+
     return JNI_TRUE;
 }
 

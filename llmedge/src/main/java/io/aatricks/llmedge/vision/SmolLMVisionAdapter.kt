@@ -40,6 +40,7 @@ class SmolLMVisionAdapter(
     
     companion object {
         private const val TAG = "SmolLMVision"
+        private const val VISION_GENERATION_BATCH_SIZE = 1
     }
     
     // These will be set when loading a vision model
@@ -104,9 +105,15 @@ class SmolLMVisionAdapter(
 
         try {
             val imageFile = ImageUtils.imageToFile(context, image, "vision_input.jpg")
-            val visionPrompt = formatVisionPrompt(prompt, imageFile)
             val embdFile = File(imageFile.parentFile, "${imageFile.nameWithoutExtension}.bin")
             val metaFile = File(embdFile.absolutePath + ".meta.json")
+            val usingPreparedEmbeddings = imageFile.extension.equals("bin", ignoreCase = true)
+            val visionPrompt =
+                if (usingPreparedEmbeddings) {
+                    prompt
+                } else {
+                    formatVisionPrompt(prompt, imageFile)
+                }
             if (!embdFile.exists() || !metaFile.exists()) {
                 throw IllegalStateException(
                     "Prepared multimodal embeddings are missing. Ensure the projector mmproj file matches the model and native projector support is available.",
@@ -131,7 +138,12 @@ class SmolLMVisionAdapter(
                     ?.takeUnless(String::isBlank)
                     ?.let { systemPrompt -> "$systemPrompt\n\n$visionPrompt" }
                     ?: visionPrompt
-            val response = smolLM.getResponse(finalPrompt, params.maxTokens)
+            val response =
+                smolLM.getResponse(
+                    query = finalPrompt,
+                    maxTokens = params.maxTokens,
+                    batchSize = VISION_GENERATION_BATCH_SIZE,
+                )
             val duration = System.currentTimeMillis() - startTime
 
             val tokensIn = estimateTokens(finalPrompt)

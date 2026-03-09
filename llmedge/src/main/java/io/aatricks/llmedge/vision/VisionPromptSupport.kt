@@ -35,6 +35,7 @@ internal object VisionPromptSupport {
         val normalized = prompt.trimStart()
         if (
             normalized.startsWith("SYSTEM:") ||
+                normalized.startsWith("<|system|>") ||
                 normalized.contains("OCR_TEXT_START") ||
                 normalized.contains("EXAMPLES:") ||
                 normalized.startsWith("<|user|>")

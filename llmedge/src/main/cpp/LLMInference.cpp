@@ -175,7 +175,13 @@ LLMInference::startCompletion(const char *query) {
     _cacheResponseTokens.reserve(32);
     std::string finalQuery = query ? std::string(query) : std::string();
     const bool suppressThinking = _disableThinking || _reasoningBudget == 0;
-    if (suppressThinking && finalQuery.find("/no_think") == std::string::npos) {
+    const bool looksStructuredPrompt =
+        finalQuery.rfind("<|", 0) == 0 ||
+        finalQuery.find("<|system|>") != std::string::npos ||
+        finalQuery.find("<|user|>") != std::string::npos ||
+        finalQuery.find("<|assistant|>") != std::string::npos ||
+        finalQuery.find("<|im_start|>") != std::string::npos;
+    if (suppressThinking && !looksStructuredPrompt && finalQuery.find("/no_think") == std::string::npos) {
         if (!finalQuery.empty()) {
             finalQuery.insert(0, "/no_think\n");
         } else {
@@ -305,6 +311,12 @@ LLMInference::startCompletion(const char *query) {
     int n_past = 0;
     if (restoredFromSnapshot) {
          n_past = snapshotNPast;
+    } else if (_preservePreparedKvForNextCompletion) {
+         int max_seq_pos = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0);
+         if (max_seq_pos >= 0) {
+             n_past = max_seq_pos + 1;
+         }
+         LOGi("Preserving prepared KV cache for completion (n_past=%d)", n_past);
     } else if (_storeChats && _prevLen > 0) {
          int max_seq_pos = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0);
          if (max_seq_pos >= 0) {
@@ -314,6 +326,8 @@ LLMInference::startCompletion(const char *query) {
          n_past = 0;
          llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
     }
+
+        _preservePreparedKvForNextCompletion = false;
     
     _nPast = n_past;
     LOGi("startCompletion: n_past=%d, n_tokens=%d, prevLen=%d", n_past, _batch->n_tokens, _prevLen);
@@ -453,6 +467,7 @@ LLMInference::stopCompletion() {
     } else {
         _prevLen = 0;
         _nPast = 0;
+        _preservePreparedKvForNextCompletion = false;
     }
     _response.clear();
     _cacheResponseTokens.clear();
@@ -471,6 +486,7 @@ LLMInference::clearMessages() {
     _response.clear();
     _cacheResponseTokens.clear();
     _promptTokens.clear();
+    _preservePreparedKvForNextCompletion = false;
     if (_batch) {
         std::memset(_batch, 0, sizeof(llama_batch));
     }
@@ -479,6 +495,11 @@ LLMInference::clearMessages() {
     } else {
         _formattedMessages.clear();
     }
+}
+
+void
+LLMInference::markPreparedKvForNextCompletion() {
+    _preservePreparedKvForNextCompletion = true;
 }
 
 void

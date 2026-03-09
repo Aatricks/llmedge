@@ -49,6 +49,10 @@ class LLMInference {
     size_t _cachedSystemPromptHash = 0;
     int _systemPromptTokenCount = 0;
 
+    // One-shot flag used by the multimodal projector path to preserve pre-decoded
+    // image embeddings in the KV cache for the next completion request.
+    bool _preservePreparedKvForNextCompletion = false;
+
     bool _isValidUtf8(const char* response);
 
   public:
@@ -81,6 +85,8 @@ class LLMInference {
     void stopCompletion();
 
     void clearMessages();
+
+    void markPreparedKvForNextCompletion();
 
     void setReasoningOptions(bool disableThinking, int reasoningBudget);
 

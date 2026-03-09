@@ -1,6 +1,7 @@
 package io.aatricks.llmedge.vision
 
 import io.mockk.*
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -201,6 +202,11 @@ class VisionTest {
         val result2 = method.invoke(adapter, systemPrompt, imageFile) as String
         assertEquals(systemPrompt, result2)
 
+        // Test ChatML-formatted prompts used by the example app
+        val chatMlPrompt = "<|system|>\nYou are a helpful assistant.<|end|>\n<|user|>\nDescribe this image.<|end|>\n<|assistant|>\n"
+        val resultChatMl = method.invoke(adapter, chatMlPrompt, imageFile) as String
+        assertEquals(chatMlPrompt, resultChatMl)
+
         // Test OCR markers
         val ocrPrompt = "OCR_TEXT_START: Some text OCR_TEXT_END: Describe this"
         val result3 = method.invoke(adapter, ocrPrompt, imageFile) as String
@@ -243,5 +249,62 @@ class VisionTest {
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
         assertTrue(!adapter.hasVisionCapabilities())
+    }
+
+    @Test
+    fun `SmolLMVisionAdapter analyze uses single-token generation after decoding embeddings`() = runTest {
+        val mockContext = mockk<android.content.Context>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
+        val workDir = createTempDir(prefix = "vision-adapter-test")
+        val embdFile = java.io.File(workDir, "vision_prepared.bin").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val metaFile = java.io.File(embdFile.absolutePath + ".meta.json").apply { writeText("{}") }
+
+        val hasVisionSupportField = SmolLMVisionAdapter::class.java.getDeclaredField("hasVisionSupport")
+        hasVisionSupportField.isAccessible = true
+        hasVisionSupportField.setBoolean(adapter, true)
+        val modelPathField = SmolLMVisionAdapter::class.java.getDeclaredField("modelPath")
+        modelPathField.isAccessible = true
+        modelPathField.set(adapter, "/tmp/llava-model.gguf")
+        val mmprojPathField = SmolLMVisionAdapter::class.java.getDeclaredField("mmprojPath")
+        mmprojPathField.isAccessible = true
+        mmprojPathField.set(adapter, "/tmp/mmproj.gguf")
+
+        mockkObject(ImageUtils)
+        try {
+            coEvery {
+                ImageUtils.imageToFile(mockContext, any(), "vision_input.jpg")
+            } returns embdFile
+            every {
+                mockSmolLM.decodePreparedEmbeddings(
+                    embdFile.absolutePath,
+                    metaFile.absolutePath,
+                    1,
+                )
+            } returns true
+            every { mockSmolLM.getResponse("Describe the image", 256, 1) } returns "vision-result"
+
+            val result =
+                adapter.analyze(
+                    ImageSource.FileSource(embdFile),
+                    "Describe the image",
+                    VisionParams(),
+                )
+
+            assertEquals("vision-result", result.text)
+            verify(exactly = 1) {
+                mockSmolLM.decodePreparedEmbeddings(
+                    embdFile.absolutePath,
+                    metaFile.absolutePath,
+                    1,
+                )
+            }
+            verify(exactly = 1) {
+                mockSmolLM.getResponse("Describe the image", 256, 1)
+            }
+        } finally {
+            unmockkObject(ImageUtils)
+            workDir.deleteRecursively()
+        }
     }
 }
