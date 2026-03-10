@@ -103,7 +103,7 @@ static void whisper_progress_callback_wrapper(struct whisper_context* ctx,
     }
 }
 
-// New segment callback wrapper
+// New segment callback wrapper — batches JNI string allocation to reduce overhead
 static void whisper_new_segment_callback_wrapper(struct whisper_context* ctx,
                                                   struct whisper_state* state,
                                                   int n_new,
@@ -116,11 +116,15 @@ static void whisper_new_segment_callback_wrapper(struct whisper_context* ctx,
     JNIEnv* env = jni_thread_cache_get_env();
     if (!env) return;
 
-    // Get segment count
     int n_segments = whisper_full_n_segments_from_state(state);
+    int start = n_segments - n_new;
 
-    // Call callback for each new segment
-    for (int i = n_segments - n_new; i < n_segments; ++i) {
+    // Pre-allocate local ref capacity for the batch to avoid per-call JNI overhead
+    if (n_new > 16) {
+        env->EnsureLocalCapacity(n_new + 4);
+    }
+
+    for (int i = start; i < n_segments; ++i) {
         const char* text = whisper_full_get_segment_text_from_state(state, i);
         int64_t t0 = whisper_full_get_segment_t0_from_state(state, i);
         int64_t t1 = whisper_full_get_segment_t1_from_state(state, i);
@@ -283,6 +287,11 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetProgressCallback(JNIEnv* en
         jclass callbackClass = env->GetObjectClass(callback);
         handle->progressMethodID = env->GetMethodID(callbackClass, "onProgress", "(I)V");
         env->DeleteLocalRef(callbackClass);
+        if (!handle->progressMethodID) {
+            env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
+            handle->progressCallbackGlobalRef = nullptr;
+            ALOGE("Failed to find onProgress(I)V method on Whisper progress callback");
+        }
     }
 }
 
@@ -307,6 +316,11 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetSegmentCallback(JNIEnv* env
         jclass callbackClass = env->GetObjectClass(callback);
         handle->segmentMethodID = env->GetMethodID(callbackClass, "onNewSegment", "(IJJLjava/lang/String;)V");
         env->DeleteLocalRef(callbackClass);
+        if (!handle->segmentMethodID) {
+            env->DeleteGlobalRef(handle->segmentCallbackGlobalRef);
+            handle->segmentCallbackGlobalRef = nullptr;
+            ALOGE("Failed to find onNewSegment method on Whisper segment callback");
+        }
     }
 }
 

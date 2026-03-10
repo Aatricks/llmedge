@@ -43,6 +43,9 @@ class SmolLMInferenceTest {
                 useMlock: Boolean,
                 useVulkan: Boolean,
                 useFlashAttn: Boolean,
+                kvCacheTypeK: Int,
+                kvCacheTypeV: Int,
+                nGpuLayers: Int,
             ): Long {
                 // return fake handle
                 return 1L

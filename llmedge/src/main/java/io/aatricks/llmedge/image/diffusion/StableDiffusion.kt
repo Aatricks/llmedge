@@ -72,6 +72,23 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 easyCacheEndPercent: Float,
         ): ByteArray?
 
+        /** Fast path: returns ARGB_8888 pixels directly, avoiding Kotlin RGB→ARGB conversion */
+        fun txt2imgArgb(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                vaeTiling: Boolean,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
+        ): IntArray? = null
+
         fun txt2vid(
                 handle: Long,
                 prompt: String,
@@ -346,6 +363,37 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         easyCacheEndPercent: Float,
                 ): ByteArray? =
                         instance.nativeTxt2Img(
+                                handle,
+                                prompt,
+                                negative,
+                                width,
+                                height,
+                                steps,
+                                cfg,
+                                seed,
+                                vaeTiling,
+                                easyCacheEnabled,
+                                easyCacheReuseThreshold,
+                                easyCacheStartPercent,
+                                easyCacheEndPercent
+                        )
+
+                override fun txt2imgArgb(
+                        handle: Long,
+                        prompt: String,
+                        negative: String,
+                        width: Int,
+                        height: Int,
+                        steps: Int,
+                        cfg: Float,
+                        seed: Long,
+                        vaeTiling: Boolean,
+                        easyCacheEnabled: Boolean,
+                        easyCacheReuseThreshold: Float,
+                        easyCacheStartPercent: Float,
+                        easyCacheEndPercent: Float,
+                ): IntArray? =
+                        instance.nativeTxt2ImgArgb(
                                 handle,
                                 prompt,
                                 negative,
@@ -1080,28 +1128,60 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
     suspend fun txt2img(params: GenerateParams): Bitmap =
             withContext(diffusionDispatcher) {
-                val bytes =
-                        generationMutex.withLock {
-                            nativeBridge.txt2img(
-                                    handle,
-                                    params.prompt,
-                                    params.negative,
-                                    params.width,
-                                    params.height,
-                                    params.steps,
-                                    params.cfgScale,
-                                    params.seed,
-                                    params.vaeTiling,
-                                    params.easyCacheParams.enabled,
-                                    params.easyCacheParams.reuseThreshold,
-                                    params.easyCacheParams.startPercent,
-                                    params.easyCacheParams.endPercent
+                // Fast path: get ARGB_8888 pixels directly from native, avoiding Kotlin conversion
+                val argbPixels = try {
+                    generationMutex.withLock {
+                        nativeBridge.txt2imgArgb(
+                                handle,
+                                params.prompt,
+                                params.negative,
+                                params.width,
+                                params.height,
+                                params.steps,
+                                params.cfgScale,
+                                params.seed,
+                                params.vaeTiling,
+                                params.easyCacheParams.enabled,
+                                params.easyCacheParams.reuseThreshold,
+                                params.easyCacheParams.startPercent,
+                                params.easyCacheParams.endPercent
+                        )
+                    }
+                } catch (_: UnsatisfiedLinkError) {
+                    null
+                }
+
+                if (argbPixels != null) {
+                    // Bitmap creation is outside the mutex — next request can start generating
+                    return@withContext Bitmap.createBitmap(
+                            argbPixels, 0, params.width,
+                            params.width, params.height,
+                            Bitmap.Config.ARGB_8888
+                    )
+                }
+
+                // Fallback: lock only around the native call, convert outside
+                val bytes = generationMutex.withLock {
+                    nativeBridge.txt2img(
+                            handle,
+                            params.prompt,
+                            params.negative,
+                            params.width,
+                            params.height,
+                            params.steps,
+                            params.cfgScale,
+                            params.seed,
+                            params.vaeTiling,
+                            params.easyCacheParams.enabled,
+                            params.easyCacheParams.reuseThreshold,
+                            params.easyCacheParams.startPercent,
+                            params.easyCacheParams.endPercent
+                    )
+                            ?: throw InferenceFailedException(
+                                    operation = "Stable Diffusion image generation",
+                                    detail = "The native runtime reported a generation failure."
                             )
-                                    ?: throw InferenceFailedException(
-                                            operation = "Stable Diffusion image generation",
-                                            detail = "The native runtime reported a generation failure."
-                                    )
-                        }
+                }
 
                 val rgb = bytes
                 val expectedMin = params.width * params.height * 3
@@ -1166,6 +1246,22 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             easyCacheStartPercent: Float = 0.15f,
             easyCacheEndPercent: Float = 0.95f,
     ): ByteArray?
+
+    private external fun nativeTxt2ImgArgb(
+            handle: Long,
+            prompt: String,
+            negative: String,
+            width: Int,
+            height: Int,
+            steps: Int,
+            cfg: Float,
+            seed: Long,
+            vaeTiling: Boolean,
+            easyCacheEnabled: Boolean = false,
+            easyCacheReuseThreshold: Float = 0.2f,
+            easyCacheStartPercent: Float = 0.15f,
+            easyCacheEndPercent: Float = 0.95f,
+    ): IntArray?
 
     private external fun nativeTxt2Vid(
             handle: Long,

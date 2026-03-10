@@ -126,9 +126,12 @@ internal object NativeLibraryLoader {
         }
     }
 
+    /** Cached CPU features string — read /proc/cpuinfo only once. */
+    private val cachedCpuFeatures: String by lazy { readCpuFeaturesFromProc() }
+
     private fun smolLmCandidates(): List<String> {
         val candidates = mutableListOf<String>()
-        val cpuFeatures = readCpuFeatures()
+        val cpuFeatures = cachedCpuFeatures
         val hardware = Build.HARDWARE.orEmpty()
         val supportedAbis = Build.SUPPORTED_ABIS ?: emptyArray()
         val supported32BitAbis = Build.SUPPORTED_32_BIT_ABIS ?: emptyArray()
@@ -186,7 +189,7 @@ internal object NativeLibraryLoader {
         }
     }
 
-    private fun readCpuFeatures(): String {
+    private fun readCpuFeaturesFromProc(): String {
         val cpuInfo =
             try {
                 File("/proc/cpuinfo").readText()

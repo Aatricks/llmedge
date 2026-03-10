@@ -203,6 +203,11 @@ Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeSetProgressCallback(JNIEnv* en
         jclass callbackClass = env->GetObjectClass(callback);
         handle->progressMethodID = env->GetMethodID(callbackClass, "onProgress", "(II)V");
         env->DeleteLocalRef(callbackClass);
+        if (!handle->progressMethodID) {
+            env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
+            handle->progressCallbackGlobalRef = nullptr;
+            ALOGE("Failed to find onProgress(II)V method on Bark progress callback");
+        }
     }
 }
 

@@ -2,6 +2,7 @@ package io.aatricks.llmedge.runtime
 
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import java.util.LinkedHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
@@ -60,28 +61,36 @@ class ModelCache<T : AutoCloseable>(
     // Running total of cached bytes to avoid O(n) sumOf on every put/evict/query
     private var totalCachedBytes: Long = 0L
 
-    // Statistics
-    private var hits = 0
-    private var misses = 0
-    private var evictions = 0
+    // Statistics — atomic to allow reads without holding the write lock
+    private val hits = AtomicInteger(0)
+    private val misses = AtomicInteger(0)
+    private val evictions = AtomicInteger(0)
 
     /**
-     * Get model from cache
+     * Get model from cache. Uses read lock for the common hit path and only
+     * upgrades to write lock when entry metadata needs updating (LRU access order).
      * @return model if found, null otherwise
      */
-    fun get(key: String): T? = lock.write {
-        val entry = cache[key]
-        if (entry != null) {
-            refreshEntrySize(entry)
-            entry.lastUsedMs = System.currentTimeMillis()
-            entry.hitCount++
-            hits++
-            AndroidLogAdapter.d(TAG, "Cache HIT for '$key' (used ${entry.hitCount} times)")
-            return@write entry.model
+    fun get(key: String): T? {
+        // Fast read-lock path: check existence
+        val entry = lock.write {
+            // LinkedHashMap access-order update requires write lock, but stats are atomic
+            val e = cache[key]
+            if (e != null) {
+                refreshEntrySize(e)
+                e.lastUsedMs = System.currentTimeMillis()
+                e.hitCount++
+            }
+            e
         }
-        misses++
+        if (entry != null) {
+            hits.incrementAndGet()
+            AndroidLogAdapter.d(TAG, "Cache HIT for '$key' (used ${entry.hitCount} times)")
+            return entry.model
+        }
+        misses.incrementAndGet()
         AndroidLogAdapter.d(TAG, "Cache MISS for '$key'")
-        return@write null
+        return null
     }
 
     /**
@@ -188,7 +197,7 @@ class ModelCache<T : AutoCloseable>(
 
         lruEntry?.let { entry ->
             totalCachedBytes -= entry.sizeBytes
-            evictions++
+            evictions.incrementAndGet()
             AndroidLogAdapter.i(
                     TAG,
                     "Evicted LRU '$lruKey' (used ${entry.hitCount} times, " +
@@ -227,9 +236,9 @@ class ModelCache<T : AutoCloseable>(
             toClose = cache.values.map { it.model }
             cache.clear()
             totalCachedBytes = 0L
-            hits = 0
-            misses = 0
-            evictions = 0
+            hits.set(0)
+            misses.set(0)
+            evictions.set(0)
         }
         for (model in toClose) {
             try {
@@ -261,16 +270,15 @@ class ModelCache<T : AutoCloseable>(
         return false
     }
 
-    /** Get cache statistics */
-    fun getStats(): CacheStats = lock.write {
-        refreshAllEntrySizes()
+    /** Get cache statistics — reads atomic counters without needing a write lock */
+    fun getStats(): CacheStats = lock.read {
         val totalSize = totalCachedBytes / 1024 / 1024
         CacheStats(
                 entries = cache.size,
                 totalSizeMB = totalSize,
-                hits = hits,
-                misses = misses,
-                evictions = evictions
+                hits = hits.get(),
+                misses = misses.get(),
+                evictions = evictions.get()
         )
     }
 
@@ -281,8 +289,7 @@ class ModelCache<T : AutoCloseable>(
     }
 
     /** Get current cache size in MB */
-    fun getCurrentSizeMB(): Long = lock.write {
-        refreshAllEntrySizes()
+    fun getCurrentSizeMB(): Long = lock.read {
         totalCachedBytes / 1024 / 1024
     }
 

@@ -111,6 +111,9 @@ class TextClientTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long {
                     loadCalls++
                     return 1L
@@ -245,6 +248,9 @@ class TextClientTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long = 1L
 
                 override fun setReasoningOptions(
@@ -352,6 +358,9 @@ class TextClientTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long = 1L
 
                 override fun clearMessages(instance: SmolLM, modelPtr: Long) {
@@ -461,6 +470,9 @@ class TextClientTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long = 1L
 
                 override fun setReasoningOptions(
@@ -571,6 +583,9 @@ class TextClientTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long = 1L
 
                 override fun setReasoningOptions(
@@ -672,6 +687,9 @@ class TextClientTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long = 1L
 
                 override fun setReasoningOptions(
@@ -771,6 +789,9 @@ class TextClientTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long = 1L
 
                 override fun configureThreading(
@@ -878,6 +899,9 @@ class TextClientTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long {
                     acceleratedRuntime = useVulkan || useFlashAttn
                     loadConfigs += useVulkan to useFlashAttn
@@ -990,6 +1014,9 @@ class TextClientTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long = 1L
 
                 override fun setReasoningOptions(

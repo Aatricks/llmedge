@@ -63,6 +63,9 @@ class SmolLMLoadTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long {
                     capturedCtx = contextSize
                     capturedTemplate = chatTemplate

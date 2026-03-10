@@ -27,6 +27,9 @@ class SmolLMThinkingModeTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long = 1L
 
                 override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) {}

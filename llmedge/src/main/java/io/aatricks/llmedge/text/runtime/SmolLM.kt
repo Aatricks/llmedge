@@ -59,6 +59,9 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 useMlock: Boolean,
                 useVulkan: Boolean,
                 useFlashAttn: Boolean,
+                kvCacheTypeK: Int = -1,
+                kvCacheTypeV: Int = -1,
+                nGpuLayers: Int = 99,
         ): Long
 
         fun setReasoningOptions(
@@ -120,6 +123,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String)
         fun completionLoop(instance: SmolLM, modelPtr: Long): String
         fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String
+        /** Batched completion returning raw UTF-8 bytes to avoid per-call NewStringUTF overhead. */
+        fun completionLoopBatchBytes(instance: SmolLM, modelPtr: Long, maxTokens: Int): ByteArray? = null
         fun stopCompletion(instance: SmolLM, modelPtr: Long)
         fun clearKvCache(instance: SmolLM, modelPtr: Long)
     }
@@ -128,7 +133,10 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         private const val DEFAULT_CONTEXT_SIZE_CAP: Long = 8_192L
         private const val MIN_CONTEXT_SIZE: Long = 1_024L
         private const val DEFAULT_REASONING_BUDGET: Int = -1
-        const val DEFAULT_BLOCKING_BATCH_SIZE: Int = 8
+        /** Device-aware batch size: scales with P-core count for optimal JNI throughput. */
+        val DEFAULT_BLOCKING_BATCH_SIZE: Int =
+            CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.TOKEN_GENERATION)
+                .coerceIn(4, 16)
 
         private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
 
@@ -162,6 +170,9 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         useMlock: Boolean,
                         useVulkan: Boolean,
                         useFlashAttn: Boolean,
+                        kvCacheTypeK: Int,
+                        kvCacheTypeV: Int,
+                        nGpuLayers: Int,
                 ): Long =
                         instance.loadModel(
                                 modelPath,
@@ -174,7 +185,10 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                 useMmap,
                                 useMlock,
                                 useVulkan,
-                                useFlashAttn
+                                useFlashAttn,
+                                kvCacheTypeK,
+                                kvCacheTypeV,
+                                nGpuLayers
                         )
 
                 override fun setReasoningOptions(
@@ -283,6 +297,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         instance.completionLoop(modelPtr)
                 override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String =
                         instance.completionLoopBatch(modelPtr, maxTokens)
+                override fun completionLoopBatchBytes(instance: SmolLM, modelPtr: Long, maxTokens: Int): ByteArray? =
+                        instance.completionLoopBatchBytes(modelPtr, maxTokens)
                 override fun stopCompletion(instance: SmolLM, modelPtr: Long) =
                         instance.stopCompletion(modelPtr)
                 override fun clearKvCache(instance: SmolLM, modelPtr: Long) =
@@ -425,6 +441,12 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             val useFlashAttn: Boolean = true,
             val thinkingMode: ThinkingMode = ThinkingMode.DEFAULT,
             val reasoningBudget: Int? = null,
+            /** KV cache type for keys. -1 (default) = F16. Use ggml_type ordinals for Q8_0 (8), Q4_0 (2), etc. */
+            val kvCacheTypeK: Int = -1,
+            /** KV cache type for values. -1 (default) = F16. Use ggml_type ordinals for Q8_0 (8), Q4_0 (2), etc. */
+            val kvCacheTypeV: Int = -1,
+            /** Number of layers to offload to GPU. Only used when Vulkan is enabled. Default 99 = all layers. */
+            val nGpuLayers: Int = 99,
     )
 
     /**
@@ -507,7 +529,10 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                     params.useMmap,
                                     params.useMlock,
                                     useVulkanGPU,
-                                    params.useFlashAttn
+                                    params.useFlashAttn,
+                                    params.kvCacheTypeK,
+                                    params.kvCacheTypeV,
+                                    params.nGpuLayers
                             )
                         }
                     } catch (e: NativeBindingException) {
@@ -707,11 +732,31 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                         try {
                             nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
                             if (batchSize > 1) {
-                                var piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, batchSize)
-                                while (piece != "[EOG]" && piece.isNotEmpty()) {
-                                    currentCoroutineContext().ensureActive()
-                                    emit(piece)
-                                    piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, batchSize)
+                                // Use raw byte-based JNI path to avoid per-batch NewStringUTF
+                                // overhead. The byte path returns null from the default interface
+                                // method when not implemented by test bridges, so we try it first
+                                // and fall back to the String path.
+                                val eogBytes = "[EOG]".toByteArray(Charsets.UTF_8)
+                                var bytes = try {
+                                    nativeBridge.completionLoopBatchBytes(this@SmolLM, nativePtr, batchSize)
+                                } catch (_: Throwable) { null }
+
+                                if (bytes != null) {
+                                    // Byte-based fast path
+                                    while (!bytes.contentEquals(eogBytes) && bytes!!.isNotEmpty()) {
+                                        currentCoroutineContext().ensureActive()
+                                        emit(String(bytes!!, Charsets.UTF_8))
+                                        bytes = nativeBridge.completionLoopBatchBytes(this@SmolLM, nativePtr, batchSize)
+                                        if (bytes == null) break
+                                    }
+                                } else {
+                                    // Fallback: String-based path (test bridges)
+                                    var piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, batchSize)
+                                    while (piece != "[EOG]" && piece.isNotEmpty()) {
+                                        currentCoroutineContext().ensureActive()
+                                        emit(piece)
+                                        piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, batchSize)
+                                    }
                                 }
                             } else {
                                 var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
@@ -858,6 +903,9 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             useMlock: Boolean,
             useVulkan: Boolean,
             useFlashAttn: Boolean,
+            kvCacheTypeK: Int,
+            kvCacheTypeV: Int,
+            nGpuLayers: Int,
     ): Long
 
     private external fun setReasoningOptions(
@@ -1045,6 +1093,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     private external fun completionLoop(modelPtr: Long): String
 
     private external fun completionLoopBatch(modelPtr: Long, maxTokens: Int): String
+
+    private external fun completionLoopBatchBytes(modelPtr: Long, maxTokens: Int): ByteArray?
 
     private external fun stopCompletion(modelPtr: Long)
 

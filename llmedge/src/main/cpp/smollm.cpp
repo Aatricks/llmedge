@@ -66,7 +66,8 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_io_aatricks_llmedge_text_runtime_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring modelPath, jfloat minP,
                                              jfloat temperature, jboolean storeChats, jlong contextSize,
                                              jstring chatTemplate, jint nThreads, jboolean useMmap, jboolean useMlock,
-                                             jboolean useVulkan, jboolean useFlashAttn) {
+                                             jboolean useVulkan, jboolean useFlashAttn, jint kvCacheTypeK, jint kvCacheTypeV,
+                                             jint nGpuLayers) {
     ScopedUtfChars modelPathCstr(env, modelPath);
     ScopedUtfChars chatTemplateCstr(env, chatTemplate);
     if (!modelPathCstr.ok() || !chatTemplateCstr.ok()) {
@@ -76,7 +77,7 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_loadModel(JNIEnv* env, jobject thiz
     auto llmInference = std::make_unique<LLMInference>();
     try {
         llmInference->loadModel(modelPathCstr.get(), minP, temperature, storeChats, contextSize, chatTemplateCstr.get(), nThreads,
-                                useMmap, useMlock, useVulkan, useFlashAttn);
+                                useMmap, useMlock, useVulkan, useFlashAttn, kvCacheTypeK, kvCacheTypeV, nGpuLayers);
     } catch (const std::exception& error) {
         throwJavaException(env, "java/lang/IllegalStateException", error.what());
         return 0;
@@ -256,6 +257,27 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_completionLoopBatch(JNIEnv* env, jo
     try {
         std::string response = llmInference->completionLoopBatch(maxTokens);
         return env->NewStringUTF(response.c_str());
+    } catch (const std::exception& error) {
+        throwJavaException(env, "java/lang/IllegalStateException", error.what());
+        return nullptr;
+    }
+}
+
+// Byte-based batch completion: returns raw UTF-8 bytes to avoid per-call NewStringUTF overhead
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_completionLoopBatchBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint maxTokens) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return nullptr;
+    }
+    try {
+        std::string response = llmInference->completionLoopBatch(maxTokens);
+        jbyteArray result = env->NewByteArray(static_cast<jsize>(response.size()));
+        if (result && !response.empty()) {
+            env->SetByteArrayRegion(result, 0, static_cast<jsize>(response.size()),
+                                    reinterpret_cast<const jbyte*>(response.c_str()));
+        }
+        return result;
     } catch (const std::exception& error) {
         throwJavaException(env, "java/lang/IllegalStateException", error.what());
         return nullptr;
@@ -567,7 +589,17 @@ Java_io_aatricks_llmedge_vision_Projector_nativeEncodeImageBuffer(JNIEnv* env, j
     env->SetIntArrayRegion(metaArray, 0, 6, meta);
 
     jclass objClass = env->FindClass("java/lang/Object");
+    if (!objClass) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
     jobjectArray result = env->NewObjectArray(2, objClass, nullptr);
+    if (!result) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
     env->SetObjectArrayElement(result, 0, embdArray);
     env->SetObjectArrayElement(result, 1, metaArray);
 
