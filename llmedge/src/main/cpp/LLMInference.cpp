@@ -229,6 +229,7 @@ LLMInference::startCompletion(const char *query) {
     // --- System prompt KV cache snapshotting ---
     bool restoredFromSnapshot = false;
     int snapshotNPast = 0;
+    _eogReached = false;
 
     if (_prevLen == 0) {
         size_t systemMsgCount = 0;
@@ -401,6 +402,9 @@ LLMInference::_isValidUtf8(const char *response) {
 
 std::string
 LLMInference::completionLoop() {
+    if (_eogReached) {
+        return "[EOG]";
+    }
     if (_batch == nullptr || _batch->n_tokens <= 0) {
         LOGe("completionLoop invoked with empty llama_batch");
         throw std::runtime_error("llama batch missing tokens");
@@ -423,6 +427,7 @@ LLMInference::completionLoop() {
     // convert the integer token to its corresponding word-piece
     _currToken = llama_sampler_sample(_sampler, _ctx, -1);
     if (llama_vocab_is_eog(llama_model_get_vocab(_model), _currToken)) {
+        _eogReached = true;
         if (_storeChats) {
             addChatMessage(_response.c_str(), "assistant");
         }
@@ -508,6 +513,7 @@ LLMInference::clearMessages() {
     _cacheResponseTokens.clear();
     _promptTokens.clear();
     _preservePreparedKvForNextCompletion = false;
+    _eogReached = false;
     if (_batch) {
         std::memset(_batch, 0, sizeof(llama_batch));
     }

@@ -53,6 +53,11 @@ class LLMInference {
     // image embeddings in the KV cache for the next completion request.
     bool _preservePreparedKvForNextCompletion = false;
 
+    // Set when an EOG (end-of-generation) token is received so that
+    // subsequent calls to completionLoop() return "[EOG]" immediately
+    // instead of attempting another llama_decode with stale batch data.
+    bool _eogReached = false;
+
     bool _isValidUtf8(const char* response);
 
   public:

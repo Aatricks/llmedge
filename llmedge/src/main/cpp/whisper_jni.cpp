@@ -411,7 +411,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeTranscribe(JNIEnv* env, jclass
     ALOGI("Transcription complete: %d segments", n_segments);
 
     // Create TranscriptionSegment array
-    jclass segmentClass = env->FindClass("io/aatricks/llmedge/Whisper$TranscriptionSegment");
+    jclass segmentClass = env->FindClass("io/aatricks/llmedge/speech/stt/Whisper$TranscriptionSegment");
     if (!segmentClass) {
         throwJavaException(env, "java/lang/RuntimeException", "TranscriptionSegment class not found");
         return nullptr;
