@@ -61,7 +61,7 @@ class EmbeddingProvider(private val context: Context, private var config: Embedd
         initInternal()
         // Probe to auto-adapt configuration for models requiring token_type_ids
         try {
-            withContext(Dispatchers.Default) { se.encode("__init_probe__") }
+            withContext(Dispatchers.IO) { se.encode("__init_probe__") }
         } catch (t: Throwable) {
             val msg = t.message ?: ""
             val needsTokenTypeIds = msg.contains("Missing Input: token_type_ids", ignoreCase = true)
@@ -75,7 +75,7 @@ class EmbeddingProvider(private val context: Context, private var config: Embedd
         initialized = true
     }
 
-    suspend fun encode(text: String): FloatArray = withContext(Dispatchers.Default) {
+    suspend fun encode(text: String): FloatArray = withContext(Dispatchers.IO) {
         check(initialized) { "EmbeddingProvider.init() must be called first" }
         try {
             se.encode(text)

@@ -13,6 +13,10 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlinx.coroutines.delay
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -63,14 +67,14 @@ class StableDiffusionIntegrationTest {
         sd.updateModelMetadata(createVideoModelMetadata())
 
         val progressCounter = AtomicInteger(0)
-        val callback = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> progressCounter.incrementAndGet() }
+        val callback = VideoProgressCallback { _, _, _, _, _ -> progressCounter.incrementAndGet() }
 
         // Set the cached progress callback and verify the bridge receives setProgressCallback call
         sd.setProgressCallback(callback)
         assertTrue("bridge should receive a setProgressCallback call", mockBridge.setProgressCallbackCalls.isNotEmpty())
         assertEquals(callback, mockBridge.setProgressCallbackCalls.last().second)
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "integration test prompt",
             width = 256,
             height = 256,
@@ -126,13 +130,13 @@ class StableDiffusionIntegrationTest {
         sd.updateModelMetadata(createVideoModelMetadata())
 
         val cachedCounter = AtomicInteger(0)
-        val cachedCb = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> cachedCounter.incrementAndGet() }
+        val cachedCb = VideoProgressCallback { _, _, _, _, _ -> cachedCounter.incrementAndGet() }
         sd.setProgressCallback(cachedCb)
 
         val onProgressCounter = AtomicInteger(0)
-        val onProgressCb = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> onProgressCounter.incrementAndGet() }
+        val onProgressCb = VideoProgressCallback { _, _, _, _, _ -> onProgressCounter.incrementAndGet() }
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test override callback",
             width = 256,
             height = 256,
@@ -172,7 +176,7 @@ class StableDiffusionIntegrationTest {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(createVideoModelMetadata())
 
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "cancel test",
             width = 256,
             height = 256,
@@ -182,7 +186,7 @@ class StableDiffusionIntegrationTest {
 
         val exceptionRef = AtomicReference<Throwable?>(null)
         val progressCounter = AtomicInteger(0)
-        val cancelingCb = StableDiffusion.VideoProgressCallback { _, _, _, _, _ ->
+        val cancelingCb = VideoProgressCallback { _, _, _, _, _ ->
             if (progressCounter.incrementAndGet() == 1) {
                 // Cancel on first progress update to ensure mid-run cancellation
                 sd.cancelGeneration()
@@ -218,8 +222,8 @@ class StableDiffusionIntegrationTest {
     private fun createVideoModelMetadata(
         architecture: String = "wan",
         parameterCount: String = "1.3B"
-    ): StableDiffusion.VideoModelMetadata {
-        return StableDiffusion.VideoModelMetadata(
+    ): VideoModelMetadata {
+        return VideoModelMetadata(
             architecture = architecture,
             modelType = "t2v",
             parameterCount = parameterCount,

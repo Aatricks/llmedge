@@ -2,6 +2,7 @@ package io.aatricks.llmedge
 
 import android.content.Context
 import android.graphics.Bitmap
+import io.aatricks.llmedge.image.VideoGenerationRequest
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -11,6 +12,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import io.aatricks.llmedge.image.diffusion.EasyCacheParams
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 /**
  * Linux-host end-to-end test for video generation using the EXACT SAME PATH as Android devices.
@@ -286,7 +291,7 @@ class VideoGenerationSequentialE2ETest {
         // 3. Then loads diffusion model and calls txt2VidWithPrecomputedCondition
 
         val params =
-                LLMEdgeManager.VideoGenerationParams(
+                VideoGenerationRequest(
                         prompt = prompt,
                         negative = "",
                         width = width,
@@ -296,11 +301,11 @@ class VideoGenerationSequentialE2ETest {
                         cfgScale = cfgScale,
                         seed = seed,
                         flowShift = Float.POSITIVE_INFINITY, // Auto
-                        flashAttn = true,
+                        flashAttention = true,
                         forceSequentialLoad = true, // THIS IS THE KEY - forces Android path
                         // Enable EasyCache like Android does
                         easyCache =
-                                StableDiffusion.EasyCacheParams(
+                                EasyCacheParams(
                                         enabled = true,
                                         reuseThreshold = 0.2f,
                                         startPercent = 0.15f,
@@ -308,8 +313,7 @@ class VideoGenerationSequentialE2ETest {
                                 )
                 )
 
-        // We need to set up the model paths since LLMEdgeManager normally downloads from
-        // HuggingFace
+        // We set up model paths directly here instead of resolving from Hugging Face.
         // For this test, we'll directly use StableDiffusion with the sequential loading simulation
 
         println("[SequentialE2E] Step 1: Loading T5 encoder for condition precomputation...")
@@ -382,7 +386,7 @@ class VideoGenerationSequentialE2ETest {
 
         // Generate video using precomputed conditions (the key Android path!)
         val videoParams =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = prompt,
                         negative = "",
                         width = width,
@@ -396,7 +400,7 @@ class VideoGenerationSequentialE2ETest {
                 )
 
         val progressCallback =
-                StableDiffusion.VideoProgressCallback {
+                VideoProgressCallback {
                         step,
                         totalSteps,
                         currentFrame,
@@ -578,7 +582,7 @@ class VideoGenerationSequentialE2ETest {
         // Step 3: Generate video with init image
         println("[SequentialE2E-I2V] Step 3: Generating I2V with precomputed conditions...")
         val videoParams =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = prompt,
                         negative = "",
                         width = width,
@@ -589,7 +593,7 @@ class VideoGenerationSequentialE2ETest {
                         seed = seed,
                         initImage = initBitmap,
                         strength = strength,
-                        easyCacheParams = StableDiffusion.EasyCacheParams(enabled = true)
+                        easyCacheParams = EasyCacheParams(enabled = true)
                 )
 
         val bitmaps =

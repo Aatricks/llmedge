@@ -12,6 +12,8 @@ import java.io.File
 import kotlin.reflect.full.declaredFunctions
 import kotlin.reflect.full.callSuspend
 import kotlin.reflect.jvm.isAccessible
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 class MetadataInferenceTest {
 
@@ -205,7 +207,7 @@ class MetadataInferenceTest {
         resolvedModelPath: String,
         modelId: String?,
         explicitFilename: String?
-    ): StableDiffusion.VideoModelMetadata {
+    ): VideoModelMetadata {
         // Create a temporary file at the given resolved path to ensure File.exists() returns true
         // If the resolved path already has a directory, ensure it's created; otherwise create a temp file
         val file = File(resolvedModelPath)
@@ -225,7 +227,7 @@ class MetadataInferenceTest {
         function.isAccessible = true
         // callSuspend is available via kotlin.reflect to invoke suspend functions
         try {
-            val result = function.callSuspend(companion, resolvedModelPath, modelId, explicitFilename) as StableDiffusion.VideoModelMetadata
+            val result = function.callSuspend(companion, resolvedModelPath, modelId, explicitFilename) as VideoModelMetadata
             return result
         } finally {
             try { io.mockk.unmockkStatic(Log::class) } catch (_: Throwable) {}

@@ -1,11 +1,21 @@
 package io.aatricks.llmedge
 
+import io.aatricks.llmedge.core.InvalidModelStateException
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
+import io.aatricks.llmedge.runtime.GGUFReader
 
 class GGUFReaderTest {
+
+    private fun createTempGgufFile(): File =
+        File.createTempFile("llmedge-gguf", ".gguf").apply {
+            writeBytes(byteArrayOf('G'.code.toByte(), 'G'.code.toByte(), 'U'.code.toByte(), 'F'.code.toByte(), 0x00))
+            deleteOnExit()
+        }
 
     @Test
     fun `GGUFReader constructor initializes correctly`() {
@@ -23,56 +33,51 @@ class GGUFReaderTest {
     @Test
     fun `GGUFReader getContextSize throws when not loaded`() {
         val reader = GGUFReader()
-        try {
-            reader.getContextSize()
-            assert(false) { "Should have thrown AssertionError" }
-        } catch (e: AssertionError) {
-            assert(e.message?.contains("Use GGUFReader.load()") == true)
-        }
+        val error =
+            assertThrows(InvalidModelStateException::class.java) {
+                reader.getContextSize()
+            }
+        assert(error.message?.contains("Use GGUFReader.load()") == true)
     }
 
     @Test
     fun `GGUFReader getChatTemplate throws when not loaded`() {
         val reader = GGUFReader()
-        try {
-            reader.getChatTemplate()
-            assert(false) { "Should have thrown AssertionError" }
-        } catch (e: AssertionError) {
-            assert(e.message?.contains("Use GGUFReader.load()") == true)
-        }
+        val error =
+            assertThrows(InvalidModelStateException::class.java) {
+                reader.getChatTemplate()
+            }
+        assert(error.message?.contains("Use GGUFReader.load()") == true)
     }
 
     @Test
     fun `GGUFReader getArchitecture throws when not loaded`() {
         val reader = GGUFReader()
-        try {
-            reader.getArchitecture()
-            assert(false) { "Should have thrown AssertionError" }
-        } catch (e: AssertionError) {
-            assert(e.message?.contains("Use GGUFReader.load()") == true)
-        }
+        val error =
+            assertThrows(InvalidModelStateException::class.java) {
+                reader.getArchitecture()
+            }
+        assert(error.message?.contains("Use GGUFReader.load()") == true)
     }
 
     @Test
     fun `GGUFReader getParameterCount throws when not loaded`() {
         val reader = GGUFReader()
-        try {
-            reader.getParameterCount()
-            assert(false) { "Should have thrown AssertionError" }
-        } catch (e: AssertionError) {
-            assert(e.message?.contains("Use GGUFReader.load()") == true)
-        }
+        val error =
+            assertThrows(InvalidModelStateException::class.java) {
+                reader.getParameterCount()
+            }
+        assert(error.message?.contains("Use GGUFReader.load()") == true)
     }
 
     @Test
     fun `GGUFReader getModelName throws when not loaded`() {
         val reader = GGUFReader()
-        try {
-            reader.getModelName()
-            assert(false) { "Should have thrown AssertionError" }
-        } catch (e: AssertionError) {
-            assert(e.message?.contains("Use GGUFReader.load()") == true)
-        }
+        val error =
+            assertThrows(InvalidModelStateException::class.java) {
+                reader.getModelName()
+            }
+        assert(error.message?.contains("Use GGUFReader.load()") == true)
     }
 
     @Test
@@ -91,10 +96,11 @@ class GGUFReaderTest {
 
         try {
             val reader = GGUFReader()
+            val modelFile = createTempGgufFile()
 
             // Test successful load
             kotlinx.coroutines.runBlocking {
-                reader.load("/fake/path/model.gguf")
+                reader.load(modelFile.absolutePath)
             }
 
             // Test getters
@@ -128,9 +134,10 @@ class GGUFReaderTest {
 
         try {
             val reader = GGUFReader()
+            val modelFile = createTempGgufFile()
 
             kotlinx.coroutines.runBlocking {
-                reader.load("/fake/path/model.gguf")
+                reader.load(modelFile.absolutePath)
             }
 
             // Test null returns for missing metadata

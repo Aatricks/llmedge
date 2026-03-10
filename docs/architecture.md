@@ -32,13 +32,15 @@ Diagram (image captioning):
 
 1. Capture or pick image (camera/file). Normalize orientation and scale to model input size.
 2. Optionally run OCR (MlKit or other) to extract text first.
-3. Run an image encoder/captioner to produce text caption or features.
-4. If using LLM: convert caption/features into a prompt and call `SmolLM` to expand into richer descriptions.
+3. For VLM flows, encode the image with the matching projector/mmproj file into prepared embeddings.
+4. Replay those embeddings into the current `SmolLM` context and run the multimodal prompt.
 
 ### Implementation notes
 
 - Resize images before sending to the model to avoid memory spikes.
 - Use background threads (Dispatchers.IO) for image processing.
+- The VLM path is intentionally fail-fast: if the projector/mmproj file is missing or native projector support is unavailable, the library now reports that explicitly instead of pretending a text-only fallback is equivalent.
+- The current high-level vision path creates a fresh `SmolLM` runtime per request rather than using a shared cache, so it behaves as a sequential-per-request path.
 
 ## JNI / Native model loading flow
 
@@ -57,6 +59,9 @@ Diagram (JNI loading):
 ### Implementation notes
 
 - Avoid calling native load/generation on the main thread.
+- Text inference now distinguishes **prompt/batch threads** from **single-token generation threads** via the underlying llama.cpp `llama_set_n_threads(ctx, n_threads, n_threads_batch)` split.
+- High-level blocking text generation uses batched native completion calls by default, while streaming uses smaller batched chunks to reduce JNI crossings without delaying UI updates too much.
+- Text-model cache sizing is refreshed from native model/state memory estimates so eviction policy follows actual runtime footprint more closely than GGUF file size alone.
 - Ensure ABIs packaged in `lib/` match device architecture (arm64-v8a is recommended for modern devices).
 - Include `System.loadLibrary(...)` in a static initializer or trusted module; guard with try/catch and surface meaningful errors to the user.
 
@@ -78,9 +83,11 @@ Diagram (JNI loading):
 - `llmedge/src/main/java/io/aatricks/llmedge/vision/ocr/MlKitOcrEngine.kt`
 - `llmedge/src/main/java/io/aatricks/llmedge/vision/VisionModelAnalyzer.kt`
 
+Note: OCR support is the more stable image-understanding path today. Projector-based VLM analysis is still evolving and depends on a compatible mmproj + model pairing.
+
 **Core LLM:**
 
-- `llmedge/src/main/java/io/aatricks/llmedge/LLMEdgeManager.kt` (High-level orchestration)
+- `llmedge/src/main/java/io/aatricks/llmedge/LLMEdge.kt` (Instance-based high-level facade)
 - `llmedge/src/main/java/io/aatricks/llmedge/SmolLM.kt`
 - `llmedge/src/main/java/io/aatricks/llmedge/GGUFReader.kt`
 - `llmedge/src/main/cpp/` (native JNI implementation)

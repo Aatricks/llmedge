@@ -3,6 +3,8 @@ package io.aatricks.llmedge
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 class VideoModelDetectorTest {
 
@@ -10,7 +12,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel detects wan architecture as video model`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = null,
                 parameterCount = "1.3B",
@@ -27,7 +29,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel detects hunyuan architecture as video model`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "hunyuan_video",
                 modelType = null,
                 parameterCount = "5B",
@@ -44,7 +46,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel detects t2v modelType as video model`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "some-model",
                 modelType = "t2v",
                 parameterCount = null,
@@ -61,7 +63,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel detects i2v modelType as video model`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "some-model",
                 modelType = "i2v",
                 parameterCount = null,
@@ -78,7 +80,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel detects ti2v modelType as video model`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "some-model",
                 modelType = "ti2v",
                 parameterCount = null,
@@ -95,7 +97,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel detects video in filename as video model`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "stable-diffusion-xl",
                 modelType = null,
                 parameterCount = null,
@@ -112,7 +114,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel detects text-to-video tag as video model`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "some-model",
                 modelType = null,
                 parameterCount = null,
@@ -129,7 +131,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel detects wan tag as video model`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "some-model",
                 modelType = null,
                 parameterCount = null,
@@ -146,7 +148,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel detects multiple video keywords in combination`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -163,7 +165,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel returns false for stable diffusion xl without video keywords`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "stable-diffusion-xl",
                 modelType = "txt2img",
                 parameterCount = "1.3B",
@@ -188,7 +190,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel returns false for empty metadata`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = null,
                 modelType = null,
                 parameterCount = null,
@@ -205,7 +207,7 @@ class VideoModelDetectorTest {
     fun `isVideoModel case insensitive matching works`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "WAN",
                 modelType = "T2V",
                 parameterCount = null,

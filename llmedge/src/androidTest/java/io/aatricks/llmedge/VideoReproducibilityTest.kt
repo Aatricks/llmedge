@@ -8,6 +8,12 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 /**
  * Reproducibility tests for video generation using stubbed native bridge. Tests that identical
@@ -47,12 +53,13 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    vaceStrength: Float,
                     easyCacheEnabled: Boolean,
                     easyCacheReuseThreshold: Float,
                     easyCacheStartPercent: Float,
@@ -75,7 +82,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
 
             override fun setProgressCallback(
                     handle: Long,
-                    callback: StableDiffusion.VideoProgressCallback?
+                    callback: VideoProgressCallback?
             ) = Unit
             override fun cancelGeneration(handle: Long) = Unit
             override fun precomputeCondition(
@@ -85,7 +92,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-            ): StableDiffusion.PrecomputedCondition? = null
+            ): PrecomputedCondition? = null
         }
     }
 
@@ -117,12 +124,13 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                     steps: Int,
                     cfg: Float,
                     seed: Long,
-                    sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                     strength: Float,
                     initImage: ByteArray?,
                     initWidth: Int,
                     initHeight: Int,
+                    vaceStrength: Float,
                     easyCacheEnabled: Boolean,
                     easyCacheReuseThreshold: Float,
                     easyCacheStartPercent: Float,
@@ -145,7 +153,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
 
             override fun setProgressCallback(
                     handle: Long,
-                    callback: StableDiffusion.VideoProgressCallback?
+                    callback: VideoProgressCallback?
             ) = Unit
             override fun cancelGeneration(handle: Long) = Unit
             override fun precomputeCondition(
@@ -155,7 +163,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
                     width: Int,
                     height: Int,
                     clipSkip: Int,
-            ): StableDiffusion.PrecomputedCondition? = null
+            ): PrecomputedCondition? = null
         }
     }
 
@@ -170,7 +178,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
 
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "a cat walking",
                         width = 256,
                         height = 256,
@@ -211,7 +219,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
 
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "a cat walking",
                         width = 256,
                         height = 256,
@@ -255,7 +263,7 @@ class VideoReproducibilityTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
 
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "a cat walking",
                         width = 256,
                         height = 256,

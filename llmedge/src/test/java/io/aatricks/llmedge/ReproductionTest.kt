@@ -1,7 +1,7 @@
 package io.aatricks.llmedge
 
 import android.content.Context
-import io.aatricks.llmedge.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner

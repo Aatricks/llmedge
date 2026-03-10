@@ -7,6 +7,12 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 @RunWith(AndroidJUnit4::class)
 class VideoGenerationTest : BaseVideoIntegrationTest() {
@@ -41,12 +47,13 @@ class VideoGenerationTest : BaseVideoIntegrationTest() {
                         steps: Int,
                         cfg: Float,
                         seed: Long,
-                        sampleMethod: StableDiffusion.SampleMethod,
-                        scheduler: StableDiffusion.Scheduler,
+                        sampleMethod: SampleMethod,
+                        scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
                         initWidth: Int,
                         initHeight: Int,
+                        vaceStrength: Float,
                         easyCacheEnabled: Boolean,
                         easyCacheReuseThreshold: Float,
                         easyCacheStartPercent: Float,
@@ -55,7 +62,7 @@ class VideoGenerationTest : BaseVideoIntegrationTest() {
 
                 override fun setProgressCallback(
                         handle: Long,
-                        callback: StableDiffusion.VideoProgressCallback?
+                        callback: VideoProgressCallback?
                 ) = Unit
 
                 override fun cancelGeneration(handle: Long) = Unit
@@ -66,12 +73,12 @@ class VideoGenerationTest : BaseVideoIntegrationTest() {
                         width: Int,
                         height: Int,
                         clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = createStableDiffusion()
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "wan cat walking",
                         width = 256,
                         height = 256,

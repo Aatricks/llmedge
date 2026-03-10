@@ -1,6 +1,7 @@
 package io.aatricks.llmedge.vision
 
 import io.mockk.*
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -42,6 +43,30 @@ class VisionTest {
         assertEquals("test-model", result.modelId)
         assertEquals(10, result.tokensIn)
         assertEquals(20, result.tokensOut)
+    }
+
+    @Test
+    fun `VisionRuntimeMemory data class works correctly`() {
+        val memory = VisionRuntimeMemory(nativeBytes = 1024L, stateBytes = 256L)
+
+        assertEquals(1024L, memory.nativeBytes)
+        assertEquals(256L, memory.stateBytes)
+    }
+
+    @Test
+    fun `VisionRequest carries optional thread configuration`() {
+        val request = VisionRequest(
+            image = mockk(),
+            prompt = "Describe this image",
+            model = mockk(),
+            projector = mockk(),
+            numThreads = 6,
+            generationThreads = 2,
+        )
+
+        assertEquals("Describe this image", request.prompt)
+        assertEquals(6, request.numThreads)
+        assertEquals(2, request.generationThreads)
     }
 
     @Test
@@ -136,7 +161,7 @@ class VisionTest {
     fun `SmolLMVisionAdapter checkVisionSupport works correctly`() {
         // Test with mocked SmolLMVisionAdapter to access private method
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
@@ -157,7 +182,7 @@ class VisionTest {
     @Test
     fun `SmolLMVisionAdapter formatVisionPrompt works correctly`() {
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
@@ -177,6 +202,11 @@ class VisionTest {
         val result2 = method.invoke(adapter, systemPrompt, imageFile) as String
         assertEquals(systemPrompt, result2)
 
+        // Test ChatML-formatted prompts used by the example app
+        val chatMlPrompt = "<|system|>\nYou are a helpful assistant.<|end|>\n<|user|>\nDescribe this image.<|end|>\n<|assistant|>\n"
+        val resultChatMl = method.invoke(adapter, chatMlPrompt, imageFile) as String
+        assertEquals(chatMlPrompt, resultChatMl)
+
         // Test OCR markers
         val ocrPrompt = "OCR_TEXT_START: Some text OCR_TEXT_END: Describe this"
         val result3 = method.invoke(adapter, ocrPrompt, imageFile) as String
@@ -186,7 +216,7 @@ class VisionTest {
     @Test
     fun `SmolLMVisionAdapter estimateTokens works correctly`() {
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
@@ -204,7 +234,7 @@ class VisionTest {
     @Test
     fun `SmolLMVisionAdapter getModelId works correctly when no model loaded`() {
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
@@ -214,10 +244,67 @@ class VisionTest {
     @Test
     fun `SmolLMVisionAdapter hasVisionCapabilities works correctly when no model loaded`() {
         val mockContext = mockk<android.content.Context>()
-        val mockSmolLM = mockk<io.aatricks.llmedge.SmolLM>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
 
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
 
         assertTrue(!adapter.hasVisionCapabilities())
+    }
+
+    @Test
+    fun `SmolLMVisionAdapter analyze uses single-token generation after decoding embeddings`() = runTest {
+        val mockContext = mockk<android.content.Context>()
+        val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
+        val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
+        val workDir = createTempDir(prefix = "vision-adapter-test")
+        val embdFile = java.io.File(workDir, "vision_prepared.bin").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val metaFile = java.io.File(embdFile.absolutePath + ".meta.json").apply { writeText("{}") }
+
+        val hasVisionSupportField = SmolLMVisionAdapter::class.java.getDeclaredField("hasVisionSupport")
+        hasVisionSupportField.isAccessible = true
+        hasVisionSupportField.setBoolean(adapter, true)
+        val modelPathField = SmolLMVisionAdapter::class.java.getDeclaredField("modelPath")
+        modelPathField.isAccessible = true
+        modelPathField.set(adapter, "/tmp/llava-model.gguf")
+        val mmprojPathField = SmolLMVisionAdapter::class.java.getDeclaredField("mmprojPath")
+        mmprojPathField.isAccessible = true
+        mmprojPathField.set(adapter, "/tmp/mmproj.gguf")
+
+        mockkObject(ImageUtils)
+        try {
+            coEvery {
+                ImageUtils.imageToFile(mockContext, any(), "vision_input.jpg")
+            } returns embdFile
+            every {
+                mockSmolLM.decodePreparedEmbeddings(
+                    embdFile.absolutePath,
+                    metaFile.absolutePath,
+                    1,
+                )
+            } returns true
+            every { mockSmolLM.getResponse("Describe the image", 256, 1) } returns "vision-result"
+
+            val result =
+                adapter.analyze(
+                    ImageSource.FileSource(embdFile),
+                    "Describe the image",
+                    VisionParams(),
+                )
+
+            assertEquals("vision-result", result.text)
+            verify(exactly = 1) {
+                mockSmolLM.decodePreparedEmbeddings(
+                    embdFile.absolutePath,
+                    metaFile.absolutePath,
+                    1,
+                )
+            }
+            verify(exactly = 1) {
+                mockSmolLM.getResponse("Describe the image", 256, 1)
+            }
+        } finally {
+            unmockkObject(ImageUtils)
+            workDir.deleteRecursively()
+        }
     }
 }

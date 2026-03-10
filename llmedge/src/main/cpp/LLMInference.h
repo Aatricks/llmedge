@@ -49,12 +49,22 @@ class LLMInference {
     size_t _cachedSystemPromptHash = 0;
     int _systemPromptTokenCount = 0;
 
+    // One-shot flag used by the multimodal projector path to preserve pre-decoded
+    // image embeddings in the KV cache for the next completion request.
+    bool _preservePreparedKvForNextCompletion = false;
+
+    // Set when an EOG (end-of-generation) token is received so that
+    // subsequent calls to completionLoop() return "[EOG]" immediately
+    // instead of attempting another llama_decode with stale batch data.
+    bool _eogReached = false;
+
     bool _isValidUtf8(const char* response);
 
   public:
     void loadModel(const char* modelPath, float minP, float temperature, bool storeChats, long contextSize,
                    const char* chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan,
-                   bool useFlashAttn = true);
+                   bool useFlashAttn = true, int kvCacheTypeK = -1, int kvCacheTypeV = -1,
+                   int nGpuLayers = 99);
 
     void addChatMessage(const char* message, const char* role);
 
@@ -66,6 +76,10 @@ class LLMInference {
 
     int64_t getResponseGenerationTimeMicros() const;
 
+    uint64_t getEstimatedMemoryBytes() const;
+
+    uint64_t getStateMemoryBytes() const;
+
     int getContextSizeUsed() const;
 
     void startCompletion(const char* query);
@@ -76,7 +90,13 @@ class LLMInference {
 
     void stopCompletion();
 
+    void clearMessages();
+
+    void markPreparedKvForNextCompletion();
+
     void setReasoningOptions(bool disableThinking, int reasoningBudget);
+
+    void configureThreading(int generationThreads, int promptThreads);
 
     void setThreadAffinity(uint64_t coreMask);
 

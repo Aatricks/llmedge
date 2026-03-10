@@ -53,7 +53,7 @@ E2E tests (native inference) require building desktop JNI libs first via `script
 
 ```
 Kotlin API layer (SmolLM, StableDiffusion, Whisper, BarkTTS)
-  └─ LLMEdgeManager (high-level singleton orchestrator)
+  └─ LLMEdge (instance-based high-level facade)
       └─ JNI bridge (smollm.cpp, sdcpp_jni.cpp, whisper_jni.cpp, bark_jni.cpp)
           └─ C/C++ engines (git submodules: llama.cpp, stable-diffusion.cpp, whisper.cpp, bark.cpp)
 ```
@@ -77,9 +77,9 @@ The `mods/` directory contains modified copies of stable-diffusion.cpp source fi
 
 ### Kotlin
 
-- **Use `Dispatchers.IO` for all native JNI calls** — they are blocking I/O. Never use `Dispatchers.Default` (causes thread starvation).
+- **Route blocking JNI work through `LLMEdge`'s inference scope or `Dispatchers.IO`** so it stays off the main thread.
 - JNI-exposed methods use `@JvmStatic`. JNI function names follow `Java_io_aatricks_llmedge_` prefix.
-- `LLMEdgeManager` is the high-level entry point; `SmolLM`, `StableDiffusion`, `Whisper`, `BarkTTS` are lower-level APIs.
+- `LLMEdge` is the high-level entry point; `SmolLM`, `StableDiffusion`, `Whisper`, `BarkTTS` remain lower-level expert APIs.
 - Always call `.close()` on model instances to free native memory.
 - Package: `io.aatricks.llmedge` (namespace in `build.gradle.kts`).
 

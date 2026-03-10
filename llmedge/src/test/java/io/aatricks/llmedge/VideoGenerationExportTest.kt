@@ -13,6 +13,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 
 /**
  * Test that generates video frames and exports them as an animated GIF in the project root. This is
@@ -352,7 +354,7 @@ class VideoGenerationExportTest {
         val bitmaps =
                 try {
                     val params =
-                            StableDiffusion.VideoGenerateParams(
+                            VideoGenerateParams(
                                     prompt = prompt,
                                     negative = negative,
                                     width = width,

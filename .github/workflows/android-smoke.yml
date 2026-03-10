@@ -1,0 +1,49 @@
+name: Android Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'
+
+jobs:
+  managed-device-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for scripts
+        run: |
+          chmod +x gradlew
+          chmod +x scripts/*.sh
+
+      - name: Install Native Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential ninja-build glslc libvulkan-dev
+
+      - name: Run managed-device smoke tests
+        env:
+          LLMEDGE_SKIP_E2E_IN_UNIT: "true"
+        run: |
+          ./gradlew --no-daemon :llmedge:pixel6api33DebugAndroidTest \
+            -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.ImageGenerationTest,io.aatricks.llmedge.PerformanceOptimizationTest

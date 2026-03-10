@@ -62,6 +62,15 @@ static void throwJavaException(JNIEnv* env, const char* className, const char* m
     env->ThrowNew(exClass, message);
 }
 
+static WhisperHandle* requireWhisperHandle(JNIEnv* env, jlong handlePtr, const char* message) {
+    auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
+    if (!handle || !handle->ctx) {
+        throwJavaException(env, "java/lang/IllegalStateException", message);
+        return nullptr;
+    }
+    return handle;
+}
+
 // Progress callback wrapper — throttled to fire every 5% change
 static void whisper_progress_callback_wrapper(struct whisper_context* ctx,
                                                struct whisper_state* state,
@@ -94,7 +103,7 @@ static void whisper_progress_callback_wrapper(struct whisper_context* ctx,
     }
 }
 
-// New segment callback wrapper
+// New segment callback wrapper — batches JNI string allocation to reduce overhead
 static void whisper_new_segment_callback_wrapper(struct whisper_context* ctx,
                                                   struct whisper_state* state,
                                                   int n_new,
@@ -107,11 +116,15 @@ static void whisper_new_segment_callback_wrapper(struct whisper_context* ctx,
     JNIEnv* env = jni_thread_cache_get_env();
     if (!env) return;
 
-    // Get segment count
     int n_segments = whisper_full_n_segments_from_state(state);
+    int start = n_segments - n_new;
 
-    // Call callback for each new segment
-    for (int i = n_segments - n_new; i < n_segments; ++i) {
+    // Pre-allocate local ref capacity for the batch to avoid per-call JNI overhead
+    if (n_new > 16) {
+        env->EnsureLocalCapacity(n_new + 4);
+    }
+
+    for (int i = start; i < n_segments; ++i) {
         const char* text = whisper_full_get_segment_text_from_state(state, i);
         int64_t t0 = whisper_full_get_segment_t0_from_state(state, i);
         int64_t t1 = whisper_full_get_segment_t1_from_state(state, i);
@@ -135,24 +148,24 @@ static void whisper_new_segment_callback_wrapper(struct whisper_context* ctx,
 extern "C" {
 
 JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeCheckBindings(JNIEnv*, jclass) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCheckBindings(JNIEnv*, jclass) {
     return JNI_TRUE;
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetVersion(JNIEnv* env, jclass) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetVersion(JNIEnv* env, jclass) {
     const char* version = whisper_version();
     return env->NewStringUTF(version ? version : "unknown");
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetSystemInfo(JNIEnv* env, jclass) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetSystemInfo(JNIEnv* env, jclass) {
     const char* info = whisper_print_system_info();
     return env->NewStringUTF(info ? info : "");
 }
 
 JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeCreate(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCreate(JNIEnv* env, jclass,
                                                jstring jModelPath,
                                                jboolean useGpu,
                                                jboolean flashAttn,
@@ -194,7 +207,7 @@ Java_io_aatricks_llmedge_Whisper_nativeCreate(JNIEnv* env, jclass,
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeDestroy(JNIEnv* env, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeDestroy(JNIEnv* env, jclass, jlong handlePtr) {
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle) return;
 
@@ -216,12 +229,12 @@ Java_io_aatricks_llmedge_Whisper_nativeDestroy(JNIEnv* env, jclass, jlong handle
 }
 
 JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetMaxLanguageId(JNIEnv*, jclass) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetMaxLanguageId(JNIEnv*, jclass) {
     return whisper_lang_max_id();
 }
 
 JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetLanguageId(JNIEnv* env, jclass, jstring jLang) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetLanguageId(JNIEnv* env, jclass, jstring jLang) {
     if (!jLang) return -1;
     const char* lang = env->GetStringUTFChars(jLang, nullptr);
     if (!lang) return -1;
@@ -231,33 +244,33 @@ Java_io_aatricks_llmedge_Whisper_nativeGetLanguageId(JNIEnv* env, jclass, jstrin
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetLanguageString(JNIEnv* env, jclass, jint langId) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetLanguageString(JNIEnv* env, jclass, jint langId) {
     const char* lang = whisper_lang_str(langId);
     return env->NewStringUTF(lang ? lang : "");
 }
 
 JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeIsMultilingual(JNIEnv*, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeIsMultilingual(JNIEnv*, jclass, jlong handlePtr) {
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle || !handle->ctx) return JNI_FALSE;
     return whisper_is_multilingual(handle->ctx) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetModelType(JNIEnv* env, jclass, jlong handlePtr) {
-    auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
-    if (!handle || !handle->ctx) {
-        return env->NewStringUTF("unknown");
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetModelType(JNIEnv* env, jclass, jlong handlePtr) {
+    auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
+    if (!handle) {
+        return nullptr;
     }
     const char* type = whisper_model_type_readable(handle->ctx);
     return env->NewStringUTF(type ? type : "unknown");
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeSetProgressCallback(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetProgressCallback(JNIEnv* env, jclass,
                                                             jlong handlePtr,
                                                             jobject callback) {
-    auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
+    auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
     if (!handle) return;
 
     std::lock_guard<std::mutex> lock(handle->mutex);
@@ -274,14 +287,19 @@ Java_io_aatricks_llmedge_Whisper_nativeSetProgressCallback(JNIEnv* env, jclass,
         jclass callbackClass = env->GetObjectClass(callback);
         handle->progressMethodID = env->GetMethodID(callbackClass, "onProgress", "(I)V");
         env->DeleteLocalRef(callbackClass);
+        if (!handle->progressMethodID) {
+            env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
+            handle->progressCallbackGlobalRef = nullptr;
+            ALOGE("Failed to find onProgress(I)V method on Whisper progress callback");
+        }
     }
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeSetSegmentCallback(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetSegmentCallback(JNIEnv* env, jclass,
                                                            jlong handlePtr,
                                                            jobject callback) {
-    auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
+    auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
     if (!handle) return;
 
     std::lock_guard<std::mutex> lock(handle->mutex);
@@ -298,11 +316,16 @@ Java_io_aatricks_llmedge_Whisper_nativeSetSegmentCallback(JNIEnv* env, jclass,
         jclass callbackClass = env->GetObjectClass(callback);
         handle->segmentMethodID = env->GetMethodID(callbackClass, "onNewSegment", "(IJJLjava/lang/String;)V");
         env->DeleteLocalRef(callbackClass);
+        if (!handle->segmentMethodID) {
+            env->DeleteGlobalRef(handle->segmentCallbackGlobalRef);
+            handle->segmentCallbackGlobalRef = nullptr;
+            ALOGE("Failed to find onNewSegment method on Whisper segment callback");
+        }
     }
 }
 
 JNIEXPORT jobjectArray JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeTranscribe(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeTranscribe(JNIEnv* env, jclass,
                                                    jlong handlePtr,
                                                    jfloatArray jSamples,
                                                    jint nThreads,
@@ -316,11 +339,8 @@ Java_io_aatricks_llmedge_Whisper_nativeTranscribe(JNIEnv* env, jclass,
                                                    jint beamSize,
                                                    jboolean suppressBlank,
                                                    jboolean printProgress) {
-    auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
-    if (!handle || !handle->ctx) {
-        throwJavaException(env, "java/lang/IllegalStateException", "Whisper context not initialized");
-        return nullptr;
-    }
+    auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
+    if (!handle) return nullptr;
 
     if (!jSamples) {
         throwJavaException(env, "java/lang/IllegalArgumentException", "Audio samples cannot be null");
@@ -391,7 +411,7 @@ Java_io_aatricks_llmedge_Whisper_nativeTranscribe(JNIEnv* env, jclass,
     ALOGI("Transcription complete: %d segments", n_segments);
 
     // Create TranscriptionSegment array
-    jclass segmentClass = env->FindClass("io/aatricks/llmedge/Whisper$TranscriptionSegment");
+    jclass segmentClass = env->FindClass("io/aatricks/llmedge/speech/stt/Whisper$TranscriptionSegment");
     if (!segmentClass) {
         throwJavaException(env, "java/lang/RuntimeException", "TranscriptionSegment class not found");
         return nullptr;
@@ -428,16 +448,13 @@ Java_io_aatricks_llmedge_Whisper_nativeTranscribe(JNIEnv* env, jclass,
 }
 
 JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeDetectLanguage(JNIEnv* env, jclass,
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeDetectLanguage(JNIEnv* env, jclass,
                                                        jlong handlePtr,
                                                        jfloatArray jSamples,
                                                        jint nThreads,
                                                        jint offsetMs) {
-    auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
-    if (!handle || !handle->ctx) {
-        throwJavaException(env, "java/lang/IllegalStateException", "Whisper context not initialized");
-        return -1;
-    }
+    auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
+    if (!handle) return -1;
 
     if (!jSamples) {
         throwJavaException(env, "java/lang/IllegalArgumentException", "Audio samples cannot be null");
@@ -469,10 +486,10 @@ Java_io_aatricks_llmedge_Whisper_nativeDetectLanguage(JNIEnv* env, jclass,
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeGetFullText(JNIEnv* env, jclass, jlong handlePtr) {
-    auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
-    if (!handle || !handle->ctx) {
-        return env->NewStringUTF("");
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetFullText(JNIEnv* env, jclass, jlong handlePtr) {
+    auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
+    if (!handle) {
+        return nullptr;
     }
 
     std::lock_guard<std::mutex> lock(handle->mutex);
@@ -491,14 +508,14 @@ Java_io_aatricks_llmedge_Whisper_nativeGetFullText(JNIEnv* env, jclass, jlong ha
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativeResetTimings(JNIEnv*, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeResetTimings(JNIEnv*, jclass, jlong handlePtr) {
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle || !handle->ctx) return;
     whisper_reset_timings(handle->ctx);
 }
 
 JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_Whisper_nativePrintTimings(JNIEnv*, jclass, jlong handlePtr) {
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativePrintTimings(JNIEnv*, jclass, jlong handlePtr) {
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle || !handle->ctx) return;
     whisper_print_timings(handle->ctx);

@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 class SmolLMThinkingModeTest {
     @Before
@@ -26,6 +27,9 @@ class SmolLMThinkingModeTest {
                     useMlock: Boolean,
                     useVulkan: Boolean,
                     useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
                 ): Long = 1L
 
                 override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) {}
@@ -41,6 +45,7 @@ class SmolLMThinkingModeTest {
                 override fun completionLoop(instance: SmolLM, modelPtr: Long): String = ""
                 override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String = ""
                 override fun stopCompletion(instance: SmolLM, modelPtr: Long) {}
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) {}
             }
         }
     }

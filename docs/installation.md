@@ -39,15 +39,19 @@ git submodule update --init --recursive
 ./gradlew :llmedge:assembleDebug
 ```
 
-- Build the example app:
+- Build the example app (separate Gradle build):
 
 ```fish
-./gradlew :llmedge-examples:app:assembleDebug
+./gradlew :llmedge:assembleRelease
+cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
+cd llmedge-examples
+./gradlew :app:assembleDebug
 ```
 
 ### Native build notes
 - The native code resides in `llmedge/src/main/cpp` and uses JNI bindings and `llama.cpp`-style readers.
 - If you run into issues with the C++ toolchain, verify `ANDROID_NDK_HOME` and `ANDROID_SDK_ROOT` in `local.properties` or environment variables.
+- Vulkan is enabled by default on Linux/macOS hosts. On Windows hosts the Gradle build defaults Vulkan to `OFF` because the upstream shader generator is still unreliable under the Android cross-build toolchain; explicitly pass `-DSD_VULKAN=ON -DGGML_VULKAN=ON` only when your environment is known-good.
 
 #### GGUF/Model files
 - `GGUFReader` supports loading GGUF model files. Place model files on device storage or in the app's files directory and point APIs at those paths.

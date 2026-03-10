@@ -10,6 +10,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 /**
  * End-to-end test for video generation on physical device.
@@ -39,7 +42,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
 
             // Configure as video model
             sd.updateModelMetadata(
-                    StableDiffusion.VideoModelMetadata(
+                    VideoModelMetadata(
                             architecture = "wan",
                             modelType = "t2v",
                             parameterCount = "1.3B",
@@ -64,7 +67,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
 
             // Create generation parameters
             val params =
-                    StableDiffusion.VideoGenerateParams(
+                    VideoGenerateParams(
                             prompt = "a cat walking in a garden, high quality",
                             videoFrames = 8,
                             width = 256,
@@ -72,7 +75,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
                             steps = 10,
                             cfgScale = 7.0f,
                             seed = 42,
-                            sampleMethod = StableDiffusion.SampleMethod.EULER_A
+                            sampleMethod = SampleMethod.EULER_A
                     )
 
             // Generate video
@@ -115,7 +118,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
         runBlocking {
             val sd = createStableDiffusion()
             sd.updateModelMetadata(
-                    StableDiffusion.VideoModelMetadata(
+                    VideoModelMetadata(
                             architecture = "wan",
                             modelType = "t2v",
                             parameterCount = "1.3B",
@@ -142,7 +145,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
                 )
 
                 val params =
-                        StableDiffusion.VideoGenerateParams(
+                        VideoGenerateParams(
                                 prompt = "test video $index",
                                 videoFrames = frames,
                                 width = width,
@@ -168,7 +171,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
         runBlocking {
             val sd = createStableDiffusion()
             sd.updateModelMetadata(
-                    StableDiffusion.VideoModelMetadata(
+                    VideoModelMetadata(
                             architecture = "wan",
                             modelType = "t2v",
                             parameterCount = "1.3B",
@@ -191,7 +194,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
             }
 
             val params =
-                    StableDiffusion.VideoGenerateParams(
+                    VideoGenerateParams(
                             prompt = "test cancellation",
                             videoFrames = 16,
                             width = 256,
@@ -218,7 +221,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
         runBlocking {
             val sd = createStableDiffusion()
             sd.updateModelMetadata(
-                    StableDiffusion.VideoModelMetadata(
+                    VideoModelMetadata(
                             architecture = "wan",
                             modelType = "t2v",
                             parameterCount = "1.3B",
@@ -229,7 +232,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
             )
 
             val params =
-                    StableDiffusion.VideoGenerateParams(
+                    VideoGenerateParams(
                             prompt = "memory stability test",
                             videoFrames = 4,
                             width = 256,
@@ -287,7 +290,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
         runBlocking {
             val sd = createStableDiffusion()
             sd.updateModelMetadata(
-                    StableDiffusion.VideoModelMetadata(
+                    VideoModelMetadata(
                             architecture = "wan",
                             modelType = "t2v",
                             parameterCount = "1.3B",
@@ -299,17 +302,17 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
 
             val sampleMethods =
                     listOf(
-                            StableDiffusion.SampleMethod.EULER_A,
-                            StableDiffusion.SampleMethod.DDIM_TRAILING,
-                            StableDiffusion.SampleMethod.DEFAULT,
-                            StableDiffusion.SampleMethod.LCM
+                            SampleMethod.EULER_A,
+                            SampleMethod.DDIM_TRAILING,
+                            SampleMethod.DEFAULT,
+                            SampleMethod.LCM
                     )
 
             sampleMethods.forEach { sampleMethod ->
                 android.util.Log.d("E2E_TEST", "Testing sample method: $sampleMethod")
 
                 val params =
-                        StableDiffusion.VideoGenerateParams(
+                        VideoGenerateParams(
                                 prompt = "test sample method $sampleMethod",
                                 videoFrames = 4,
                                 width = 256,
@@ -334,7 +337,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
         runBlocking {
             val sd = createStableDiffusion()
             sd.updateModelMetadata(
-                    StableDiffusion.VideoModelMetadata(
+                    VideoModelMetadata(
                             architecture = "wan",
                             modelType = "t2v",
                             parameterCount = "1.3B",
@@ -346,7 +349,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
 
             // Test minimum valid parameters
             val minParams =
-                    StableDiffusion.VideoGenerateParams(
+                    VideoGenerateParams(
                             prompt = "min test",
                             videoFrames = 4,
                             width = 256,
@@ -360,7 +363,7 @@ class VideoGenerationE2ETest : BaseVideoIntegrationTest() {
 
             // Test maximum valid parameters (within mobile limits)
             val maxParams =
-                    StableDiffusion.VideoGenerateParams(
+                    VideoGenerateParams(
                             prompt = "max test",
                             videoFrames = 64,
                             width = 960,

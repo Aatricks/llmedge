@@ -3,12 +3,13 @@ package io.aatricks.llmedge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 
 class GenerationMetricsTest {
 
     @Test
     fun `GenerationMetrics computed properties work correctly`() {
-        val metrics = StableDiffusion.GenerationMetrics(
+        val metrics = GenerationMetrics(
             totalTimeSeconds = 10.5f,
             framesPerSecond = 2.5f,
             timePerStep = 0.5f,
@@ -24,7 +25,7 @@ class GenerationMetricsTest {
 
     @Test
     fun `GenerationMetrics handles zero values gracefully`() {
-        val metrics = StableDiffusion.GenerationMetrics(
+        val metrics = GenerationMetrics(
             totalTimeSeconds = 0f,
             framesPerSecond = 0f,
             timePerStep = 0f,
@@ -40,7 +41,7 @@ class GenerationMetricsTest {
 
     @Test
     fun `GenerationMetrics toPrettyString formats output correctly`() {
-        val metrics = StableDiffusion.GenerationMetrics(
+        val metrics = GenerationMetrics(
             totalTimeSeconds = 10.5f,
             framesPerSecond = 2.5f,
             timePerStep = 0.5f,
@@ -60,7 +61,7 @@ class GenerationMetricsTest {
 
     @Test
     fun `GenerationMetrics toPrettyString handles disabled vulkan`() {
-        val metrics = StableDiffusion.GenerationMetrics(
+        val metrics = GenerationMetrics(
             totalTimeSeconds = 5.0f,
             framesPerSecond = 1.0f,
             timePerStep = 1.0f,
@@ -75,7 +76,7 @@ class GenerationMetricsTest {
 
     @Test
     fun `GenerationMetrics constructor accepts all parameters`() {
-        val metrics = StableDiffusion.GenerationMetrics(
+        val metrics = GenerationMetrics(
             totalTimeSeconds = 15.75f,
             framesPerSecond = 3.2f,
             timePerStep = 0.25f,
@@ -94,7 +95,7 @@ class GenerationMetricsTest {
 
     @Test
     fun `GenerationMetrics handles very small values`() {
-        val metrics = StableDiffusion.GenerationMetrics(
+        val metrics = GenerationMetrics(
             totalTimeSeconds = 0.001f,
             framesPerSecond = 0.1f,
             timePerStep = 0.01f,
@@ -110,7 +111,7 @@ class GenerationMetricsTest {
 
     @Test
     fun `GenerationMetrics handles large values`() {
-        val metrics = StableDiffusion.GenerationMetrics(
+        val metrics = GenerationMetrics(
             totalTimeSeconds = 1000.0f,
             framesPerSecond = 60.0f,
             timePerStep = 0.1f,

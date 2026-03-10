@@ -1,5 +1,7 @@
 #include "LLMInference.h"
 #include <jni.h>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <memory>
 #include <mutex>
@@ -9,84 +11,222 @@
 #include "../../../../llama.cpp/tools/mtmd/mtmd.h"
 #include "../../../../llama.cpp/tools/mtmd/mtmd-helper.h"
 
-extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring modelPath, jfloat minP,
-                                            jfloat temperature, jboolean storeChats, jlong contextSize,
-                                            jstring chatTemplate, jint nThreads, jboolean useMmap, jboolean useMlock,
-                                            jboolean useVulkan, jboolean useFlashAttn) {
-    jboolean    isCopy           = true;
-    const char* modelPathCstr    = env->GetStringUTFChars(modelPath, &isCopy);
-    auto*       llmInference     = new LLMInference();
-    const char* chatTemplateCstr = env->GetStringUTFChars(chatTemplate, &isCopy);
+namespace {
 
-    try {
-        llmInference->loadModel(modelPathCstr, minP, temperature, storeChats, contextSize, chatTemplateCstr, nThreads,
-                                useMmap, useMlock, useVulkan, useFlashAttn);
-    } catch (std::runtime_error& error) {
-        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
+void throwJavaException(JNIEnv* env, const char* className, const char* message) {
+    if (!env) {
+        return;
+    }
+    jclass exClass = env->FindClass(className);
+    if (!exClass) {
+        return;
+    }
+    env->ThrowNew(exClass, message);
+}
+
+void throwInvalidHandle(JNIEnv* env, const char* owner) {
+    throwJavaException(env, "java/lang/IllegalStateException", owner);
+}
+
+class ScopedUtfChars {
+  public:
+    ScopedUtfChars(JNIEnv* env, jstring value) : env_(env), value_(value) {
+        chars_ = value_ ? env_->GetStringUTFChars(value_, nullptr) : nullptr;
     }
 
-    env->ReleaseStringUTFChars(modelPath, modelPathCstr);
-    env->ReleaseStringUTFChars(chatTemplate, chatTemplateCstr);
-    return reinterpret_cast<jlong>(llmInference);
+    ~ScopedUtfChars() {
+        if (chars_) {
+            env_->ReleaseStringUTFChars(value_, chars_);
+        }
+    }
+
+    ScopedUtfChars(const ScopedUtfChars&) = delete;
+    ScopedUtfChars& operator=(const ScopedUtfChars&) = delete;
+
+    const char* get() const { return chars_; }
+    bool ok() const { return value_ == nullptr || chars_ != nullptr; }
+
+  private:
+    JNIEnv* env_;
+    jstring value_;
+    const char* chars_ = nullptr;
+};
+
+LLMInference* requireInference(JNIEnv* env, jlong modelPtr, const char* operation) {
+    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    if (!llmInference) {
+        throwInvalidHandle(env, operation);
+    }
+    return llmInference;
+}
+
+} // namespace
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring modelPath, jfloat minP,
+                                             jfloat temperature, jboolean storeChats, jlong contextSize,
+                                             jstring chatTemplate, jint nThreads, jboolean useMmap, jboolean useMlock,
+                                             jboolean useVulkan, jboolean useFlashAttn, jint kvCacheTypeK, jint kvCacheTypeV,
+                                             jint nGpuLayers) {
+    ScopedUtfChars modelPathCstr(env, modelPath);
+    ScopedUtfChars chatTemplateCstr(env, chatTemplate);
+    if (!modelPathCstr.ok() || !chatTemplateCstr.ok()) {
+        return 0;
+    }
+
+    auto llmInference = std::make_unique<LLMInference>();
+    try {
+        llmInference->loadModel(modelPathCstr.get(), minP, temperature, storeChats, contextSize, chatTemplateCstr.get(), nThreads,
+                                useMmap, useMlock, useVulkan, useFlashAttn, kvCacheTypeK, kvCacheTypeV, nGpuLayers);
+    } catch (const std::exception& error) {
+        throwJavaException(env, "java/lang/IllegalStateException", error.what());
+        return 0;
+    }
+    return reinterpret_cast<jlong>(llmInference.release());
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_addChatMessage(JNIEnv* env, jobject thiz, jlong modelPtr, jstring message,
-                                                 jstring role) {
-    jboolean    isCopy       = true;
-    const char* messageCstr  = env->GetStringUTFChars(message, &isCopy);
-    const char* roleCstr     = env->GetStringUTFChars(role, &isCopy);
-    auto*       llmInference = reinterpret_cast<LLMInference*>(modelPtr);
-    llmInference->addChatMessage(messageCstr, roleCstr);
-    env->ReleaseStringUTFChars(message, messageCstr);
-    env->ReleaseStringUTFChars(role, roleCstr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_addChatMessage(JNIEnv* env, jobject thiz, jlong modelPtr, jstring message,
+                                                  jstring role) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return;
+    }
+    ScopedUtfChars messageCstr(env, message);
+    ScopedUtfChars roleCstr(env, role);
+    if (!messageCstr.ok() || !roleCstr.ok()) {
+        return;
+    }
+    try {
+        llmInference->addChatMessage(messageCstr.get(), roleCstr.get());
+    } catch (const std::exception& error) {
+        throwJavaException(env, "java/lang/IllegalStateException", error.what());
+    }
 }
 
 extern "C" JNIEXPORT jfloat JNICALL
-Java_io_aatricks_llmedge_SmolLM_getResponseGenerationSpeed(JNIEnv* env, jobject thiz, jlong modelPtr) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getResponseGenerationSpeed(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return 0.0f;
+    }
     return llmInference->getResponseGenerationTime();
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_getResponseGeneratedTokenCount(JNIEnv* env, jobject thiz, jlong modelPtr) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getResponseGeneratedTokenCount(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return 0;
+    }
     return llmInference->getResponseTokenCount();
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_getResponseGenerationDurationMicros(JNIEnv* env, jobject thiz, jlong modelPtr) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getResponseGenerationDurationMicros(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return 0;
+    }
     return llmInference->getResponseGenerationTimeMicros();
 }
 
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetLastGenerationMetrics(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return nullptr;
+    }
+
+    const int64_t elapsedMicros = llmInference->getResponseGenerationTimeMicros();
+    const long tokenCount = llmInference->getResponseTokenCount();
+    const float tokensPerSecond = llmInference->getResponseTokensPerSecond();
+
+    uint32_t speedBits = 0;
+    static_assert(sizeof(speedBits) == sizeof(tokensPerSecond), "Unexpected float size");
+    std::memcpy(&speedBits, &tokensPerSecond, sizeof(tokensPerSecond));
+
+    jlong values[3] = {
+        static_cast<jlong>(elapsedMicros),
+        static_cast<jlong>(tokenCount),
+        static_cast<jlong>(speedBits),
+    };
+    jlongArray result = env->NewLongArray(3);
+    if (!result) {
+        return nullptr;
+    }
+    env->SetLongArrayRegion(result, 0, 3, values);
+    return result;
+}
+
 extern "C" JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_SmolLM_getContextSizeUsed(JNIEnv* env, jobject thiz, jlong modelPtr) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getContextSizeUsed(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return 0;
+    }
     return llmInference->getContextSizeUsed();
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_close(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeConfigureThreading(JNIEnv* env, jobject thiz, jlong modelPtr,
+                                                         jint generationThreads, jint promptThreads) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return;
+    }
+    llmInference->configureThreading(generationThreads, promptThreads);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetEstimatedMemoryBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return 0;
+    }
+    return static_cast<jlong>(llmInference->getEstimatedMemoryBytes());
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetEstimatedStateMemoryBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return 0;
+    }
+    return static_cast<jlong>(llmInference->getStateMemoryBytes());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_close(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    if (!modelPtr) {
+        return;
+    }
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
     delete llmInference;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt) {
-    jboolean    isCopy       = true;
-    const char* promptCstr   = env->GetStringUTFChars(prompt, &isCopy);
-    auto*       llmInference = reinterpret_cast<LLMInference*>(modelPtr);
-    llmInference->startCompletion(promptCstr);
-    env->ReleaseStringUTFChars(prompt, promptCstr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_startCompletion(JNIEnv* env, jobject thiz, jlong modelPtr, jstring prompt) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return;
+    }
+    ScopedUtfChars promptCstr(env, prompt);
+    if (!promptCstr.ok()) {
+        return;
+    }
+    try {
+        llmInference->startCompletion(promptCstr.get());
+    } catch (const std::exception& error) {
+        throwJavaException(env, "java/lang/IllegalStateException", error.what());
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_setReasoningOptions(JNIEnv* env, jobject thiz, jlong modelPtr, jboolean disableThinking,
+Java_io_aatricks_llmedge_text_runtime_SmolLM_setReasoningOptions(JNIEnv* env, jobject thiz, jlong modelPtr, jboolean disableThinking,
                                                     jint reasoningBudget) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
-    if (llmInference == nullptr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
         return;
     }
     const bool disable = disableThinking == JNI_TRUE;
@@ -94,40 +234,70 @@ Java_io_aatricks_llmedge_SmolLM_setReasoningOptions(JNIEnv* env, jobject thiz, j
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong modelPtr) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_completionLoop(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return nullptr;
+    }
     try {
         std::string response = llmInference->completionLoop();
         return env->NewStringUTF(response.c_str());
-    } catch (std::runtime_error& error) {
-        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
+    } catch (const std::exception& error) {
+        throwJavaException(env, "java/lang/IllegalStateException", error.what());
         return nullptr;
     }
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_SmolLM_completionLoopBatch(JNIEnv* env, jobject thiz, jlong modelPtr, jint maxTokens) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_completionLoopBatch(JNIEnv* env, jobject thiz, jlong modelPtr, jint maxTokens) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return nullptr;
+    }
     try {
         std::string response = llmInference->completionLoopBatch(maxTokens);
         return env->NewStringUTF(response.c_str());
-    } catch (std::runtime_error& error) {
-        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), error.what());
+    } catch (const std::exception& error) {
+        throwJavaException(env, "java/lang/IllegalStateException", error.what());
+        return nullptr;
+    }
+}
+
+// Byte-based batch completion: returns raw UTF-8 bytes to avoid per-call NewStringUTF overhead
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_completionLoopBatchBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint maxTokens) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return nullptr;
+    }
+    try {
+        std::string response = llmInference->completionLoopBatch(maxTokens);
+        jbyteArray result = env->NewByteArray(static_cast<jsize>(response.size()));
+        if (result && !response.empty()) {
+            env->SetByteArrayRegion(result, 0, static_cast<jsize>(response.size()),
+                                    reinterpret_cast<const jbyte*>(response.c_str()));
+        }
+        return result;
+    } catch (const std::exception& error) {
+        throwJavaException(env, "java/lang/IllegalStateException", error.what());
         return nullptr;
     }
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_setThreadAffinity(JNIEnv* env, jobject thiz, jlong modelPtr, jlong coreMask) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_setThreadAffinity(JNIEnv* env, jobject thiz, jlong modelPtr, jlong coreMask) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (llmInference) {
         llmInference->setThreadAffinity(static_cast<uint64_t>(coreMask));
     }
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_stopCompletion(JNIEnv* env, jobject thiz, jlong modelPtr) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_stopCompletion(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return;
+    }
     llmInference->stopCompletion();
 }
 
@@ -139,17 +309,16 @@ static std::mutex g_mtmd_map_mutex;
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_io_aatricks_llmedge_Projector_nativeInitProjector(JNIEnv* env, jobject thiz, jstring mmprojPath, jlong textModelPtr) {
-    const char* mmprojC = nullptr;
     mtmd_context* ctx = nullptr;
     if (mmprojPath == nullptr) return 0;
-    mmprojC = env->GetStringUTFChars(mmprojPath, nullptr);
-    if (!mmprojC) return 0;
+    ScopedUtfChars mmprojC(env, mmprojPath);
+    if (!mmprojC.ok()) return 0;
 
     mtmd_context_params params = mtmd_context_params_default();
     params.use_gpu = false; // don't attempt GPU for Android example
 
     try {
-        ctx = mtmd_init_from_file(mmprojC, reinterpret_cast<const llama_model*>(textModelPtr), params);
+        ctx = mtmd_init_from_file(mmprojC.get(), reinterpret_cast<const llama_model*>(textModelPtr), params);
     } catch (...) {
         ctx = nullptr;
     }
@@ -159,18 +328,14 @@ Java_io_aatricks_llmedge_Projector_nativeInitProjector(JNIEnv* env, jobject thiz
         g_mtmd_model_map[ctx] = reinterpret_cast<llama_model*>(textModelPtr);
     }
 
-    env->ReleaseStringUTFChars(mmprojPath, mmprojC);
-
     return reinterpret_cast<jlong>(ctx);
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_io_aatricks_llmedge_Projector_nativeEncodeImage(JNIEnv* env, jobject thiz, jlong nativePtr, jstring imagePath, jstring outPath) {
-    const char* inC = env->GetStringUTFChars(imagePath, nullptr);
-    const char* outC = env->GetStringUTFChars(outPath, nullptr);
-    if (!inC || !outC) {
-        if (inC) env->ReleaseStringUTFChars(imagePath, inC);
-        if (outC) env->ReleaseStringUTFChars(outPath, outC);
+    ScopedUtfChars inC(env, imagePath);
+    ScopedUtfChars outC(env, outPath);
+    if (!inC.ok() || !outC.ok()) {
         return JNI_FALSE;
     }
 
@@ -179,22 +344,18 @@ Java_io_aatricks_llmedge_Projector_nativeEncodeImage(JNIEnv* env, jobject thiz, 
 
     if (ctx == nullptr) {
         // No projector available; fallback to copying file
-        std::ifstream src(inC, std::ios::binary);
-        std::ofstream dst(outC, std::ios::binary);
+        std::ifstream src(inC.get(), std::ios::binary);
+        std::ofstream dst(outC.get(), std::ios::binary);
         if (src && dst) {
             dst << src.rdbuf();
             ok = static_cast<bool>(src) && static_cast<bool>(dst);
         }
-        env->ReleaseStringUTFChars(imagePath, inC);
-        env->ReleaseStringUTFChars(outPath, outC);
         return ok ? JNI_TRUE : JNI_FALSE;
     }
 
     // Use mtmd_helper_bitmap_init_from_file to load image and preprocess it
-    mtmd_bitmap* bmp = mtmd_helper_bitmap_init_from_file(ctx, inC);
+    mtmd_bitmap* bmp = mtmd_helper_bitmap_init_from_file(ctx, inC.get());
     if (!bmp) {
-        env->ReleaseStringUTFChars(imagePath, inC);
-        env->ReleaseStringUTFChars(outPath, outC);
         return JNI_FALSE;
     }
 
@@ -205,8 +366,6 @@ Java_io_aatricks_llmedge_Projector_nativeEncodeImage(JNIEnv* env, jobject thiz, 
     if (tokRes != 0) {
         mtmd_bitmap_free(bmp);
         mtmd_input_chunks_free(chunks);
-        env->ReleaseStringUTFChars(imagePath, inC);
-        env->ReleaseStringUTFChars(outPath, outC);
         return JNI_FALSE;
     }
 
@@ -223,7 +382,7 @@ Java_io_aatricks_llmedge_Projector_nativeEncodeImage(JNIEnv* env, jobject thiz, 
             if (res == 0) {
                 float* embd = mtmd_get_output_embd(ctx);
                 // Write raw float embeddings to outPath
-                std::ofstream ofs(outC, std::ios::binary);
+                std::ofstream ofs(outC.get(), std::ios::binary);
                 if (ofs) {
                         // We need to know size: tokens * embd_dim
                         n_tokens = static_cast<size_t>(mtmd_input_chunk_get_n_tokens(c));
@@ -242,8 +401,6 @@ Java_io_aatricks_llmedge_Projector_nativeEncodeImage(JNIEnv* env, jobject thiz, 
                             ofs.close();
                             mtmd_bitmap_free(bmp);
                             mtmd_input_chunks_free(chunks);
-                            env->ReleaseStringUTFChars(imagePath, inC);
-                            env->ReleaseStringUTFChars(outPath, outC);
                             return JNI_FALSE;
                         }
                         size_t n_floats = static_cast<size_t>(n_tokens) * static_cast<size_t>(embd_dim);
@@ -257,7 +414,7 @@ Java_io_aatricks_llmedge_Projector_nativeEncodeImage(JNIEnv* env, jobject thiz, 
 
         // If we encoded successfully, write a small metadata JSON file next to embeddings
         if (encoded) {
-            std::string metaPath = std::string(outC) + ".meta.json";
+            std::string metaPath = std::string(outC.get()) + ".meta.json";
             std::ofstream mofs(metaPath, std::ios::trunc);
             if (mofs) {
                 // Try to get image token shape if available
@@ -295,8 +452,6 @@ Java_io_aatricks_llmedge_Projector_nativeEncodeImage(JNIEnv* env, jobject thiz, 
 
     mtmd_bitmap_free(bmp);
     mtmd_input_chunks_free(chunks);
-    env->ReleaseStringUTFChars(imagePath, inC);
-    env->ReleaseStringUTFChars(outPath, outC);
 
     return encoded ? JNI_TRUE : JNI_FALSE;
 }
@@ -335,24 +490,214 @@ Java_io_aatricks_llmedge_vision_Projector_nativeCloseProjector(JNIEnv* env, jobj
     Java_io_aatricks_llmedge_Projector_nativeCloseProjector(env, thiz, nativePtr);
 }
 
+// Buffer-based image encoding: accepts JPEG bytes, returns [FloatArray embeddings, IntArray metadata]
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_io_aatricks_llmedge_vision_Projector_nativeEncodeImageBuffer(JNIEnv* env, jobject thiz, jlong nativePtr, jbyteArray jpegData) {
+    if (!jpegData) return nullptr;
+
+    mtmd_context* ctx = reinterpret_cast<mtmd_context*>(nativePtr);
+    if (!ctx) return nullptr;
+
+    jsize dataLen = env->GetArrayLength(jpegData);
+    if (dataLen <= 0) return nullptr;
+
+    jbyte* rawBytes = env->GetByteArrayElements(jpegData, nullptr);
+    if (!rawBytes) return nullptr;
+
+    mtmd_bitmap* bmp = mtmd_helper_bitmap_init_from_buf(ctx,
+        reinterpret_cast<const unsigned char*>(rawBytes), static_cast<size_t>(dataLen));
+    env->ReleaseByteArrayElements(jpegData, rawBytes, JNI_ABORT);
+    if (!bmp) return nullptr;
+
+    const mtmd_bitmap* bitmaps[1] = { bmp };
+    mtmd_input_text txt = { "<__media__>", false, false };
+    mtmd_input_chunks* chunks = mtmd_input_chunks_init();
+    int32_t tokRes = mtmd_tokenize(ctx, chunks, &txt, bitmaps, 1);
+    if (tokRes != 0) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+
+    // Find and encode the first image chunk
+    float* embd = nullptr;
+    size_t n_tokens = 0;
+    int embd_dim = 0;
+    int nx = 0, ny = 0;
+    bool encoded = false;
+
+    for (size_t i = 0; i < mtmd_input_chunks_size(chunks); ++i) {
+        const mtmd_input_chunk* c = mtmd_input_chunks_get(chunks, i);
+        if (c && mtmd_input_chunk_get_type(c) == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            int32_t res = mtmd_encode_chunk(ctx, c);
+            if (res == 0) {
+                embd = mtmd_get_output_embd(ctx);
+                n_tokens = static_cast<size_t>(mtmd_input_chunk_get_n_tokens(c));
+                {
+                    std::lock_guard<std::mutex> lk(g_mtmd_map_mutex);
+                    auto it = g_mtmd_model_map.find(ctx);
+                    if (it != g_mtmd_model_map.end() && it->second) {
+                        embd_dim = llama_model_n_embd(it->second);
+                    }
+                }
+                if (embd_dim <= 0) {
+                    mtmd_bitmap_free(bmp);
+                    mtmd_input_chunks_free(chunks);
+                    return nullptr;
+                }
+                const mtmd_image_tokens* image_tokens = mtmd_input_chunk_get_tokens_image(c);
+                if (image_tokens) {
+                    nx = static_cast<int>(mtmd_image_tokens_get_nx(image_tokens));
+                    ny = static_cast<int>(mtmd_image_tokens_get_ny(image_tokens));
+                }
+                encoded = true;
+            }
+            break;
+        }
+    }
+
+    if (!encoded || !embd) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+
+    bool use_mrope = mtmd_decode_use_mrope(ctx);
+    bool use_non_causal = mtmd_decode_use_non_causal(ctx);
+    size_t n_floats = n_tokens * static_cast<size_t>(embd_dim);
+
+    // Build result: Object[] { float[], int[] }
+    jfloatArray embdArray = env->NewFloatArray(static_cast<jsize>(n_floats));
+    if (!embdArray) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(embdArray, 0, static_cast<jsize>(n_floats), embd);
+
+    // metadata: [n_tokens, nx, ny, embd_dim, use_mrope, use_non_causal]
+    jint meta[6] = {
+        static_cast<jint>(n_tokens), static_cast<jint>(nx), static_cast<jint>(ny),
+        static_cast<jint>(embd_dim), use_mrope ? 1 : 0, use_non_causal ? 1 : 0
+    };
+    jintArray metaArray = env->NewIntArray(6);
+    if (!metaArray) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+    env->SetIntArrayRegion(metaArray, 0, 6, meta);
+
+    jclass objClass = env->FindClass("java/lang/Object");
+    if (!objClass) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+    jobjectArray result = env->NewObjectArray(2, objClass, nullptr);
+    if (!result) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return nullptr;
+    }
+    env->SetObjectArrayElement(result, 0, embdArray);
+    env->SetObjectArrayElement(result, 1, metaArray);
+
+    mtmd_bitmap_free(bmp);
+    mtmd_input_chunks_free(chunks);
+
+    return result;
+}
+
+// Buffer-based embedding decoding: accepts float array + metadata, populates KV cache
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeDecodeEmbeddingsBuffer(JNIEnv* env, jobject thiz, jlong modelPtr,
+                                                              jfloatArray embeddings, jint nTokens, jint nx, jint ny,
+                                                              jint embdDim, jboolean useMrope, jboolean useNonCausal,
+                                                              jint nBatch) {
+    if (!embeddings || nTokens <= 0 || embdDim <= 0 || nBatch <= 0) return JNI_FALSE;
+
+    jsize arrLen = env->GetArrayLength(embeddings);
+    size_t expected = static_cast<size_t>(nTokens) * static_cast<size_t>(embdDim);
+    if (static_cast<size_t>(arrLen) < expected) return JNI_FALSE;
+
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) return JNI_FALSE;
+
+    llama_context* lctx = llmInference->getContext();
+    if (!lctx) return JNI_FALSE;
+
+    jfloat* embdData = env->GetFloatArrayElements(embeddings, nullptr);
+    if (!embdData) return JNI_FALSE;
+
+    int n_pos_per_embd = useMrope ? 4 : 1;
+    int32_t n_img_batches = (nTokens + nBatch - 1) / nBatch;
+    bool success = true;
+
+    for (int32_t i_batch = 0; i_batch < n_img_batches && success; ++i_batch) {
+        int pos_offset = i_batch * nBatch;
+        int n_tokens_batch = std::min(static_cast<int>(nBatch), static_cast<int>(nTokens) - pos_offset);
+
+        llama_batch batch = llama_batch_init(n_tokens_batch, 0, 1);
+        batch.embd = embdData + static_cast<size_t>(pos_offset) * static_cast<size_t>(embdDim);
+
+        std::vector<llama_pos> pos(n_tokens_batch * n_pos_per_embd);
+        if (n_pos_per_embd == 1) {
+            for (int i = 0; i < n_tokens_batch; ++i) pos[i] = static_cast<llama_pos>(pos_offset + i);
+        } else {
+            if (nx > 0 && ny > 0) {
+                for (int y = 0; y < ny; ++y) {
+                    for (int x = 0; x < nx; ++x) {
+                        int idx = y * nx + x;
+                        if (idx < pos_offset || idx >= pos_offset + n_tokens_batch) continue;
+                        int out_idx = idx - pos_offset;
+                        pos[out_idx] = static_cast<llama_pos>(idx);
+                    }
+                }
+            } else {
+                for (int i = 0; i < n_tokens_batch; ++i) pos[i] = static_cast<llama_pos>(pos_offset + i);
+            }
+        }
+
+        llama_batch decode_batch = {
+            /*n_tokens=*/ n_tokens_batch,
+            /*token=*/ nullptr,
+            /*embd=*/ batch.embd,
+            /*pos=*/ pos.data(),
+            /*n_seq_id=*/ nullptr,
+            /*seq_id=*/ nullptr,
+            /*logits=*/ nullptr,
+        };
+
+        int32_t ret = llama_decode(lctx, decode_batch);
+        if (ret != 0) success = false;
+    }
+
+    env->ReleaseFloatArrayElements(embeddings, embdData, JNI_ABORT);
+
+    if (success) {
+        llmInference->markPreparedKvForNextCompletion();
+    }
+
+    return success ? JNI_TRUE : JNI_FALSE;
+}
+
 // Return the internal llama_model* as jlong for advanced native integrations (caller must not free)
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_SmolLM_getNativeModelPtr(JNIEnv* env, jobject thiz, jlong modelPtr) {
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+Java_io_aatricks_llmedge_text_runtime_SmolLM_getNativeModelPtr(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) return 0;
     return reinterpret_cast<jlong>(llmInference->getModel());
 }
 
 // Decode prepared embeddings (.bin) using the already-loaded llama_context inside LLMInference
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobject thiz, jlong modelPtr,
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobject thiz, jlong modelPtr,
                                                                jstring embdPath, jstring metaPath, jint nBatch) {
     if (!embdPath || !metaPath) return JNI_FALSE;
-    const char* embdC = env->GetStringUTFChars(embdPath, nullptr);
-    const char* metaC = env->GetStringUTFChars(metaPath, nullptr);
-    if (!embdC || !metaC) {
-        if (embdC) env->ReleaseStringUTFChars(embdPath, embdC);
-        if (metaC) env->ReleaseStringUTFChars(metaPath, metaC);
+    ScopedUtfChars embdC(env, embdPath);
+    ScopedUtfChars metaC(env, metaPath);
+    if (!embdC.ok() || !metaC.ok()) {
         return JNI_FALSE;
     }
 
@@ -363,10 +708,8 @@ Java_io_aatricks_llmedge_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobj
     bool use_mrope = false;
     bool use_non_causal = false;
 
-    std::ifstream mif(metaC);
+    std::ifstream mif(metaC.get());
     if (!mif) {
-        env->ReleaseStringUTFChars(embdPath, embdC);
-        env->ReleaseStringUTFChars(metaPath, metaC);
         return JNI_FALSE;
     }
     std::string line;
@@ -392,16 +735,12 @@ Java_io_aatricks_llmedge_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobj
     mif.close();
 
     if (n_tokens <= 0 || embd_dim <= 0) {
-        env->ReleaseStringUTFChars(embdPath, embdC);
-        env->ReleaseStringUTFChars(metaPath, metaC);
         return JNI_FALSE;
     }
 
     // Read embeddings
-    std::ifstream ifs(embdC, std::ios::binary | std::ios::ate);
+    std::ifstream ifs(embdC.get(), std::ios::binary | std::ios::ate);
     if (!ifs) {
-        env->ReleaseStringUTFChars(embdPath, embdC);
-        env->ReleaseStringUTFChars(metaPath, metaC);
         return JNI_FALSE;
     }
     std::streamsize size = ifs.tellg();
@@ -410,8 +749,6 @@ Java_io_aatricks_llmedge_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobj
     if (static_cast<size_t>(size) < expected) {
         // mismatch
         ifs.close();
-        env->ReleaseStringUTFChars(embdPath, embdC);
-        env->ReleaseStringUTFChars(metaPath, metaC);
         return JNI_FALSE;
     }
     std::vector<float> embd_buf(n_tokens * embd_dim);
@@ -419,16 +756,12 @@ Java_io_aatricks_llmedge_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobj
     ifs.close();
 
     // Get llama_context from modelPtr
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
     if (!llmInference) {
-        env->ReleaseStringUTFChars(embdPath, embdC);
-        env->ReleaseStringUTFChars(metaPath, metaC);
         return JNI_FALSE;
     }
     llama_context* lctx = llmInference->getContext();
     if (!lctx) {
-        env->ReleaseStringUTFChars(embdPath, embdC);
-        env->ReleaseStringUTFChars(metaPath, metaC);
         return JNI_FALSE;
     }
 
@@ -490,23 +823,24 @@ Java_io_aatricks_llmedge_SmolLM_nativeDecodePreparedEmbeddings(JNIEnv* env, jobj
         int n_tokens_batch = std::min(static_cast<int>(nBatch), n_tokens - pos_offset);
         bool ok = run_decode_batch(pos_offset, n_tokens_batch);
         if (!ok) {
-            env->ReleaseStringUTFChars(embdPath, embdC);
-            env->ReleaseStringUTFChars(metaPath, metaC);
             return JNI_FALSE;
         }
         i_batch++;
     }
 
-    env->ReleaseStringUTFChars(embdPath, embdC);
-    env->ReleaseStringUTFChars(metaPath, metaC);
+    llmInference->markPreparedKvForNextCompletion();
+
     return JNI_TRUE;
 }
 
 // Retrieve the full state blob for the llama context (includes RNG, logits and KV cache)
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeGetStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr) {
     if (!modelPtr) return nullptr;
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return nullptr;
+    }
     llama_context* ctx = llmInference->getContext();
     if (!ctx) return nullptr;
     size_t size = llama_state_get_size(ctx);
@@ -522,9 +856,12 @@ Java_io_aatricks_llmedge_SmolLM_nativeGetStateBytes(JNIEnv* env, jobject thiz, j
 
 // Set the full state blob for the llama context
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeSetStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jbyteArray state) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeSetStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jbyteArray state) {
     if (!modelPtr || !state) return JNI_FALSE;
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return JNI_FALSE;
+    }
     llama_context* ctx = llmInference->getContext();
     if (!ctx) return JNI_FALSE;
     jsize len = env->GetArrayLength(state);
@@ -537,9 +874,12 @@ Java_io_aatricks_llmedge_SmolLM_nativeSetStateBytes(JNIEnv* env, jobject thiz, j
 
 // Get state for a specific sequence (KV slot)
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeGetSequenceStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint seqId) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetSequenceStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint seqId) {
     if (!modelPtr) return nullptr;
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return nullptr;
+    }
     llama_context* ctx = llmInference->getContext();
     if (!ctx) return nullptr;
     size_t size = llama_state_seq_get_size(ctx, static_cast<llama_seq_id>(seqId));
@@ -555,9 +895,12 @@ Java_io_aatricks_llmedge_SmolLM_nativeGetSequenceStateBytes(JNIEnv* env, jobject
 
 // Set sequence state bytes (restore into KV slot)
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeSetSequenceStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint seqId, jbyteArray state) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeSetSequenceStateBytes(JNIEnv* env, jobject thiz, jlong modelPtr, jint seqId, jbyteArray state) {
     if (!modelPtr || !state) return JNI_FALSE;
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return JNI_FALSE;
+    }
     llama_context* ctx = llmInference->getContext();
     if (!ctx) return JNI_FALSE;
     jsize len = env->GetArrayLength(state);
@@ -569,10 +912,23 @@ Java_io_aatricks_llmedge_SmolLM_nativeSetSequenceStateBytes(JNIEnv* env, jobject
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_SmolLM_nativeClearKvCache(JNIEnv* env, jobject thiz, jlong modelPtr) {
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeClearKvCache(JNIEnv* env, jobject thiz, jlong modelPtr) {
     if (!modelPtr) return;
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return;
+    }
     llama_context* ctx = llmInference->getContext();
     if (!ctx) return;
     llama_memory_clear(llama_get_memory(ctx), true);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeClearMessages(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    if (!modelPtr) return;
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return;
+    }
+    llmInference->clearMessages();
 }

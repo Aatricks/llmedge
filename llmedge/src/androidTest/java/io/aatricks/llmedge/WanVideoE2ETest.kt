@@ -18,6 +18,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.io.FileOutputStream
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.runtime.CpuTopology
 
 @LargeTest
 @RunWith(AndroidJUnit4::class)
@@ -44,7 +47,7 @@ class WanVideoE2ETest {
             modelPath = wanAssets.model.absolutePath,
             vaePath = wanAssets.vae.absolutePath,
             t5xxlPath = wanAssets.textEncoder.absolutePath,
-            nThreads = io.aatricks.llmedge.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.CpuTopology.TaskType.DIFFUSION).coerceAtMost(4),
+            nThreads = io.aatricks.llmedge.runtime.CpuTopology.getOptimalThreadCount(io.aatricks.llmedge.runtime.CpuTopology.TaskType.DIFFUSION).coerceAtMost(4),
             offloadToCpu = false,
             keepClipOnCpu = false,
             keepVaeOnCpu = false,
@@ -52,7 +55,7 @@ class WanVideoE2ETest {
 
         engine.use { sd ->
             assertTrue("Wan model should be detected as video-capable", sd.isVideoModel())
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "a cinematic shot of a friendly robot waving",
                 width = 256,
                 height = 256,
@@ -122,7 +125,7 @@ class WanVideoE2ETest {
         result.file
     }
 
-    private fun assertBitmapDimensions(bitmap: Bitmap, params: StableDiffusion.VideoGenerateParams) {
+    private fun assertBitmapDimensions(bitmap: Bitmap, params: VideoGenerateParams) {
         assertEquals(params.width, bitmap.width)
         assertEquals(params.height, bitmap.height)
     }

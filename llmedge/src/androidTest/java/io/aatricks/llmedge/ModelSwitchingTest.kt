@@ -8,6 +8,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 /**
  * T103: Integration test for model switching and memory stability.
@@ -24,7 +26,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         // Step 1: Load 1.3B model
         val sd1 = createStableDiffusion()
         sd1.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -35,7 +37,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         )
         
         // Generate with 1.3B model
-        val params1 = StableDiffusion.VideoGenerateParams(
+        val params1 = VideoGenerateParams(
             prompt = "test video with 1.3B model",
             videoFrames = 16,
             width = 256,
@@ -54,7 +56,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         // Step 2: Load 5B model
         val sd2 = createStableDiffusion()
         sd2.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "ti2v",
                 parameterCount = "5B",
@@ -65,7 +67,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         )
         
         // Generate with 5B model (lower frame count due to memory)
-        val params2 = StableDiffusion.VideoGenerateParams(
+        val params2 = VideoGenerateParams(
             prompt = "test video with 5B model",
             videoFrames = 16,
             width = 256,
@@ -90,7 +92,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
             // Load 1.3B
             val sd = createStableDiffusion()
             sd.updateModelMetadata(
-                StableDiffusion.VideoModelMetadata(
+                VideoModelMetadata(
                     architecture = "wan",
                     modelType = "t2v",
                     parameterCount = "1.3B",
@@ -103,7 +105,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
             assertTrue("Model should be detected as video model", sd.isVideoModel())
             
             // Generate a small video
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "iteration $iteration",
                 videoFrames = 8,
                 width = 256,
@@ -126,7 +128,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
     fun testMetadataResetOnClose() = runBlocking {
         val sd = createStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -153,7 +155,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         // Load T2V (text-to-video)
         val t2v = createStableDiffusion()
         t2v.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -164,7 +166,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         )
         assertTrue("T2V model loaded", t2v.isVideoModel())
         
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "t2v test",
             videoFrames = 8,
             width = 256,
@@ -177,7 +179,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         // Load TI2V (text+image-to-video)
         val ti2v = createStableDiffusion()
         ti2v.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "ti2v",
                 parameterCount = "5B",
@@ -200,7 +202,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
     fun testCancellationStateResetOnClose() = runBlocking {
         val sd = createStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -211,7 +213,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         )
         
         // Start generation in background (don't await)
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test",
             videoFrames = 32,  // Longer generation
             steps = 20
@@ -232,7 +234,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         // Create new instance - cancellation should not persist
         val sd2 = createStableDiffusion()
         sd2.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -243,7 +245,7 @@ class ModelSwitchingTest : BaseVideoIntegrationTest() {
         )
         
         // Should be able to generate without cancellation
-        val params2 = StableDiffusion.VideoGenerateParams(
+        val params2 = VideoGenerateParams(
             prompt = "new test",
             videoFrames = 8,
             steps = 10

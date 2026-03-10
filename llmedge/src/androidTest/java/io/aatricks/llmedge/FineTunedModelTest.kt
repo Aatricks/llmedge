@@ -8,6 +8,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 /**
  * T104: Tests for loading fine-tuned models with custom filenames.
@@ -25,7 +27,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         
         // Simulate a community fine-tune with custom naming
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -38,7 +40,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         assertTrue("Fine-tuned model should be detected", sd.isVideoModel())
         
         // Verify generation works
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test fine-tuned model",
             videoFrames = 8,
             width = 256,
@@ -58,7 +60,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
         
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -80,7 +82,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
         
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "ti2v",
                 parameterCount = "5B",
@@ -102,7 +104,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
         
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -114,7 +116,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         
         assertTrue("Merge model should be detected", sd.isVideoModel())
         
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test merge",
             videoFrames = 4,
             width = 256,
@@ -134,7 +136,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         val sd = createStableDiffusion()
         
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "ti2v",
                 parameterCount = "5B",
@@ -157,7 +159,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         
         // Custom filename that doesn't follow standard naming
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -184,7 +186,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         
         // Some users might accidentally include path segments
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -206,7 +208,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         // Q4_K_M quantization
         val sd1 = createStableDiffusion()
         sd1.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -221,7 +223,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         // Q6_K quantization
         val sd2 = createStableDiffusion()
         sd2.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "ti2v",
                 parameterCount = "5B",
@@ -236,7 +238,7 @@ class FineTunedModelTest : BaseVideoIntegrationTest() {
         // fp8 quantization
         val sd3 = createStableDiffusion()
         sd3.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "ti2v",
                 parameterCount = "5B",

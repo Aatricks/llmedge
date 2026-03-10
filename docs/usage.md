@@ -2,55 +2,101 @@
 
 This page explains how to use `llmedge`'s Kotlin API. The library offers two layers of abstraction:
 
-1.  **High-Level API (`LLMEdgeManager`)**: Recommended for most use cases. Handles loading, caching, threading, and memory management automatically.
+1.  **High-Level API (`LLMEdge`)**: Recommended for most use cases. It exposes instance-scoped clients for text, speech, image, vision, and RAG while keeping model resolution and cleanup explicit.
 2.  **Low-Level API (`SmolLM`, `StableDiffusion`)**: For advanced users who need fine-grained control over model lifecycle and parameters.
 
 Examples reference the `llmedge-examples` [repo](https://github.com/aatricks/llmedge-examples).
 
 ---
 
-## High-Level API (LLMEdgeManager)
+## High-Level API (LLMEdge)
 
-The `LLMEdgeManager` singleton simplifies interactions by managing model instances and resources for you.
+Create an `LLMEdge` instance from an Android-aware coroutine scope, then use the domain clients exposed by the facade.
 
 ### Text Generation
 
 ```kotlin
-val response = LLMEdgeManager.generateText(
-    context = context,
-    params = LLMEdgeManager.TextGenerationParams(
-        prompt = "Write a haiku about Kotlin.",
-        modelId = "HuggingFaceTB/SmolLM-135M-Instruct-GGUF", // Optional: defaults to this model
-        modelFilename = "smollm-135m-instruct.q4_k_m.gguf"
-    )
+val edge = LLMEdge.create(context, viewModelScope)
+
+val response = edge.text.generate(
+    prompt = "Write a haiku about Kotlin.",
+    model = ModelSpec.huggingFace(
+        repoId = "HuggingFaceTB/SmolLM-135M-Instruct-GGUF",
+        filename = "smollm-135m-instruct.q4_k_m.gguf",
+    ),
 )
 ```
 
-### Image Generation
-
-Automatically handles model downloading (MeinaMix), caching, and memory-safe loading.
+The high-level text client defaults to **batched blocking generation** to reduce JNI overhead.
+Override it when needed:
 
 ```kotlin
-val bitmap = LLMEdgeManager.generateImage(
-    context = context,
-    params = LLMEdgeManager.ImageGenerationParams(
+val response = edge.text.generate(
+    prompt = "Summarize the latest release notes.",
+    maxTokens = 256,
+    batchSize = 12,
+    options = TextModelOptions(
+        numThreads = 8,          // prompt/batch processing
+        generationThreads = 3,   // single-token generation
+    ),
+)
+```
+
+Streaming uses smaller batched native chunks by default. This keeps UI updates responsive without
+crossing JNI once per token:
+
+```kotlin
+edge.text.stream(
+    prompt = "List the key takeaways.",
+    batchSize = 6,
+    options = TextModelOptions(
+        numThreads = 6,
+        generationThreads = 2,
+    ),
+).collect { event ->
+    if (event is TextStreamEvent.Chunk) {
+        appendToUi(event.value)
+    }
+}
+```
+
+Default batch sizes are currently `8` for blocking generation and `4` for streaming. Passing
+`batchSize = 0` uses the configured default for the relevant path.
+
+### Batch Size Tuning
+
+| Workload | Suggested batch size | Why |
+|---|---:|---|
+| Token-by-token UI streaming | `1-4` | keeps updates frequent and reduces perceived latency |
+| General chat replies | `4-8` | good balance between JNI overhead and responsiveness |
+| Longer offline generation | `8-16` | better throughput when intermediate updates matter less |
+
+If you are tuning on big.LITTLE devices, adjust `batchSize` together with `numThreads` and
+`generationThreads` rather than treating them in isolation.
+
+### Image Generation
+
+Handles model resolution and memory-safe loading through the `edge.image` client.
+
+```kotlin
+val edge = LLMEdge.create(context, viewModelScope)
+
+val bitmap = edge.image.generate(
+    ImageGenerationRequest(
         prompt = "A cyberpunk city street at night, neon lights <lora:detail_tweaker_lora_sd15:1.0>",
         width = 512,
         height = 512,
         steps = 20,
-        // Optional: Specify LoRA model details.
-        // The example app automatically downloads 'imagepipeline/Detail-Tweaker-LoRA-SD1.5'
-        // and appends the appropriate LoRA tag to the prompt when the toggle is enabled.
         loraModelDir = getExternalFilesDir("loras")?.absolutePath + "/detail-tweaker-lora-sd15",
         loraApplyMode = StableDiffusion.LoraApplyMode.AUTO
-    )
+    ),
 )
 ```
 
 **Key Optimizations for Image Generation:**
 
-- **EasyCache**: Automatically detected and enabled by `LLMEdgeManager` for supported Diffusion Transformer (DiT) models (e.g., Flux, Wan), significantly accelerating generation by reusing intermediate diffusion states. It is disabled for UNet-based models (like SD 1.5).
-- **LoRA Support**: `LLMEdgeManager` can be configured with `loraModelDir` and `loraApplyMode` to use Low-Rank Adaptation models for fine-tuning outputs.
+- **EasyCache**: Automatically enabled by `edge.image` for supported Diffusion Transformer (DiT) models such as Flux, SD3, Wan, Qwen Image, and Z-Image. It remains disabled for classic UNet-based pipelines such as SD 1.5/SDXL.
+- **LoRA Support**: `ImageGenerationRequest` accepts `loraModelDir` and `loraApplyMode` for on-the-fly fine-tuning.
 - **Flash Attention**: Automatically enabled for compatible image dimensions.
 
 ### Video Generation (Wan 2.1)
@@ -58,9 +104,10 @@ val bitmap = LLMEdgeManager.generateImage(
 Handles the complex multi-model loading (Diffusion, VAE, T5) and sequential processing required for video generation on mobile.
 
 ```kotlin
-val frames = LLMEdgeManager.generateVideo(
-    context = context,
-    params = LLMEdgeManager.VideoGenerationParams(
+val edge = LLMEdge.create(context, viewModelScope)
+
+val request =
+    VideoGenerationRequest(
         prompt = "A robot dancing in the rain",
         videoFrames = 16,
         width = 512,
@@ -68,11 +115,16 @@ val frames = LLMEdgeManager.generateVideo(
         steps = 20,
         cfgScale = 7.0f,
         flowShift = 3.0f,
-        forceSequentialLoad = true // Recommended for devices with <12GB RAM
+        forceSequentialLoad = true,
     )
-) { status, currentFrame, totalFrames ->
-    // Optional progress callback
-    Log.d("Video", "$status")
+
+viewModelScope.launch {
+    edge.image.generateVideo(request).collect { event ->
+        when (event) {
+            is GenerationStreamEvent.Progress -> Log.d("Video", event.update.message)
+            is GenerationStreamEvent.Completed -> previewImageView.setImageBitmap(event.frames.first())
+        }
+    }
 }
 ```
 
@@ -81,21 +133,32 @@ val frames = LLMEdgeManager.generateVideo(
 Analyze images using a Vision Language Model (VLM).
 
 ```kotlin
-val description = LLMEdgeManager.analyzeImage(
-    context = context,
-    params = LLMEdgeManager.VisionAnalysisParams(
-        image = bitmap,
-        prompt = "What is in this image?"
-    )
+val edge = LLMEdge.create(context, viewModelScope)
+val description = edge.vision.analyze(bitmap, "What is in this image?")
+```
+
+Vision analysis also exposes separate prompt and generation thread counts for the underlying
+SmolLM runtime:
+
+```kotlin
+val description = edge.vision.analyze(
+    image = bitmap,
+    prompt = "What is in this image?",
+    numThreads = 4,
+    generationThreads = 2,
 )
 ```
+
+The current high-level vision pipeline creates a fresh runtime per call, so it prioritizes
+isolation and predictable cleanup over model reuse.
 
 ### OCR (Text Extraction)
 
 Extract text using ML Kit.
 
 ```kotlin
-val text = LLMEdgeManager.extractText(context, bitmap)
+val edge = LLMEdge.create(context, viewModelScope)
+val text = edge.vision.extractText(bitmap)
 ```
 
 ### Speech-to-Text (Whisper)
@@ -103,31 +166,17 @@ val text = LLMEdgeManager.extractText(context, bitmap)
 Transcribe audio using the high-level API:
 
 ```kotlin
-import io.aatricks.llmedge.LLMEdgeManager
+val edge = LLMEdge.create(context, viewModelScope)
 
-// Simple transcription to text
-val text = LLMEdgeManager.transcribeAudioToText(
-    context = context,
-    audioSamples = audioSamples  // 16kHz mono PCM float32
-)
+val text = edge.speech.transcribeToText(audioSamples)
 
-// Full transcription with segments and timing
-val segments = LLMEdgeManager.transcribeAudio(
-    context = context,
-    params = LLMEdgeManager.TranscriptionParams(
+val segments =
+    edge.speech.transcribe(
         audioSamples = audioSamples,
-        language = "en",  // null for auto-detect
-        translate = false  // set true to translate to English
+        params = Whisper.TranscribeParams(language = "en", translate = false),
     )
-) { progress ->
-    Log.d("Whisper", "Progress: $progress%")
-}
 
-// Language detection
-val lang = LLMEdgeManager.detectLanguage(context, audioSamples)
-
-// Generate SRT subtitles
-val srt = LLMEdgeManager.transcribeToSrt(context, audioSamples)
+val lang = edge.speech.detectLanguage(audioSamples)
 ```
 
 ### Streaming Transcription (Real-time Captioning)
@@ -135,13 +184,11 @@ val srt = LLMEdgeManager.transcribeToSrt(context, audioSamples)
 For live transcription from a microphone or audio stream, use the streaming API:
 
 ```kotlin
-import io.aatricks.llmedge.LLMEdgeManager
 import kotlinx.coroutines.launch
 
-// Create a streaming transcriber with sliding window approach
-val transcriber = LLMEdgeManager.createStreamingTranscriber(
-    context = context,
-    params = LLMEdgeManager.StreamingTranscriptionParams(
+val edge = LLMEdge.create(context, lifecycleScope)
+val transcriber = edge.speech.createStreamingSession(
+    params = Whisper.StreamingParams(
         stepMs = 3000,      // Run transcription every 3 seconds
         lengthMs = 10000,   // Use 10-second audio windows
         keepMs = 200,       // Keep 200ms overlap for context
@@ -152,7 +199,7 @@ val transcriber = LLMEdgeManager.createStreamingTranscriber(
 
 // Collect real-time transcription results
 launch {
-    transcriber.start().collect { segment ->
+    transcriber.events().collect { segment ->
         runOnUiThread {
             textView.append("${segment.text}\n")
         }
@@ -169,7 +216,6 @@ audioRecorder.setOnAudioDataListener { samples ->
 // Stop when done
 fun stopTranscription() {
     transcriber.stop()
-    LLMEdgeManager.stopStreamingTranscription()
 }
 ```
 
@@ -194,35 +240,17 @@ fun stopTranscription() {
 Generate speech using the high-level API:
 
 ```kotlin
-import io.aatricks.llmedge.LLMEdgeManager
+val edge = LLMEdge.create(context, viewModelScope)
 
-// Generate speech (model auto-downloads on first use)
-val audio = LLMEdgeManager.synthesizeSpeech(
-    context = context,
-    params = LLMEdgeManager.SpeechSynthesisParams(
-        text = "Hello, world!",
-        nThreads = 8  // Use more threads for faster generation
-    )
-) { step, progress ->
-    Log.d("Bark", "${step.name}: $progress%")
-}
-
-// Save directly to file
-LLMEdgeManager.synthesizeSpeechToFile(
-    context = context,
-    text = "Hello, world!",
-    outputFile = File(cacheDir, "output.wav")
-)
-
-// Unload when done to free memory
-LLMEdgeManager.unloadSpeechModels()
+val audio = edge.speech.synthesize("Hello, world!")
+audioPlayer.play(audio.samples, audio.sampleRate)
 ```
 
 ---
 
 ## Low-Level API
 
-Direct usage of `SmolLM` and `StableDiffusion` classes. Use this if you need to manage the model lifecycle manually (e.g., keeping a model loaded across multiple disparate activities) or require specific configuration not exposed by the Manager.
+Direct usage of `SmolLM` and `StableDiffusion` classes. Use this if you need to manage the model lifecycle manually (e.g., keeping a model loaded across multiple disparate activities) or require configuration not exposed by `LLMEdge`.
 
 ### Core components
 
@@ -244,7 +272,47 @@ val reply = smol.getResponse("Your prompt here")
 smol.close()  // Free native memory when done
 ```
 
-See [Examples](examples.md#localassetdemoactivity) for complete working code with coroutines and streaming.
+### Managed chat history with `edge.text.session(...)`
+
+Use a Kotlin-managed chat session when you want bounded multi-turn history without relying on the
+native KV cache to retain earlier turns:
+
+```kotlin
+runBlocking {
+    val edge = LLMEdge.create(context, this)
+
+    val session =
+        edge.text.session(
+            model = ModelSpec.localFile(modelPath),
+            memory = ConversationWindow(maxTurns = 6, maxTokens = 4096, stripThinkTags = true),
+            systemPrompt = "You are a concise assistant.",
+        )
+
+    session.prepare()
+    val firstReply = session.reply("Explain KV cache in one paragraph.")
+    session.stream("Now summarize that in 3 bullets.").collect { event ->
+        if (event is TextStreamEvent.Chunk) {
+            print(event.value)
+        }
+    }
+
+    edge.close()
+}
+```
+
+`edge.text.session(...)` keeps the transcript in Kotlin memory, replays only the active sliding
+window, and strips older `<think>...</think>` traces before replaying assistant messages.
+
+Use it when:
+
+- reasoning-enabled models emit large `<think>...</think>` blocks that would otherwise bloat native chat history
+- you need a bounded sliding window (`ConversationWindow`) for long-running chats
+- you want streaming via `stream()` while still persisting the completed assistant reply in Kotlin memory
+
+Prefer plain `SmolLM` with `storeChats = true` only for tightly scoped native-KV-cache flows where
+you explicitly want the model runtime to own all chat history.
+
+See [Examples](examples.md#chatsession-pattern) for a focused session snippet, or [LocalAssetDemoActivity](examples.md#localassetdemoactivity) for a complete app-level example.
 
 ### Downloading Models from Hugging Face
 
@@ -352,12 +420,11 @@ val whisper = Whisper.load(
 )
 
 // Configure transcription parameters
-val params = Whisper.TranscriptionParams(
+val params = Whisper.TranscribeParams(
     language = "en",           // null for auto-detect
     translate = false,         // translate to English
-    maxTokens = 0,             // 0 = no limit
-    speedUp = false,           // experimental 2x speedup
-    audioCtx = 0               // audio context size
+    tokenTimestamps = true,
+    beamSize = 1,
 )
 
 // Transcribe (16kHz mono PCM float32)
@@ -367,7 +434,7 @@ segments.forEach { segment ->
 }
 
 // Utility functions
-val srt = whisper.transcribeToSrt(audioSamples)
+val srt = whisper.generateSrt(segments)
 val lang = whisper.detectLanguage(audioSamples)
 val isMultilingual = whisper.isMultilingual()
 val modelType = whisper.getModelType()
@@ -390,18 +457,15 @@ import io.aatricks.llmedge.BarkTTS
 // Load model
 val tts = BarkTTS.load(
     modelPath = "/path/to/bark-small_weights-f16.bin",
-    useGpu = false
+    temperature = 0.7f,
+    fineTemperature = 0.5f,
 )
 
-// Generate audio with progress tracking
-val audio = tts.generate(
-    text = "Hello, world!",
-    onProgress = { step, progress ->
-        // step: SEMANTIC, COARSE, or FINE
-        // progress: 0.0 to 1.0
-        Log.d("Bark", "${step.name}: ${(progress * 100).toInt()}%")
-    }
-)
+tts.setProgressCallback { step, progress ->
+    Log.d("Bark", "${step.name}: $progress%")
+}
+
+val audio = tts.generate("Hello, world!", BarkTTS.GenerateParams(nThreads = 4))
 
 // AudioResult contains:
 // - samples: FloatArray (32-bit PCM)
@@ -483,12 +547,10 @@ See [StableDiffusionActivity example](examples.md#stablediffusionactivity) for c
 
 **Threading:**
 
-- For heavy CPU-bound native inference (StableDiffusion CPU generation, large LLM decoding), prefer `Dispatchers.Default` so work schedules onto CPU-optimized thread pool sized to the device cores.
-- For blocking calls that wait on I/O (downloads, filesystem access, or JNI calls that wait on network/IO), prefer `Dispatchers.IO`.
+- Route blocking JNI/native work through `Dispatchers.IO` (or the library inference dispatcher used by `LLMEdge`).
+- Reserve `Dispatchers.Default` for pure Kotlin/Java CPU work such as post-processing that does not block on JNI calls.
 - Update UI only via `withContext(Dispatchers.Main)`.
 - Call `.close()` in `onDestroy()` to free native memory.
-
-Note: Choosing the correct dispatcher depends on the workload. JNI calls that use CPU-bound native kernels (like `txt2img`) should use Default; calls that perform blocking I/O should use IO.
 
 **Optimization Strategies**:
 
@@ -496,7 +558,12 @@ Note: Choosing the correct dispatcher depends on the workload. JNI calls that us
 - Enable CPU offloading for large models
 - Close model instances when not in use
 - Process images/video in batches with intermediate cleanup
-- **KV Cache**: For LLMs, ensure `storeChats = true` to leverage KV cache for faster multi-turn conversations.
+- Prefer batched text generation (`batchSize > 1`) for blocking calls that do not need token-level UI updates
+- Use different thread counts for prompt/batch work and single-token generation when tuning for big.LITTLE devices
+- Text-model cache sizing is now refreshed from the native model/state footprint, so `textCacheMemoryMb` is a meaningful guardrail instead of just a file-size hint
+- **LLM chat memory**:
+    - `storeChats` is deprecated but still available for tightly scoped low-level compatibility flows that intentionally keep chat state inside one native runtime.
+  - Use `edge.text.session(...)` when you need bounded history replay or want to strip older reasoning traces before replay.
 
 **See also:**
 
@@ -508,30 +575,41 @@ Note: Choosing the correct dispatcher depends on the workload. JNI calls that us
 
 Key methods:
 
-- `LLMEdgeManager.generateText(...)` — High-level text generation
-- `LLMEdgeManager.generateImage(...)` — High-level image generation
-- `LLMEdgeManager.generateVideo(...)` — High-level video generation
+- `LLMEdge.create(...)` — creates the instance-based high-level facade
+- `edge.text.generate(...)` — high-level text generation
+- `edge.text.stream(...)` — high-level text streaming
+- `edge.text.session(...)` — creates a Kotlin-managed multi-turn chat session
+- `TextGenerationRequest.batchSize` — blocking generation batch size (`0` = use configured default)
+- `edge.text.stream(..., batchSize = ...)` / `text.ChatSession.stream(..., batchSize = ...)` — streaming batch size override (`0` = use configured default)
+- `TextModelOptions.numThreads` / `generationThreads` — prompt/batch vs single-token thread counts
+- `edge.image.generate(...)` — high-level image generation
+- `edge.image.generateVideo(...)` — high-level video generation
+- `edge.speech.transcribe(...)` — high-level speech-to-text
+- `edge.speech.synthesize(...)` — high-level text-to-speech
 - `SmolLM.load(modelPath: String, params: InferenceParams)` — loads a GGUF model from a path
 - `SmolLM.loadFromHuggingFace(...)` — downloads and loads a model from Hugging Face
 - `SmolLM.getResponse(query: String): String` — runs blocking generation and returns complete text
 - `SmolLM.getResponseAsFlow(query: String): Flow<String>` — runs streaming generation
+- `SmolLM.getEstimatedNativeMemoryBytes()` / `getEstimatedStateMemoryBytes()` — expose native model/state memory estimates
 - `SmolLM.addSystemPrompt(prompt: String)` — adds system prompt to chat history
 - `SmolLM.addUserMessage(message: String)` — adds user message to chat history
+- `text.ChatSession.reply(message: String): String` — runs bounded multi-turn chat with Kotlin-managed history
+- `text.ChatSession.stream(message: String): Flow<TextStreamEvent>` — streams a bounded reply while persisting the final assistant turn
+- `ConversationWindow(...)` — configures sliding-window size, token budget, and reasoning stripping
 - `SmolLM.close()` — releases native resources
 
-**High-Level Speech API (via LLMEdgeManager):**
-- `LLMEdgeManager.transcribeAudioToText(context, audioSamples, language?)` — simple audio transcription
-- `LLMEdgeManager.transcribeAudio(context, params, onProgress?)` — full transcription with segments
-- `LLMEdgeManager.detectLanguage(context, audioSamples)` — detect spoken language
-- `LLMEdgeManager.transcribeToSrt(context, audioSamples, language?)` — generate SRT subtitles
-- `LLMEdgeManager.synthesizeSpeech(context, params, onProgress?)` — generate speech from text
-- `LLMEdgeManager.synthesizeSpeechToFile(context, text, outputFile, onProgress?)` — generate and save WAV
-- `LLMEdgeManager.unloadSpeechModels()` — unload all speech models
+**High-Level Speech API (via `LLMEdge`):**
+- `edge.speech.transcribeToText(audioSamples, model?, params?, loadOptions?)` — simple audio transcription
+- `edge.speech.transcribe(audioSamples, model?, params?, loadOptions?)` — full transcription with segments
+- `edge.speech.detectLanguage(audioSamples, model?, loadOptions?)` — detect spoken language
+- `edge.speech.createStreamingSession(model?, params?, loadOptions?)` — create a reusable streaming transcriber
+- `edge.speech.synthesize(text, model?, params?, loadOptions?)` — generate speech from text
+- `edge.speech.synthesizeStream(text, model?, params?, loadOptions?)` — stream speech generation events
 
 **Low-Level Speech API:**
-- `Whisper.load(modelPath: String, useGpu: Boolean)` — loads a Whisper model
+- `Whisper.load(modelPath: String, useGpu: Boolean, flashAttn: Boolean = true, gpuDevice: Int = 0)` — loads a Whisper model
 - `Whisper.loadFromHuggingFace(...)` — downloads and loads Whisper from HuggingFace
-- `Whisper.transcribe(samples: FloatArray, params: TranscriptionParams)` — transcribes audio
+- `Whisper.transcribe(samples: FloatArray, params: TranscribeParams)` — transcribes audio
 - `Whisper.detectLanguage(samples: FloatArray)` — detects spoken language
 - `Whisper.close()` — releases native resources
 - `BarkTTS.load(modelPath: String, ...)` — loads a Bark TTS model

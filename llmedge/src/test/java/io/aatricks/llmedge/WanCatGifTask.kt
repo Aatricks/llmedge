@@ -9,6 +9,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 import java.io.FileOutputStream
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -67,7 +69,7 @@ class WanCatGifTask {
         // Kotlin: StableDiffusion.txt2vid calls nativeTxt2Vid
         // JNI: Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid
         // C++: generate_video performs diffusion and decoding
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = prompt,
             width = 256,
             height = 256,

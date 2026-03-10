@@ -4,12 +4,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 
 class VideoGenerateParamsTest {
 
     @Test
     fun `validate succeeds for typical params`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "a cat walking",
             width = 512,
             height = 512,
@@ -24,14 +26,14 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `blank prompt fails validation`() {
-        val params = StableDiffusion.VideoGenerateParams(prompt = " ")
+        val params = VideoGenerateParams(prompt = " ")
 
         assertValidationFails(params, "Prompt cannot be blank")
     }
 
     @Test
     fun `width must be multiple of 64`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             width = 510,
         )
@@ -41,7 +43,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `height must be in supported range`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             height = 128,
         )
@@ -51,7 +53,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `frame count must be between 4 and 64`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             videoFrames = 2,
         )
@@ -61,7 +63,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `zero frame count fails validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             videoFrames = 0,
         )
@@ -71,7 +73,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `steps must be at least 1`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             steps = 0,
         )
@@ -81,7 +83,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `cfg scale must stay within allowed range`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             cfgScale = 0.5f,
         )
@@ -91,7 +93,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `strength must stay within zero to one`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             strength = 1.5f,
         )
@@ -101,7 +103,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `seed below negative one fails validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             seed = -5L,
         )
@@ -111,7 +113,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `withPrompt returns a copy with new prompt`() {
-        val params = StableDiffusion.VideoGenerateParams(prompt = "first")
+        val params = VideoGenerateParams(prompt = "first")
         val updated = params.withPrompt("second")
 
         assertEquals("second", updated.prompt)
@@ -120,7 +122,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `default factory populates sane values`() {
-        val defaults = StableDiffusion.VideoGenerateParams.default("hey")
+        val defaults = VideoGenerateParams.default("hey")
 
         assertEquals("hey", defaults.prompt)
         assertEquals(512, defaults.width)
@@ -131,7 +133,7 @@ class VideoGenerateParamsTest {
     
     @Test
     fun `maximum resolution 960x960 passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             width = 960,
             height = 960,
@@ -142,7 +144,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `resolution above 960 fails validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             width = 1024,
             height = 960,
@@ -153,7 +155,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `maximum 64 frames passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             videoFrames = 64,
         )
@@ -163,7 +165,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `frames above 64 fail validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             videoFrames = 65,
         )
@@ -173,7 +175,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `minimum 5 frames passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             videoFrames = 5,
         )
@@ -183,7 +185,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `minimum width 256 passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             width = 256,
             height = 256,
@@ -194,7 +196,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `width below 256 fails validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             width = 192,
         )
@@ -204,7 +206,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `minimum 1 step passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             steps = 1,
         )
@@ -214,7 +216,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `maximum 50 steps passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             steps = 50,
         )
@@ -224,7 +226,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `minimum cfg scale 1_0 passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             cfgScale = 1.0f,
         )
@@ -234,7 +236,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `maximum cfg scale 15_0 passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             cfgScale = 15.0f,
         )
@@ -244,7 +246,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `zero strength passes validation for T2V mode`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             strength = 0.0f,
             initImage = null,
@@ -255,7 +257,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `one strength passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             strength = 1.0f,
         )
@@ -269,7 +271,7 @@ class VideoGenerateParamsTest {
     fun `high resolution with high frame count passes validation`() {
         // This tests memory-intensive combinations but doesn't test OOM warning
         // (warnings are logged, not validation failures)
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             width = 960,
             height = 960,
@@ -281,7 +283,7 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `medium resolution with medium frames passes validation`() {
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "valid",
             width = 512,
             height = 512,
@@ -293,8 +295,8 @@ class VideoGenerateParamsTest {
 
     @Test
     fun `all schedulers pass validation`() {
-        for (scheduler in StableDiffusion.Scheduler.values()) {
-            val params = StableDiffusion.VideoGenerateParams(
+        for (scheduler in Scheduler.values()) {
+            val params = VideoGenerateParams(
                 prompt = "valid",
                 scheduler = scheduler,
             )
@@ -304,7 +306,7 @@ class VideoGenerateParamsTest {
     }
 
     private fun assertValidationFails(
-        params: StableDiffusion.VideoGenerateParams,
+        params: VideoGenerateParams,
         expectedMessagePart: String,
     ) {
         val failure = params.validate().exceptionOrNull()

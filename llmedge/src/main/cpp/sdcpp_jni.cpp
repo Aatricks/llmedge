@@ -102,6 +102,97 @@ static inline bool map_scheduler_from_kotlin_id(int kotlin_id, enum scheduler_t*
     return true;
 }
 
+static void free_sd_generated_frames(sd_image_t* frames, int numFrames) {
+    if (!frames) {
+        return;
+    }
+    for (int i = 0; i < numFrames; ++i) {
+        if (frames[i].data) {
+            sd_jni_notify_frame_buffer_freed(frames[i].data);
+            free(frames[i].data);
+            frames[i].data = nullptr;
+        }
+    }
+    sd_jni_notify_frame_array_freed(frames);
+    free(frames);
+}
+
+/** Convert 3-byte RGB pixels to ARGB_8888 (0xAARRGGBB) in a jintArray.
+ *  This is ~10x faster than the equivalent Kotlin byte-by-byte loop because
+ *  the conversion runs in native code without per-pixel JNI overhead.
+ */
+static jintArray rgb_to_argb_int_array(JNIEnv* env, const uint8_t* rgb, int width, int height, int channel) {
+    if (channel < 3) return nullptr;
+    const int pixelCount = width * height;
+    jintArray result = env->NewIntArray(pixelCount);
+    if (!result) return nullptr;
+
+    jint* pixels = env->GetIntArrayElements(result, nullptr);
+    if (!pixels) return nullptr;
+
+    const uint8_t* src = rgb;
+    for (int i = 0; i < pixelCount; ++i) {
+        pixels[i] = static_cast<jint>(0xFF000000u
+            | (static_cast<uint32_t>(src[0]) << 16)
+            | (static_cast<uint32_t>(src[1]) << 8)
+            |  static_cast<uint32_t>(src[2]));
+        src += channel;
+    }
+
+    env->ReleaseIntArrayElements(result, pixels, 0);
+    return result;
+}
+
+static jobjectArray convert_sd_frames_to_java(JNIEnv* env, sd_image_t* frames, int numFrames) {
+    jclass byteArrayClass = env->FindClass("[B");
+    if (!byteArrayClass) {
+        free_sd_generated_frames(frames, numFrames);
+        return nullptr;
+    }
+
+    jobjectArray result = env->NewObjectArray(numFrames, byteArrayClass, nullptr);
+    env->DeleteLocalRef(byteArrayClass);
+    if (!result) {
+        free_sd_generated_frames(frames, numFrames);
+        throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to allocate video frame array");
+        return nullptr;
+    }
+
+    for (int i = 0; i < numFrames; ++i) {
+        if (!frames[i].data) {
+            free_sd_generated_frames(frames, numFrames);
+            throwJavaException(env, "java/lang/IllegalStateException", "Missing frame data");
+            return nullptr;
+        }
+
+        const size_t byteCount = static_cast<size_t>(frames[i].width) * frames[i].height * frames[i].channel;
+        jbyteArray frameBytes = env->NewByteArray(static_cast<jsize>(byteCount));
+        if (!frameBytes) {
+            free_sd_generated_frames(frames, numFrames);
+            throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to allocate frame buffer");
+            return nullptr;
+        }
+
+        env->SetByteArrayRegion(frameBytes, 0, static_cast<jsize>(byteCount),
+                                reinterpret_cast<jbyte*>(frames[i].data));
+        if (env->ExceptionCheck()) {
+            env->DeleteLocalRef(frameBytes);
+            free_sd_generated_frames(frames, numFrames);
+            return nullptr;
+        }
+
+        env->SetObjectArrayElement(result, i, frameBytes);
+        env->DeleteLocalRef(frameBytes);
+        if (env->ExceptionCheck()) {
+            free_sd_generated_frames(frames, numFrames);
+            return nullptr;
+        }
+    }
+
+    free_sd_generated_frames(frames, numFrames);
+    return result;
+}
+
 SD_JNI_INTERNAL void throwJavaException(JNIEnv* env, const char* className, const char* message) {
     if (!env) return;
     jclass exClass = env->FindClass(className);
@@ -135,13 +226,22 @@ SD_JNI_INTERNAL void sd_video_progress_wrapper(int step, int steps, float time, 
         return;
     }
 
+    // Throttle: only fire Java callback on ~5% boundaries (matching whisper_jni pattern)
+    static thread_local int lastReportedStep = -1;
+    const int totalSteps = steps > 0 ? steps : (handle->totalSteps > 0 ? handle->totalSteps : 1);
+    if (totalSteps > 20) {
+        const int pct = (step * 100) / totalSteps;
+        const int lastPct = (lastReportedStep * 100) / totalSteps;
+        if (pct / 5 == lastPct / 5 && step != 0 && step != totalSteps) {
+            return;
+        }
+    }
+    lastReportedStep = step;
+
     JNIEnv* env = jni_thread_cache_get_env();
     if (!env) return;
 
     const int totalFrames = handle->totalFrames > 0 ? handle->totalFrames : 1;
-    // For video sampling, stable-diffusion.cpp reports progress per sampling step over the
-    // whole clip (not "steps per frame"). Prefer the callback-provided total when available.
-    const int totalSteps = steps > 0 ? steps : (handle->totalSteps > 0 ? handle->totalSteps : 1);
 
     // Provide a best-effort "frame" value for UI/clients by mapping step progress onto
     // the frame index range. This is not a true per-frame denoise progress.
@@ -168,13 +268,68 @@ SD_JNI_INTERNAL void sd_video_progress_wrapper(int step, int steps, float time, 
     }
 }
 
+static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, bool offloadToCpu) {
+    if (!modelPath) {
+        return nullptr;
+    }
+
+    ALOGI("Attempting T5-only context load for sequential prompt conditioning: %s", modelPath);
+
+    ModelLoader model_loader;
+    if (!model_loader.init_from_file(modelPath, "text_encoders.t5xxl.transformer.")) {
+        ALOGE("Failed to initialize ModelLoader for T5-only context: %s", modelPath);
+        return nullptr;
+    }
+    model_loader.convert_tensors_name();
+
+    ggml_backend_t backend = nullptr;
+#ifdef SD_USE_VULKAN
+    if (ggml_backend_vk_get_device_count() > 0) {
+        backend = ggml_backend_vk_init(0);
+    }
+#endif
+    if (!backend) {
+        backend = ggml_backend_cpu_init();
+    }
+    if (!backend) {
+        ALOGE("Unable to initialize backend for T5-only context");
+        return nullptr;
+    }
+
+    bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
+    auto* t5 = new T5CLIPEmbedder(
+        backend,
+        offloadToCpu,
+        model_loader.get_tensor_storage_map(),
+        false,
+        0,
+        is_umt5);
+    t5->alloc_params_buffer();
+
+    std::map<std::string, struct ggml_tensor*> tensors;
+    t5->get_param_tensors(tensors);
+    std::set<std::string> ignore_tensors;
+    model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe());
+
+    auto* handle = new SdHandle();
+    handle->ctx = nullptr;
+    handle->t5_ctx = t5;
+    if (env) {
+        env->GetJavaVM(&handle->jvm);
+        jni_thread_cache_init(handle->jvm);
+    }
+
+    ALOGI("Created T5-only context for sequential prompt conditioning");
+    return handle;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeCheckBindings(JNIEnv*, jclass) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCheckBindings(JNIEnv*, jclass) {
     return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceCount(JNIEnv* env, jclass clazz) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceCount(JNIEnv* env, jclass clazz) {
     (void)env;
     (void)clazz;
 #ifdef SD_USE_VULKAN
@@ -185,7 +340,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceCount(JNIEnv* env,
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceMemory(JNIEnv* env, jclass clazz, jint deviceIndex) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceMemory(JNIEnv* env, jclass clazz, jint deviceIndex) {
     (void)clazz;
 #ifdef SD_USE_VULKAN
     size_t free_mem = 0, total_mem = 0;
@@ -207,7 +362,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeGetVulkanDeviceMemory(JNIEnv* env
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeEstimateModelParamsMemory(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeEstimateModelParamsMemory(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
     (void)clazz;
     if (!jModelPath) return (jlong)-1;
     const char* modelPath = env->GetStringUTFChars(jModelPath, nullptr);
@@ -231,7 +386,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeEstimateModelParamsMemory(JNIEnv*
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeEstimateModelParamsMemoryDetailed(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeEstimateModelParamsMemoryDetailed(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
     (void)clazz;
     if (!jModelPath) return nullptr;
     const char* modelPath = env->GetStringUTFChars(jModelPath, nullptr);
@@ -279,7 +434,7 @@ static void sd_android_log_cb(enum sd_log_level_t level, const char* text, void*
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     JNIEnv* env, jclass clazz,
         jstring jModelPath,
         jstring jVaePath,
@@ -294,12 +449,6 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         jfloat flowShift,
         jstring jLoraModelDir, jint jLoraApplyMode) {
     (void)clazz;
-    FILE* f = fopen("/tmp/sdcpp_log.txt", "a");
-    if (f) {
-        fprintf(f, "[SmolSD] nativeCreate ENTERED\n");
-        fclose(f);
-    }
-    fprintf(stderr, "[SmolSD] nativeCreate ENTERED\n"); fflush(stderr);
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
     const char* t5xxlPath = jT5xxlPath ? env->GetStringUTFChars(jT5xxlPath, nullptr) : nullptr;
@@ -342,6 +491,10 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
         if (loraPath) {
             p.lora_model_dir = strdup(loraPath);
             env->ReleaseStringUTFChars(jLoraModelDir, loraPath);
+            if (!p.lora_model_dir) {
+                throwJavaException(env, "java/lang/OutOfMemoryError", "strdup() failed for lora_model_dir");
+                return 0;
+            }
         }
     }
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
@@ -349,78 +502,16 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
     sd_ctx_t* ctx = new_sd_ctx(&p);
 
     if (!ctx) {
-        // Fallback: Check if we can load as T5-only context
-        // This is a hack to support sequential loading where we only want the text encoder
+        // Sequential prompt conditioning intentionally requests a text-encoder-only handle.
         if (modelPath && !vaePath && !t5xxlPath) {
-             ALOGI("Attempting to load as T5-only context: %s", modelPath);
-             // We need to manually instantiate T5CLIPEmbedder
-             // But we need a backend.
-             // And ModelLoader.
-
-             // We can't easily do this inside nativeCreate because we need to return a jlong handle
-             // and we need to store the T5 object in it.
-
-             // Let's try to instantiate T5CLIPEmbedder here.
-             ModelLoader model_loader;
-             if (model_loader.init_from_file(modelPath, "text_encoders.t5xxl.transformer.")) {
-                 ALOGI("ModelLoader initialized for T5");
-                 model_loader.convert_tensors_name();
-
-                 ggml_backend_t backend = nullptr;
-                 #ifdef SD_USE_VULKAN
-                 if (ggml_backend_vk_get_device_count() > 0) {
-                     backend = ggml_backend_vk_init(0);
-                 }
-                 #endif
-                 if (!backend) {
-                     backend = ggml_backend_cpu_init();
-                 }
-
-                 if (!backend) {
-                     ALOGE("Vulkan backend not available and CPU backend init failed/missing");
-                     if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
-                     if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
-                     if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
-                     if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
-                     return 0;
-                 }
-                 ALOGI("Backend initialized for T5");
-
-                 // T5CLIPEmbedder(backend, offload, storage, use_mask, mask_pad, is_umt5)
-                 bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
-                 ALOGI("Creating T5CLIPEmbedder (is_umt5=%d)", is_umt5);
-
-                 auto* t5 = new T5CLIPEmbedder(backend, offloadToCpu, model_loader.get_tensor_storage_map(), false, 0, is_umt5);
-                 ALOGI("Allocating params buffer for T5");
-                 t5->alloc_params_buffer();
-
-                 // Load weights
-                 std::map<std::string, struct ggml_tensor*> tensors;
-                 t5->get_param_tensors(tensors);
-                 ALOGI("Got param tensors for T5: %zu tensors", tensors.size());
-
-                 std::set<std::string> ignore_tensors;
-                 ALOGI("Loading tensors for T5");
-                 model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe());
-
-                 auto* handle = new SdHandle();
-                 handle->ctx = nullptr;
-                 handle->t5_ctx = t5;
-                 if (env) {
-                     env->GetJavaVM(&handle->jvm);
-                     jni_thread_cache_init(handle->jvm);
-                 }
-                 ALOGI("T5-only context created successfully");
-
-                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
-                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
-                 if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
-                 if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
-
-                 return reinterpret_cast<jlong>(handle);
-             } else {
-                 ALOGE("Failed to init ModelLoader for T5");
-             }
+            SdHandle* t5OnlyHandle = try_create_t5_only_handle(env, modelPath, offloadToCpu == JNI_TRUE);
+            if (t5OnlyHandle) {
+                if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+                if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+                if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+                if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
+                return reinterpret_cast<jlong>(t5OnlyHandle);
+            }
         }
 
         ALOGE("Failed to create sd_ctx");
@@ -446,7 +537,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeCreate(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlong handlePtr) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlong handlePtr) {
     if (handlePtr == 0) return;
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
     clearProgressCallback(env, handle);
@@ -465,17 +556,22 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeDestroy(JNIEnv* env, jobject, jlo
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeIsEasyCacheSupported(JNIEnv* env, jobject, jlong handlePtr) {
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeIsEasyCacheSupported(JNIEnv* env, jobject, jlong handlePtr) {
     (void)env;
-    (void)handlePtr;
-    // Upstream stable-diffusion.cpp does not expose a public C API to query EasyCache
-    // support. The generation APIs will internally enable/disable based on model type.
-    // Return false conservatively to prevent callers from assuming support.
-    return JNI_FALSE;
+    if (handlePtr == 0) {
+        return JNI_FALSE;
+    }
+    auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    if (!handle->ctx) {
+        return JNI_FALSE;
+    }
+    // stable-diffusion.cpp selects Euler as the default sampler for DiT models and Euler A for
+    // classic UNet pipelines. EasyCache follows the same DiT-only split.
+    return sd_get_default_sample_method(handle->ctx) == EULER_SAMPLE_METHOD ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     JNIEnv* env, jobject thiz, jlong handlePtr,
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
@@ -518,7 +614,15 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
     gen.easycache.start_percent = (float)jEasyCacheStartPercent;
     gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
-    sd_image_t* out = generate_image(handle->ctx, &gen);
+    sd_image_t* out = nullptr;
+    try {
+        out = generate_image(handle->ctx, &gen);
+    } catch (const std::exception& e) {
+        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
+        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+        throwJavaException(env, "java/lang/RuntimeException", e.what());
+        return nullptr;
+    }
 
     if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
     if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
@@ -544,8 +648,76 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Img(
     return jbytes;
 }
 
+extern "C" JNIEXPORT jintArray JNICALL
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
+    JNIEnv* env, jobject thiz, jlong handlePtr,
+    jstring jPrompt, jstring jNegative,
+    jint width, jint height,
+    jint steps, jfloat cfg, jlong seed,
+    jboolean jVaeTiling,
+    jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
+    (void)thiz;
+    if (handlePtr == 0) {
+        ALOGE("StableDiffusion not initialized");
+        return nullptr;
+    }
+    auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    if (!handle->ctx) {
+        throwJavaException(env, "java/lang/IllegalStateException",
+                           "StableDiffusion diffusion context is null (T5-only handle).");
+        return nullptr;
+    }
+    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
+    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+
+    sd_sample_params_t sample{};
+    sd_sample_params_init(&sample);
+    if (steps > 0) sample.sample_steps = steps;
+    sample.guidance.txt_cfg = cfg > 0 ? cfg : 7.0f;
+
+    sd_img_gen_params_t gen{};
+    sd_img_gen_params_init(&gen);
+    gen.prompt = prompt;
+    gen.negative_prompt = negative;
+    gen.width = width;
+    gen.height = height;
+    gen.sample_params = sample;
+    gen.seed = seed;
+    gen.batch_count = 1;
+    gen.vae_tiling_params.enabled = jVaeTiling ? true : false;
+    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
+    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
+    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
+    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
+
+    sd_image_t* out = nullptr;
+    try {
+        out = generate_image(handle->ctx, &gen);
+    } catch (const std::exception& e) {
+        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
+        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+        throwJavaException(env, "java/lang/RuntimeException", e.what());
+        return nullptr;
+    }
+
+    if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
+    if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
+
+    if (!out || !out[0].data) {
+        ALOGE("generate_image failed");
+        return nullptr;
+    }
+
+    jintArray result = rgb_to_argb_int_array(env, out[0].data, out[0].width, out[0].height, out[0].channel);
+
+    free(out[0].data);
+    free(out);
+
+    return result;
+}
+
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
     JNIEnv* env, jobject thiz, jlong handlePtr,
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
@@ -667,10 +839,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
     releaseStrings();
 
     if (!frames || numFrames <= 0) {
-        if (frames) {
-            sd_jni_notify_frame_array_freed(frames);
-            free(frames);
-        }
+        if (frames) free_sd_generated_frames(frames, numFrames);
         throwJavaException(env, "java/lang/IllegalStateException", "Video generation failed");
         if (!handle->progressCallbackGlobalRef) {
             sd_set_progress_callback(nullptr, nullptr);
@@ -678,97 +847,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
         return nullptr;
     }
 
-    jclass byteArrayClass = env->FindClass("[B");
-    if (!byteArrayClass) {
-        for (int i = 0; i < numFrames; ++i) {
-            if (frames[i].data) {
-                sd_jni_notify_frame_buffer_freed(frames[i].data);
-                free(frames[i].data);
-            }
-        }
-        sd_jni_notify_frame_array_freed(frames);
-        free(frames);
-        if (!handle->progressCallbackGlobalRef) {
-            sd_set_progress_callback(nullptr, nullptr);
-        }
-        return nullptr;
-    }
-
-    jobjectArray result = env->NewObjectArray(numFrames, byteArrayClass, nullptr);
-    if (!result) {
-        for (int i = 0; i < numFrames; ++i) {
-            if (frames[i].data) {
-                sd_jni_notify_frame_buffer_freed(frames[i].data);
-                free(frames[i].data);
-            }
-        }
-        sd_jni_notify_frame_array_freed(frames);
-        free(frames);
-        throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to allocate video frame array");
-        if (!handle->progressCallbackGlobalRef) {
-            sd_set_progress_callback(nullptr, nullptr);
-        }
-        return nullptr;
-    }
-
-    for (int i = 0; i < numFrames; ++i) {
-        if (!frames[i].data) {
-            for (int j = i; j < numFrames; ++j) {
-                if (frames[j].data) {
-                    sd_jni_notify_frame_buffer_freed(frames[j].data);
-                    free(frames[j].data);
-                }
-            }
-            sd_jni_notify_frame_array_freed(frames);
-            free(frames);
-            throwJavaException(env, "java/lang/IllegalStateException", "Missing frame data");
-            if (!handle->progressCallbackGlobalRef) {
-                sd_set_progress_callback(nullptr, nullptr);
-            }
-            return nullptr;
-        }
-        const size_t byteCount = static_cast<size_t>(frames[i].width) * frames[i].height * frames[i].channel;
-        jbyteArray frameBytes = env->NewByteArray(static_cast<jsize>(byteCount));
-        if (!frameBytes) {
-            for (int j = i; j < numFrames; ++j) {
-                if (frames[j].data) {
-                    sd_jni_notify_frame_buffer_freed(frames[j].data);
-                    free(frames[j].data);
-                }
-            }
-            sd_jni_notify_frame_array_freed(frames);
-            free(frames);
-            throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to allocate frame buffer");
-            if (!handle->progressCallbackGlobalRef) {
-                sd_set_progress_callback(nullptr, nullptr);
-            }
-            return nullptr;
-        }
-        env->SetByteArrayRegion(frameBytes, 0, static_cast<jsize>(byteCount),
-                                 reinterpret_cast<jbyte*>(frames[i].data));
-        if (env->ExceptionCheck()) {
-            env->DeleteLocalRef(frameBytes);
-            for (int j = i; j < numFrames; ++j) {
-                if (frames[j].data) {
-                    sd_jni_notify_frame_buffer_freed(frames[j].data);
-                    free(frames[j].data);
-                }
-            }
-            sd_jni_notify_frame_array_freed(frames);
-            free(frames);
-            if (!handle->progressCallbackGlobalRef) {
-                sd_set_progress_callback(nullptr, nullptr);
-            }
-            return nullptr;
-        }
-        env->SetObjectArrayElement(result, i, frameBytes);
-        env->DeleteLocalRef(frameBytes);
-        sd_jni_notify_frame_buffer_freed(frames[i].data);
-        free(frames[i].data);
-    }
-
-    sd_jni_notify_frame_array_freed(frames);
-    free(frames);
+    jobjectArray result = convert_sd_frames_to_java(env, frames, numFrames);
     if (!handle->progressCallbackGlobalRef) {
         sd_set_progress_callback(nullptr, nullptr);
     }
@@ -787,7 +866,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2Vid(
 
 // JNI wrapper: precompute condition for a given prompt & video params
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativePrecomputeCondition(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeCondition(
         JNIEnv* env, jobject thiz, jlong handlePtr,
         jstring jPrompt, jstring jNegative,
         jint width, jint height, jint clipSkip) {
@@ -993,7 +1072,7 @@ static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condA
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
     JNIEnv* env, jobject thiz, jlong handlePtr,
     jstring jPrompt, jstring jNegative,
     jint width, jint height,
@@ -1050,7 +1129,16 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
     gen.easycache.start_percent = (float)jEasyCacheStartPercent;
     gen.easycache.end_percent = (float)jEasyCacheEndPercent;
 
-    sd_image_t* out = sd_generate_image_with_precomputed_condition(handle->ctx, &gen, cond, uncond);
+    sd_image_t* out = nullptr;
+    try {
+        out = sd_generate_image_with_precomputed_condition(handle->ctx, &gen, cond, uncond);
+    } catch (const std::exception& e) {
+        releaseStrings();
+        sd_free_condition(cond);
+        if (uncond) sd_free_condition(uncond);
+        throwJavaException(env, "java/lang/RuntimeException", e.what());
+        return nullptr;
+    }
 
     releaseStrings();
 
@@ -1080,7 +1168,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2ImgWithPrecomputedCondition(
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         JNIEnv* env, jobject thiz, jlong handlePtr,
         jstring jPrompt, jstring jNegative,
         jint width, jint height,
@@ -1101,6 +1189,10 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     }
 
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+    if (!handle->ctx) {
+        throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion context is null");
+        return nullptr;
+    }
     handle->cancellationRequested.store(false);
     handle->totalFrames = std::max(1, static_cast<int>(videoFrames));
     handle->currentFrame = 0;
@@ -1210,10 +1302,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
     if (uncond_use) sd_free_condition(uncond_use);
 
     if (!frames || numFrames <= 0) {
-        if (frames) {
-            sd_jni_notify_frame_array_freed(frames);
-            free(frames);
-        }
+        if (frames) free_sd_generated_frames(frames, numFrames);
         throwJavaException(env, "java/lang/IllegalStateException", "Video generation failed");
         if (!handle->progressCallbackGlobalRef) {
             sd_set_progress_callback(nullptr, nullptr);
@@ -1221,97 +1310,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
         return nullptr;
     }
 
-    jclass byteArrayClass = env->FindClass("[B");
-    if (!byteArrayClass) {
-        for (int i = 0; i < numFrames; ++i) {
-            if (frames[i].data) {
-                sd_jni_notify_frame_buffer_freed(frames[i].data);
-                free(frames[i].data);
-            }
-        }
-        sd_jni_notify_frame_array_freed(frames);
-        free(frames);
-        if (!handle->progressCallbackGlobalRef) {
-            sd_set_progress_callback(nullptr, nullptr);
-        }
-        return nullptr;
-    }
-
-    jobjectArray result = env->NewObjectArray(numFrames, byteArrayClass, nullptr);
-    if (!result) {
-        for (int i = 0; i < numFrames; ++i) {
-            if (frames[i].data) {
-                sd_jni_notify_frame_buffer_freed(frames[i].data);
-                free(frames[i].data);
-            }
-        }
-        sd_jni_notify_frame_array_freed(frames);
-        free(frames);
-        throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to allocate video frame array");
-        if (!handle->progressCallbackGlobalRef) {
-            sd_set_progress_callback(nullptr, nullptr);
-        }
-        return nullptr;
-    }
-
-    for (int i = 0; i < numFrames; ++i) {
-        if (!frames[i].data) {
-            for (int j = i; j < numFrames; ++j) {
-                if (frames[j].data) {
-                    sd_jni_notify_frame_buffer_freed(frames[j].data);
-                    free(frames[j].data);
-                }
-            }
-            sd_jni_notify_frame_array_freed(frames);
-            free(frames);
-            throwJavaException(env, "java/lang/IllegalStateException", "Missing frame data");
-            if (!handle->progressCallbackGlobalRef) {
-                sd_set_progress_callback(nullptr, nullptr);
-            }
-            return nullptr;
-        }
-        const size_t byteCount = static_cast<size_t>(frames[i].width) * frames[i].height * frames[i].channel;
-        jbyteArray frameBytes = env->NewByteArray(static_cast<jsize>(byteCount));
-        if (!frameBytes) {
-            for (int j = i; j < numFrames; ++j) {
-                if (frames[j].data) {
-                    sd_jni_notify_frame_buffer_freed(frames[j].data);
-                    free(frames[j].data);
-                }
-            }
-            sd_jni_notify_frame_array_freed(frames);
-            free(frames);
-            throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to allocate frame buffer");
-            if (!handle->progressCallbackGlobalRef) {
-                sd_set_progress_callback(nullptr, nullptr);
-            }
-            return nullptr;
-        }
-        env->SetByteArrayRegion(frameBytes, 0, static_cast<jsize>(byteCount),
-                                 reinterpret_cast<jbyte*>(frames[i].data));
-        if (env->ExceptionCheck()) {
-            env->DeleteLocalRef(frameBytes);
-            for (int j = i; j < numFrames; ++j) {
-                if (frames[j].data) {
-                    sd_jni_notify_frame_buffer_freed(frames[j].data);
-                    free(frames[j].data);
-                }
-            }
-            sd_jni_notify_frame_array_freed(frames);
-            free(frames);
-            if (!handle->progressCallbackGlobalRef) {
-                sd_set_progress_callback(nullptr, nullptr);
-            }
-            return nullptr;
-        }
-        env->SetObjectArrayElement(result, i, frameBytes);
-        env->DeleteLocalRef(frameBytes);
-        sd_jni_notify_frame_buffer_freed(frames[i].data);
-        free(frames[i].data);
-    }
-
-    sd_jni_notify_frame_array_freed(frames);
-    free(frames);
+    jobjectArray result = convert_sd_frames_to_java(env, frames, numFrames);
     if (!handle->progressCallbackGlobalRef) {
         sd_set_progress_callback(nullptr, nullptr);
     }
@@ -1320,7 +1319,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeTxt2VidWithPrecomputedCondition(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeSetProgressCallback(
         JNIEnv* env, jobject, jlong handlePtr, jobject progressCallback) {
     if (handlePtr == 0) {
         throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion not initialized");
@@ -1364,7 +1363,7 @@ Java_io_aatricks_llmedge_StableDiffusion_nativeSetProgressCallback(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_StableDiffusion_nativeCancelGeneration(
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCancelGeneration(
         JNIEnv* env, jobject, jlong handlePtr) {
     (void)env;
     if (handlePtr == 0) return;

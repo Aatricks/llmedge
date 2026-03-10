@@ -3,6 +3,12 @@ package io.aatricks.llmedge
 import android.graphics.Color
 import org.junit.After
 import org.junit.Before
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 abstract class BaseVideoIntegrationTest {
     companion object {
@@ -20,7 +26,7 @@ abstract class BaseVideoIntegrationTest {
         // Individual tests can override this with their own behavior.
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
-                private var cb: StableDiffusion.VideoProgressCallback? = null
+                private var cb: VideoProgressCallback? = null
                 override fun txt2img(
                         handle: Long,
                         prompt: String,
@@ -50,12 +56,13 @@ abstract class BaseVideoIntegrationTest {
                         steps: Int,
                         cfg: Float,
                         seed: Long,
-                        sampleMethod: StableDiffusion.SampleMethod,
-                        scheduler: StableDiffusion.Scheduler,
+                        sampleMethod: SampleMethod,
+                        scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
                         initWidth: Int,
                         initHeight: Int,
+                        vaceStrength: Float,
                         easyCacheEnabled: Boolean,
                         easyCacheReuseThreshold: Float,
                         easyCacheStartPercent: Float,
@@ -83,7 +90,7 @@ abstract class BaseVideoIntegrationTest {
                 }
                 override fun setProgressCallback(
                         handle: Long,
-                        callback: StableDiffusion.VideoProgressCallback?
+                        callback: VideoProgressCallback?
                 ) {
                     cb = callback
                 }
@@ -95,7 +102,7 @@ abstract class BaseVideoIntegrationTest {
                         width: Int,
                         height: Int,
                         clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
     }
@@ -111,7 +118,7 @@ abstract class BaseVideoIntegrationTest {
         constructor.isAccessible = true
         return constructor.newInstance(1L).apply {
             updateModelMetadata(
-                    StableDiffusion.VideoModelMetadata(
+                    VideoModelMetadata(
                             architecture = "wan",
                             modelType = "t2v",
                             parameterCount = "1.3B",

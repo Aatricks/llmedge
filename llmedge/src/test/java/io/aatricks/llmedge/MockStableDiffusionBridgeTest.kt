@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
 
 class MockStableDiffusionBridgeTest {
 
@@ -53,8 +55,8 @@ class MockStableDiffusionBridgeTest {
             steps = 20,
             cfg = 7.5f,
             seed = 123L,
-            sampleMethod = StableDiffusion.SampleMethod.DEFAULT,
-            scheduler = StableDiffusion.Scheduler.DEFAULT,
+            sampleMethod = SampleMethod.DEFAULT,
+            scheduler = Scheduler.DEFAULT,
             strength = 0.8f,
             initImage = byteArrayOf(1, 2, 3),
             initWidth = 256,
@@ -75,7 +77,7 @@ class MockStableDiffusionBridgeTest {
         assertEquals(20, call.steps)
         assertEquals(7.5f, call.cfg)
         assertEquals(123L, call.seed)
-        assertEquals(StableDiffusion.Scheduler.DEFAULT, call.scheduler)
+        assertEquals(Scheduler.DEFAULT, call.scheduler)
         assertEquals(0.8f, call.strength)
         assertNotNull(call.initImage)
         assertEquals(256, call.initWidth)
@@ -97,8 +99,8 @@ class MockStableDiffusionBridgeTest {
             steps = 10,
             cfg = 7.0f,
             seed = 42L,
-            sampleMethod = StableDiffusion.SampleMethod.DEFAULT,
-            scheduler = StableDiffusion.Scheduler.DEFAULT,
+            sampleMethod = SampleMethod.DEFAULT,
+            scheduler = Scheduler.DEFAULT,
             strength = 0.8f,
             initImage = null,
             initWidth = 0,
@@ -136,8 +138,8 @@ class MockStableDiffusionBridgeTest {
             steps = 10,
             cfg = 7.0f,
             seed = 42L,
-            sampleMethod = StableDiffusion.SampleMethod.DEFAULT,
-            scheduler = StableDiffusion.Scheduler.DEFAULT,
+            sampleMethod = SampleMethod.DEFAULT,
+            scheduler = Scheduler.DEFAULT,
             strength = 0.8f,
             initImage = null,
             initWidth = 0,

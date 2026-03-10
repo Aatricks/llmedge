@@ -9,6 +9,12 @@ import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 @RunWith(AndroidJUnit4::class)
 class ImageGenerationTest {
@@ -63,12 +69,13 @@ class ImageGenerationTest {
                         steps: Int,
                         cfg: Float,
                         seed: Long,
-                        sampleMethod: StableDiffusion.SampleMethod,
-                        scheduler: StableDiffusion.Scheduler,
+                        sampleMethod: SampleMethod,
+                        scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
                         initWidth: Int,
                         initHeight: Int,
+                        vaceStrength: Float,
                         easyCacheEnabled: Boolean,
                         easyCacheReuseThreshold: Float,
                         easyCacheStartPercent: Float,
@@ -80,7 +87,7 @@ class ImageGenerationTest {
 
                 override fun setProgressCallback(
                         handle: Long,
-                        callback: StableDiffusion.VideoProgressCallback?
+                        callback: VideoProgressCallback?
                 ) {}
                 override fun cancelGeneration(handle: Long) {}
                 override fun precomputeCondition(
@@ -90,7 +97,7 @@ class ImageGenerationTest {
                         width: Int,
                         height: Int,
                         clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
     }
@@ -108,7 +115,7 @@ class ImageGenerationTest {
         val sd = ctor.newInstance(1L)
 
         val params =
-                StableDiffusion.GenerateParams(
+                GenerateParams(
                         prompt = "test",
                         width = 8,
                         height = 4,

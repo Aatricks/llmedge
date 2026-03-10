@@ -5,6 +5,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.speech.tts.BarkTTS
 
 /**
  * Unit tests for BarkTTS class - tests that don't require native library. These test the Kotlin API

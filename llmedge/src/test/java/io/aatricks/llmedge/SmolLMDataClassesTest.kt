@@ -3,6 +3,8 @@ package io.aatricks.llmedge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
+import io.aatricks.llmedge.image.diffusion.GenerationMetrics
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 class SmolLMDataClassesTest {
 

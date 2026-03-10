@@ -2,12 +2,13 @@ package io.aatricks.llmedge
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import io.aatricks.llmedge.image.diffusion.GenerateParams
 
 class ImageGenerationTest {
 
     @Test
     fun `txt2img method accepts valid parameters`() {
-        val params = StableDiffusion.GenerateParams(
+        val params = GenerateParams(
             prompt = "a beautiful landscape",
             negative = "blurry",
             width = 256,
@@ -29,7 +30,7 @@ class ImageGenerationTest {
 
     @Test
     fun `txt2img validates parameters correctly`() {
-        val params = StableDiffusion.GenerateParams(
+        val params = GenerateParams(
             prompt = "test prompt",
             negative = "test negative",
             width = 512,
@@ -56,7 +57,7 @@ class ImageGenerationTest {
         )
 
         sizes.forEach { (width, height) ->
-            val params = StableDiffusion.GenerateParams(
+            val params = GenerateParams(
                 prompt = "test",
                 width = width,
                 height = height
@@ -75,7 +76,7 @@ class ImageGenerationTest {
 
     @Test
     fun `GenerateParams data class handles all fields correctly`() {
-        val params = StableDiffusion.GenerateParams(
+        val params = GenerateParams(
             prompt = "test prompt",
             negative = "test negative",
             width = 512,
@@ -96,7 +97,7 @@ class ImageGenerationTest {
 
     @Test
     fun `GenerateParams has correct default values`() {
-        val params = StableDiffusion.GenerateParams(prompt = "test")
+        val params = GenerateParams(prompt = "test")
 
         assertEquals("test", params.prompt)
         assertEquals("", params.negative)

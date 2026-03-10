@@ -17,8 +17,8 @@
 package io.aatricks.llmedge.vision
 
 import android.content.Context
-import android.util.Log
-import io.aatricks.llmedge.SmolLM
+import io.aatricks.llmedge.text.runtime.SmolLM
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -40,6 +40,7 @@ class SmolLMVisionAdapter(
     
     companion object {
         private const val TAG = "SmolLMVision"
+        private const val VISION_GENERATION_BATCH_SIZE = 1
     }
     
     // These will be set when loading a vision model
@@ -59,29 +60,29 @@ class SmolLMVisionAdapter(
         mmprojPath: String? = null,
         params: SmolLM.InferenceParams = SmolLM.InferenceParams()
     ) = withContext(Dispatchers.IO) {
+        val capabilityMessage = VisionPromptSupport.unsupportedReason(modelPath, mmprojPath)
+        if (!checkVisionSupport(modelPath, mmprojPath)) {
+            hasVisionSupport = false
+            this@SmolLMVisionAdapter.modelPath = modelPath
+            this@SmolLMVisionAdapter.mmprojPath = mmprojPath
+            AndroidLogAdapter.w(TAG, capabilityMessage)
+            throw UnsupportedOperationException(capabilityMessage)
+        }
+
         try {
             this@SmolLMVisionAdapter.modelPath = modelPath
             this@SmolLMVisionAdapter.mmprojPath = mmprojPath
-            
-            // For now, load as a regular model
-            // When vision support is added to native code, this will call
-            // the vision-specific loading function
+
             smolLM.load(modelPath, params)
-            
-            // Check if model supports vision (placeholder - will be determined from model metadata)
-            hasVisionSupport = checkVisionSupport(modelPath)
-            
-            if (hasVisionSupport) {
-                Log.d(TAG, "Loaded vision model: $modelPath")
-                if (mmprojPath != null) {
-                    Log.d(TAG, "With mmproj: $mmprojPath")
-                }
-            } else {
-                Log.w(TAG, "Model does not appear to support vision: $modelPath")
+            hasVisionSupport = true
+
+            AndroidLogAdapter.d(TAG, "Loaded vision model: $modelPath")
+            if (mmprojPath != null) {
+                AndroidLogAdapter.d(TAG, "With mmproj: $mmprojPath")
             }
-            
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load vision model", e)
+            hasVisionSupport = false
+            AndroidLogAdapter.e(TAG, "Failed to load vision model", e)
             throw e
         }
     }
@@ -91,48 +92,63 @@ class SmolLMVisionAdapter(
         prompt: String,
         params: VisionParams
     ): VisionResult = withContext(Dispatchers.IO) {
-        
         if (!hasVisionCapabilities()) {
-            throw IllegalStateException("Vision capabilities not available. Load a vision model first.")
+            throw UnsupportedOperationException(
+                VisionPromptSupport.unsupportedReason(
+                    modelPath = modelPath ?: "unknown",
+                    projectorPath = mmprojPath,
+                ),
+            )
         }
-        
+
         val startTime = System.currentTimeMillis()
-        
+
         try {
-            // Convert image to file for native processing
             val imageFile = ImageUtils.imageToFile(context, image, "vision_input.jpg")
-            
-            // Prepare the prompt for vision model
-            // Different models may need different prompt formats
-            val visionPrompt = formatVisionPrompt(prompt, imageFile)
-            
-            // If a prepared embedding exists (Projector.encodeImageToFile wrote .bin + .meta.json),
-            // decode the embeddings into the current llama context without loading mmproj.
             val embdFile = File(imageFile.parentFile, "${imageFile.nameWithoutExtension}.bin")
             val metaFile = File(embdFile.absolutePath + ".meta.json")
-            val response: String
-            if (embdFile.exists() && metaFile.exists()) {
-                Log.d(TAG, "Found prepared embeddings, decoding into model: ${embdFile.absolutePath}")
-                val ok = smolLM.decodePreparedEmbeddings(embdFile.absolutePath, metaFile.absolutePath, params.nBatch ?: 1)
-                if (!ok) {
-                    Log.w(TAG, "decodePreparedEmbeddings failed, falling back to text-only prompt")
-                    response = smolLM.getResponse(visionPrompt, params.maxTokens)
+            val usingPreparedEmbeddings = imageFile.extension.equals("bin", ignoreCase = true)
+            val visionPrompt =
+                if (usingPreparedEmbeddings) {
+                    prompt
                 } else {
-                    // After embeddings are decoded into KV cache, call getResponse with the prompt
-                    response = smolLM.getResponse(visionPrompt, params.maxTokens)
+                    formatVisionPrompt(prompt, imageFile)
                 }
-            } else {
-                // For now, use regular text generation as a placeholder
-                // When vision support is added, this will call native vision inference
-                response = smolLM.getResponse(visionPrompt, params.maxTokens)
+            if (!embdFile.exists() || !metaFile.exists()) {
+                throw IllegalStateException(
+                    "Prepared multimodal embeddings are missing. Ensure the projector mmproj file matches the model and native projector support is available.",
+                )
             }
-            
+
+            AndroidLogAdapter.d(TAG, "Decoding prepared embeddings from ${embdFile.absolutePath}")
+            val decodeOk =
+                smolLM.decodePreparedEmbeddings(
+                    embdFile.absolutePath,
+                    metaFile.absolutePath,
+                    params.nBatch ?: 1,
+                )
+            if (!decodeOk) {
+                throw IllegalStateException(
+                    "The current runtime could not decode prepared image embeddings for this model/projector combination.",
+                )
+            }
+
+            val finalPrompt =
+                params.systemPrompt
+                    ?.takeUnless(String::isBlank)
+                    ?.let { systemPrompt -> "$systemPrompt\n\n$visionPrompt" }
+                    ?: visionPrompt
+            val response =
+                smolLM.getResponse(
+                    query = finalPrompt,
+                    maxTokens = params.maxTokens,
+                    batchSize = VISION_GENERATION_BATCH_SIZE,
+                )
             val duration = System.currentTimeMillis() - startTime
-            
-            // Estimate tokens (placeholder - will be provided by native code)
-            val tokensIn = estimateTokens(visionPrompt)
+
+            val tokensIn = estimateTokens(finalPrompt)
             val tokensOut = estimateTokens(response)
-            
+
             VisionResult(
                 text = response,
                 durationMs = duration,
@@ -140,13 +156,30 @@ class SmolLMVisionAdapter(
                 tokensIn = tokensIn,
                 tokensOut = tokensOut
             )
-            
         } catch (e: Exception) {
-            Log.e(TAG, "Vision analysis failed", e)
-            throw Exception("Vision analysis failed: ${e.message}", e)
+            AndroidLogAdapter.e(TAG, "Vision analysis failed", e)
+            when (e) {
+                is IllegalStateException,
+                is UnsupportedOperationException -> throw e
+                else -> throw IllegalStateException("Vision analysis failed: ${e.message}", e)
+            }
         }
     }
     
+    /**
+     * Decode pre-computed vision embeddings directly from memory into the KV cache, avoiding
+     * all file I/O. Returns true on success.
+     */
+    fun decodeEmbeddingsBuffer(embeddings: VisionEmbeddings, nBatch: Int = 1): Boolean {
+        if (!hasVisionCapabilities()) return false
+        return try {
+            smolLM.decodeEmbeddingsBuffer(embeddings, nBatch)
+        } catch (e: UnsatisfiedLinkError) {
+            AndroidLogAdapter.w(TAG, "decodeEmbeddingsBuffer not available: ${e.message}")
+            false
+        }
+    }
+
     override fun hasVisionCapabilities(): Boolean {
         // This will check native vision support when implemented
         return hasVisionSupport
@@ -161,14 +194,11 @@ class SmolLMVisionAdapter(
      * This is a placeholder that will read actual model metadata.
      */
     private fun checkVisionSupport(modelPath: String): Boolean {
-        val modelName = File(modelPath).name.lowercase()
-        
-        // Simple heuristic based on known vision model names
-        // Will be replaced with proper metadata checking
-        return modelName.contains("llava") || 
-               modelName.contains("vision") ||
-               modelName.contains("clip") ||
-               modelName.contains("multimodal")
+        return VisionPromptSupport.appearsVisionCapable(modelPath)
+    }
+
+    private fun checkVisionSupport(modelPath: String, mmprojPath: String?): Boolean {
+        return VisionPromptSupport.isReadyForMultimodalInference(modelPath, mmprojPath)
     }
     
     /**
@@ -176,23 +206,7 @@ class SmolLMVisionAdapter(
      * Different models may require different formats.
      */
     private fun formatVisionPrompt(prompt: String, imageFile: File): String {
-        // If the prompt already contains high-level SYSTEM / OCR markers (our augmented prompt)
-        // treat it as a full prompt and return it unchanged to avoid double-wrapping.
-        val normalized = prompt.trimStart()
-        if (normalized.startsWith("SYSTEM:") || 
-            normalized.contains("OCR_TEXT_START") || 
-            normalized.contains("EXAMPLES:") ||
-            normalized.startsWith("<|user|>")) { // Allow ChatML formatting
-            return prompt
-        }
-
-        // Default lightweight wrapper when prompt is a simple user query
-        return """
-            [Image: ${imageFile.absolutePath}]
-
-            User: $prompt
-            Assistant:
-        """.trimIndent()
+        return VisionPromptSupport.formatVisionPrompt(prompt, imageFile)
     }
     
     /**
@@ -200,14 +214,14 @@ class SmolLMVisionAdapter(
      * Rough approximation: ~4 characters per token.
      */
     private fun estimateTokens(text: String): Int {
-        return (text.length / 4).coerceAtLeast(1)
+        return VisionPromptSupport.estimateTokens(text)
     }
     
     /**
      * Release resources.
      */
     fun close() {
-        // Do not close smolLM as it may be shared/managed by LLMEdgeManager
+        // Do not close smolLM as the caller owns the underlying model lifecycle.
         // smolLM.close()
         hasVisionSupport = false
         modelPath = null

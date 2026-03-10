@@ -20,7 +20,7 @@
 void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, bool storeChats, long contextSize,
                         const char *chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan,
-                        bool useFlashAttn) {
+                        bool useFlashAttn, int kvCacheTypeK, int kvCacheTypeV, int nGpuLayers) {
     LOGi("loading model with"
          "\n\tmodel_path = %s"
          "\n\tminP = %f"
@@ -43,9 +43,15 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
     model_params.use_mmap = useMmap;
     model_params.use_mlock = useMlock;
     if (useVulkan) {
-        model_params.n_gpu_layers = 99;
+        model_params.n_gpu_layers = nGpuLayers > 0 ? nGpuLayers : 99;
     }
     _model = llama_model_load_from_file(model_path, model_params);
+    if (!_model && useVulkan) {
+        // Vulkan init may have failed — fall back to CPU-only
+        LOGi("Vulkan model load failed, retrying with CPU-only (n_gpu_layers=0)");
+        model_params.n_gpu_layers = 0;
+        _model = llama_model_load_from_file(model_path, model_params);
+    }
     if (!_model) {
         LOGe("failed to load model from %s", model_path);
         throw std::runtime_error("loadModel() failed");
@@ -58,20 +64,28 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         LOGi("contextSize %ld adjusted to %ld to fit llama context limits", contextSize, safeContext);
     }
     ctx_params.n_ctx = static_cast<uint32_t>(safeContext);
-    ctx_params.n_batch = std::min(static_cast<int>(safeContext), 512);
+    ctx_params.n_batch = static_cast<uint32_t>(safeContext);
     // Smaller micro-batches improve cache locality on ARM
-    ctx_params.n_ubatch = 128;
+    ctx_params.n_ubatch = std::min(ctx_params.n_batch, 128u);
     ctx_params.n_threads = nThreads;
+    ctx_params.n_threads_batch = nThreads;
     ctx_params.no_perf = true;
     // Flash attention: let llama.cpp auto-detect the best mode
     ctx_params.flash_attn_type = useFlashAttn ? LLAMA_FLASH_ATTN_TYPE_AUTO : LLAMA_FLASH_ATTN_TYPE_DISABLED;
-    // F16 KV cache: ~30-40% memory savings with minimal quality loss
-    ctx_params.type_k = GGML_TYPE_F16;
-    ctx_params.type_v = GGML_TYPE_F16;
-    if (useVulkan) {
+    // KV cache type: defaults to F16 (~30-40% memory savings) but can be overridden
+    // to Q8_0/Q4_0 for further savings on memory-constrained devices.
+    // -1 means use the default (F16); positive values are ggml_type enum values.
+    ctx_params.type_k = kvCacheTypeK >= 0 ? static_cast<ggml_type>(kvCacheTypeK) : GGML_TYPE_F16;
+    ctx_params.type_v = kvCacheTypeV >= 0 ? static_cast<ggml_type>(kvCacheTypeV) : GGML_TYPE_F16;
+    if (useVulkan && model_params.n_gpu_layers > 0) {
         ctx_params.offload_kqv = true;
     }
     _ctx = llama_init_from_model(_model, ctx_params);
+    if (!_ctx && useVulkan && ctx_params.offload_kqv) {
+        LOGi("Context creation with KQV offload failed, retrying without offload");
+        ctx_params.offload_kqv = false;
+        _ctx = llama_init_from_model(_model, ctx_params);
+    }
     if (!_ctx) {
         LOGe("llama_new_context_with_model() returned null)");
         throw std::runtime_error("llama_new_context_with_model() returned null");
@@ -101,6 +115,9 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         _chatTemplate = llama_model_chat_template(_model, nullptr);
     } else {
         _chatTemplate = strdup(chatTemplate);
+        if (!_chatTemplate) {
+            throw std::runtime_error("strdup() failed for chatTemplate (out of memory)");
+        }
     }
     this->_storeChats = storeChats;
     _disableThinking = false;
@@ -109,7 +126,14 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
 
 void
 LLMInference::addChatMessage(const char *message, const char *role) {
-    _messages.push_back({strdup(role), strdup(message)});
+    char* roleCopy = strdup(role);
+    char* msgCopy = strdup(message);
+    if (!roleCopy || !msgCopy) {
+        free(roleCopy);
+        free(msgCopy);
+        throw std::runtime_error("strdup() failed in addChatMessage (out of memory)");
+    }
+    _messages.push_back({roleCopy, msgCopy});
 }
 
 float
@@ -133,6 +157,17 @@ LLMInference::getResponseTokenCount() const {
 int64_t
 LLMInference::getResponseGenerationTimeMicros() const {
     return _responseGenerationTime;
+}
+
+uint64_t
+LLMInference::getEstimatedMemoryBytes() const {
+    const uint64_t modelBytes = _model ? llama_model_size(_model) : 0ULL;
+    return modelBytes + getStateMemoryBytes();
+}
+
+uint64_t
+LLMInference::getStateMemoryBytes() const {
+    return _ctx ? static_cast<uint64_t>(llama_state_get_size(_ctx)) : 0ULL;
 }
 
 int
@@ -163,7 +198,13 @@ LLMInference::startCompletion(const char *query) {
     _cacheResponseTokens.reserve(32);
     std::string finalQuery = query ? std::string(query) : std::string();
     const bool suppressThinking = _disableThinking || _reasoningBudget == 0;
-    if (suppressThinking && finalQuery.find("/no_think") == std::string::npos) {
+    const bool looksStructuredPrompt =
+        finalQuery.rfind("<|", 0) == 0 ||
+        finalQuery.find("<|system|>") != std::string::npos ||
+        finalQuery.find("<|user|>") != std::string::npos ||
+        finalQuery.find("<|assistant|>") != std::string::npos ||
+        finalQuery.find("<|im_start|>") != std::string::npos;
+    if (suppressThinking && !looksStructuredPrompt && finalQuery.find("/no_think") == std::string::npos) {
         if (!finalQuery.empty()) {
             finalQuery.insert(0, "/no_think\n");
         } else {
@@ -188,6 +229,7 @@ LLMInference::startCompletion(const char *query) {
     // --- System prompt KV cache snapshotting ---
     bool restoredFromSnapshot = false;
     int snapshotNPast = 0;
+    _eogReached = false;
 
     if (_prevLen == 0) {
         size_t systemMsgCount = 0;
@@ -293,6 +335,12 @@ LLMInference::startCompletion(const char *query) {
     int n_past = 0;
     if (restoredFromSnapshot) {
          n_past = snapshotNPast;
+    } else if (_preservePreparedKvForNextCompletion) {
+         int max_seq_pos = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0);
+         if (max_seq_pos >= 0) {
+             n_past = max_seq_pos + 1;
+         }
+         LOGi("Preserving prepared KV cache for completion (n_past=%d)", n_past);
     } else if (_storeChats && _prevLen > 0) {
          int max_seq_pos = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0);
          if (max_seq_pos >= 0) {
@@ -302,6 +350,8 @@ LLMInference::startCompletion(const char *query) {
          n_past = 0;
          llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
     }
+
+        _preservePreparedKvForNextCompletion = false;
     
     _nPast = n_past;
     LOGi("startCompletion: n_past=%d, n_tokens=%d, prevLen=%d", n_past, _batch->n_tokens, _prevLen);
@@ -352,8 +402,8 @@ LLMInference::_isValidUtf8(const char *response) {
 
 std::string
 LLMInference::completionLoop() {
-    if (_coreMask != 0) {
-        setThreadAffinity(_coreMask);
+    if (_eogReached) {
+        return "[EOG]";
     }
     if (_batch == nullptr || _batch->n_tokens <= 0) {
         LOGe("completionLoop invoked with empty llama_batch");
@@ -377,6 +427,7 @@ LLMInference::completionLoop() {
     // convert the integer token to its corresponding word-piece
     _currToken = llama_sampler_sample(_sampler, _ctx, -1);
     if (llama_vocab_is_eog(llama_model_get_vocab(_model), _currToken)) {
+        _eogReached = true;
         if (_storeChats) {
             addChatMessage(_response.c_str(), "assistant");
         }
@@ -418,6 +469,7 @@ LLMInference::completionLoop() {
 std::string
 LLMInference::completionLoopBatch(int maxTokens) {
     std::string result;
+    result.reserve(maxTokens * 4); // pre-allocate ~4 bytes per token average
     for (int i = 0; i < maxTokens; i++) {
         std::string piece = completionLoop();
         if (piece == "[EOG]") {
@@ -441,9 +493,40 @@ LLMInference::stopCompletion() {
     } else {
         _prevLen = 0;
         _nPast = 0;
+        _preservePreparedKvForNextCompletion = false;
     }
     _response.clear();
     _cacheResponseTokens.clear();
+}
+
+void
+LLMInference::clearMessages() {
+    for (llama_chat_message &message: _messages) {
+        free(const_cast<char *>(message.role));
+        free(const_cast<char *>(message.content));
+    }
+    _messages.clear();
+    _prevLen = 0;
+    _nPast = 0;
+    _nCtxUsed = 0;
+    _response.clear();
+    _cacheResponseTokens.clear();
+    _promptTokens.clear();
+    _preservePreparedKvForNextCompletion = false;
+    _eogReached = false;
+    if (_batch) {
+        std::memset(_batch, 0, sizeof(llama_batch));
+    }
+    if (_ctx) {
+        _formattedMessages.assign(llama_n_ctx(_ctx), 0);
+    } else {
+        _formattedMessages.clear();
+    }
+}
+
+void
+LLMInference::markPreparedKvForNextCompletion() {
+    _preservePreparedKvForNextCompletion = true;
 }
 
 void
@@ -452,6 +535,18 @@ LLMInference::setReasoningOptions(bool disableThinking, int reasoningBudget) {
     _disableThinking = requestedNoThink;
     _reasoningBudget = reasoningBudget;
     LOGi("Reasoning controls: disableThinking=%d, reasoningBudget=%d", _disableThinking, _reasoningBudget);
+}
+
+void
+LLMInference::configureThreading(int generationThreads, int promptThreads) {
+    if (!_ctx) {
+        return;
+    }
+    const int effectiveGenerationThreads = std::max(1, generationThreads);
+    const int effectivePromptThreads = std::max(1, promptThreads);
+    llama_set_n_threads(_ctx, effectiveGenerationThreads, effectivePromptThreads);
+    LOGi("Configured llama threads: generation=%d, prompt_batch=%d",
+         effectiveGenerationThreads, effectivePromptThreads);
 }
 
 void
@@ -467,7 +562,20 @@ LLMInference::setThreadAffinity(uint64_t coreMask) {
             CPU_SET(i, &cpuset);
         }
     }
+    // Pin calling thread to P-cores
     sched_setaffinity(0, sizeof(cpuset), &cpuset);
+
+    // Also pin OpenMP worker threads so they don't drift to E-cores.
+    // Setting affinity on the master thread before the first parallel region
+    // causes workers (via fork-join) to inherit the mask on most runtimes.
+    // For static-openmp linked builds, explicitly pinning via the parallel
+    // region is the most reliable approach.
+#if defined(_OPENMP)
+    #pragma omp parallel
+    {
+        sched_setaffinity(0, sizeof(cpuset), &cpuset);
+    }
+#endif
 #endif
 }
 

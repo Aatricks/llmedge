@@ -27,6 +27,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
+import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.rag.EmbeddingConfig
 import io.aatricks.llmedge.rag.EmbeddingProvider
 import io.aatricks.llmedge.rag.InMemoryVectorStore
@@ -43,6 +44,12 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.runtime.CpuTopology
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 /**
  * Comprehensive headless E2E tests for LLMEdge core functionality.
@@ -244,7 +251,7 @@ class LLMEdgeCoreE2ETest {
         
         try {
             // Generate a small test image (minimize time and memory)
-            val params = StableDiffusion.GenerateParams(
+            val params = GenerateParams(
                 prompt = "a simple red circle",
                 width = 64,  // Minimal size for fast test
                 height = 64,
@@ -282,7 +289,7 @@ class LLMEdgeCoreE2ETest {
         Log.i(TAG, "Testing video generation parameter validation...")
         
         // Test valid params
-        val validParams = StableDiffusion.VideoGenerateParams(
+        val validParams = VideoGenerateParams(
             prompt = "a cat walking",
             width = 256,
             height = 256,
@@ -294,7 +301,7 @@ class LLMEdgeCoreE2ETest {
         assertTrue("Valid params should validate", validResult.isSuccess)
         
         // Test invalid params
-        val invalidParams = StableDiffusion.VideoGenerateParams(
+        val invalidParams = VideoGenerateParams(
             prompt = "",  // Empty prompt should fail
             width = 256,
             height = 256,
@@ -404,8 +411,8 @@ class LLMEdgeCoreE2ETest {
         System.gc()
         Thread.sleep(300)
         
-        var cond: StableDiffusion.PrecomputedCondition? = null
-        var uncond: StableDiffusion.PrecomputedCondition? = null
+        var cond: PrecomputedCondition? = null
+        var uncond: PrecomputedCondition? = null
         
         try {
             val t5Model = StableDiffusion.load(
@@ -492,7 +499,7 @@ class LLMEdgeCoreE2ETest {
         try {
             assertTrue("Should detect as video model", diffusionModel.isVideoModel())
             
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "simple animation",
                 width = 256,
                 height = 256,
@@ -726,53 +733,43 @@ class LLMEdgeCoreE2ETest {
         }
     }
     
-    // ==================== LLMEDGEMANAGER INTEGRATION TESTS ====================
+    // ==================== HIGH-LEVEL FACADE INTEGRATION TESTS ====================
     
     @Test
-    fun testLLMEdgeManager_TextGeneration() {
+    fun testLLMEdge_TextGeneration() {
         runBlocking {
         assumeTrue("Requires ARM device", isSupportedAbi())
         
-        Log.i(TAG, "Testing LLMEdgeManager text generation...")
-        
-        val params = LLMEdgeManager.TextGenerationParams(
-            prompt = "Hello!",
-            modelId = TEST_TEXT_MODEL_ID,
-            modelFilename = TEST_TEXT_MODEL_FILENAME
-        )
+        Log.i(TAG, "Testing LLMEdge text generation...")
+        val edge = LLMEdge.create(context, this)
         
         try {
-            val response = LLMEdgeManager.generateText(
-                context = context,
-                params = params,
-                onProgress = { token ->
-                    Log.d(TAG, "Token: $token")
-                }
+            val response = edge.text.generate(
+                prompt = "Hello!",
+                model = ModelSpec.huggingFace(TEST_TEXT_MODEL_ID, filename = TEST_TEXT_MODEL_FILENAME),
             )
             
             assertNotNull("Response should not be null", response)
             assertTrue("Response should not be empty", response.isNotBlank())
-            Log.i(TAG, "LLMEdgeManager response: ${response.take(100)}...")
-            
-            // Verify metrics are available
-            val metrics = LLMEdgeManager.getLastTextGenerationMetrics()
-            assertNotNull("Metrics should be available", metrics)
+            Log.i(TAG, "LLMEdge response: ${response.take(100)}...")
             
         } catch (e: Exception) {
-            Log.e(TAG, "LLMEdgeManager text generation failed", e)
+            Log.e(TAG, "LLMEdge text generation failed", e)
             throw e
+        } finally {
+            edge.close()
         }
         }
     }
     
     @Test
-    fun testLLMEdgeManager_VulkanInfo() {
+    fun testLLMEdge_VulkanInfo() {
         Log.i(TAG, "Testing Vulkan device info...")
         
-        val vulkanAvailable = LLMEdgeManager.isVulkanAvailable()
+        val vulkanAvailable = LLMEdge.isVulkanAvailable()
         Log.i(TAG, "Vulkan available: $vulkanAvailable")
         
-        val vulkanInfo = LLMEdgeManager.getVulkanDeviceInfo()
+        val vulkanInfo = LLMEdge.getVulkanDeviceInfo()
         if (vulkanInfo != null) {
             Log.i(TAG, "Vulkan devices: ${vulkanInfo.deviceCount}")
             Log.i(TAG, "Vulkan memory: ${vulkanInfo.freeMemoryMB}MB free / ${vulkanInfo.totalMemoryMB}MB total")

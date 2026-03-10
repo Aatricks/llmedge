@@ -9,6 +9,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 /**
  * T102: Tests for model variant detection and loading.
@@ -26,7 +28,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
         
         // Update with 1.3B metadata
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -48,7 +50,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
         
         // Update with 5B metadata
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "ti2v",
                 parameterCount = "5B",
@@ -66,7 +68,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
      */
     @Test
     fun test14BModelNotMobileSupported() {
-        val metadata = StableDiffusion.VideoModelMetadata(
+        val metadata = VideoModelMetadata(
             architecture = "wan",
             modelType = "i2v",
             parameterCount = "14B",
@@ -87,7 +89,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
         // Create first model instance
         val sd1 = createStableDiffusion()
         sd1.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -105,7 +107,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
         // Create second model instance (simulating model switch)
         val sd2 = createStableDiffusion()
         sd2.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "ti2v",
                 parameterCount = "5B",
@@ -126,7 +128,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
     @Test
     fun testModelTypeDetection() {
         // T2V model
-        val t2v = StableDiffusion.VideoModelMetadata(
+        val t2v = VideoModelMetadata(
             architecture = "wan",
             modelType = "t2v",
             parameterCount = "1.3B",
@@ -137,7 +139,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
         assertEquals("t2v", t2v.modelType)
         
         // I2V model
-        val i2v = StableDiffusion.VideoModelMetadata(
+        val i2v = VideoModelMetadata(
             architecture = "wan",
             modelType = "i2v",
             parameterCount = "14B",
@@ -148,7 +150,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
         assertEquals("i2v", i2v.modelType)
         
         // TI2V model (text/image to video)
-        val ti2v = StableDiffusion.VideoModelMetadata(
+        val ti2v = VideoModelMetadata(
             architecture = "wan",
             modelType = "ti2v",
             parameterCount = "5B",
@@ -166,7 +168,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
     fun testFrameLimitFor5BModel() = runBlocking {
         val sd = createStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "ti2v",
                 parameterCount = "5B",
@@ -177,7 +179,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
         )
         
         // Try to generate with > 32 frames (should fail for 5B)
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test",
             videoFrames = 48  // More than 32 frame limit for 5B
         )
@@ -198,7 +200,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
     fun test1_3BModelSupports64Frames() = runBlocking {
         val sd = createStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -208,7 +210,7 @@ class ModelVariantTest : BaseVideoIntegrationTest() {
             )
         )
         
-        val params = StableDiffusion.VideoGenerateParams(
+        val params = VideoGenerateParams(
             prompt = "test",
             videoFrames = 64  // Max frames
         )

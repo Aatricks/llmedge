@@ -10,6 +10,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Method
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])

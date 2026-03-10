@@ -57,6 +57,13 @@ jobs:
       run: |
         ./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs="-DGGML_VULKAN=ON -DSD_VULKAN=ON"
 
+    - name: Validate Example App
+      env:
+        LLMEDGE_SKIP_LIBRARY_BUILD: "true"
+        LLMEDGE_EXAMPLES_GRADLE_TASKS: ":app:assembleDebug :app:assembleRelease"
+      run: |
+        bash scripts/validate_examples.sh
+
     - name: Download Test Models
       run: .github/scripts/download_models.sh
 
@@ -64,6 +71,11 @@ jobs:
       env:
         LLMEDGE_SKIP_E2E_IN_UNIT: "true"
       run: ./gradlew :llmedge:testDebugUnitTest
+
+    - name: Run Vision Smoke Test (Managed Device)
+      run: |
+        ./gradlew :llmedge:pixel6api33DebugAndroidTest \
+          -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.VisionSmokeTest
 
     - name: Run E2E Tests (Whisper)
       env:

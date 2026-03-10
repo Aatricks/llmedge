@@ -3,7 +3,7 @@
 #include <string>
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getGGUFContextNativeHandle(JNIEnv* env, jobject thiz, jstring modelPath) {
+Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_getGGUFContextNativeHandle(JNIEnv* env, jobject thiz, jstring modelPath) {
     jboolean         isCopy        = true;
     const char*      modelPathCStr = env->GetStringUTFChars(modelPath, &isCopy);
     gguf_init_params initParams    = { .no_alloc = true, .ctx = nullptr };
@@ -13,7 +13,7 @@ Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getGGUFContextNativ
 }
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getContextSize(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_getContextSize(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     gguf_context* ggufContext       = reinterpret_cast<gguf_context*>(nativeHandle);
     int64_t       architectureKeyId = gguf_find_key(ggufContext, "general.architecture");
     if (architectureKeyId == -1)
@@ -28,7 +28,7 @@ Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getContextSize(JNIE
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getChatTemplate(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_getChatTemplate(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     gguf_context* ggufContext       = reinterpret_cast<gguf_context*>(nativeHandle);
     int64_t       chatTemplateKeyId = gguf_find_key(ggufContext, "tokenizer.chat_template");
     std::string   chatTemplate;
@@ -41,7 +41,7 @@ Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getChatTemplate(JNI
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getArchitecture(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_getArchitecture(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     gguf_context* ggufContext       = reinterpret_cast<gguf_context*>(nativeHandle);
     int64_t       architectureKeyId = gguf_find_key(ggufContext, "general.architecture");
     if (architectureKeyId == -1) {
@@ -52,7 +52,7 @@ Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getArchitecture(JNI
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getParameterCount(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_getParameterCount(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     gguf_context* ggufContext = reinterpret_cast<gguf_context*>(nativeHandle);
     int64_t       paramCountKeyId = gguf_find_key(ggufContext, "llama.parameter_count");
     if (paramCountKeyId == -1) {
@@ -63,7 +63,7 @@ Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getParameterCount(J
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getModelName(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_getModelName(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     gguf_context* ggufContext = reinterpret_cast<gguf_context*>(nativeHandle);
     int64_t       modelNameKeyId = gguf_find_key(ggufContext, "general.name");
     if (modelNameKeyId == -1) {
@@ -74,7 +74,7 @@ Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_getModelName(JNIEnv
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_io_aatricks_llmedge_GGUFReader_00024DefaultNativeBridge_releaseGGUFContext(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_releaseGGUFContext(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     auto* ggufContext = reinterpret_cast<gguf_context*>(nativeHandle);
     if (ggufContext != nullptr) {
         gguf_free(ggufContext);

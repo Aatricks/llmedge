@@ -11,6 +11,10 @@ import org.robolectric.annotation.Config
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import java.io.File
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 
 /**
  * Linux-host end-to-end test for video generation using a real native library (libsdcpp.so)
@@ -23,8 +27,8 @@ import java.io.File
  * - Provide a small test model suitable for testing via environment variable
  *   LLMEDGE_TEST_MODEL_PATH (path to a .gguf model). If not set, the test will be skipped.
  *
- * This test directly uses StableDiffusion.load() instead of LLMEdgeManager to bypass
- * the sequential loading logic which has issues with standalone T5 GGUF files.
+ * This test directly uses StableDiffusion.load() to bypass the high-level sequential helper path
+ * when working with standalone T5 GGUF files.
  */
 
 @RunWith(RobolectricTestRunner::class)
@@ -85,7 +89,7 @@ class VideoGenerationLinuxE2ETest {
         val startTime = System.currentTimeMillis()
 
         // Load model directly using StableDiffusion.load() with all components together
-        // This bypasses LLMEdgeManager's sequential loading which has issues with standalone T5 GGUF
+        // This bypasses the high-level sequential loading helper which has issues with standalone T5 GGUF
         println("[VideoGenerationLinuxE2ETest] Loading StableDiffusion model directly...")
         val sd = try {
             StableDiffusion.load(
@@ -110,7 +114,7 @@ class VideoGenerationLinuxE2ETest {
         println("[VideoGenerationLinuxE2ETest] Model loaded, generating video...")
 
         val bitmaps = try {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = prompt,
                 negative = "",
                 width = width,
@@ -267,7 +271,7 @@ class VideoGenerationLinuxE2ETest {
         println("[VideoGenerationLinuxE2ETest-I2V] Model loaded, generating I2V...")
 
         val bitmaps = try {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = prompt,
                 negative = "",
                 width = width,
@@ -348,10 +352,10 @@ class VideoGenerationLinuxE2ETest {
         try {
             // Test all sample methods
             println("[SamplerSchedulerTest] Testing all sample methods...")
-            for (sampleMethod in StableDiffusion.SampleMethod.values()) {
+            for (sampleMethod in SampleMethod.values()) {
                 println("[SamplerSchedulerTest] Testing sampler: $sampleMethod (id=${sampleMethod.id})")
 
-                val params = StableDiffusion.VideoGenerateParams(
+                val params = VideoGenerateParams(
                     prompt = prompt,
                     width = width,
                     height = height,
@@ -360,7 +364,7 @@ class VideoGenerationLinuxE2ETest {
                     cfgScale = cfgScale,
                     seed = seed,
                     sampleMethod = sampleMethod,
-                    scheduler = StableDiffusion.Scheduler.DEFAULT
+                    scheduler = Scheduler.DEFAULT
                 )
 
                 try {
@@ -375,10 +379,10 @@ class VideoGenerationLinuxE2ETest {
 
             // Test all schedulers
             println("[SamplerSchedulerTest] Testing all schedulers...")
-            for (scheduler in StableDiffusion.Scheduler.values()) {
+            for (scheduler in Scheduler.values()) {
                 println("[SamplerSchedulerTest] Testing scheduler: $scheduler (id=${scheduler.id})")
 
-                val params = StableDiffusion.VideoGenerateParams(
+                val params = VideoGenerateParams(
                     prompt = prompt,
                     width = width,
                     height = height,
@@ -386,7 +390,7 @@ class VideoGenerationLinuxE2ETest {
                     steps = steps,
                     cfgScale = cfgScale,
                     seed = seed,
-                    sampleMethod = StableDiffusion.SampleMethod.DEFAULT,
+                    sampleMethod = SampleMethod.DEFAULT,
                     scheduler = scheduler
                 )
 
@@ -423,7 +427,7 @@ class VideoGenerationLinuxE2ETest {
         )
 
         for ((input, expected) in testCases) {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "test",
                 videoFrames = input
             )

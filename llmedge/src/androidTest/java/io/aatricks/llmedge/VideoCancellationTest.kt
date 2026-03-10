@@ -9,6 +9,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 @RunWith(AndroidJUnit4::class)
 class VideoCancellationTest : BaseVideoIntegrationTest() {
@@ -46,12 +52,13 @@ class VideoCancellationTest : BaseVideoIntegrationTest() {
                         steps: Int,
                         cfg: Float,
                         seed: Long,
-                        sampleMethod: StableDiffusion.SampleMethod,
-                        scheduler: StableDiffusion.Scheduler,
+                        sampleMethod: SampleMethod,
+                        scheduler: Scheduler,
                         strength: Float,
                         initImage: ByteArray?,
                         initWidth: Int,
                         initHeight: Int,
+                        vaceStrength: Float,
                         easyCacheEnabled: Boolean,
                         easyCacheReuseThreshold: Float,
                         easyCacheStartPercent: Float,
@@ -67,7 +74,7 @@ class VideoCancellationTest : BaseVideoIntegrationTest() {
 
                 override fun setProgressCallback(
                         handle: Long,
-                        callback: StableDiffusion.VideoProgressCallback?
+                        callback: VideoProgressCallback?
                 ) = Unit
 
                 override fun cancelGeneration(handle: Long) {
@@ -81,7 +88,7 @@ class VideoCancellationTest : BaseVideoIntegrationTest() {
                         width: Int,
                         height: Int,
                         clipSkip: Int,
-                ): StableDiffusion.PrecomputedCondition? = null
+                ): PrecomputedCondition? = null
             }
         }
         val sd = createStableDiffusion()
@@ -101,7 +108,7 @@ class VideoCancellationTest : BaseVideoIntegrationTest() {
                 "VideoCancellationTest: nativeBridgeClass=${nativeBridge.javaClass.name} isNativeLibraryAvailable=${availabilityField.getBoolean(null)}",
         )
         val params =
-                StableDiffusion.VideoGenerateParams(
+                VideoGenerateParams(
                         prompt = "wan robot",
                         width = 256,
                         height = 256,

@@ -9,6 +9,12 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicBoolean
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
+import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
 @Suppress("unused")
 private val disableNativeLoadForTests = run {
@@ -41,8 +47,8 @@ private val disableNativeLoadForTests = run {
                 steps: Int,
                 cfg: Float,
                 seed: Long,
-                sampleMethod: StableDiffusion.SampleMethod,
-                    scheduler: StableDiffusion.Scheduler,
+                sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
                 strength: Float,
                 initImage: ByteArray?,
                 initWidth: Int,
@@ -54,7 +60,7 @@ private val disableNativeLoadForTests = run {
                 easyCacheEndPercent: Float,
             ): Array<ByteArray>? = arrayOf(byteArrayOf(1, 2, 3))
 
-            override fun setProgressCallback(handle: Long, callback: StableDiffusion.VideoProgressCallback?) {}
+            override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {}
             override fun cancelGeneration(handle: Long) {}
             override fun precomputeCondition(
                 handle: Long,
@@ -63,7 +69,7 @@ private val disableNativeLoadForTests = run {
                 width: Int,
                 height: Int,
                 clipSkip: Int,
-            ): StableDiffusion.PrecomputedCondition? = null
+            ): PrecomputedCondition? = null
         }
     }
     true
@@ -75,7 +81,7 @@ class StableDiffusionVideoTest {
     fun `wan architecture metadata counts as video`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "Wan 2.1 T2V",
                 modelType = null,
                 parameterCount = "1.3B",
@@ -92,7 +98,7 @@ class StableDiffusionVideoTest {
     fun `tags mentioning video trigger detection`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "stable-diffusion-xl",
                 modelType = null,
                 parameterCount = null,
@@ -109,7 +115,7 @@ class StableDiffusionVideoTest {
     fun `non video metadata stays false`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "stable-diffusion-xl",
                 modelType = null,
                 parameterCount = null,
@@ -126,7 +132,7 @@ class StableDiffusionVideoTest {
     fun `resetting metadata clears detection`() {
         val sd = newStableDiffusion()
         sd.updateModelMetadata(
-            StableDiffusion.VideoModelMetadata(
+            VideoModelMetadata(
                 architecture = "wan",
                 modelType = "t2v",
                 parameterCount = "1.3B",
@@ -174,7 +180,7 @@ class StableDiffusionVideoTest {
         val field = StableDiffusion::class.java.getDeclaredField("cachedProgressCallback").apply {
             isAccessible = true
         }
-        val callback = StableDiffusion.VideoProgressCallback { _, _, _, _, _ -> }
+        val callback = VideoProgressCallback { _, _, _, _, _ -> }
 
         sd.setProgressCallback(callback)
         assertNotNull(field.get(sd))

@@ -2,7 +2,7 @@ package io.aatricks.llmedge
 
 import android.content.Context
 import android.graphics.Bitmap
-import io.aatricks.llmedge.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -10,6 +10,7 @@ import org.robolectric.annotation.Config
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.FileOutputStream
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -61,7 +62,7 @@ class VideoGenerationHQTest {
                 sequentialLoad = false
             )
             
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = "A high quality close up of a magical glowing butterfly in a forest, highly detailed, cinematic",
                 width = 256,
                 height = 256,

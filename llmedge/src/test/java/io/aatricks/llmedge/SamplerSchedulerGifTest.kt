@@ -11,6 +11,10 @@ import org.robolectric.annotation.Config
 import java.io.File
 import java.io.FileOutputStream
 import java.io.ByteArrayOutputStream
+import io.aatricks.llmedge.image.diffusion.SampleMethod
+import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 
 /**
  * E2E test that generates a video with a specific sampler and scheduler,
@@ -61,15 +65,15 @@ class SamplerSchedulerGifTest {
         val schedulerName = System.getenv("LLMEDGE_TEST_SCHEDULER") ?: "DEFAULT"
         
         val sampleMethod = try {
-            StableDiffusion.SampleMethod.valueOf(samplerName)
+            SampleMethod.valueOf(samplerName)
         } catch (e: Exception) {
-            StableDiffusion.SampleMethod.DEFAULT
+            SampleMethod.DEFAULT
         }
         
         val scheduler = try {
-            StableDiffusion.Scheduler.valueOf(schedulerName)
+            Scheduler.valueOf(schedulerName)
         } catch (e: Exception) {
-            StableDiffusion.Scheduler.DEFAULT
+            Scheduler.DEFAULT
         }
 
         // Test parameters
@@ -100,7 +104,7 @@ class SamplerSchedulerGifTest {
         )
 
         try {
-            val params = StableDiffusion.VideoGenerateParams(
+            val params = VideoGenerateParams(
                 prompt = prompt,
                 width = width,
                 height = height,

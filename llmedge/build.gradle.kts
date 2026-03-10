@@ -29,6 +29,9 @@ android {
     compileSdk = 35
     ndkVersion = "27.2.12479018"
 
+    val hostIsWindows = System.getProperty("os.name")?.startsWith("Windows", ignoreCase = true) == true
+    val defaultVulkanFlag = if (hostIsWindows) "OFF" else "ON"
+
     defaultConfig {
         minSdk = 30  // Vulkan 1.2 requires API 30+ (Android 11)
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -40,8 +43,8 @@ android {
                 // https://developer.android.com/guide/practices/page-sizes#compile-r27
                 arguments += listOf("-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
                 arguments += "-DCMAKE_BUILD_TYPE=Release"
-                arguments += "-DSD_VULKAN=ON"
-                arguments += "-DGGML_VULKAN=ON"
+                arguments += "-DSD_VULKAN=$defaultVulkanFlag"
+                arguments += "-DGGML_VULKAN=$defaultVulkanFlag"
                 arguments += "-DWAN_SUPPORT=ON"
 
                 // (debugging) uncomment the following line to enable debug builds
@@ -241,6 +244,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
     // Sentence Embeddings (on-device) - provides ONNX-based sentence-transformers
     implementation("io.gitlab.shubham0204:sentence-embeddings:v6")
+    implementation("androidx.lifecycle:lifecycle-common:2.8.7")
 
     // Hugging Face Hub client (Ktor + JSON serialization)
     implementation("io.ktor:ktor-client-core:2.3.12")
