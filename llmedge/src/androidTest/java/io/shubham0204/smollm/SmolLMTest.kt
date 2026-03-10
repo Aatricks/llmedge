@@ -22,6 +22,7 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
+import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -132,7 +133,7 @@ class SmolLMTest {
                             minP,
                             temperature,
                             storeChats = true,
-                            contextSize = 0,
+                            contextSize = null,
                             chatTemplate,
                             numThreads = 1,
                             useMmap = true,

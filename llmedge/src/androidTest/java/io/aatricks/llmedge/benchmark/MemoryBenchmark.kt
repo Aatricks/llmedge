@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
 import io.aatricks.llmedge.text.runtime.SmolLM
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -26,8 +27,7 @@ class MemoryBenchmark {
     @Before
     fun setUp() {
         modelPath =
-            InstrumentationRegistry.getInstrumentation()
-                .arguments
+            InstrumentationRegistry.getArguments()
                 .getString("llmedge.benchmark.model_path")
         BenchmarkReporter.clear()
     }
@@ -48,7 +48,7 @@ class MemoryBenchmark {
         )
 
         val model = SmolLM(useVulkan = false)
-        model.loadModel(path, contextSize = 2048)
+        runBlocking { model.load(path, SmolLM.InferenceParams(contextSize = 2048)) }
 
         val afterLoad = Debug.getNativeHeapAllocatedSize()
         BenchmarkReporter.record(
@@ -59,8 +59,7 @@ class MemoryBenchmark {
         )
 
         // Generate some tokens to measure peak during inference
-        model.completionInit("Write a poem about the moon.")
-        model.completionLoop(64)
+        model.getResponse("Write a poem about the moon.", maxTokens = 64)
 
         val peakDuringInference = Debug.getNativeHeapAllocatedSize()
         BenchmarkReporter.record(

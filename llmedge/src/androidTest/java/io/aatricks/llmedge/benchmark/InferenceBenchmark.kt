@@ -5,6 +5,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
 import io.aatricks.llmedge.text.runtime.SmolLM
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -35,8 +37,7 @@ class InferenceBenchmark {
     fun setUp() {
         context = InstrumentationRegistry.getInstrumentation().targetContext
         modelPath =
-            InstrumentationRegistry.getInstrumentation()
-                .arguments
+            InstrumentationRegistry.getArguments()
                 .getString("llmedge.benchmark.model_path")
         BenchmarkReporter.clear()
     }
@@ -54,29 +55,34 @@ class InferenceBenchmark {
         val path = modelPath!!
 
         val smol = SmolLM(useVulkan = false)
-        smol.loadModel(path, contextSize = 2048)
+        runBlocking { smol.load(path, SmolLM.InferenceParams(contextSize = 2048)) }
         model = smol
 
         // Warmup
-        smol.completionInit(WARMUP_PROMPT)
-        smol.completionLoop(16)
-        smol.kvCacheClear()
+        smol.getResponse(WARMUP_PROMPT, maxTokens = 16)
+        smol.clearKvCache()
 
-        // Measure first-token latency
-        BenchmarkReporter.recordLatencyMs("inference", "first_token_latency") {
-            smol.completionInit(BENCH_PROMPT)
-            smol.completionLoop(1)
-        }
-
-        // Continue generating and measure throughput
+        // Measure first-token latency and throughput in a single streaming pass
+        var firstTokenMs = 0.0
+        var tokenCount = 0
         val startNs = System.nanoTime()
-        val remaining = smol.completionLoop(MAX_TOKENS - 1)
-        val elapsedMs = (System.nanoTime() - startNs) / 1_000_000.0
-        val tokenCount = remaining.split(" ").size.coerceAtLeast(1)
-        val tokensPerSec = if (elapsedMs > 0) tokenCount / (elapsedMs / 1000.0) else 0.0
+        runBlocking {
+            var isFirst = true
+            smol.getResponseAsFlow(BENCH_PROMPT).take(MAX_TOKENS).collect {
+                tokenCount++
+                if (isFirst) {
+                    firstTokenMs = (System.nanoTime() - startNs) / 1_000_000.0
+                    isFirst = false
+                }
+            }
+        }
+        val totalMs = (System.nanoTime() - startNs) / 1_000_000.0
 
+        BenchmarkReporter.record("inference", "first_token_latency", firstTokenMs, "ms")
+        val throughputMs = (totalMs - firstTokenMs).coerceAtLeast(1.0)
+        val tokensPerSec = (tokenCount - 1).coerceAtLeast(0) / (throughputMs / 1000.0)
         BenchmarkReporter.record("inference", "tokens_per_second", tokensPerSec, "tok/s")
-        BenchmarkReporter.record("inference", "generation_time", elapsedMs, "ms")
+        BenchmarkReporter.record("inference", "generation_time", throughputMs, "ms")
         BenchmarkReporter.recordNativeMemoryMB("inference", "peak_native_heap")
     }
 }

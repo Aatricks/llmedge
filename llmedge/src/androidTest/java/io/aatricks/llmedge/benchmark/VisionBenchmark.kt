@@ -31,7 +31,7 @@ class VisionBenchmark {
     @Before
     fun setUp() {
         context = InstrumentationRegistry.getInstrumentation().targetContext
-        val args = InstrumentationRegistry.getInstrumentation().arguments
+        val args = InstrumentationRegistry.getArguments()
         modelPath = args.getString("llmedge.benchmark.model_path")
         projectorPath = args.getString("llmedge.benchmark.projector_path")
         testImagePath = args.getString("llmedge.benchmark.test_image_path")

@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
 import io.aatricks.llmedge.text.runtime.SmolLM
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -30,8 +31,7 @@ class ModelLoadBenchmark {
     fun setUp() {
         context = InstrumentationRegistry.getInstrumentation().targetContext
         modelPath =
-            InstrumentationRegistry.getInstrumentation()
-                .arguments
+            InstrumentationRegistry.getArguments()
                 .getString("llmedge.benchmark.model_path")
         BenchmarkReporter.clear()
     }
@@ -51,7 +51,7 @@ class ModelLoadBenchmark {
         var model: SmolLM? = null
         BenchmarkReporter.recordLatencyMs("cold_load", "load_time") {
             model = SmolLM(useVulkan = false)
-            model!!.loadModel(path, contextSize = 2048)
+            runBlocking { model!!.load(path, SmolLM.InferenceParams(contextSize = 2048)) }
         }
 
         BenchmarkReporter.recordNativeMemoryMB("cold_load", "native_heap_after")
@@ -65,13 +65,13 @@ class ModelLoadBenchmark {
 
         // First load to warm filesystem caches
         val warmup = SmolLM(useVulkan = false)
-        warmup.loadModel(path, contextSize = 2048)
+        runBlocking { warmup.load(path, SmolLM.InferenceParams(contextSize = 2048)) }
         warmup.close()
 
         var model: SmolLM? = null
         BenchmarkReporter.recordLatencyMs("warm_load", "load_time") {
             model = SmolLM(useVulkan = false)
-            model!!.loadModel(path, contextSize = 2048)
+            runBlocking { model!!.load(path, SmolLM.InferenceParams(contextSize = 2048)) }
         }
 
         BenchmarkReporter.recordNativeMemoryMB("warm_load", "native_heap_after")
