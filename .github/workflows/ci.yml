@@ -72,9 +72,23 @@ jobs:
         LLMEDGE_SKIP_E2E_IN_UNIT: "true"
       run: ./gradlew :llmedge:testDebugUnitTest
 
-    - name: Run Vision Smoke Test (Managed Device)
+    - name: Enable KVM for Android Emulator
       run: |
-        ./gradlew :llmedge:pixel6api33DebugAndroidTest \
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+
+    - name: Run Vision Smoke Test (Emulator)
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 33
+        target: aosp_atd
+        arch: x86_64
+        profile: pixel_6
+        emulator-options: -no-snapshot -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+        disable-animations: true
+        script: >
+          ./gradlew :llmedge:connectedDebugAndroidTest
           -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.VisionSmokeTest
 
     - name: Run E2E Tests (Whisper)
