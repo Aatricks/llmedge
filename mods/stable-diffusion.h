@@ -331,6 +331,11 @@ typedef void (*sd_preview_cb_t)(int step, int frame_count, sd_image_t* frames, b
 SD_API void sd_set_log_callback(sd_log_cb_t sd_log_cb, void* data);
 SD_API void sd_set_progress_callback(sd_progress_cb_t cb, void* data);
 SD_API void sd_set_preview_callback(sd_preview_cb_t cb, enum preview_t mode, int interval, bool denoised, bool noisy, void* data);
+
+// llmedge extension: allow forcing CPU backend even when Vulkan is compiled in.
+// This flag is process-global and should be set immediately before creating a new sd_ctx.
+SD_API void sd_set_vulkan_enabled(bool enabled);
+
 SD_API int32_t sd_get_num_physical_cores();
 SD_API const char* sd_get_system_info();
 

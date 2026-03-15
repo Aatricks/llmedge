@@ -21,6 +21,14 @@
 #include "latent-preview.h"
 #include "name_conversion.h"
 
+#include <atomic>
+
+static std::atomic<bool> g_sd_vulkan_enabled{true};
+
+extern "C" SD_API void sd_set_vulkan_enabled(bool enabled) {
+    g_sd_vulkan_enabled.store(enabled);
+}
+
 const char* model_version_to_str[] = {
     "SD 1.x",
     "SD 1.x Inpaint",
@@ -165,12 +173,16 @@ public:
         backend = ggml_backend_metal_init();
 #endif
 #ifdef SD_USE_VULKAN
-        LOG_DEBUG("Using Vulkan backend");
-        for (int device = 0; device < ggml_backend_vk_get_device_count(); ++device) {
-            backend = ggml_backend_vk_init(device);
-        }
-        if (!backend) {
-            LOG_WARN("Failed to initialize Vulkan backend");
+        if (g_sd_vulkan_enabled.load()) {
+            LOG_DEBUG("Using Vulkan backend");
+            for (int device = 0; device < ggml_backend_vk_get_device_count(); ++device) {
+                backend = ggml_backend_vk_init(device);
+            }
+            if (!backend) {
+                LOG_WARN("Failed to initialize Vulkan backend");
+            }
+        } else {
+            LOG_DEBUG("Vulkan backend disabled (llmedge)");
         }
 #endif
 #ifdef SD_USE_OPENCL

@@ -87,13 +87,17 @@ class LLMEdge private constructor(
         }
 
         @JvmStatic
-        fun isVulkanAvailable(): Boolean = StableDiffusion.getVulkanDeviceCount() > 0
+        fun isVulkanAvailable(): Boolean {
+            val deviceCount = StableDiffusion.getVulkanDeviceCount()
+            if (deviceCount <= 0) {
+                return false
+            }
+            val memory = StableDiffusion.getVulkanDeviceMemory(0) ?: return false
+            return memory.size >= 2
+        }
 
         @JvmStatic
         fun getVulkanDeviceInfo(): VulkanDeviceInfo? {
-            if (!isVulkanAvailable()) {
-                return null
-            }
             val deviceCount = StableDiffusion.getVulkanDeviceCount()
             if (deviceCount <= 0) {
                 return null

@@ -16,6 +16,7 @@ import io.aatricks.llmedge.image.diffusion.SampleMethod
 import io.aatricks.llmedge.image.diffusion.Scheduler
 import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.ProgressEvent
 import io.aatricks.llmedge.model.ModelResolver
@@ -206,62 +207,96 @@ class ImageClient internal constructor(
         val vaePath = if (taesdPath == null) resolveVideoVae(params)?.absolutePath else null
         val textEncoderPath = resolveVideoTextEncoder(params)?.absolutePath
         val usingCustomTae = taesdPath != null
+        val tryVulkan = !usingCustomTae && (config.preferPerformanceMode && LLMEdge.isVulkanAvailable())
 
-        val model =
-            StableDiffusion.load(
-                context = context,
-                modelPath = modelPath.absolutePath,
-                vaePath = vaePath,
-                t5xxlPath = textEncoderPath,
-                taesdPath = taesdPath,
-                nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                offloadToCpu = params.forceSequentialLoad || usingCustomTae || !config.preferPerformanceMode,
-                keepClipOnCpu = usingCustomTae || !config.preferPerformanceMode,
-                keepVaeOnCpu = usingCustomTae || !config.preferPerformanceMode,
-                flashAttn = params.flashAttention,
-                vaeDecodeOnly = params.initImage == null,
-                sequentialLoad = if (params.forceSequentialLoad) true else null,
-                forceVulkan = if (usingCustomTae) false else (config.preferPerformanceMode && LLMEdge.isVulkanAvailable()),
-                preferPerformanceMode = config.preferPerformanceMode,
-                flowShift = params.flowShift,
-                loraModelDir = params.loraModelDir,
-                loraApplyMode = params.loraApplyMode,
-            )
-        activeModel = model
-        try {
-            val easyCache = resolveEasyCache(model, params.easyCache)
-            return model.txt2vid(
-                params =
-                    VideoGenerateParams(
-                        prompt = params.prompt,
-                        negative = params.negative,
-                        width = params.width,
-                        height = params.height,
-                        videoFrames = params.videoFrames,
-                        steps = params.steps,
-                        cfgScale = params.cfgScale,
-                        seed = params.seed,
-                        initImage = params.initImage,
-                        strength = params.strength,
-                        sampleMethod = params.sampleMethod,
-                        scheduler = params.scheduler,
-                        easyCacheParams = easyCache,
-                    ),
-                onProgress =
-                    VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
-                        onProgress?.invoke(
-                            "Generating frame $currentFrame/$totalFrames",
-                            step,
-                            totalSteps,
-                        )
-                    },
-            ).also {
-                lastGenerationMetrics = model.getLastGenerationMetrics()
+        suspend fun loadAndGenerate(forceVulkan: Boolean): List<Bitmap> {
+            val model =
+                StableDiffusion.load(
+                    context = context,
+                    modelPath = modelPath.absolutePath,
+                    vaePath = vaePath,
+                    t5xxlPath = textEncoderPath,
+                    taesdPath = taesdPath,
+                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                    offloadToCpu = params.forceSequentialLoad || usingCustomTae || !config.preferPerformanceMode,
+                    keepClipOnCpu = usingCustomTae || !config.preferPerformanceMode,
+                    keepVaeOnCpu = usingCustomTae || !config.preferPerformanceMode,
+                    flashAttn = params.flashAttention,
+                    vaeDecodeOnly = params.initImage == null,
+                    sequentialLoad = if (params.forceSequentialLoad) true else null,
+                    forceVulkan = forceVulkan,
+                    preferPerformanceMode = config.preferPerformanceMode,
+                    flowShift = params.flowShift,
+                    loraModelDir = params.loraModelDir,
+                    loraApplyMode = params.loraApplyMode,
+                )
+            activeModel = model
+            try {
+                val easyCache = resolveEasyCache(model, params.easyCache)
+                return model.txt2vid(
+                    params =
+                        VideoGenerateParams(
+                            prompt = params.prompt,
+                            negative = params.negative,
+                            width = params.width,
+                            height = params.height,
+                            videoFrames = params.videoFrames,
+                            steps = params.steps,
+                            cfgScale = params.cfgScale,
+                            seed = params.seed,
+                            initImage = params.initImage,
+                            strength = params.strength,
+                            sampleMethod = params.sampleMethod,
+                            scheduler = params.scheduler,
+                            easyCacheParams = easyCache,
+                        ),
+                    onProgress =
+                        VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
+                            onProgress?.invoke(
+                                "Generating frame $currentFrame/$totalFrames",
+                                step,
+                                totalSteps,
+                            )
+                        },
+                ).also {
+                    lastGenerationMetrics = model.getLastGenerationMetrics()
+                }
+            } finally {
+                activeModel = null
+                model.close()
             }
-        } finally {
-            activeModel = null
-            model.close()
         }
+
+        return try {
+            loadAndGenerate(forceVulkan = tryVulkan)
+        } catch (t: Throwable) {
+            if (tryVulkan && isVulkanDeviceLost(t)) {
+                AndroidLogAdapter.w(
+                    "ImageClient",
+                    "Vulkan device lost during video generation; retrying once with Vulkan disabled (CPU backend)",
+                )
+                loadAndGenerate(forceVulkan = false)
+            } else {
+                throw t
+            }
+        }
+    }
+
+    private fun isVulkanDeviceLost(t: Throwable): Boolean {
+        var cur: Throwable? = t
+        while (cur != null) {
+            val msg = cur.message
+            if (msg != null && (
+                    msg.contains("ErrorDeviceLost", ignoreCase = true) ||
+                        msg.contains("VK_ERROR_DEVICE_LOST", ignoreCase = true) ||
+                        msg.contains("DeviceLost", ignoreCase = true)
+                )
+            ) {
+                return true
+            }
+            cur = cur.cause
+        }
+        return false
     }
 
     private suspend fun generateVideoSequentially(
@@ -271,8 +306,10 @@ class ImageClient internal constructor(
         lastGenerationMetrics = null
         val modelPath = resolver.resolve(context, params.model ?: config.models.video.diffusion)
         val taesdPath = params.taehv?.let { resolver.resolve(context, it).absolutePath }
+        val usingCustomTae = taesdPath != null
         val vaePath = if (taesdPath == null) resolveRequiredVideoVae(params).absolutePath else null
         val textEncoderPath = resolveRequiredVideoTextEncoder(params).absolutePath
+        val tryVulkan = !usingCustomTae && (config.preferPerformanceMode && LLMEdge.isVulkanAvailable())
 
         onProgress?.invoke("Loading text encoder", 0, params.steps)
         val t5Model =
@@ -285,6 +322,8 @@ class ImageClient internal constructor(
                 offloadToCpu = true,
                 keepClipOnCpu = true,
                 keepVaeOnCpu = true,
+                forceVulkan = tryVulkan,
+                preferPerformanceMode = config.preferPerformanceMode,
                 flashAttn = params.flashAttention,
             )
 
@@ -314,60 +353,78 @@ class ImageClient internal constructor(
             t5Model.close()
         }
 
-        onProgress?.invoke("Loading diffusion model", 0, params.steps)
-        val diffusionModel =
-            StableDiffusion.load(
-                context = context,
-                modelPath = modelPath.absolutePath,
-                vaePath = vaePath,
-                t5xxlPath = null,
-                taesdPath = taesdPath,
-                nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                offloadToCpu = true,
-                keepClipOnCpu = true,
-                keepVaeOnCpu = true,
-                flashAttn = params.flashAttention,
-                vaeDecodeOnly = params.initImage == null,
-                flowShift = params.flowShift,
-                loraModelDir = params.loraModelDir,
-                loraApplyMode = params.loraApplyMode,
-            )
-        activeModel = diffusionModel
-        try {
-            val easyCache = resolveEasyCache(diffusionModel, params.easyCache)
-            return diffusionModel.txt2VidWithPrecomputedCondition(
-                params =
-                    VideoGenerateParams(
-                        prompt = params.prompt,
-                        negative = params.negative,
-                        width = params.width,
-                        height = params.height,
-                        videoFrames = params.videoFrames,
-                        steps = params.steps,
-                        cfgScale = params.cfgScale,
-                        seed = params.seed,
-                        initImage = params.initImage,
-                        strength = params.strength,
-                        sampleMethod = params.sampleMethod,
-                        scheduler = params.scheduler,
-                        easyCacheParams = easyCache,
-                    ),
-                cond = cond,
-                uncond = uncond,
-                onProgress =
-                    VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
-                        onProgress?.invoke(
-                            "Generating frame $currentFrame/$totalFrames",
-                            step,
-                            totalSteps,
-                        )
-                    },
-            ).also {
-                lastGenerationMetrics = diffusionModel.getLastGenerationMetrics()
+        suspend fun loadAndGenerate(forceVulkan: Boolean): List<Bitmap> {
+            onProgress?.invoke("Loading diffusion model", 0, params.steps)
+            val diffusionModel =
+                StableDiffusion.load(
+                    context = context,
+                    modelPath = modelPath.absolutePath,
+                    vaePath = vaePath,
+                    t5xxlPath = null,
+                    taesdPath = taesdPath,
+                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                    offloadToCpu = true,
+                    keepClipOnCpu = true,
+                    keepVaeOnCpu = true,
+                    forceVulkan = forceVulkan,
+                    preferPerformanceMode = config.preferPerformanceMode,
+                    flashAttn = params.flashAttention,
+                    vaeDecodeOnly = params.initImage == null,
+                    flowShift = params.flowShift,
+                    loraModelDir = params.loraModelDir,
+                    loraApplyMode = params.loraApplyMode,
+                )
+            activeModel = diffusionModel
+            try {
+                val easyCache = resolveEasyCache(diffusionModel, params.easyCache)
+                return diffusionModel.txt2VidWithPrecomputedCondition(
+                    params =
+                        VideoGenerateParams(
+                            prompt = params.prompt,
+                            negative = params.negative,
+                            width = params.width,
+                            height = params.height,
+                            videoFrames = params.videoFrames,
+                            steps = params.steps,
+                            cfgScale = params.cfgScale,
+                            seed = params.seed,
+                            initImage = params.initImage,
+                            strength = params.strength,
+                            sampleMethod = params.sampleMethod,
+                            scheduler = params.scheduler,
+                            easyCacheParams = easyCache,
+                        ),
+                    cond = cond,
+                    uncond = uncond,
+                    onProgress =
+                        VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
+                            onProgress?.invoke(
+                                "Generating frame $currentFrame/$totalFrames",
+                                step,
+                                totalSteps,
+                            )
+                        },
+                ).also {
+                    lastGenerationMetrics = diffusionModel.getLastGenerationMetrics()
+                }
+            } finally {
+                activeModel = null
+                diffusionModel.close()
             }
-        } finally {
-            activeModel = null
-            diffusionModel.close()
+        }
+
+        return try {
+            loadAndGenerate(forceVulkan = tryVulkan)
+        } catch (t: Throwable) {
+            if (tryVulkan && isVulkanDeviceLost(t)) {
+                AndroidLogAdapter.w(
+                    "ImageClient",
+                    "Vulkan device lost during video generation; retrying once with Vulkan disabled (CPU backend)",
+                )
+                loadAndGenerate(forceVulkan = false)
+            } else {
+                throw t
+            }
         }
     }
 

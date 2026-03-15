@@ -441,6 +441,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         jstring jT5xxlPath,
         jstring jTaesdPath,
         jint nThreads,
+        jboolean useVulkan,
         jboolean offloadToCpu,
         jboolean keepClipOnCpu,
         jboolean keepVaeOnCpu,
@@ -461,12 +462,15 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     ALOGI("  vaePath=%s", vaePath ? vaePath : "NULL");
     ALOGI("  t5xxlPath=%s", t5xxlPath ? t5xxlPath : "NULL");
     ALOGI("  taesdPath=%s", taesdPath ? taesdPath : "NULL");
-    ALOGI("  offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
+    ALOGI("  useVulkan=%s, offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
+          useVulkan ? "true" : "false",
           offloadToCpu ? "true" : "false",
           keepClipOnCpu ? "true" : "false",
           keepVaeOnCpu ? "true" : "false",
           flashAttn ? "true" : "false",
           jvaeDecodeOnly ? "true" : "false");
+
+    sd_set_vulkan_enabled(useVulkan == JNI_TRUE);
 
     sd_ctx_params_t p{};
     sd_ctx_params_init(&p);
