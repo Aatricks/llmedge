@@ -30,7 +30,9 @@ if(BUILD_SDCPP)
     # Configure stable-diffusion.cpp options
     set(SD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SD_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-    set(SD_VULKAN OFF CACHE BOOL "" FORCE) # Disable Vulkan for host build for now to avoid complications
+    if(NOT DEFINED SD_VULKAN)
+        set(SD_VULKAN ON CACHE BOOL "" FORCE)
+    endif()
 
     # Add stable-diffusion.cpp
     add_subdirectory(${SD_ROOT} stable-diffusion)
@@ -42,6 +44,7 @@ if(BUILD_SDCPP)
 
     target_include_directories(sdcpp PRIVATE
         ${SD_ROOT}
+        ${SD_ROOT}/src
         ${SD_ROOT}/thirdparty
         ${JNI_INCLUDE_DIRS}
     )
@@ -50,6 +53,14 @@ if(BUILD_SDCPP)
         stable-diffusion
         ${JNI_LIBRARIES}
     )
+
+    if(SD_VULKAN)
+        target_compile_definitions(sdcpp PRIVATE SD_USE_VULKAN)
+        target_link_libraries(sdcpp PRIVATE vulkan)
+        if(TARGET ggml-vulkan)
+            target_link_libraries(sdcpp PRIVATE ggml-vulkan)
+        endif()
+    endif()
 
     if(WAN_SUPPORT)
         target_compile_definitions(sdcpp PRIVATE WAN_SUPPORT=1)

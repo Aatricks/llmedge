@@ -26,7 +26,6 @@ set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT
     stable-diffusion.h
     ggml_extend.hpp
     util.cpp
-    ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
 )
 if (EXISTS "${LLMEDGE_MODS_DIR}/wan.hpp")
         set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT "wan.hpp;${_LLMEDGE_SDCPP_MODS_FILES_DEFAULT}")
@@ -71,8 +70,8 @@ elseif (LLMEDGE_SDCPP_USE_MODS OR (DEFINED ENV{LLMEDGE_SDCPP_USE_MODS} AND "$ENV
         set(SD_DIR "${PATCHED_SD_ROOT}")
 endif()
 
-if (NOT EXISTS "${SD_DIR}/wan.hpp")
-        message(FATAL_ERROR "stable-diffusion.cpp Wan headers not found at ${SD_DIR}. Run git submodule update --init --recursive (or disable overlays).")
+if (NOT EXISTS "${SD_DIR}/wan.hpp" AND NOT EXISTS "${SD_DIR}/src/wan.hpp")
+        message(FATAL_ERROR "stable-diffusion.cpp Wan headers not found at ${SD_DIR} (expected wan.hpp or src/wan.hpp). Run git submodule update --init --recursive (or disable overlays).")
 endif()
 
 option(WAN_SUPPORT "Enable Wan video generation support" ON)
@@ -82,6 +81,11 @@ option(WAN_SUPPORT "Enable Wan video generation support" ON)
 # cross-build environment, so only force Vulkan on by default for non-Windows hosts.
 set(_LLMEDGE_DEFAULT_SD_VULKAN ON)
 if (CMAKE_HOST_WIN32)
+        set(_LLMEDGE_DEFAULT_SD_VULKAN OFF)
+endif()
+if (NOT ANDROID_ABI STREQUAL "arm64-v8a")
+        # Keep SD Vulkan enabled on arm64 only (production path). Non-arm64 Android
+        # ABIs currently fail to build cleanly with upstream ggml-vulkan.
         set(_LLMEDGE_DEFAULT_SD_VULKAN OFF)
 endif()
 set(SD_BUILD_EXAMPLES OFF CACHE BOOL "sd: build examples" FORCE)
@@ -128,6 +132,7 @@ add_library(sdcpp SHARED
 target_include_directories(sdcpp
         PUBLIC
         ${SD_DIR}
+        ${SD_DIR}/src
         ${SD_DIR}/thirdparty
 )
 
@@ -140,7 +145,12 @@ target_link_libraries(sdcpp
         stable-diffusion
 )
 if(SD_VULKAN)
+        # Ensure the JNI bridge compiles the Vulkan query helpers (device count, memory, description).
+        target_compile_definitions(sdcpp PRIVATE SD_USE_VULKAN)
         target_link_libraries(sdcpp vulkan)
+        if (TARGET ggml-vulkan)
+                target_link_libraries(sdcpp ggml-vulkan)
+        endif()
 endif()
 
 if (WAN_SUPPORT)

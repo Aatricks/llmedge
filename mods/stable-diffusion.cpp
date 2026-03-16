@@ -24,9 +24,14 @@
 #include <atomic>
 
 static std::atomic<bool> g_sd_vulkan_enabled{true};
+static std::atomic<int> g_sd_vulkan_device{-1};
 
 extern "C" SD_API void sd_set_vulkan_enabled(bool enabled) {
     g_sd_vulkan_enabled.store(enabled);
+}
+
+extern "C" SD_API void sd_set_vulkan_device(int device_index) {
+    g_sd_vulkan_device.store(device_index);
 }
 
 const char* model_version_to_str[] = {
@@ -174,12 +179,48 @@ public:
 #endif
 #ifdef SD_USE_VULKAN
         if (g_sd_vulkan_enabled.load()) {
-            LOG_DEBUG("Using Vulkan backend");
-            for (int device = 0; device < ggml_backend_vk_get_device_count(); ++device) {
-                backend = ggml_backend_vk_init(device);
-            }
-            if (!backend) {
-                LOG_WARN("Failed to initialize Vulkan backend");
+            const int device_count = ggml_backend_vk_get_device_count();
+            LOG_DEBUG("Using Vulkan backend (devices=%d)", device_count);
+
+            if (device_count > 0) {
+                const int preferred = g_sd_vulkan_device.load();
+
+                auto try_init = [&](int dev) -> bool {
+                    ggml_backend_t b = ggml_backend_vk_init((size_t)dev);
+                    if (!b) {
+                        return false;
+                    }
+                    backend = b;
+                    char desc[256];
+                    desc[0] = '\0';
+                    ggml_backend_vk_get_device_description(dev, desc, sizeof(desc));
+                    if (desc[0] != '\0') {
+                        LOG_INFO("Vulkan: Using device %d (%s)", dev, desc);
+                    } else {
+                        LOG_INFO("Vulkan: Using device %d", dev);
+                    }
+                    return true;
+                };
+
+                bool ok = false;
+                if (preferred >= 0 && preferred < device_count) {
+                    ok = try_init(preferred);
+                }
+                if (!ok) {
+                    for (int dev = 0; dev < device_count; ++dev) {
+                        if (dev == preferred) continue;
+                        if (try_init(dev)) {
+                            ok = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!ok) {
+                    LOG_WARN("Failed to initialize Vulkan backend");
+                }
+            } else {
+                LOG_WARN("Vulkan backend compiled in, but no Vulkan devices were enumerated");
             }
         } else {
             LOG_DEBUG("Vulkan backend disabled (llmedge)");

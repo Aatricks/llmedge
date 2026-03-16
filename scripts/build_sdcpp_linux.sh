@@ -43,14 +43,36 @@ if [[ "$USE_MODS" == "1" ]]; then
     _DEFAULT_MODS_FILES="wan.hpp,$_DEFAULT_MODS_FILES"
   fi
   MODS_FILES_RAW="${LLMEDGE_SDCPP_MODS_FILES:-$_DEFAULT_MODS_FILES}"
+  # Map filenames to their new locations in the upstream source tree (src/ and include/)
   if [[ -d "$ROOT_DIR/mods" ]]; then
     IFS=',' read -r -a MODS_FILES <<< "$MODS_FILES_RAW"
     for f in "${MODS_FILES[@]}"; do
       f_trimmed="${f//[[:space:]]/}"
       [[ -z "$f_trimmed" ]] && continue
+      
+      # Determine target subdirectory based on file extension or specific mapping
+      if [[ "$f_trimmed" == *.h ]]; then
+        # Check if it should go to include/ or src/
+        if [[ -f "$PATCHED_SD_ROOT/include/$f_trimmed" ]]; then
+          target_path="include/$f_trimmed"
+        else
+          target_path="src/$f_trimmed"
+        fi
+      elif [[ "$f_trimmed" == *.cpp ]] || [[ "$f_trimmed" == *.hpp ]] || [[ "$f_trimmed" == *.inl ]]; then
+        target_path="src/$f_trimmed"
+      else
+        target_path="$f_trimmed" # Fallback for nested paths
+      fi
+      
+      # Special case for stable-diffusion.h which is in include/
+      if [[ "$f_trimmed" == "stable-diffusion.h" ]]; then
+        target_path="include/stable-diffusion.h"
+      fi
+
       if [[ -f "$ROOT_DIR/mods/$f_trimmed" ]]; then
-        echo "Overlaying mods/$f_trimmed -> patched tree"
-        cp -a "$ROOT_DIR/mods/$f_trimmed" "$PATCHED_SD_ROOT/$f_trimmed"
+        echo "Overlaying mods/$f_trimmed -> patched tree at $target_path"
+        mkdir -p "$(dirname "$PATCHED_SD_ROOT/$target_path")"
+        cp -a "$ROOT_DIR/mods/$f_trimmed" "$PATCHED_SD_ROOT/$target_path"
       else
         echo "Warning: mods/$f_trimmed not found; skipping"
       fi
@@ -69,9 +91,9 @@ if [[ ! -f "$SRC_DIR/CMakeLists.txt" ]]; then
   SRC_DIR="$ROOT_DIR/scripts/jni-desktop"
 fi
 
-# Configure CMake for a host build: disable Vulkan and enable WAN support.
+# Configure CMake for a host build: enable Vulkan and WAN support.
 cmake -S "$SRC_DIR" -B "$BUILD_DIR" \
-  -DGGML_USE_VULKAN=OFF \
+  -DSD_VULKAN=ON \
   -DWAN_SUPPORT=ON \
   -DCMAKE_BUILD_TYPE=Release \
   -DSPDLOG_FMT_EXTERNAL=ON \
@@ -88,7 +110,15 @@ if [[ -z "$LIB_PATH" ]]; then
   exit 1
 fi
 
-mkdir -p "$ROOT_DIR/llmedge/build/native/linux-x86_64"
-cp "$LIB_PATH" "$ROOT_DIR/llmedge/build/native/linux-x86_64/libsdcpp.so"
+# Detect architecture
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64) ARCH_DIR="linux-x86_64" ;;
+  aarch64|arm64) ARCH_DIR="linux-aarch64" ;;
+  *) ARCH_DIR="linux-$ARCH" ;;
+esac
 
-echo "Built and copied libsdcpp.so to llmedge/build/native/linux-x86_64/libsdcpp.so"
+mkdir -p "$ROOT_DIR/llmedge/build/native/$ARCH_DIR"
+cp "$LIB_PATH" "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/libsdcpp.so"
+
+echo "Built and copied libsdcpp.so to llmedge/build/native/$ARCH_DIR/libsdcpp.so"

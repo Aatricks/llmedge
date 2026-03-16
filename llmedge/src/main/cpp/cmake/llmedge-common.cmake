@@ -12,8 +12,8 @@ set(SMOLLM_SOURCES
         ${GGML_DIR}/src/ggml-threading.cpp
         ${GGML_DIR}/src/ggml-quants.c
         ${GGML_DIR}/src/ggml-backend-reg.cpp
+        ${GGML_DIR}/src/ggml-backend-dl.cpp
         ${GGML_DIR}/src/ggml-opt.cpp
-        ${GGML_DIR}/src/ggml-cpu/arch/arm/quants.c
         ${GGML_DIR}/src/ggml-cpu/ops.cpp
         ${GGML_DIR}/src/ggml-cpu/vec.cpp
         ${GGML_DIR}/src/ggml-cpu/quants.c
@@ -25,33 +25,7 @@ set(SMOLLM_SOURCES
         ${GGML_DIR}/src/ggml.c
         ${GGML_DIR}/src/gguf.cpp
 
-        ${LLAMA_DIR}/src/llama.cpp
-        ${LLAMA_DIR}/src/llama-vocab.cpp
-        ${LLAMA_DIR}/src/llama-grammar.cpp
-        ${LLAMA_DIR}/src/llama-sampling.cpp
-        ${LLAMA_DIR}/src/llama-context.cpp
-        ${LLAMA_DIR}/src/llama-model.cpp
-        ${LLAMA_DIR}/src/llama-model-loader.cpp
-        ${LLAMA_DIR}/src/llama-impl.cpp
-        ${LLAMA_DIR}/src/llama-io.cpp
-        ${LLAMA_DIR}/src/llama-memory.cpp
-        ${LLAMA_DIR}/src/llama-memory-recurrent.cpp
-        ${LLAMA_DIR}/src/llama-memory-hybrid.cpp
-        ${LLAMA_DIR}/src/llama-mmap.cpp
-        ${LLAMA_DIR}/src/llama-hparams.cpp
-        ${LLAMA_DIR}/src/llama-kv-cache-iswa.cpp
-        ${LLAMA_DIR}/src/llama-kv-cache.cpp
-        ${LLAMA_DIR}/src/llama-batch.cpp
-        ${LLAMA_DIR}/src/llama-arch.cpp
-        ${LLAMA_DIR}/src/llama-adapter.cpp
-        ${LLAMA_DIR}/src/llama-chat.cpp
-        ${LLAMA_DIR}/src/llama-graph.cpp
-        ${LLAMA_DIR}/src/unicode.h
-        ${LLAMA_DIR}/src/unicode.cpp
-        ${LLAMA_DIR}/src/unicode-data.cpp
-        # Model builders - if llama.cpp is using per-model files, include them
-        # otherwise rely on llama-model.cpp which contains model builders in newer
-        # versions of llama.cpp
+        # llama.cpp core sources are globbed below (LLAMA_CPP_SOURCES) to tolerate upstream file renames.
 
         ${VENDOR_DIR}/nlohmann/json_fwd.hpp
         ${VENDOR_DIR}/nlohmann/json.hpp
@@ -65,6 +39,9 @@ set(SMOLLM_SOURCES
         ${COMMON_DIR}/ngram-cache.cpp
         ${COMMON_DIR}/sampling.cpp
 
+        # llmedge-local build info for llama.cpp common
+        ${LLMEDGE_CPP_ROOT}/llama_build_info.cpp
+
         ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
         ${LLMEDGE_CPP_ROOT}/smollm.cpp
         # libmtmd (multimodal projector) from llama.cpp
@@ -74,10 +51,38 @@ set(SMOLLM_SOURCES
         ${LLAMA_DIR}/tools/mtmd/clip.cpp
 )
 
-# If llama.cpp contains per-model source files and does *not* provide a consolidated
-# `llama-model.cpp`, append them to SMOLLM_SOURCES. This avoids duplicate symbols when the
-# consolidated model source is present in newer llama.cpp versions.
-if(EXISTS "${LLAMA_DIR}/src/models" AND NOT EXISTS "${LLAMA_DIR}/src/llama-model.cpp")
+if (${ANDROID_ABI} STREQUAL "arm64-v8a" OR ${ANDROID_ABI} STREQUAL "armeabi-v7a")
+        list(APPEND SMOLLM_SOURCES
+                ${GGML_DIR}/src/ggml-cpu/arch/arm/quants.c
+                ${GGML_DIR}/src/ggml-cpu/arch/arm/repack.cpp
+        )
+elseif (${ANDROID_ABI} STREQUAL "x86" OR ${ANDROID_ABI} STREQUAL "x86_64")
+        list(APPEND SMOLLM_SOURCES
+                ${GGML_DIR}/src/ggml-cpu/arch/x86/quants.c
+                ${GGML_DIR}/src/ggml-cpu/arch/x86/repack.cpp
+        )
+endif()
+
+# mtmd has additional model-specific graph implementations under tools/mtmd/models/*.cpp
+file(GLOB MTMD_MODEL_SOURCES "${LLAMA_DIR}/tools/mtmd/models/*.cpp")
+if(MTMD_MODEL_SOURCES)
+        list(APPEND SMOLLM_SOURCES ${MTMD_MODEL_SOURCES})
+endif()
+
+file(GLOB LLAMA_CPP_SOURCES
+        "${LLAMA_DIR}/src/*.cpp"
+        "${LLAMA_DIR}/src/*.c"
+)
+if(LLAMA_CPP_SOURCES)
+        list(APPEND SMOLLM_SOURCES ${LLAMA_CPP_SOURCES})
+else()
+        message(FATAL_ERROR "No llama.cpp sources found under ${LLAMA_DIR}/src")
+endif()
+
+# If llama.cpp contains per-model source files, append them to SMOLLM_SOURCES.
+# Newer llama.cpp versions keep many model-specific builders in src/models/*.cpp; without
+# these, link errors like llm_build_* will occur.
+if(EXISTS "${LLAMA_DIR}/src/models")
         file(GLOB LLAMA_MODEL_SOURCES "${LLAMA_DIR}/src/models/*.cpp")
         if(LLAMA_MODEL_SOURCES)
                 list(APPEND SMOLLM_SOURCES ${LLAMA_MODEL_SOURCES})
@@ -159,6 +164,7 @@ function(build_library target_name)
             ${GGML_DIR}/src
             ${GGML_DIR}/src/ggml-cpu
             ${LLAMA_DIR}/include
+            ${LLAMA_DIR}/src
             ${LLAMA_DIR}/tools/mtmd
             ${VENDOR_DIR}
     )
@@ -190,7 +196,7 @@ function(build_library target_name)
 
     target_link_libraries(
             ${target_name}
-            android log
+            android log dl
             -fopenmp -static-openmp
     )
 
@@ -222,9 +228,13 @@ endfunction()
 
 function(build_library_universal target_name)
     build_library(${target_name})
+    set(_ggml_cpu_flags -DGGML_USE_CPU)
+    if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+        list(APPEND _ggml_cpu_flags -DGGML_USE_CPU_AARCH64)
+    endif()
     target_compile_options(
             ${target_name}
             PUBLIC
-            -DGGML_USE_CPU -DGGML_USE_CPU_AARCH64 -O3 -funroll-loops
+            ${_ggml_cpu_flags} -O3 -funroll-loops
     )
 endfunction()

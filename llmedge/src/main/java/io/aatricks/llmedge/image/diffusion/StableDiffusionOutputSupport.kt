@@ -10,6 +10,49 @@ internal object StableDiffusionOutputSupport {
     private const val MIN_FRAME_BATCH = 4
     private const val MAX_FRAME_BATCH = 8
 
+    private fun normalizeFrameToRgb24(
+        logTag: String,
+        bytes: ByteArray,
+        width: Int,
+        height: Int,
+    ): ByteArray {
+        val pixelCount = (width * height).coerceAtLeast(1)
+        val expectedRgb = pixelCount * 3
+        val expectedRgba = pixelCount * 4
+
+        return when (bytes.size) {
+            expectedRgb -> bytes
+            expectedRgba -> {
+                AndroidLogAdapter.w(logTag, "Frame appears to be RGBA/BGRA (${bytes.size} bytes). Stripping alpha to RGB24.")
+                val out = ByteArray(expectedRgb)
+                var src = 0
+                var dst = 0
+                while (src + 3 < bytes.size && dst + 2 < out.size) {
+                    out[dst++] = bytes[src]
+                    out[dst++] = bytes[src + 1]
+                    out[dst++] = bytes[src + 2]
+                    src += 4
+                }
+                out
+            }
+            else -> {
+                throw IllegalArgumentException(
+                    "Unexpected frame byte size=${bytes.size}. Expected $expectedRgb (RGB24) or $expectedRgba (RGBA32) for ${width}x${height}.",
+                )
+            }
+        }
+    }
+
+    fun normalizeFramesToRgb24(
+        logTag: String,
+        frameBytes: Array<ByteArray>,
+        width: Int,
+        height: Int,
+    ): Array<ByteArray> {
+        if (frameBytes.isEmpty()) return frameBytes
+        return frameBytes.map { normalizeFrameToRgb24(logTag, it, width, height) }.toTypedArray()
+    }
+
     fun bitmapToRgbBytes(
         bitmap: Bitmap,
         reusableBuffer: ThreadLocal<ByteArray>,
@@ -39,79 +82,44 @@ internal object StableDiffusionOutputSupport {
         return Triple(rgb, width, height)
     }
 
-    fun recoverPotentiallyBlackFrames(
+    fun logVideoFrameStats(
         logTag: String,
-        frameBytes: Array<ByteArray>,
-    ): Array<ByteArray> {
-        val avg = frameBytes.map { computeAverageBrightness(it) }.average()
+        frameBytesRgb24: Array<ByteArray>,
+    ) {
+        if (frameBytesRgb24.isEmpty()) return
+        val avg = frameBytesRgb24.map { computeAverageBrightnessRgb24(it) }.average()
         AndroidLogAdapter.d(
             logTag,
-            "Video frame analysis: ${frameBytes.size} frames, avg brightness=$avg, first frame size=${frameBytes.firstOrNull()?.size ?: 0}",
+            "Video frame analysis: ${frameBytesRgb24.size} frames, avg brightness=$avg, first frame size=${frameBytesRgb24.firstOrNull()?.size ?: 0}",
         )
-        if (avg >= 1.0) {
-            return frameBytes
-        }
-
-        AndroidLogAdapter.w(
-            logTag,
-            "Detected potentially black frames (avg brightness < 1.0), attempting channel swap...",
-        )
-        val swapped =
-            frameBytes
-                .map { bytes ->
-                    val out = ByteArray(bytes.size)
-                    var j = 0
-                    var k = 0
-                    while (k + 2 < bytes.size) {
-                        val r = bytes[k]
-                        val g = bytes[k + 1]
-                        val b = bytes[k + 2]
-                        out[j++] = b
-                        out[j++] = g
-                        out[j++] = r
-                        k += 3
-                    }
-                    out
-                }
-                .toTypedArray()
-        val swappedAvg = swapped.map { computeAverageBrightness(it) }.average()
-        AndroidLogAdapter.d(logTag, "After BGR swap: avg brightness=$swappedAvg")
-        if (swappedAvg > avg) {
-            AndroidLogAdapter.w(logTag, "Swapped RGB->BGR for video frames to recover non-black output")
-            return swapped
-        }
 
         if (avg < 0.1) {
-            frameBytes.firstOrNull()?.let { firstFrame ->
-                if (firstFrame.size >= 30) {
-                    val sampleBytes = firstFrame.take(30).map { it.toInt() and 0xFF }
-                    AndroidLogAdapter.e(
-                        logTag,
-                        "Frame appears completely black. First 30 bytes: $sampleBytes",
-                    )
-                }
-            }
+            val first = frameBytesRgb24.first()
+            val sample = first.take(30).map { it.toInt() and 0xFF }
+            val nonZero = first.count { it.toInt() != 0 }
+            AndroidLogAdapter.e(
+                logTag,
+                "Frames appear nearly black (avg brightness < 0.1). first30=$sample nonZeroBytes=$nonZero/${first.size}",
+            )
         }
-        return frameBytes
     }
 
     fun convertFramesToBitmaps(
-        frameBytes: Array<ByteArray>,
+        frameBytesRgb24: Array<ByteArray>,
         width: Int,
         height: Int,
         onRemainingFrames: ((remaining: Int) -> Unit)? = null,
     ): List<Bitmap> {
-        val batchSize = determineBatchSize(frameBytes.size)
-        val bitmaps = ArrayList<Bitmap>(frameBytes.size)
+        val batchSize = determineBatchSize(frameBytesRgb24.size)
+        val bitmaps = ArrayList<Bitmap>(frameBytesRgb24.size)
         val pixelBuffer = IntArray(width * height)
         var index = 0
-        while (index < frameBytes.size) {
-            val end = min(index + batchSize, frameBytes.size)
+        while (index < frameBytesRgb24.size) {
+            val end = min(index + batchSize, frameBytesRgb24.size)
             for (i in index until end) {
-                val bytesCopy = frameBytes[i].clone()
-                bitmaps += ImageUtils.rgbBytesToBitmap(bytesCopy, width, height, pixelBuffer)
+                bitmaps += ImageUtils.rgbBytesToBitmap(frameBytesRgb24[i], width, height, pixelBuffer)
             }
-            val remaining = frameBytes.size - end
+            val remaining = frameBytesRgb24.size - end
             if (remaining > 0) {
                 onRemainingFrames?.invoke(remaining)
             }
@@ -152,7 +160,7 @@ internal object StableDiffusionOutputSupport {
             (runtime.totalMemory() - runtime.freeMemory()) / bytesInMb
         }
 
-    private fun computeAverageBrightness(bytes: ByteArray): Double {
+    private fun computeAverageBrightnessRgb24(bytes: ByteArray): Double {
         var sum = 0L
         var index = 0
         val totalPixels = (bytes.size / 3).coerceAtLeast(1)

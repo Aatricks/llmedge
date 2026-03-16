@@ -143,28 +143,28 @@ internal object StableDiffusionLoadHeuristics {
         var estimatedDeviceParamsBytes = 0L
         var freeVulkanBytes = 0L
 
-        if (!effectiveOffloadToCpu) {
-            val vulkanDevices = getVulkanDeviceCount()
-            if (vulkanDevices > 0) {
-                var maxTotal = 0L
-                for (device in 0 until vulkanDevices) {
-                    val memory = getVulkanDeviceMemory(device)
-                    if (memory != null && memory.size >= 2 && memory[1] > maxTotal) {
-                        maxTotal = memory[1]
-                        chosenDevice = device
-                    }
+        // Vulkan device selection is independent from offloadParamsToCpu.
+        // offloadParamsToCpu controls where weights live; Vulkan can still be beneficial for compute.
+        val vulkanDevices = getVulkanDeviceCount()
+        if (vulkanDevices > 0) {
+            var maxTotal = 0L
+            for (device in 0 until vulkanDevices) {
+                val memory = getVulkanDeviceMemory(device)
+                if (memory != null && memory.size >= 2 && memory[1] > maxTotal) {
+                    maxTotal = memory[1]
+                    chosenDevice = device
                 }
+            }
 
-                if (chosenDevice >= 0) {
-                    estimatedDeviceParamsBytes = estimateModelParamsMemoryBytes(resolvedModelPath, chosenDevice)
-                    if (estimatedDeviceParamsBytes > 0) {
-                        val memory = getVulkanDeviceMemory(chosenDevice)
-                        if (memory != null && memory.size >= 2) {
-                            freeVulkanBytes = memory[0]
-                            val threshold = 0.9
-                            if (!forceVulkan && estimatedDeviceParamsBytes.toDouble() > freeVulkanBytes.toDouble() * threshold) {
-                                effectiveOffloadToCpu = true
-                            }
+            if (chosenDevice >= 0) {
+                estimatedDeviceParamsBytes = estimateModelParamsMemoryBytes(resolvedModelPath, chosenDevice)
+                if (estimatedDeviceParamsBytes > 0) {
+                    val memory = getVulkanDeviceMemory(chosenDevice)
+                    if (memory != null && memory.size >= 2) {
+                        freeVulkanBytes = memory[0]
+                        val threshold = 0.9
+                        if (!forceVulkan && estimatedDeviceParamsBytes.toDouble() > freeVulkanBytes.toDouble() * threshold) {
+                            effectiveOffloadToCpu = true
                         }
                     }
                 }

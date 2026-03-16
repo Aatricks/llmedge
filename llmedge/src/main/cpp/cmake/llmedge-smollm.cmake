@@ -1,8 +1,10 @@
 # SmolLM + GGUF reader JNI targets.
 
-build_library_universal("smollm")
 if (${ANDROID_ABI} STREQUAL "armeabi-v7a")
+    build_library_armv7a("smollm" "-march=armv7-a" "-mfpu=neon-vfpv4" "-mfloat-abi=softfp")
     build_library_armv7a("smollm_v7a" "-march=armv7-a" "-mfpu=neon-vfpv4" "-mfloat-abi=softfp")
+else()
+    build_library_universal("smollm")
 endif()
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     build_library_arm64("smollm_v8" "-march=armv8-a")

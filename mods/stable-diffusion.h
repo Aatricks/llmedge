@@ -48,6 +48,8 @@ enum sample_method_t {
     LCM_SAMPLE_METHOD,
     DDIM_TRAILING_SAMPLE_METHOD,
     TCD_SAMPLE_METHOD,
+    RES_MULTISTEP_SAMPLE_METHOD,
+    RES_2S_SAMPLE_METHOD,
     SAMPLE_METHOD_COUNT
 };
 
@@ -60,7 +62,9 @@ enum scheduler_t {
     SGM_UNIFORM_SCHEDULER,
     SIMPLE_SCHEDULER,
     SMOOTHSTEP_SCHEDULER,
+    KL_OPTIMAL_SCHEDULER,
     LCM_SCHEDULER,
+    BONG_TANGENT_SCHEDULER,
     SCHEDULER_COUNT
 };
 
@@ -168,7 +172,6 @@ typedef struct {
     const char* vae_path;
     const char* taesd_path;
     const char* control_net_path;
-    const char* lora_model_dir;
     const sd_embedding_t* embeddings;
     uint32_t embedding_count;
     const char* photo_maker_path;
@@ -182,18 +185,22 @@ typedef struct {
     enum prediction_t prediction;
     enum lora_apply_mode_t lora_apply_mode;
     bool offload_params_to_cpu;
+    bool enable_mmap;
     bool keep_clip_on_cpu;
     bool keep_control_net_on_cpu;
     bool keep_vae_on_cpu;
+    bool flash_attn;
     bool diffusion_flash_attn;
     bool tae_preview_only;
     bool diffusion_conv_direct;
     bool vae_conv_direct;
+    bool circular_x;
+    bool circular_y;
     bool force_sdxl_vae_conv_scale;
     bool chroma_use_dit_mask;
     bool chroma_use_t5_mask;
     int chroma_t5_mask_pad;
-    float flow_shift;
+    bool qwen_image_zero_cond_t;
 } sd_ctx_params_t;
 
 typedef struct {
@@ -253,6 +260,7 @@ typedef struct {
     int shifted_timestep;
     float* custom_sigmas;
     int custom_sigmas_count;
+    float flow_shift;
 } sd_sample_params_t;
 
 typedef struct {
@@ -262,12 +270,42 @@ typedef struct {
     float style_strength;
 } sd_pm_params_t;  // photo maker
 
+enum sd_cache_mode_t {
+    SD_CACHE_DISABLED = 0,
+    SD_CACHE_EASYCACHE,
+    SD_CACHE_UCACHE,
+    SD_CACHE_DBCACHE,
+    SD_CACHE_TAYLORSEER,
+    SD_CACHE_CACHE_DIT,
+    SD_CACHE_SPECTRUM,
+};
+
 typedef struct {
-    bool enabled;
+    enum sd_cache_mode_t mode;
     float reuse_threshold;
     float start_percent;
     float end_percent;
-} sd_easycache_params_t;
+    float error_decay_rate;
+    bool use_relative_threshold;
+    bool reset_error_on_compute;
+    int Fn_compute_blocks;
+    int Bn_compute_blocks;
+    float residual_diff_threshold;
+    int max_warmup_steps;
+    int max_cached_steps;
+    int max_continuous_cached_steps;
+    int taylorseer_n_derivatives;
+    int taylorseer_skip_interval;
+    const char* scm_mask;
+    bool scm_policy_dynamic;
+    float spectrum_w;
+    int spectrum_m;
+    float spectrum_lam;
+    int spectrum_window_size;
+    float spectrum_flex_window;
+    int spectrum_warmup_steps;
+    float spectrum_stop_percent;
+} sd_cache_params_t;
 
 typedef struct {
     bool is_high_noise;
@@ -297,7 +335,7 @@ typedef struct {
     float control_strength;
     sd_pm_params_t pm_params;
     sd_tiling_params_t vae_tiling_params;
-    sd_easycache_params_t easycache;
+    sd_cache_params_t cache;
 } sd_img_gen_params_t;
 
 typedef struct {
@@ -319,7 +357,8 @@ typedef struct {
     int64_t seed;
     int video_frames;
     float vace_strength;
-    sd_easycache_params_t easycache;
+    sd_tiling_params_t vae_tiling_params;
+    sd_cache_params_t cache;
 } sd_vid_gen_params_t;
 
 typedef struct sd_ctx_t sd_ctx_t;
@@ -335,6 +374,10 @@ SD_API void sd_set_preview_callback(sd_preview_cb_t cb, enum preview_t mode, int
 // llmedge extension: allow forcing CPU backend even when Vulkan is compiled in.
 // This flag is process-global and should be set immediately before creating a new sd_ctx.
 SD_API void sd_set_vulkan_enabled(bool enabled);
+
+// llmedge extension: pick a Vulkan device index (best-effort).
+// This is process-global and should be set immediately before creating a new sd_ctx.
+SD_API void sd_set_vulkan_device(int device_index);
 
 SD_API int32_t sd_get_num_physical_cores();
 SD_API const char* sd_get_system_info();
@@ -354,7 +397,7 @@ SD_API enum preview_t str_to_preview(const char* str);
 SD_API const char* sd_lora_apply_mode_name(enum lora_apply_mode_t mode);
 SD_API enum lora_apply_mode_t str_to_lora_apply_mode(const char* str);
 
-SD_API void sd_easycache_params_init(sd_easycache_params_t* easycache_params);
+SD_API void sd_cache_params_init(sd_cache_params_t* cache_params);
 
 SD_API void sd_ctx_params_init(sd_ctx_params_t* sd_ctx_params);
 SD_API char* sd_ctx_params_to_str(const sd_ctx_params_t* sd_ctx_params);
@@ -366,7 +409,7 @@ SD_API void sd_sample_params_init(sd_sample_params_t* sample_params);
 SD_API char* sd_sample_params_to_str(const sd_sample_params_t* sample_params);
 
 SD_API enum sample_method_t sd_get_default_sample_method(const sd_ctx_t* sd_ctx);
-SD_API enum scheduler_t sd_get_default_scheduler(const sd_ctx_t* sd_ctx);
+SD_API enum scheduler_t sd_get_default_scheduler(const sd_ctx_t* sd_ctx, enum sample_method_t sample_method);
 
 SD_API void sd_img_gen_params_init(sd_img_gen_params_t* sd_img_gen_params);
 SD_API char* sd_img_gen_params_to_str(const sd_img_gen_params_t* sd_img_gen_params);
@@ -418,7 +461,8 @@ SD_API bool convert(const char* input_path,
                     const char* vae_path,
                     const char* output_path,
                     enum sd_type_t output_type,
-                    const char* tensor_type_rules);
+                    const char* tensor_type_rules,
+                    bool convert_name);
 
 SD_API bool preprocess_canny(sd_image_t image,
                              float high_threshold,

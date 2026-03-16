@@ -48,9 +48,11 @@ class VideoGenerationLinuxE2ETest {
         Assume.assumeTrue("No test model specified in $MODEL_PATH_ENV or LLMEDGE_TEST_MODEL_ID", !modelPath.isNullOrBlank() || !modelId.isNullOrBlank())
 
         // Check that native library path is properly set and library file exists
+        val arch = System.getProperty("os.arch")
+        val archDir = if (arch == "aarch64" || arch == "arm64") "linux-aarch64" else "linux-x86_64"
         val libPath = System.getenv(LIB_PATH_ENV)
             ?: System.getProperty(LIB_PATH_ENV)
-            ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
+            ?: "${System.getProperty("user.dir")}/llmedge/build/native/$archDir/libsdcpp.so"
 
         val libFile = java.io.File(libPath)
         println("[VideoGenerationLinuxE2ETest] libPath=$libPath libExists=${libFile.exists()}")

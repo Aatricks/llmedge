@@ -5,6 +5,8 @@
 #include <mutex>
 #include <stdexcept>
 #include <algorithm>
+#include <cstdlib>
+#include <cstdio>
 
 #include "jni_thread_cache.h"
 
@@ -49,7 +51,61 @@ inline int __android_log_print(int level, const char* tag, const char* format, .
 
 #define LOG_TAG "SmolSD"
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define ALOGW(...) __android_log_print(ANDROID_LOG_WARN,  LOG_TAG, __VA_ARGS__)
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
+
+// ---------------------------------------------------------------------------
+// Compatibility shims for APIs that are no longer exported by newer
+// stable-diffusion.cpp versions. These keep llmedge JNI building while
+// preserving best-effort behavior.
+// ---------------------------------------------------------------------------
+extern "C" SD_API void sd_set_vulkan_enabled(bool enabled) {
+    if (!enabled) {
+        ALOGW("sd_set_vulkan_enabled(false): upstream runtime no longer exposes a hard Vulkan disable toggle");
+    }
+}
+
+extern "C" SD_API void sd_set_vulkan_device(int device_index) {
+    char device_str[32];
+    std::snprintf(device_str, sizeof(device_str), "%d", device_index);
+    if (setenv("SD_VK_DEVICE", device_str, 1) != 0) {
+        ALOGW("Failed to set SD_VK_DEVICE=%s", device_str);
+    }
+}
+
+extern "C" SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t*,
+                                                              const char*,
+                                                              int,
+                                                              int,
+                                                              int,
+                                                              bool) {
+    return nullptr;
+}
+
+extern "C" SD_API void sd_free_condition(sd_condition_raw_t* cond) {
+    if (!cond) return;
+    if (cond->c_crossattn.data) free(cond->c_crossattn.data);
+    if (cond->c_vector.data) free(cond->c_vector.data);
+    if (cond->c_concat.data) free(cond->c_concat.data);
+    free(cond);
+}
+
+extern "C" SD_API sd_image_t* sd_generate_image_with_precomputed_condition(
+        sd_ctx_t* sd_ctx,
+        const sd_img_gen_params_t* params,
+        const sd_condition_raw_t*,
+        const sd_condition_raw_t*) {
+    return generate_image(sd_ctx, params);
+}
+
+extern "C" SD_API sd_image_t* sd_generate_video_with_precomputed_condition(
+        sd_ctx_t* sd_ctx,
+        const sd_vid_gen_params_t* params,
+        const sd_condition_raw_t*,
+        const sd_condition_raw_t*,
+        int* num_frames_out) {
+    return generate_video(sd_ctx, params, num_frames_out);
+}
 
 // --------------------------------------------------------------------------------------
 // Upstream stable-diffusion.cpp enum compatibility
@@ -100,6 +156,18 @@ static inline bool map_scheduler_from_kotlin_id(int kotlin_id, enum scheduler_t*
     if (upstream < 0 || upstream >= (int)SCHEDULER_COUNT) return false;
     *out = (enum scheduler_t)upstream;
     return true;
+}
+
+static inline void apply_easycache_compat(sd_cache_params_t* cache,
+                                          bool enabled,
+                                          float reuse_threshold,
+                                          float start_percent,
+                                          float end_percent) {
+    if (!cache) return;
+    cache->mode = enabled ? SD_CACHE_EASYCACHE : SD_CACHE_DISABLED;
+    cache->reuse_threshold = reuse_threshold;
+    cache->start_percent = start_percent;
+    cache->end_percent = end_percent;
 }
 
 static void free_sd_generated_frames(sd_image_t* frames, int numFrames) {
@@ -361,6 +429,23 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceMe
 #endif
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceDescription(JNIEnv* env, jclass clazz, jint deviceIndex) {
+    (void)clazz;
+#ifdef SD_USE_VULKAN
+    char desc[256];
+    desc[0] = '\0';
+    ggml_backend_vk_get_device_description((int)deviceIndex, desc, sizeof(desc));
+    if (desc[0] == '\0') {
+        return nullptr;
+    }
+    return env->NewStringUTF(desc);
+#else
+    (void)deviceIndex;
+    return nullptr;
+#endif
+}
+
 extern "C" JNIEXPORT jlong JNICALL
 Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeEstimateModelParamsMemory(JNIEnv* env, jclass clazz, jstring jModelPath, jint deviceIndex) {
     (void)clazz;
@@ -472,6 +557,32 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
 
     sd_set_vulkan_enabled(useVulkan == JNI_TRUE);
 
+#ifdef SD_USE_VULKAN
+    if (useVulkan == JNI_TRUE) {
+        const int device_count = ggml_backend_vk_get_device_count();
+        if (device_count > 0) {
+            int best = 0;
+            size_t best_total = 0;
+            for (int i = 0; i < device_count; ++i) {
+                size_t free_mem = 0, total_mem = 0;
+                ggml_backend_vk_get_device_memory(i, &free_mem, &total_mem);
+                char desc[256];
+                desc[0] = '\0';
+                ggml_backend_vk_get_device_description(i, desc, sizeof(desc));
+                ALOGI("Vulkan device %d: %s free=%zu total=%zu", i, desc[0] ? desc : "(unknown)", free_mem, total_mem);
+                if (total_mem > best_total) {
+                    best_total = total_mem;
+                    best = i;
+                }
+            }
+            ALOGI("Selecting Vulkan device %d", best);
+            sd_set_vulkan_device(best);
+        } else {
+            ALOGW("Vulkan requested but ggml reported 0 Vulkan devices");
+        }
+    }
+#endif
+
     sd_ctx_params_t p{};
     sd_ctx_params_init(&p);
     p.model_path = modelPath ? modelPath : "";
@@ -487,19 +598,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.keep_clip_on_cpu = keepClipOnCpu;
     p.keep_vae_on_cpu = keepVaeOnCpu;
     p.diffusion_flash_attn = flashAttn;
-    p.flow_shift = flowShift;
     // VAE decode only (usually true for TAE, false for full VAE if encoding needed for I2V)
     p.vae_decode_only = jvaeDecodeOnly;
     if (jLoraModelDir) {
-        const char* loraPath = env->GetStringUTFChars(jLoraModelDir, nullptr);
-        if (loraPath) {
-            p.lora_model_dir = strdup(loraPath);
-            env->ReleaseStringUTFChars(jLoraModelDir, loraPath);
-            if (!p.lora_model_dir) {
-                throwJavaException(env, "java/lang/OutOfMemoryError", "strdup() failed for lora_model_dir");
-                return 0;
-            }
-        }
+        ALOGW("nativeCreate: loraModelDir is ignored by current stable-diffusion.cpp API; pass LoRAs per-generation instead.");
     }
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
 
@@ -533,6 +635,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
 
     auto* handle = new SdHandle();
     handle->ctx = ctx;
+    handle->flowShift = flowShift;
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
@@ -602,6 +705,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     sd_sample_params_init(&sample);
     if (steps > 0) sample.sample_steps = steps;
     sample.guidance.txt_cfg = cfg > 0 ? cfg : 7.0f;
+    sample.flow_shift = handle->flowShift;
 
     sd_img_gen_params_t gen{};
     sd_img_gen_params_init(&gen);
@@ -613,10 +717,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     gen.seed = seed;
     gen.batch_count = 1;
     gen.vae_tiling_params.enabled = jVaeTiling ? true : false;
-    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
-    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
-    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
-    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
+    apply_easycache_compat(&gen.cache,
+                           jEasyCacheEnabled == JNI_TRUE,
+                           (float)jEasyCacheReuseThreshold,
+                           (float)jEasyCacheStartPercent,
+                           (float)jEasyCacheEndPercent);
 
     sd_image_t* out = nullptr;
     try {
@@ -678,6 +783,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
     sd_sample_params_init(&sample);
     if (steps > 0) sample.sample_steps = steps;
     sample.guidance.txt_cfg = cfg > 0 ? cfg : 7.0f;
+    sample.flow_shift = handle->flowShift;
 
     sd_img_gen_params_t gen{};
     sd_img_gen_params_init(&gen);
@@ -689,10 +795,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
     gen.seed = seed;
     gen.batch_count = 1;
     gen.vae_tiling_params.enabled = jVaeTiling ? true : false;
-    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
-    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
-    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
-    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
+    apply_easycache_compat(&gen.cache,
+                           jEasyCacheEnabled == JNI_TRUE,
+                           (float)jEasyCacheReuseThreshold,
+                           (float)jEasyCacheStartPercent,
+                           (float)jEasyCacheEndPercent);
 
     sd_image_t* out = nullptr;
     try {
@@ -762,6 +869,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
     sd_sample_params_init(&sample);
     if (steps > 0) sample.sample_steps = steps;
     if (cfg > 0.f) sample.guidance.txt_cfg = cfg;
+    sample.flow_shift = handle->flowShift;
 
     sd_vid_gen_params_t gen{};
     sd_vid_gen_params_init(&gen);
@@ -813,10 +921,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
     }
 
     // Set easycache parameters for both T2V and I2V modes
-    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
-    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
-    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
-    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
+    apply_easycache_compat(&gen.cache,
+                           jEasyCacheEnabled == JNI_TRUE,
+                           (float)jEasyCacheReuseThreshold,
+                           (float)jEasyCacheStartPercent,
+                           (float)jEasyCacheEndPercent);
 
     // Video sampling steps are global for the clip; do not multiply by frame count.
     handle->stepsPerFrame = 0;
@@ -1118,6 +1227,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
     sd_sample_params_init(&sample);
     if (steps > 0) sample.sample_steps = steps;
     sample.guidance.txt_cfg = cfg > 0 ? cfg : 7.0f;
+    sample.flow_shift = handle->flowShift;
 
     sd_img_gen_params_t gen{};
     sd_img_gen_params_init(&gen);
@@ -1128,10 +1238,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
     gen.sample_params = sample;
     gen.seed = seed;
     gen.batch_count = 1;
-    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
-    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
-    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
-    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
+    apply_easycache_compat(&gen.cache,
+                           jEasyCacheEnabled == JNI_TRUE,
+                           (float)jEasyCacheReuseThreshold,
+                           (float)jEasyCacheStartPercent,
+                           (float)jEasyCacheEndPercent);
 
     sd_image_t* out = nullptr;
     try {
@@ -1213,6 +1324,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2VidWithPrecom
     sd_sample_params_init(&sample);
     if (steps > 0) sample.sample_steps = steps;
     if (cfg > 0.f) sample.guidance.txt_cfg = cfg;
+    sample.flow_shift = handle->flowShift;
 
     sd_vid_gen_params_t gen{};
     sd_vid_gen_params_init(&gen);
@@ -1264,10 +1376,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2VidWithPrecom
     }
 
     // Set easycache parameters for both T2V and I2V modes
-    gen.easycache.enabled = jEasyCacheEnabled ? true : false;
-    gen.easycache.reuse_threshold = (float)jEasyCacheReuseThreshold;
-    gen.easycache.start_percent = (float)jEasyCacheStartPercent;
-    gen.easycache.end_percent = (float)jEasyCacheEndPercent;
+    apply_easycache_compat(&gen.cache,
+                           jEasyCacheEnabled == JNI_TRUE,
+                           (float)jEasyCacheReuseThreshold,
+                           (float)jEasyCacheStartPercent,
+                           (float)jEasyCacheEndPercent);
 
     sd_condition_raw_t* cond_use = reconstruct_condition(env, condArr);
     sd_condition_raw_t* uncond_use = reconstruct_condition(env, uncondArr);

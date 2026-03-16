@@ -50,6 +50,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     // Reusable pixel buffer for txt2img RGB→ARGB conversion
     private var txt2imgPixelBuffer: IntArray? = null
 
+    private var vulkanEnabledForMetrics: Boolean = false
+
     @Volatile private var cachedProgressCallback: VideoProgressCallback? = null
 
     @Volatile private var lastGenerationMetrics: GenerationMetrics? = null
@@ -644,6 +646,18 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         }
 
         /**
+         * Get a human-readable Vulkan device description.
+         */
+        @JvmStatic
+        fun getVulkanDeviceDescription(deviceIndex: Int = 0): String? {
+            return try {
+                nativeGetVulkanDeviceDescription(deviceIndex)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+
+        /**
          * Public wrapper that attempts to estimate the model parameter memory (in bytes) for a
          * model path on a given device. Returns 0 on failure or if the native estimation is not
          * available. This is a convenience helper used by higher-level managers to compute cache
@@ -690,6 +704,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         @JvmStatic
         private external fun nativeGetVulkanDeviceMemory(deviceIndex: Int): LongArray?
+
+        @JvmStatic
+        private external fun nativeGetVulkanDeviceDescription(deviceIndex: Int): String?
 
         @JvmStatic
         private external fun nativeEstimateModelParamsMemory(
@@ -890,6 +907,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 flashAttn = flashAttn,
             )
 
+            val requestedVulkan = forceVulkan || loadPlan.chosenDevice >= 0
+
             val handle =
                 createHandleWithGpuFallback(
                     resolved = resolved,
@@ -915,6 +934,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             }
 
             val instance = StableDiffusion(handle)
+            instance.vulkanEnabledForMetrics = requestedVulkan
             instance.updateModelMetadata(resolved.metadata)
 
             if (instance.modelMetadata?.mobileSupported == false) {
@@ -968,6 +988,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             var effectiveKeepClipOnCpu = loadPlan.effectiveKeepClipOnCpu
             var effectiveKeepVaeOnCpu = loadPlan.effectiveKeepVaeOnCpu
 
+            val shouldUseVulkan = forceVulkan || loadPlan.chosenDevice >= 0
+
             var handle =
                 nativeCreateOrThrow(
                     modelPath = resolved.modelPath,
@@ -975,7 +997,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     t5xxlPath = resolved.t5xxlPath,
                     taesdPath = taesdPath,
                     nThreads = nThreads,
-                    useVulkan = forceVulkan,
+                    useVulkan = shouldUseVulkan,
                     offloadToCpu = effectiveOffloadToCpu,
                     keepClipOnCpu = effectiveKeepClipOnCpu,
                     keepVaeOnCpu = effectiveKeepVaeOnCpu,
@@ -985,11 +1007,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     loraModelDir = loraModelDir,
                     loraApplyMode = loraApplyMode,
                 )
-            if (handle == 0L && forceVulkan) {
-                logW(LOG_TAG, "nativeCreate failed with forceVulkan=true; retrying with CPU offload as a fallback")
-                effectiveOffloadToCpu = true
-                effectiveKeepClipOnCpu = true
-                effectiveKeepVaeOnCpu = true
+            if (handle == 0L && shouldUseVulkan) {
+                logW(LOG_TAG, "nativeCreate failed with Vulkan enabled; retrying with CPU backend")
                 handle =
                     nativeCreateOrThrow(
                         modelPath = resolved.modelPath,
@@ -1007,6 +1026,30 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         loraModelDir = loraModelDir,
                         loraApplyMode = loraApplyMode,
                     )
+
+                if (handle == 0L && !effectiveOffloadToCpu) {
+                    logW(LOG_TAG, "nativeCreate failed on CPU backend; retrying with CPU offload")
+                    effectiveOffloadToCpu = true
+                    effectiveKeepClipOnCpu = true
+                    effectiveKeepVaeOnCpu = true
+                    handle =
+                        nativeCreateOrThrow(
+                            modelPath = resolved.modelPath,
+                            vaePath = resolved.vaePath,
+                            t5xxlPath = resolved.t5xxlPath,
+                            taesdPath = taesdPath,
+                            nThreads = nThreads,
+                            useVulkan = false,
+                            offloadToCpu = effectiveOffloadToCpu,
+                            keepClipOnCpu = effectiveKeepClipOnCpu,
+                            keepVaeOnCpu = effectiveKeepVaeOnCpu,
+                            flashAttn = flashAttn,
+                            vaeDecodeOnly = vaeDecodeOnly,
+                            flowShift = flowShift,
+                            loraModelDir = loraModelDir,
+                            loraApplyMode = loraApplyMode,
+                        )
+                }
             }
             return handle
         }
@@ -1356,12 +1399,12 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
     }
 
     private fun convertFramesToBitmaps(
-            frameBytes: Array<ByteArray>,
+            frameBytesRgb24: Array<ByteArray>,
             width: Int,
             height: Int,
     ): List<Bitmap> {
         return StableDiffusionOutputSupport.convertFramesToBitmaps(
-            frameBytes = frameBytes,
+            frameBytesRgb24 = frameBytesRgb24,
             width = width,
             height = height,
             onRemainingFrames = { remaining ->
@@ -1504,10 +1547,13 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     )
                 }
 
-                frameBytes = StableDiffusionOutputSupport.recoverPotentiallyBlackFrames(LOG_TAG, frameBytes)
+                val frameBytesRgb24 =
+                    StableDiffusionOutputSupport.normalizeFramesToRgb24(LOG_TAG, frameBytes, params.width, params.height)
+
+                StableDiffusionOutputSupport.logVideoFrameStats(LOG_TAG, frameBytesRgb24)
 
                 val conversionStart = System.nanoTime()
-                val bitmaps = convertFramesToBitmaps(frameBytes, params.width, params.height)
+                val bitmaps = convertFramesToBitmaps(frameBytesRgb24, params.width, params.height)
                 val conversionSeconds = ((System.nanoTime() - conversionStart) / 1_000_000_000f)
                 val totalSeconds = ((System.nanoTime() - startNanos) / 1_000_000_000f)
                 val memoryAfter = readNativeMemoryMb()
@@ -1518,7 +1564,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         framesPerSecond = if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
                         timePerStep = if (params.steps > 0) totalSeconds / params.steps else 0f,
                         peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
-                        vulkanEnabled = false,
+                        vulkanEnabled = vulkanEnabledForMetrics,
                         frameConversionTimeSeconds = conversionSeconds,
                     )
 
