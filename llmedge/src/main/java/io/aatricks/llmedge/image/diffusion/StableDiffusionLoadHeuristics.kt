@@ -111,6 +111,7 @@ internal object StableDiffusionLoadHeuristics {
         offloadToCpu: Boolean,
         keepClipOnCpu: Boolean,
         keepVaeOnCpu: Boolean,
+        allowVulkan: Boolean,
         forceVulkan: Boolean,
         activityManagerOverride: ActivityManager? = null,
         getVulkanDeviceCount: () -> Int = { StableDiffusion.getVulkanDeviceCount() },
@@ -145,7 +146,7 @@ internal object StableDiffusionLoadHeuristics {
 
         // Vulkan device selection is independent from offloadParamsToCpu.
         // offloadParamsToCpu controls where weights live; Vulkan can still be beneficial for compute.
-        val vulkanDevices = getVulkanDeviceCount()
+        val vulkanDevices = if (allowVulkan) getVulkanDeviceCount() else 0
         if (vulkanDevices > 0) {
             var maxTotal = 0L
             for (device in 0 until vulkanDevices) {

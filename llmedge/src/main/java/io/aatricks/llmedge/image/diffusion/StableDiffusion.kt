@@ -765,6 +765,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 flashAttn: Boolean = true,
                 vaeDecodeOnly: Boolean = true,
                 sequentialLoad: Boolean? = null,
+                allowVulkan: Boolean = true,
                 forceVulkan: Boolean = false,
                 preferPerformanceMode: Boolean = false,
                 token: String? = null,
@@ -802,6 +803,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         flashAttn = flashAttn,
                         vaeDecodeOnly = vaeDecodeOnly,
                         sequentialLoad = sequentialLoad,
+                        allowVulkan = allowVulkan,
                         forceVulkan = forceVulkan,
                         preferPerformanceMode = preferPerformanceMode,
                         flowShift = flowShift,
@@ -822,6 +824,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 flashAttn: Boolean = true,
                 vaeDecodeOnly: Boolean = true,
                 sequentialLoad: Boolean? = null,
+                allowVulkan: Boolean = true,
                 forceVulkan: Boolean = false,
                 preferPerformanceMode: Boolean = false,
                 token: String? = null,
@@ -859,6 +862,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         flashAttn = flashAttn,
                         vaeDecodeOnly = vaeDecodeOnly,
                         sequentialLoad = sequentialLoad,
+                        allowVulkan = allowVulkan,
                         forceVulkan = forceVulkan,
                         preferPerformanceMode = preferPerformanceMode,
                         flowShift = flowShift,
@@ -878,6 +882,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             flashAttn: Boolean,
             vaeDecodeOnly: Boolean,
             sequentialLoad: Boolean?,
+            allowVulkan: Boolean,
             forceVulkan: Boolean,
             preferPerformanceMode: Boolean,
             flowShift: Float,
@@ -893,6 +898,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     offloadToCpu = offloadToCpu,
                     keepClipOnCpu = keepClipOnCpu,
                     keepVaeOnCpu = keepVaeOnCpu,
+                    allowVulkan = allowVulkan,
                     forceVulkan = forceVulkan,
                 )
             StableDiffusionLoadHeuristics.warnIfLargeModelOnLowRam(
@@ -907,7 +913,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 flashAttn = flashAttn,
             )
 
-            val requestedVulkan = forceVulkan || loadPlan.chosenDevice >= 0
+            val requestedVulkan = allowVulkan && (forceVulkan || loadPlan.chosenDevice >= 0)
 
             val handle =
                 createHandleWithGpuFallback(
@@ -917,6 +923,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     loadPlan = loadPlan,
                     flashAttn = flashAttn,
                     vaeDecodeOnly = vaeDecodeOnly,
+                    allowVulkan = allowVulkan,
                     forceVulkan = forceVulkan,
                     flowShift = flowShift,
                     loraModelDir = loraModelDir,
@@ -979,6 +986,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             loadPlan: StableDiffusionLoadHeuristics.LoadPlan,
             flashAttn: Boolean,
             vaeDecodeOnly: Boolean,
+            allowVulkan: Boolean,
             forceVulkan: Boolean,
             flowShift: Float,
             loraModelDir: String?,
@@ -988,7 +996,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             var effectiveKeepClipOnCpu = loadPlan.effectiveKeepClipOnCpu
             var effectiveKeepVaeOnCpu = loadPlan.effectiveKeepVaeOnCpu
 
-            val shouldUseVulkan = forceVulkan || loadPlan.chosenDevice >= 0
+            val shouldUseVulkan = allowVulkan && (forceVulkan || loadPlan.chosenDevice >= 0)
 
             var handle =
                 nativeCreateOrThrow(

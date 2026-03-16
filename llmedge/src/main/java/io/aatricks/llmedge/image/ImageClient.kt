@@ -209,7 +209,7 @@ class ImageClient internal constructor(
         val usingCustomTae = taesdPath != null
         val tryVulkan = !usingCustomTae && (config.preferPerformanceMode && LLMEdge.isVulkanAvailable())
 
-        suspend fun loadAndGenerate(forceVulkan: Boolean): List<Bitmap> {
+        suspend fun loadAndGenerate(forceVulkan: Boolean, allowVulkan: Boolean = true): List<Bitmap> {
             val model =
                 StableDiffusion.load(
                     context = context,
@@ -224,6 +224,7 @@ class ImageClient internal constructor(
                     flashAttn = params.flashAttention,
                     vaeDecodeOnly = params.initImage == null,
                     sequentialLoad = if (params.forceSequentialLoad) true else null,
+                    allowVulkan = allowVulkan,
                     forceVulkan = forceVulkan,
                     preferPerformanceMode = config.preferPerformanceMode,
                     flowShift = params.flowShift,
@@ -275,7 +276,7 @@ class ImageClient internal constructor(
                     "ImageClient",
                     "Vulkan device lost during video generation; retrying once with Vulkan disabled (CPU backend)",
                 )
-                loadAndGenerate(forceVulkan = false)
+                loadAndGenerate(forceVulkan = false, allowVulkan = false)
             } else {
                 throw t
             }
@@ -353,7 +354,7 @@ class ImageClient internal constructor(
             t5Model.close()
         }
 
-        suspend fun loadAndGenerate(forceVulkan: Boolean): List<Bitmap> {
+        suspend fun loadAndGenerate(forceVulkan: Boolean, allowVulkan: Boolean = true): List<Bitmap> {
             onProgress?.invoke("Loading diffusion model", 0, params.steps)
             val diffusionModel =
                 StableDiffusion.load(
@@ -366,6 +367,7 @@ class ImageClient internal constructor(
                     offloadToCpu = true,
                     keepClipOnCpu = true,
                     keepVaeOnCpu = true,
+                    allowVulkan = allowVulkan,
                     forceVulkan = forceVulkan,
                     preferPerformanceMode = config.preferPerformanceMode,
                     flashAttn = params.flashAttention,
@@ -421,7 +423,7 @@ class ImageClient internal constructor(
                     "ImageClient",
                     "Vulkan device lost during video generation; retrying once with Vulkan disabled (CPU backend)",
                 )
-                loadAndGenerate(forceVulkan = false)
+                loadAndGenerate(forceVulkan = false, allowVulkan = false)
             } else {
                 throw t
             }
