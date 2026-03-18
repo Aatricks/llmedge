@@ -1,11 +1,16 @@
 package io.aatricks.llmedge
 
+import io.aatricks.llmedge.runtime.BackendRuntimePolicy
+import io.aatricks.llmedge.runtime.ComputeBackend
+import io.aatricks.llmedge.runtime.ComputeSubsystem
 import org.junit.Assert.*
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import io.aatricks.llmedge.speech.stt.Whisper
+import java.io.File
 
 /**
  * Unit tests for Whisper class - tests that don't require native library.
@@ -14,6 +19,12 @@ import io.aatricks.llmedge.speech.stt.Whisper
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class WhisperTest {
+    @After
+    fun tearDown() {
+        Whisper.resetLoadBridgeForTests()
+        Whisper.resetBackendAvailabilityForTests()
+        BackendRuntimePolicy.resetForTests()
+    }
 
     @Test
     fun `TranscriptionSegment startTimeMs converts correctly`() {
@@ -159,5 +170,68 @@ class WhisperTest {
 
         val srt = segment.toSrtEntry()
         assertTrue("SRT should contain hour value", srt.contains("02:30:45"))
+    }
+
+    @Test
+    fun `load prefers OpenCL and falls back to Vulkan after OpenCL failure`() {
+        val modelFile = File.createTempFile("whisper-load", ".bin").apply {
+            writeText("test")
+            deleteOnExit()
+        }
+        val attemptedBackends = mutableListOf<ComputeBackend>()
+
+        Whisper.overrideBackendAvailabilityForTests(openClAvailable = true, vulkanAvailable = true)
+        Whisper.overrideLoadBridgeForTests {
+            object : Whisper.Companion.LoadBridge {
+                override fun create(
+                    modelPath: String,
+                    backend: ComputeBackend,
+                    flashAttn: Boolean,
+                    gpuDevice: Int,
+                ): Long {
+                    attemptedBackends += backend
+                    if (backend == ComputeBackend.OPENCL) {
+                        throw RuntimeException("OpenCL init failed")
+                    }
+                    return 7L
+                }
+            }
+        }
+
+        val whisper = Whisper.load(modelFile.absolutePath, useGpu = true)
+
+        assertEquals(listOf(ComputeBackend.OPENCL, ComputeBackend.VULKAN), attemptedBackends)
+        assertEquals(ComputeBackend.VULKAN, whisper.activeBackend)
+        assertTrue(BackendRuntimePolicy.isBlacklisted(ComputeSubsystem.WHISPER, ComputeBackend.OPENCL))
+    }
+
+    @Test
+    fun `load skips blacklisted OpenCL backend on later attempts`() {
+        val modelFile = File.createTempFile("whisper-blacklist", ".bin").apply {
+            writeText("test")
+            deleteOnExit()
+        }
+        val attemptedBackends = mutableListOf<ComputeBackend>()
+
+        BackendRuntimePolicy.blacklist(ComputeSubsystem.WHISPER, ComputeBackend.OPENCL)
+        Whisper.overrideBackendAvailabilityForTests(openClAvailable = true, vulkanAvailable = true)
+        Whisper.overrideLoadBridgeForTests {
+            object : Whisper.Companion.LoadBridge {
+                override fun create(
+                    modelPath: String,
+                    backend: ComputeBackend,
+                    flashAttn: Boolean,
+                    gpuDevice: Int,
+                ): Long {
+                    attemptedBackends += backend
+                    return 9L
+                }
+            }
+        }
+
+        val whisper = Whisper.load(modelFile.absolutePath, useGpu = true)
+
+        assertEquals(listOf(ComputeBackend.VULKAN), attemptedBackends)
+        assertEquals(ComputeBackend.VULKAN, whisper.activeBackend)
     }
 }

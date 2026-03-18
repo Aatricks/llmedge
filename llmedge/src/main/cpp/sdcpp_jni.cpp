@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstdio>
+#include <optional>
 
 #include "jni_thread_cache.h"
 
@@ -54,25 +55,54 @@ inline int __android_log_print(int level, const char* tag, const char* format, .
 #define ALOGW(...) __android_log_print(ANDROID_LOG_WARN,  LOG_TAG, __VA_ARGS__)
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 
-// ---------------------------------------------------------------------------
-// Compatibility shims for APIs that are no longer exported by newer
-// stable-diffusion.cpp versions. These keep llmedge JNI building while
-// preserving best-effort behavior.
-// ---------------------------------------------------------------------------
-extern "C" SD_API void sd_set_vulkan_enabled(bool enabled) {
-    if (!enabled) {
-        ALOGW("sd_set_vulkan_enabled(false): upstream runtime no longer exposes a hard Vulkan disable toggle");
-    }
-}
+typedef struct {
+    int ndims;
+    int64_t ne[4];
+    float* data;
+} sd_tensor_raw_t;
 
-extern "C" SD_API void sd_set_vulkan_device(int device_index) {
-    char device_str[32];
-    std::snprintf(device_str, sizeof(device_str), "%d", device_index);
-    if (setenv("SD_VK_DEVICE", device_str, 1) != 0) {
-        ALOGW("Failed to set SD_VK_DEVICE=%s", device_str);
-    }
-}
+typedef struct {
+    sd_tensor_raw_t c_crossattn;
+    sd_tensor_raw_t c_vector;
+    sd_tensor_raw_t c_concat;
+} sd_condition_raw_t;
 
+namespace {
+std::mutex g_sd_backend_env_mutex;
+
+class ScopedEnvVar {
+public:
+    ScopedEnvVar(const char* key, std::optional<std::string> value) : key_(key), had_original_(false) {
+        if (const char* original = std::getenv(key_)) {
+            had_original_ = true;
+            original_value_ = original;
+        }
+        if (value.has_value()) {
+            setenv(key_, value->c_str(), 1);
+        } else {
+            unsetenv(key_);
+        }
+    }
+
+    ~ScopedEnvVar() {
+        if (had_original_) {
+            setenv(key_, original_value_.c_str(), 1);
+        } else {
+            unsetenv(key_);
+        }
+    }
+
+private:
+    const char* key_;
+    bool had_original_;
+    std::string original_value_;
+};
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// Compatibility shims for extension APIs that llmedge relies on but which may
+// be absent in older upstream snapshots.
+// ---------------------------------------------------------------------------
 extern "C" SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t*,
                                                               const char*,
                                                               int,
@@ -396,6 +426,21 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCheckBindings(JNI
     return JNI_TRUE;
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeIsOpenClAvailable(JNIEnv* env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+#ifdef SD_USE_OPENCL
+    ggml_backend_reg_t reg = ggml_backend_reg_by_name("OpenCL");
+    if (!reg) {
+        return JNI_FALSE;
+    }
+    return ggml_backend_reg_dev_count(reg) > 0 ? JNI_TRUE : JNI_FALSE;
+#else
+    return JNI_FALSE;
+#endif
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceCount(JNIEnv* env, jclass clazz) {
     (void)env;
@@ -526,6 +571,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         jstring jT5xxlPath,
         jstring jTaesdPath,
         jint nThreads,
+        jboolean enableOpenCl,
         jboolean useVulkan,
         jboolean offloadToCpu,
         jboolean keepClipOnCpu,
@@ -547,7 +593,8 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     ALOGI("  vaePath=%s", vaePath ? vaePath : "NULL");
     ALOGI("  t5xxlPath=%s", t5xxlPath ? t5xxlPath : "NULL");
     ALOGI("  taesdPath=%s", taesdPath ? taesdPath : "NULL");
-    ALOGI("  useVulkan=%s, offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
+    ALOGI("  enableOpenCl=%s, useVulkan=%s, offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
+          enableOpenCl ? "true" : "false",
           useVulkan ? "true" : "false",
           offloadToCpu ? "true" : "false",
           keepClipOnCpu ? "true" : "false",
@@ -555,8 +602,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
           flashAttn ? "true" : "false",
           jvaeDecodeOnly ? "true" : "false");
 
-    sd_set_vulkan_enabled(useVulkan == JNI_TRUE);
-
+    std::optional<std::string> selectedVulkanDevice;
 #ifdef SD_USE_VULKAN
     if (useVulkan == JNI_TRUE) {
         const int device_count = ggml_backend_vk_get_device_count();
@@ -576,7 +622,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
                 }
             }
             ALOGI("Selecting Vulkan device %d", best);
-            sd_set_vulkan_device(best);
+            selectedVulkanDevice = std::to_string(best);
         } else {
             ALOGW("Vulkan requested but ggml reported 0 Vulkan devices");
         }
@@ -605,7 +651,13 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     }
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
 
-    sd_ctx_t* ctx = new_sd_ctx(&p);
+    sd_ctx_t* ctx = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_sd_backend_env_mutex);
+        ScopedEnvVar disableVulkan("GGML_DISABLE_VULKAN", useVulkan == JNI_TRUE ? std::nullopt : std::optional<std::string>("1"));
+        ScopedEnvVar vulkanDevice("SD_VK_DEVICE", selectedVulkanDevice);
+        ctx = new_sd_ctx(&p);
+    }
 
     if (!ctx) {
         // Sequential prompt conditioning intentionally requests a text-encoder-only handle.

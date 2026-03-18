@@ -17,7 +17,10 @@
 package io.aatricks.llmedge.text.runtime
 
 import io.aatricks.llmedge.runtime.CpuTopology
+import io.aatricks.llmedge.runtime.ComputeBackend
+import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.runtime.GGUFReader
+import io.aatricks.llmedge.runtime.BackendRuntimePolicy
 
 import android.content.Context
 import io.aatricks.llmedge.core.InferenceFailedException
@@ -147,6 +150,22 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         private fun logE(tag: String, message: String, throwable: Throwable? = null) =
             AndroidLogAdapter.e(tag, message, throwable)
 
+        @JvmStatic
+        fun isOpenClAvailable(): Boolean =
+            try {
+                nativeIsOpenClAvailable()
+            } catch (_: Throwable) {
+                false
+            }
+
+        @JvmStatic
+        fun isVulkanBackendAvailable(): Boolean =
+            try {
+                nativeIsVulkanAvailable()
+            } catch (_: Throwable) {
+                true
+            }
+
         init {
             NativeLibraryLoader.ensureSmolLMLoaded(
                 required = true,
@@ -184,7 +203,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                 nThreads,
                                 useMmap,
                                 useMlock,
-                                useVulkan,
+                                instance.resolveRequestedBackendForLoad(useVulkan).id,
                                 useFlashAttn,
                                 kvCacheTypeK,
                                 kvCacheTypeV,
@@ -316,6 +335,12 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             nativeBridgeProvider.reset()
         }
 
+        @JvmStatic
+        private external fun nativeIsOpenClAvailable(): Boolean
+
+        @JvmStatic
+        private external fun nativeIsVulkanAvailable(): Boolean
+
         internal fun createLoadedForTests(
                 nativePtr: Long,
                 useVulkan: Boolean = false,
@@ -324,6 +349,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             val s = SmolLM(useVulkan)
             s.nativePtr = nativePtr
             s.loadedInferenceParams = loadedParams
+            s.selectedBackend = if (useVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
             return s
         }
     }
@@ -331,6 +357,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     private var nativePtr = 0L
     private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider.create(this)
     private var useVulkanGPU = true
+    private var requestedLoadBackend: ComputeBackend? = null
+    private var selectedBackend: ComputeBackend = ComputeBackend.CPU
     private var currentThinkingMode = ThinkingMode.DEFAULT
     private var currentReasoningBudget = DEFAULT_REASONING_BUDGET
     internal var loadedInferenceParams: InferenceParams? = null
@@ -338,10 +366,30 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
 
     init {
         this.useVulkanGPU = useVulkan
+        this.selectedBackend = if (useVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
     }
 
     /** Returns true if this SmolLM instance will try to use Vulkan-backed GPU layers. */
-    fun isVulkanEnabled(): Boolean = useVulkanGPU
+    fun isVulkanEnabled(): Boolean =
+        if (nativePtr != 0L) {
+            selectedBackend == ComputeBackend.VULKAN
+        } else {
+            useVulkanGPU
+        }
+
+    internal fun getActiveBackend(): ComputeBackend =
+        if (nativePtr != 0L) {
+            selectedBackend
+        } else {
+            requestedLoadBackend ?: if (useVulkanGPU) ComputeBackend.VULKAN else ComputeBackend.CPU
+        }
+
+    internal fun setPreferredBackendForLoad(backend: ComputeBackend?) {
+        requestedLoadBackend = backend
+    }
+
+    internal fun resolveRequestedBackendForLoad(legacyUseVulkan: Boolean): ComputeBackend =
+        requestedLoadBackend ?: if (legacyUseVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
 
     /**
      * Provides default values for inference parameters. These values are used when the
@@ -511,13 +559,26 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 } finally {
                     ggufReader.close()
                 }
-                nativePtr =
+                @Suppress("DEPRECATION")
+                val storeChats = params.storeChats
+                val promptThreads = params.numThreads.coerceAtLeast(1)
+                val backendCandidates =
+                    requestedLoadBackend?.let(::listOf)
+                        ?: BackendRuntimePolicy.candidates(
+                            subsystem = ComputeSubsystem.TEXT,
+                            allowGpu = useVulkanGPU,
+                            openClAvailable = isOpenClAvailable(),
+                            vulkanAvailable = isVulkanBackendAvailable(),
+                        )
+
+                var lastLoadError: Throwable? = null
+                nativePtr = 0L
+                for (backend in backendCandidates) {
+                    requestedLoadBackend = backend
                     try {
-                        @Suppress("DEPRECATION")
-                        val storeChats = params.storeChats
-                        val promptThreads = params.numThreads.coerceAtLeast(1)
-                        NativeCall.binding("smollm", "SmolLM JNI bindings are unavailable.") {
-                            nativeBridge.loadModel(
+                        val candidateHandle =
+                            NativeCall.binding("smollm", "SmolLM JNI bindings are unavailable.") {
+                                nativeBridge.loadModel(
                                     this@SmolLM,
                                     validatedModel.absolutePath,
                                     params.minP,
@@ -528,29 +589,48 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                     promptThreads,
                                     params.useMmap,
                                     params.useMlock,
-                                    useVulkanGPU,
+                                    backend == ComputeBackend.VULKAN,
                                     params.useFlashAttn,
                                     params.kvCacheTypeK,
                                     params.kvCacheTypeV,
-                                    params.nGpuLayers
+                                    params.nGpuLayers,
+                                )
+                            }
+                        nativePtr =
+                            NativeCall.requireHandle(
+                                candidateHandle,
+                                validatedModel.absolutePath,
+                                "The native SmolLM loader returned an invalid handle.",
                             )
-                        }
+                        selectedBackend = backend
+                        break
                     } catch (e: NativeBindingException) {
+                        requestedLoadBackend = null
                         throw e
                     } catch (e: IllegalStateException) {
-                        throw ModelLoadException(
-                            validatedModel.absolutePath,
-                            e.message ?: "The native SmolLM loader reported an unknown error.",
-                            e,
-                        )
+                        lastLoadError =
+                            ModelLoadException(
+                                validatedModel.absolutePath,
+                                e.message ?: "The native SmolLM loader reported an unknown error.",
+                                e,
+                            )
+                    } catch (e: ModelLoadException) {
+                        lastLoadError = e
                     }
-                nativePtr =
-                    NativeCall.requireHandle(
-                        nativePtr,
-                        validatedModel.absolutePath,
-                        "The native SmolLM loader returned an invalid handle.",
-                    )
-                val promptThreads = params.numThreads.coerceAtLeast(1)
+
+                    if (backend != ComputeBackend.CPU) {
+                        BackendRuntimePolicy.blacklist(ComputeSubsystem.TEXT, backend)
+                        logW(LOG_TAG, "Failed to load SmolLM on $backend; retrying with the next backend")
+                    }
+                }
+                requestedLoadBackend = null
+                if (nativePtr == 0L) {
+                    throw (lastLoadError
+                        ?: ModelLoadException(
+                            validatedModel.absolutePath,
+                            "The native SmolLM loader returned an invalid handle.",
+                        ))
+                }
                 val generationThreads = (params.generationThreads ?: promptThreads).coerceAtLeast(1)
                 nativeBridge.configureThreading(this@SmolLM, nativePtr, generationThreads, promptThreads)
                 val reasoningBudget =
@@ -880,6 +960,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             nativeBridge.close(this, nativePtr)
             nativePtr = 0L
         }
+        requestedLoadBackend = null
+        selectedBackend = if (useVulkanGPU) ComputeBackend.VULKAN else ComputeBackend.CPU
         currentThinkingMode = ThinkingMode.DEFAULT
         currentReasoningBudget = DEFAULT_REASONING_BUDGET
         loadedInferenceParams = null
@@ -901,7 +983,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             nThreads: Int,
             useMmap: Boolean,
             useMlock: Boolean,
-            useVulkan: Boolean,
+            backendId: Int,
             useFlashAttn: Boolean,
             kvCacheTypeK: Int,
             kvCacheTypeV: Int,

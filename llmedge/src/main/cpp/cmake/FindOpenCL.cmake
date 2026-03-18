@@ -1,0 +1,11 @@
+if (TARGET OpenCL::OpenCL)
+    set(OpenCL_FOUND TRUE)
+    set(OpenCL_LIBRARIES OpenCL::OpenCL)
+    if (DEFINED LLMEDGE_OPENCL_HEADERS_DIR AND NOT "${LLMEDGE_OPENCL_HEADERS_DIR}" STREQUAL "")
+        set(OpenCL_INCLUDE_DIRS "${LLMEDGE_OPENCL_HEADERS_DIR}")
+        set(OpenCL_INCLUDE_DIR "${LLMEDGE_OPENCL_HEADERS_DIR}")
+    endif()
+    return()
+endif()
+
+include("${CMAKE_ROOT}/Modules/FindOpenCL.cmake")

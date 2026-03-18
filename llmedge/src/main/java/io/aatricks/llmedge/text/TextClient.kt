@@ -2,6 +2,9 @@ package io.aatricks.llmedge.text
 
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.runtime.BackendRuntimePolicy
+import io.aatricks.llmedge.runtime.ComputeBackend
+import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.runtime.ModelCache
 import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.core.AndroidLogAdapter
@@ -147,20 +150,38 @@ class TextClient internal constructor(
 
     private suspend fun generateOnce(request: TextGenerationRequest): String {
         val runtime = acquire(request.model, request.options)
-        return complete(
-            runtime = runtime,
-            prompt = request.prompt,
-            systemPrompt = request.systemPrompt,
-            options = request.options,
-            maxTokens = request.maxTokens,
-            batchSize = request.batchSize,
-        )
+        return try {
+            complete(
+                runtime = runtime,
+                prompt = request.prompt,
+                systemPrompt = request.systemPrompt,
+                options = request.options,
+                maxTokens = request.maxTokens,
+                batchSize = request.batchSize,
+            )
+        } catch (error: InferenceFailedException) {
+            recordBackendFailureIfNeeded(request.model, request.options, runtime, error)
+            throw error
+        }
     }
 
     private suspend fun retryGenerateIfNeeded(
         request: TextGenerationRequest,
         error: InferenceFailedException,
     ): String {
+        if (isBackendFailure(error)) {
+            AndroidLogAdapter.w(
+                LOG_TAG,
+                "Retrying text generation on the next backend after a backend-specific failure for '${request.model.cacheKey}'",
+            )
+            return try {
+                generateOnce(request)
+            } catch (retryError: InferenceFailedException) {
+                retryError.addSuppressed(error)
+                throw retryError
+            }
+        }
+
         val fallbackRequest = buildSafeRetryRequest(request) ?: throw error
         if (!isDecodeFailure(error)) {
             throw error
@@ -208,9 +229,14 @@ class TextClient internal constructor(
         val runtime = acquire(request.model, request.options)
         lastGenerationMetrics = null
         val response = StringBuilder()
-        streamCompletion(runtime, request.prompt, request.systemPrompt, request.options, request.batchSize).collect { chunk ->
-            response.append(chunk)
-            emit(TextStreamEvent.Chunk(chunk))
+        try {
+            streamCompletion(runtime, request.prompt, request.systemPrompt, request.options, request.batchSize).collect { chunk ->
+                response.append(chunk)
+                emit(TextStreamEvent.Chunk(chunk))
+            }
+        } catch (error: InferenceFailedException) {
+            recordBackendFailureIfNeeded(request.model, request.options, runtime, error)
+            throw error
         }
         emit(TextStreamEvent.Completed(response.toString()))
     }
@@ -230,15 +256,16 @@ class TextClient internal constructor(
     ): ChatSession = ChatSession(this, model, memory, systemPrompt, options)
 
     internal suspend fun acquire(model: ModelSpec, options: TextModelOptions): ManagedTextModel {
-        val key = buildCacheKey(model, options)
-        cache.get(key)?.let { return it }
+        val keyPrefix = buildCacheKeyPrefix(model, options)
+        findCachedRuntime(keyPrefix, options)?.let { return it }
 
         return loadMutex.withLock {
-            cache.get(key)?.let { return@withLock it }
+            findCachedRuntime(keyPrefix, options)?.let { return@withLock it }
             val modelFile = modelResolver.resolve(context, model)
             val smol = SmolLM(useVulkan = options.useVulkan ?: config.textUseVulkan)
             smol.load(modelFile.absolutePath, options.toInferenceParams(config))
             val runtime = ManagedTextModel(fileSizeBytes = modelFile.length(), model = smol)
+            val key = buildCacheKey(keyPrefix, smol.getActiveBackend())
             cache.put(
                 key = key,
                 model = runtime,
@@ -375,6 +402,9 @@ class TextClient internal constructor(
     }
 
     private fun buildCacheKey(model: ModelSpec, options: TextModelOptions): String =
+        buildCacheKey(buildCacheKeyPrefix(model, options), ComputeBackend.CPU)
+
+    private fun buildCacheKeyPrefix(model: ModelSpec, options: TextModelOptions): String =
         listOf(
             model.cacheKey,
             "ctx=${options.contextSize ?: config.defaultTextContextSize ?: 0L}",
@@ -383,15 +413,67 @@ class TextClient internal constructor(
             "mmap=${options.useMmap ?: config.defaultUseMmap}",
             "mlock=${options.useMlock ?: config.defaultUseMlock}",
             "flash=${options.useFlashAttention ?: config.defaultUseFlashAttention}",
-            "vulkan=${options.useVulkan ?: config.textUseVulkan}",
         ).joinToString("|")
+
+    private fun buildCacheKey(prefix: String, backend: ComputeBackend): String =
+        "$prefix|backend=${backend.name}"
+
+    private fun findCachedRuntime(
+        prefix: String,
+        options: TextModelOptions,
+    ): ManagedTextModel? {
+        val allowGpu = options.useVulkan ?: config.textUseVulkan
+        val candidates =
+            BackendRuntimePolicy.candidates(
+                subsystem = ComputeSubsystem.TEXT,
+                allowGpu = allowGpu,
+                openClAvailable = SmolLM.isOpenClAvailable(),
+                vulkanAvailable = SmolLM.isVulkanBackendAvailable(),
+            )
+        for (backend in candidates) {
+            cache.get(buildCacheKey(prefix, backend))?.let { return it }
+        }
+        return null
+    }
 
     override fun close() {
         cache.clear()
     }
 
     private fun invalidateRuntime(model: ModelSpec, options: TextModelOptions) {
-        cache.remove(buildCacheKey(model, options))
+        val prefix = buildCacheKeyPrefix(model, options)
+        ComputeBackend.entries.forEach { backend ->
+            cache.remove(buildCacheKey(prefix, backend))
+        }
+    }
+
+    private fun invalidateRuntime(
+        model: ModelSpec,
+        options: TextModelOptions,
+        backend: ComputeBackend,
+    ) {
+        cache.remove(buildCacheKey(buildCacheKeyPrefix(model, options), backend))
+    }
+
+    private fun recordBackendFailureIfNeeded(
+        model: ModelSpec,
+        options: TextModelOptions,
+        runtime: ManagedTextModel,
+        error: InferenceFailedException,
+    ) {
+        if (!isBackendFailure(error)) {
+            return
+        }
+        val backend = runtime.model.getActiveBackend()
+        if (backend == ComputeBackend.CPU) {
+            return
+        }
+        BackendRuntimePolicy.blacklist(ComputeSubsystem.TEXT, backend)
+        invalidateRuntime(model, options, backend)
+        AndroidLogAdapter.w(
+            LOG_TAG,
+            "Blacklisting $backend for text inference after a backend-specific failure on '${model.cacheKey}'",
+        )
     }
 
     private fun buildSafeRetryRequest(request: TextGenerationRequest): TextGenerationRequest? {
@@ -412,4 +494,10 @@ class TextClient internal constructor(
     private fun isDecodeFailure(error: InferenceFailedException): Boolean =
         error.message?.contains("llama_decode() failed") == true ||
             error.cause?.message?.contains("llama_decode() failed") == true
+
+    private fun isBackendFailure(error: InferenceFailedException): Boolean =
+        error.message?.contains("backend", ignoreCase = true) == true ||
+            error.cause?.message?.contains("backend", ignoreCase = true) == true ||
+            error.message?.contains("device lost", ignoreCase = true) == true ||
+            error.cause?.message?.contains("device lost", ignoreCase = true) == true
 }

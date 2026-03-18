@@ -15,22 +15,26 @@ get_filename_component(LLMEDGE_REPO_ROOT "${LLMEDGE_CPP_ROOT}/../../../.." ABSOL
 set(LLMEDGE_MODS_DIR "${LLMEDGE_REPO_ROOT}/mods")
 
 set(_LLMEDGE_SDCPP_USE_MODS_DEFAULT OFF)
-if (EXISTS "${LLMEDGE_MODS_DIR}/stable-diffusion.cpp" OR EXISTS "${LLMEDGE_MODS_DIR}/stable-diffusion.h")
-        set(_LLMEDGE_SDCPP_USE_MODS_DEFAULT ON)
-endif()
 option(LLMEDGE_SDCPP_USE_MODS "Build stable-diffusion.cpp from a copied tree with mods/ overlays (keeps submodule clean)" ${_LLMEDGE_SDCPP_USE_MODS_DEFAULT})
 
-# Default overlays: only include wan.hpp when it exists in mods/.
-set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT
-    stable-diffusion.cpp
-    stable-diffusion.h
-    ggml_extend.hpp
-    util.cpp
-)
-if (EXISTS "${LLMEDGE_MODS_DIR}/wan.hpp")
-        set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT "wan.hpp;${_LLMEDGE_SDCPP_MODS_FILES_DEFAULT}")
-endif()
+# Default overlays: opt-in only. The historical stable-diffusion source/header overlays
+# drifted from upstream and now break against current stable-diffusion.cpp snapshots.
+set(_LLMEDGE_SDCPP_MODS_FILES_DEFAULT "")
 set(LLMEDGE_SDCPP_MODS_FILES "${_LLMEDGE_SDCPP_MODS_FILES_DEFAULT}" CACHE STRING "Overlay files from mods/ onto the copied stable-diffusion.cpp tree (semicolon- or comma-separated)")
+
+set(_llmedge_legacy_sd_overlay_files
+    "src/stable-diffusion.cpp;include/stable-diffusion.h"
+    "stable-diffusion.cpp;stable-diffusion.h"
+    "src/stable-diffusion.cpp,include/stable-diffusion.h"
+    "stable-diffusion.cpp,stable-diffusion.h"
+)
+foreach(_legacy_value IN LISTS _llmedge_legacy_sd_overlay_files)
+        if (LLMEDGE_SDCPP_MODS_FILES STREQUAL "${_legacy_value}")
+                message(STATUS "LLMEDGE_SDCPP_MODS_FILES uses legacy stable-diffusion overlays; clearing to upstream defaults")
+                set(LLMEDGE_SDCPP_MODS_FILES "" CACHE STRING "Overlay files from mods/ onto the copied stable-diffusion.cpp tree (semicolon- or comma-separated)" FORCE)
+                break()
+        endif()
+endforeach()
 
 set(SD_DIR "${SD_DIR_UPSTREAM}")
 if (SD_ROOT_OVERRIDE)
@@ -60,10 +64,46 @@ elseif (LLMEDGE_SDCPP_USE_MODS OR (DEFINED ENV{LLMEDGE_SDCPP_USE_MODS} AND "$ENV
                 if (f_trimmed STREQUAL "")
                         continue()
                 endif()
-                if (EXISTS "${LLMEDGE_MODS_DIR}/${f_trimmed}")
-                        execute_process(COMMAND ${CMAKE_COMMAND} -E copy "${LLMEDGE_MODS_DIR}/${f_trimmed}" "${PATCHED_SD_ROOT}/${f_trimmed}")
+                set(_mods_target_path "${f_trimmed}")
+                if (_mods_target_path STREQUAL "stable-diffusion.cpp")
+                        set(_mods_target_path "src/stable-diffusion.cpp")
+                elseif (_mods_target_path STREQUAL "stable-diffusion.h")
+                        set(_mods_target_path "include/stable-diffusion.h")
+                elseif (_mods_target_path STREQUAL "ggml_extend.hpp")
+                        set(_mods_target_path "src/ggml_extend.hpp")
+                elseif (_mods_target_path STREQUAL "util.cpp")
+                        set(_mods_target_path "src/util.cpp")
+                elseif (_mods_target_path STREQUAL "wan.hpp")
+                        set(_mods_target_path "src/wan.hpp")
+                endif()
+
+                if (_mods_target_path STREQUAL "src/stable-diffusion.cpp" OR _mods_target_path STREQUAL "include/stable-diffusion.h")
+                        message(STATUS "LLMEDGE_SDCPP_USE_MODS: skipping legacy overlay ${_mods_target_path}; build against upstream stable-diffusion API instead")
+                        continue()
+                endif()
+
+                set(_mods_source_path "")
+                set(_mods_source_name "")
+                if (EXISTS "${LLMEDGE_MODS_DIR}/${_mods_target_path}")
+                        set(_mods_source_path "${LLMEDGE_MODS_DIR}/${_mods_target_path}")
                 else()
-                        message(STATUS "LLMEDGE_SDCPP_USE_MODS: mods/${f_trimmed} not found; skipping")
+                        if (_mods_target_path STREQUAL "src/stable-diffusion.cpp")
+                                set(_mods_source_name "stable-diffusion.cpp")
+                        elseif (_mods_target_path STREQUAL "include/stable-diffusion.h")
+                                set(_mods_source_name "stable-diffusion.h")
+                        endif()
+
+                        if (NOT _mods_source_name STREQUAL "" AND EXISTS "${LLMEDGE_MODS_DIR}/${_mods_source_name}")
+                                set(_mods_source_path "${LLMEDGE_MODS_DIR}/${_mods_source_name}")
+                        endif()
+                endif()
+
+                if (NOT _mods_source_path STREQUAL "")
+                        get_filename_component(_mods_dest_dir "${PATCHED_SD_ROOT}/${_mods_target_path}" DIRECTORY)
+                        execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${_mods_dest_dir}")
+                        execute_process(COMMAND ${CMAKE_COMMAND} -E copy "${_mods_source_path}" "${PATCHED_SD_ROOT}/${_mods_target_path}")
+                else()
+                        message(STATUS "LLMEDGE_SDCPP_USE_MODS: mods/${_mods_target_path} not found; skipping")
                 endif()
         endforeach()
 
@@ -95,9 +135,12 @@ set(SD_USE_SYSTEM_GGML OFF CACHE BOOL "sd: use system-installed GGML library" FO
 set(SD_VULKAN ${_LLMEDGE_DEFAULT_SD_VULKAN} CACHE BOOL "sd: vulkan backend" FORCE)
 set(SD_CUDA OFF CACHE BOOL "sd: cuda backend" FORCE)
 set(SD_METAL OFF CACHE BOOL "sd: metal backend" FORCE)
-set(SD_OPENCL OFF CACHE BOOL "sd: opencl backend" FORCE)
+set(SD_OPENCL ${LLMEDGE_OPENCL_ENABLED} CACHE BOOL "sd: opencl backend" FORCE)
 set(SD_SYCL OFF CACHE BOOL "sd: sycl backend" FORCE)
 set(SD_MUSA OFF CACHE BOOL "sd: musa backend" FORCE)
+set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "ggml: embed OpenCL kernels" FORCE)
+set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "ggml: use optimized kernels for Adreno" FORCE)
+set(GGML_OPENCL_TARGET_VERSION 300 CACHE STRING "ggml: target OpenCL version" FORCE)
 
 # Ensure ggml-vulkan's ExternalProject (vulkan-shaders-gen) can find the correct build tool.
 if (CMAKE_MAKE_PROGRAM)
@@ -117,7 +160,8 @@ endif()
 
 # Enable ggml Vulkan for stable-diffusion's ggml only when the backend is enabled.
 set(GGML_VULKAN ${SD_VULKAN} CACHE BOOL "ggml: vulkan" FORCE)
-message(STATUS "Stable Diffusion Vulkan=${SD_VULKAN}; GGML Vulkan=${GGML_VULKAN}")
+set(GGML_OPENCL ${SD_OPENCL} CACHE BOOL "ggml: opencl backend" FORCE)
+message(STATUS "Stable Diffusion Vulkan=${SD_VULKAN}; OpenCL=${SD_OPENCL}; GGML Vulkan=${GGML_VULKAN}; GGML OpenCL=${GGML_OPENCL}")
 
 add_subdirectory(${SD_DIR} ${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion.cpp)
 
@@ -150,6 +194,13 @@ if(SD_VULKAN)
         target_link_libraries(sdcpp vulkan)
         if (TARGET ggml-vulkan)
                 target_link_libraries(sdcpp ggml-vulkan)
+        endif()
+endif()
+if(SD_OPENCL)
+        target_compile_definitions(sdcpp PRIVATE SD_USE_OPENCL)
+        target_link_libraries(sdcpp OpenCL::OpenCL)
+        if (TARGET ggml-opencl)
+                target_link_libraries(sdcpp ggml-opencl)
         endif()
 endif()
 

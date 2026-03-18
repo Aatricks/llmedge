@@ -9,6 +9,10 @@ Examples reference the `llmedge-examples` [repo](https://github.com/aatricks/llm
 
 ---
 
+## GPU Backends on Android
+
+`TextModelOptions.useVulkan`, `LLMEdgeConfig.textUseVulkan`, and `SmolLM(useVulkan = true)` keep their historical names for source compatibility. On Android, `true` now means "allow GPU acceleration": llmedge prefers OpenCL first, then Vulkan, then CPU. `WhisperLoadOptions.useGpu` follows the same rule. Bark remains CPU-only.
+
 ## High-Level API (LLMEdge)
 
 Create an `LLMEdge` instance from an Android-aware coroutine scope, then use the domain clients exposed by the facade.
@@ -416,7 +420,7 @@ import io.aatricks.llmedge.Whisper
 // Load model with options
 val whisper = Whisper.load(
     modelPath = "/path/to/ggml-base.bin",
-    useGpu = false
+    useGpu = true // allow OpenCL/Vulkan when available
 )
 
 // Configure transcription parameters
@@ -441,6 +445,8 @@ val modelType = whisper.getModelType()
 
 whisper.close()
 ```
+
+Set `useGpu = false` to force CPU. At runtime, use `LLMEdge.isOpenClAvailable()` and `LLMEdge.isVulkanAvailable()` to inspect device GPU capability.
 
 **Model sources:**
 
@@ -605,9 +611,10 @@ Key methods:
 - `edge.speech.createStreamingSession(model?, params?, loadOptions?)` — create a reusable streaming transcriber
 - `edge.speech.synthesize(text, model?, params?, loadOptions?)` — generate speech from text
 - `edge.speech.synthesizeStream(text, model?, params?, loadOptions?)` — stream speech generation events
+- `LLMEdge.isOpenClAvailable()` / `LLMEdge.isVulkanAvailable()` — query Android GPU backend capability
 
 **Low-Level Speech API:**
-- `Whisper.load(modelPath: String, useGpu: Boolean, flashAttn: Boolean = true, gpuDevice: Int = 0)` — loads a Whisper model
+- `Whisper.load(modelPath: String, useGpu: Boolean, flashAttn: Boolean = true, gpuDevice: Int = 0)` — loads a Whisper model; on Android, `useGpu = true` allows OpenCL first, then Vulkan, then CPU fallback
 - `Whisper.loadFromHuggingFace(...)` — downloads and loads Whisper from HuggingFace
 - `Whisper.transcribe(samples: FloatArray, params: TranscribeParams)` — transcribes audio
 - `Whisper.detectLanguage(samples: FloatArray)` — detects spoken language

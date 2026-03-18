@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
 import io.aatricks.llmedge.image.diffusion.SampleMethod
@@ -37,11 +38,13 @@ class ImageClientTest {
     fun setup() {
         System.setProperty("llmedge.disableNativeLoad", "true")
         StableDiffusion.enableNativeBridgeForTests()
+        ImageClient.resetVideoVulkanBlacklistForTests()
         mockkObject(StableDiffusion.Companion)
     }
 
     @After
     fun teardown() {
+        ImageClient.resetVideoVulkanBlacklistForTests()
         StableDiffusion.resetNativeBridgeForTests()
         System.clearProperty("llmedge.disableNativeLoad")
         try {
@@ -152,8 +155,7 @@ class ImageClientTest {
 
         val observedLoads = mutableListOf<Triple<String?, String?, String?>>()
         coEvery {
-            StableDiffusion.load(
-                any(),
+            StableDiffusion.loadWithRuntimeBackend(
                 any(),
                 any(),
                 any(),
@@ -315,36 +317,17 @@ class ImageClientTest {
             }
         }
 
-        val loadFlags = mutableListOf<Pair<Boolean, Boolean>>()
+        val loadBackends = mutableListOf<ComputeBackend>()
         var loadCount = 0L
         coEvery {
-            StableDiffusion.load(
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
-                any(),
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
-            loadFlags += (callArgs[14] as Boolean) to (callArgs[15] as Boolean)
+            loadBackends += callArgs[20] as ComputeBackend
             loadCount += 1
             val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
             constructor.isAccessible = true
@@ -391,11 +374,160 @@ class ImageClientTest {
             }
 
             val completedFrames = requireNotNull(frames)
-            assertEquals(listOf(true to true, false to false), loadFlags)
+            assertEquals(listOf(ComputeBackend.VULKAN, ComputeBackend.CPU), loadBackends)
             assertEquals(5, completedFrames.size)
         } finally {
             client.close()
             edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+            try {
+                io.mockk.unmockkObject(LLMEdge.Companion)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    @Test
+    fun `video device loss blacklists Vulkan for later generations in same process`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val modelFile = java.io.File.createTempFile("wan-model", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val vaeFile = java.io.File.createTempFile("wan-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val t5File = java.io.File.createTempFile("umt5", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        mockkObject(LLMEdge.Companion)
+        every { LLMEdge.isVulkanAvailable() } returns true
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray? = null
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray> {
+                    if (handle == 1L) {
+                        throw RuntimeException("vk::Queue::submit: ErrorDeviceLost")
+                    }
+                    return Array(videoFrames) { ByteArray(width * height * 3) { 0x22 } }
+                }
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        val loadBackends = mutableListOf<ComputeBackend>()
+        var loadCount = 0L
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            loadBackends += callArgs[20] as ComputeBackend
+            loadCount += 1
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(loadCount).apply {
+                updateModelMetadata(
+                    VideoModelMetadata(
+                        architecture = "Wan 2.1 T2V",
+                        modelType = null,
+                        parameterCount = "1.3B",
+                        mobileSupported = true,
+                        tags = setOf("wan-model"),
+                        filename = modelFile.name,
+                    ),
+                )
+            }
+        }
+
+        suspend fun runGeneration(client: ImageClient): List<Bitmap> {
+            var frames: List<Bitmap>? = null
+            client.generateVideo(
+                VideoGenerationRequest(
+                    prompt = "test prompt",
+                    width = 256,
+                    height = 256,
+                    videoFrames = 5,
+                    steps = 20,
+                    model = ModelSpec.localFile(modelFile),
+                    vae = ModelSpec.localFile(vaeFile),
+                    textEncoder = ModelSpec.localFile(t5File),
+                ),
+            ).collect { event ->
+                if (event is GenerationStreamEvent.Completed) {
+                    frames = event.frames
+                }
+            }
+            return requireNotNull(frames)
+        }
+
+        val edgeScope1 = LLMEdgeScope(this, 1)
+        val edgeScope2 = LLMEdgeScope(this, 1)
+        val client1 =
+            ImageClient(
+                context = context,
+                scope = edgeScope1,
+                config = LLMEdgeConfig(preferPerformanceMode = true),
+                resolver = DefaultModelResolver(),
+            )
+        val client2 =
+            ImageClient(
+                context = context,
+                scope = edgeScope2,
+                config = LLMEdgeConfig(preferPerformanceMode = true),
+                resolver = DefaultModelResolver(),
+            )
+
+        try {
+            assertEquals(5, runGeneration(client1).size)
+            assertEquals(5, runGeneration(client2).size)
+            assertEquals(
+                listOf(ComputeBackend.VULKAN, ComputeBackend.CPU, ComputeBackend.CPU),
+                loadBackends,
+            )
+        } finally {
+            client1.close()
+            client2.close()
+            edgeScope1.close()
+            edgeScope2.close()
             StableDiffusion.resetNativeBridgeForTests()
             try {
                 io.mockk.unmockkObject(LLMEdge.Companion)
@@ -468,8 +600,8 @@ class ImageClientTest {
         }
 
         coEvery {
-            StableDiffusion.load(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
             )
         } coAnswers {
             val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
@@ -619,8 +751,8 @@ class ImageClientTest {
         }
 
         coEvery {
-            StableDiffusion.load(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args

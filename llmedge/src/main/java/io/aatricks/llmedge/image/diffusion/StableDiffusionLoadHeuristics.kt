@@ -3,6 +3,7 @@ package io.aatricks.llmedge.image.diffusion
 import android.app.ActivityManager
 import android.content.Context
 import io.aatricks.llmedge.model.ModelFileValidator
+import io.aatricks.llmedge.runtime.ComputeBackend
 
 internal object StableDiffusionLoadHeuristics {
     internal data class MemorySnapshot(
@@ -17,6 +18,7 @@ internal object StableDiffusionLoadHeuristics {
         val effectiveOffloadToCpu: Boolean,
         val effectiveKeepClipOnCpu: Boolean,
         val effectiveKeepVaeOnCpu: Boolean,
+        val chosenBackend: ComputeBackend,
         val chosenDevice: Int,
         val estimatedDeviceParamsBytes: Long,
         val freeVulkanBytes: Long,
@@ -111,9 +113,11 @@ internal object StableDiffusionLoadHeuristics {
         offloadToCpu: Boolean,
         keepClipOnCpu: Boolean,
         keepVaeOnCpu: Boolean,
+        allowOpenCl: Boolean,
         allowVulkan: Boolean,
         forceVulkan: Boolean,
         activityManagerOverride: ActivityManager? = null,
+        isOpenClAvailable: () -> Boolean = { StableDiffusion.isOpenClAvailable() },
         getVulkanDeviceCount: () -> Int = { StableDiffusion.getVulkanDeviceCount() },
         getVulkanDeviceMemory: (Int) -> LongArray? = { StableDiffusion.getVulkanDeviceMemory(it) },
         estimateModelParamsMemoryBytes: (String, Int) -> Long = { modelPath, deviceIndex ->
@@ -140,14 +144,23 @@ internal object StableDiffusionLoadHeuristics {
             effectiveKeepVaeOnCpu = true
         }
 
+        val openClAvailable = allowOpenCl && isOpenClAvailable()
+        val vulkanDevices = if (allowVulkan) getVulkanDeviceCount() else 0
+        var chosenBackend =
+            when {
+                forceVulkan && vulkanDevices > 0 -> ComputeBackend.VULKAN
+                openClAvailable -> ComputeBackend.OPENCL
+                vulkanDevices > 0 -> ComputeBackend.VULKAN
+                else -> ComputeBackend.CPU
+            }
+
         var chosenDevice = -1
         var estimatedDeviceParamsBytes = 0L
         var freeVulkanBytes = 0L
 
         // Vulkan device selection is independent from offloadParamsToCpu.
         // offloadParamsToCpu controls where weights live; Vulkan can still be beneficial for compute.
-        val vulkanDevices = if (allowVulkan) getVulkanDeviceCount() else 0
-        if (vulkanDevices > 0) {
+        if (chosenBackend == ComputeBackend.VULKAN && vulkanDevices > 0) {
             var maxTotal = 0L
             for (device in 0 until vulkanDevices) {
                 val memory = getVulkanDeviceMemory(device)
@@ -170,6 +183,8 @@ internal object StableDiffusionLoadHeuristics {
                     }
                 }
             }
+        } else {
+            chosenBackend = if (openClAvailable) ComputeBackend.OPENCL else ComputeBackend.CPU
         }
 
         return LoadPlan(
@@ -178,6 +193,7 @@ internal object StableDiffusionLoadHeuristics {
             effectiveOffloadToCpu = effectiveOffloadToCpu,
             effectiveKeepClipOnCpu = effectiveKeepClipOnCpu,
             effectiveKeepVaeOnCpu = effectiveKeepVaeOnCpu,
+            chosenBackend = chosenBackend,
             chosenDevice = chosenDevice,
             estimatedDeviceParamsBytes = estimatedDeviceParamsBytes,
             freeVulkanBytes = freeVulkanBytes,

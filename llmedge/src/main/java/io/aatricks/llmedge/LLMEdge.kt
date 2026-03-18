@@ -97,6 +97,9 @@ class LLMEdge private constructor(
         }
 
         @JvmStatic
+        fun isOpenClAvailable(): Boolean = StableDiffusion.isOpenClAvailable()
+
+        @JvmStatic
         fun getVulkanDeviceInfo(): VulkanDeviceInfo? {
             val deviceCount = StableDiffusion.getVulkanDeviceCount()
             if (deviceCount <= 0) {

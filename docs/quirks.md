@@ -134,7 +134,7 @@ adb logcat -s SmolLM:* SmolSD:* llama:*
 **Common native errors:**
 
 - "Failed to load model": Check file path and permissions
-- "ggml_init_cublas: failed": Vulkan/GPU initialization failed (falls back to CPU)
+- "ggml_init_cublas: failed" or similar backend-init errors: a GPU backend (OpenCL or Vulkan) failed and the runtime fell back to CPU
 - Crashes without logs: Use `ndk-stack` with symbolicated stack traces
 
 **Debugging steps:**
@@ -143,7 +143,7 @@ adb logcat -s SmolLM:* SmolSD:* llama:*
 2. Verify model file exists and is readable
 3. Test with a known-good tiny model first
 4. Check available memory before loading
-5. Try disabling Vulkan: `SmolLM(useVulkan = false)`
+5. Try forcing CPU: `SmolLM(useVulkan = false)`
 
 **Stack traces:**
 ```fish

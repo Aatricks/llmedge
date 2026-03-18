@@ -26,11 +26,11 @@ A: Several factors affect speed:
 - Ensure you're on arm64-v8a architecture (check with `Build.SUPPORTED_ABIS[0]`)
 - The library automatically selects optimized native libs based on CPU features
 - Lower `temperature` and `maxTokens` can speed up generation
-- Vulkan acceleration may help on supported devices
+- OpenCL or Vulkan acceleration may help on supported Android devices
 ///
 
-/// details | Q: How do I enable Vulkan acceleration?
-A: Create SmolLM with `SmolLM(useVulkan = true)` (default). Check if enabled with `smol.isVulkanEnabled()`. Your device needs Android 11+ and Vulkan 1.2 support. See the Building section in the main README for build configuration.
+/// details | Q: How do I enable GPU acceleration?
+A: For text, keep `SmolLM(useVulkan = true)` or `TextModelOptions(useVulkan = true)` (both default). For Whisper, keep `WhisperLoadOptions(useGpu = true)`. Those names are legacy compatibility flags: on Android they mean "allow a supported GPU backend", not "force Vulkan". llmedge prefers OpenCL first, then Vulkan, then CPU. Check device capability with `LLMEdge.isOpenClAvailable()` and `LLMEdge.isVulkanAvailable()`. See the Building section in the main README for build configuration.
 ///
 
 /// details | Q: How do vision models work?

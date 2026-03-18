@@ -27,7 +27,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 - **OCR**: Google ML Kit text extraction
 - **Memory Metrics**: Built-in RAM usage monitoring
 - **Vision Models**: Architecture prepared for LLaVA-style models (requires specific model formats)
-- **Vulkan Acceleration**: Optional GPU acceleration (Android 11+ with Vulkan 1.2)
+- **GPU Acceleration**: Optional Android GPU backends for text, Whisper, and image/video with experimental OpenCL preferred first, Vulkan fallback second, and CPU fallback last
 
 ---
 
@@ -58,7 +58,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 ## Installation
 
 > [!WARNING]
-> For development, it is strongly recommended to work on linux due to Vulkan backend build for Stable Diffusion not working on Windows.
+> For development, Linux is strongly recommended for GPU-enabled builds. The Vulkan shader-generation path used by Stable Diffusion is still unreliable on Windows cross-builds.
 
 Clone the repository along with the `llama.cpp` and `stable-diffusion.cpp` submodule:
 
@@ -502,19 +502,19 @@ llmedge/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json
 
 ## Building
 
-Building with Vulkan enabled
----------------------------
+Building GPU backends on Android
+--------------------------------
 
-If you want to enable Vulkan acceleration for the native inference backend, follow these additional notes and requirements. The project supports building the Vulkan backend for Android but the runtime device must also support Vulkan 1.2.
+If you want GPU acceleration for the native inference backends, follow these notes and requirements. On Android, llmedge now prefers `OPENCL -> VULKAN -> CPU` when GPU use is allowed for text, Whisper, and image/video requests. OpenCL support is experimental, Android-only, and currently limited to `arm64-v8a`. Bark remains CPU-only.
 
 Prerequisites
-- Android NDK r27 or newer (NDK r27 used in development; NDK provides the Vulkan C headers). Ensure your NDK matches the version used by your build environment.
+- Android NDK r27 or newer (NDK r27 used in development; the NDK provides the Vulkan C headers). Ensure your NDK matches the version used by your build environment.
 - CMake 3.22+ and Ninja (the Android Gradle plugin will pick up CMake when configured).
 - Gradle (use the wrapper: `./gradlew`).
-- Android API (minSdk) 30 or higher when enabling the Vulkan backend — ggml-vulkan requires Vulkan 1.2 which is guaranteed on Android 11+ devices.
-- (Optional) VULKAN_SDK set in environment if you build shaders or use Vulkan SDK tools on the host. The build will fetch a matching `vulkan.hpp` header if needed.
+- Android API (minSdk) 30 or higher. `llmedge` targets Android 11+ today, and Vulkan support still requires Vulkan 1.2.
+- (Optional) `VULKAN_SDK` set in the environment if you build shaders or use Vulkan SDK tools on the host. The build fetches a matching `vulkan.hpp` header when needed.
 
-### Host Setup for Vulkan Build (Ubuntu/WSL)
+### Host Setup for Vulkan Builds (Ubuntu/WSL)
 
 To build the library with Vulkan support on a Linux host or WSL2, you must install the Vulkan shader compiler and development headers:
 
@@ -535,33 +535,39 @@ To build the library with Vulkan support on a Linux host or WSL2, you must insta
 
 Build flags
 - On Linux/macOS hosts, the Gradle build enables Vulkan by default. On Windows hosts, it defaults to `OFF` because the upstream shader-generator step is still fragile under the Android cross-build toolchain. Re-enable it explicitly only when your environment supports that path.
-- Enable Vulkan at CMake configure time using Gradle external native build arguments. For example (bash/fish):
+- Experimental Android OpenCL is disabled by default. Enable it with `-PllmedgeAndroidOpencl=ON` or the environment variable `LLMEDGE_ANDROID_OPENCL=ON`.
+- If you want both OpenCL and Vulkan compiled in explicitly, use:
 
 ```bash
-./gradlew :llmedge:assembleRelease -Pandroid.injected.build.api=30 -Pandroid.jniCmakeArgs="-DSD_VULKAN=ON -DGGML_VULKAN=ON"
+./gradlew :llmedge:assembleRelease \
+  -PllmedgeAndroidOpencl=ON \
+  -Pandroid.injected.build.api=30 \
+  -Pandroid.jniCmakeArgs="-DSD_VULKAN=ON -DGGML_VULKAN=ON"
 ```
 
-Alternatively, set these flags in your Android Studio CMake configuration. The important flags are `-DSD_VULKAN=ON` and `-DGGML_VULKAN=ON` so ggml's Vulkan backend and the Stable Diffusion integration compile with Vulkan support.
+Alternatively, set the same flags in your Android Studio CMake configuration. `LLMEDGE_ANDROID_OPENCL` is the library's experimental OpenCL toggle, while `-DSD_VULKAN=ON` and `-DGGML_VULKAN=ON` force Vulkan support for Stable Diffusion and ggml.
 
 Notes about headers and toolchain
 - The build fetches `Vulkan-Hpp` (`vulkan.hpp`) and pins it to the NDK's Vulkan headers to avoid API mismatch. If you have a local `VULKAN_SDK` you can point to it, otherwise the project will use the fetched headers.
+- When OpenCL is enabled, the build uses repo-managed OpenCL headers and a link-time loader shim. The packaged app still resolves the device's OpenCL implementation at runtime rather than shipping its own platform ICD.
 - The repository also builds a small host toolchain to generate SPIR-V shaders at build time; ensure your build host has a working C++ toolchain (clang/gcc) and CMake configured.
 
 Runtime verification
-- The AAR will include native libraries that link against `libvulkan.so` when Vulkan is enabled. To verify Vulkan is actually being used at runtime:
-    - Run the app on a device with Android 11+ and a Vulkan 1.2-capable GPU.
-    - Use the Kotlin API `SmolLM.isVulkanEnabled()` to check whether the library thinks Vulkan is available.
-    - Inspect runtime logs: filter logcat for the `SmolSD` tag (the native logger) and look for backend initialization messages. Example:
+- To verify GPU capability at runtime:
+    - Run the app on an Android 11+ device.
+    - Use `LLMEdge.isOpenClAvailable()` and `LLMEdge.isVulkanAvailable()` to inspect which GPU backends the build can see on that device.
+    - Inspect runtime logs for the selected backend and any fallback reason. Example:
 
 ```bash
 adb logcat -s SmolSD:* | sed -n '1,200p'
 ```
 
-    Look for messages indicating successful Vulkan initialization. Note: some builds logged "Using Vulkan backend" before initialization completed — make sure you see no subsequent "Failed to initialize Vulkan backend" or "Using CPU backend" messages.
+    Look for messages indicating OpenCL or Vulkan initialization. The public text flags keep their legacy names for compatibility, so `SmolLM(useVulkan = true)` and `LLMEdgeConfig.textUseVulkan = true` now mean "allow a supported GPU backend", not "force Vulkan".
 
 Troubleshooting
 - If you see "Vulkan 1.2 required" or linker errors for Vulkan symbols, confirm `minSdk` is set to 30 or higher in `llmedge/build.gradle.kts` and that your NDK provides the expected Vulkan headers.
-- If your device lacks Vulkan 1.2 support, the native code will fall back to the CPU backend. Use a modern device (Android 11+) or an emulator/image with Vulkan 1.2 support.
+- If experimental OpenCL is not available, or if a GPU backend fails to initialize or execute, llmedge falls back to Vulkan or CPU automatically. For text, Whisper, and image/video, a failing backend is blacklisted per subsystem for the rest of the process and the next backend is retried once.
+- If your device lacks both usable OpenCL and Vulkan support, the native code falls back to the CPU backend.
 
 #### Notes:
 
@@ -625,8 +631,8 @@ growth over time.
 
 ## Notes
 
-- Vulkan SDK may be required; set the `VULKAN_SDK` environment variable when building with Vulkan.
-- Vulkan acceleration can be checked via `SmolLM.isVulkanEnabled()`.
+- `VULKAN_SDK` may still be required when you are building the Vulkan path on the host.
+- Check Android GPU capability with `LLMEdge.isOpenClAvailable()` and `LLMEdge.isVulkanAvailable()`.
 
 ### ProGuard/R8 Configuration
 

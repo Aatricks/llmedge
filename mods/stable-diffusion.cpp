@@ -24,10 +24,15 @@
 #include <atomic>
 
 static std::atomic<bool> g_sd_vulkan_enabled{true};
+static std::atomic<bool> g_sd_opencl_enabled{true};
 static std::atomic<int> g_sd_vulkan_device{-1};
 
 extern "C" SD_API void sd_set_vulkan_enabled(bool enabled) {
     g_sd_vulkan_enabled.store(enabled);
+}
+
+extern "C" SD_API void sd_set_opencl_enabled(bool enabled) {
+    g_sd_opencl_enabled.store(enabled);
 }
 
 extern "C" SD_API void sd_set_vulkan_device(int device_index) {
@@ -177,8 +182,20 @@ public:
         LOG_DEBUG("Using Metal backend");
         backend = ggml_backend_metal_init();
 #endif
+#ifdef SD_USE_OPENCL
+        if (g_sd_opencl_enabled.load()) {
+            LOG_DEBUG("Using OpenCL backend");
+            // ggml_log_set(ggml_log_callback_default, nullptr); // Optional ggml logs
+            backend = ggml_backend_opencl_init();
+            if (!backend) {
+                LOG_WARN("Failed to initialize OpenCL backend");
+            }
+        } else if (!g_sd_opencl_enabled.load()) {
+            LOG_DEBUG("OpenCL backend disabled (llmedge)");
+        }
+#endif
 #ifdef SD_USE_VULKAN
-        if (g_sd_vulkan_enabled.load()) {
+        if (!backend && g_sd_vulkan_enabled.load()) {
             const int device_count = ggml_backend_vk_get_device_count();
             LOG_DEBUG("Using Vulkan backend (devices=%d)", device_count);
 
@@ -222,16 +239,8 @@ public:
             } else {
                 LOG_WARN("Vulkan backend compiled in, but no Vulkan devices were enumerated");
             }
-        } else {
+        } else if (!g_sd_vulkan_enabled.load()) {
             LOG_DEBUG("Vulkan backend disabled (llmedge)");
-        }
-#endif
-#ifdef SD_USE_OPENCL
-        LOG_DEBUG("Using OpenCL backend");
-        // ggml_log_set(ggml_log_callback_default, nullptr); // Optional ggml logs
-        backend = ggml_backend_opencl_init();
-        if (!backend) {
-            LOG_WARN("Failed to initialize OpenCL backend");
         }
 #endif
 #ifdef SD_USE_SYCL
