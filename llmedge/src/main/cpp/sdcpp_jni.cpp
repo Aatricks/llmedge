@@ -655,6 +655,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     {
         std::lock_guard<std::mutex> lock(g_sd_backend_env_mutex);
         ScopedEnvVar disableVulkan("GGML_DISABLE_VULKAN", useVulkan == JNI_TRUE ? std::nullopt : std::optional<std::string>("1"));
+        ScopedEnvVar disableOpenCl("GGML_DISABLE_OPENCL", enableOpenCl == JNI_TRUE ? std::nullopt : std::optional<std::string>("1"));
         ScopedEnvVar vulkanDevice("SD_VK_DEVICE", selectedVulkanDevice);
         ctx = new_sd_ctx(&p);
     }

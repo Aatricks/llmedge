@@ -41,6 +41,29 @@ if (SD_ROOT_OVERRIDE)
         get_filename_component(SD_DIR "${SD_ROOT_OVERRIDE}" ABSOLUTE)
 elseif (LLMEDGE_SDCPP_USE_MODS OR (DEFINED ENV{LLMEDGE_SDCPP_USE_MODS} AND "$ENV{LLMEDGE_SDCPP_USE_MODS}" STREQUAL "1"))
         set(PATCHED_SD_ROOT "${CMAKE_CURRENT_BINARY_DIR}/patched-sd-src")
+        # Keep the copied tree in sync with upstream stable-diffusion.cpp and any selected
+        # llmedge overlays. Without this, CMake can keep compiling a stale copied source tree
+        # even after the upstream submodule changes.
+        file(GLOB_RECURSE _llmedge_sdcpp_upstream_inputs CONFIGURE_DEPENDS
+                "${SD_DIR_UPSTREAM}/CMakeLists.txt"
+                "${SD_DIR_UPSTREAM}/include/*"
+                "${SD_DIR_UPSTREAM}/src/*"
+                "${SD_DIR_UPSTREAM}/ggml/CMakeLists.txt"
+                "${SD_DIR_UPSTREAM}/ggml/include/*"
+                "${SD_DIR_UPSTREAM}/ggml/src/*"
+                "${SD_DIR_UPSTREAM}/thirdparty/*"
+        )
+        if (EXISTS "${LLMEDGE_MODS_DIR}")
+                file(GLOB_RECURSE _llmedge_sdcpp_mod_inputs CONFIGURE_DEPENDS
+                        "${LLMEDGE_MODS_DIR}/*"
+                )
+        else()
+                set(_llmedge_sdcpp_mod_inputs "")
+        endif()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                ${_llmedge_sdcpp_upstream_inputs}
+                ${_llmedge_sdcpp_mod_inputs}
+        )
         message(STATUS "LLMEDGE_SDCPP_USE_MODS enabled: copying stable-diffusion.cpp sources to ${PATCHED_SD_ROOT} and overlaying mods")
         execute_process(COMMAND ${CMAKE_COMMAND} -E rm -rf "${PATCHED_SD_ROOT}")
         execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${PATCHED_SD_ROOT}")
