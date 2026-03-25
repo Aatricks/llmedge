@@ -6,6 +6,7 @@ import io.aatricks.llmedge.text.ConversationRole
 import io.aatricks.llmedge.text.ConversationWindow
 import io.aatricks.llmedge.text.TextClient
 import io.aatricks.llmedge.text.TextModelOptions
+import io.aatricks.llmedge.text.stripThinkBlocks
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
@@ -61,14 +62,19 @@ class ToolAgent internal constructor(
 
                 when (val turn = ToolCallParser.classify(response)) {
                     is ParsedModelTurn.FinalText -> {
-                        finalText = turn.text
                         trace += ToolAgentTraceStep(step = step, rawModelOutput = response)
-                        commitTurn(message, finalText)
-                        return@withLock ToolAgentResult(
-                            text = finalText,
-                            finishReason = ToolAgentFinishReason.COMPLETED,
-                            trace = trace.toList(),
-                        )
+                        val visibleText = turn.text.stripThinkBlocks()
+                        if (visibleText.isNotBlank()) {
+                            finalText = visibleText
+                            commitTurn(message, finalText)
+                            return@withLock ToolAgentResult(
+                                text = finalText,
+                                finishReason = ToolAgentFinishReason.COMPLETED,
+                                trace = trace.toList(),
+                            )
+                        }
+
+                        working += emptyFinalAnswerReminder()
                     }
 
                     is ParsedModelTurn.InvalidToolInvocation -> {
@@ -134,24 +140,25 @@ class ToolAgent internal constructor(
 
                         when (val turn = ToolCallParser.classify(response)) {
                             is ParsedModelTurn.FinalText -> {
-                                finalText = turn.text
                                 trace += ToolAgentTraceStep(step = step, rawModelOutput = response)
-                                chunks.forEach { chunk ->
-                                    if (chunk.isNotEmpty()) {
-                                        emit(ToolAgentEvent.TextChunk(chunk))
-                                    }
-                                }
-                                commitTurn(message, finalText)
-                                emit(
-                                    ToolAgentEvent.Completed(
-                                        ToolAgentResult(
-                                            text = finalText,
-                                            finishReason = ToolAgentFinishReason.COMPLETED,
-                                            trace = trace.toList(),
+                                val visibleText = turn.text.stripThinkBlocks()
+                                if (visibleText.isNotBlank()) {
+                                    finalText = visibleText
+                                    emit(ToolAgentEvent.TextChunk(finalText))
+                                    commitTurn(message, finalText)
+                                    emit(
+                                        ToolAgentEvent.Completed(
+                                            ToolAgentResult(
+                                                text = finalText,
+                                                finishReason = ToolAgentFinishReason.COMPLETED,
+                                                trace = trace.toList(),
+                                            ),
                                         ),
-                                    ),
-                                )
-                                return@withLock
+                                    )
+                                    return@withLock
+                                }
+
+                                working += emptyFinalAnswerReminder()
                             }
 
                             is ParsedModelTurn.InvalidToolInvocation -> {
@@ -371,6 +378,13 @@ class ToolAgent internal constructor(
             put("code", code)
             put("message", message)
         }
+
+    private fun emptyFinalAnswerReminder(): ToolPromptMessage =
+        ToolPromptMessage(
+            ToolPromptRole.SYSTEM,
+            "Your previous response contained no user-visible text after hidden reasoning was removed. " +
+                "Do not repeat a tool call you already satisfied. Answer the user now in plain text using the available tool results.",
+        )
 }
 
 private data class ToolStepResult(

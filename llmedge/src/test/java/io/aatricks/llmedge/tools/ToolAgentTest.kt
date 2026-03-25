@@ -93,6 +93,35 @@ class ToolAgentTest {
     }
 
     @Test
+    fun `tool schema ignores unexpected arguments for zero arg tools`() {
+        val errors =
+            ToolSchema().validate(
+                buildJsonObject {
+                    put("time", "2026-03-25")
+                    put("battery", 80)
+                },
+            )
+
+        assertTrue(errors.isEmpty())
+    }
+
+    @Test
+    fun `tool schema rejects unexpected arguments when parameters are declared`() {
+        val errors =
+            ToolSchema(
+                parameters =
+                    mapOf("url" to ToolParameter(ToolParameterType.STRING, "url")),
+            ).validate(
+                buildJsonObject {
+                    put("url", "https://example.com")
+                    put("confirm", true)
+                },
+            )
+
+        assertTrue(errors.any { it.contains("Unexpected argument 'confirm'") })
+    }
+
+    @Test
     fun `reply executes read only tool and returns final answer`() = runTest {
         installBridge(
             listOf("""{"tool":"lookup","arguments":{"query":"Paris"}}"""),
@@ -134,6 +163,42 @@ class ToolAgentTest {
             assertEquals(2, result.trace.size)
             assertEquals("lookup", result.trace.first().toolCall?.tool)
             assertTrue(agent.historySnapshot().last().content.contains("capital of France"))
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
+    fun `reply executes zero arg tool when model invents extra fields`() = runTest {
+        installBridge(
+            listOf("""{"tool":"clock","arguments":{"time":"2026-03-25"}}"""),
+            listOf("It is 10:15."),
+        )
+        val edge = createEdge(this)
+        var invoked = false
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools =
+                    listOf(
+                        Tool(
+                            name = "clock",
+                            description = "Returns the current time.",
+                            handler = {
+                                invoked = true
+                                ToolResult.success("Current time is 10:15.")
+                            },
+                        ),
+                    ),
+            )
+
+        try {
+            val result = agent.reply("What time is it?", maxSteps = 2)
+
+            assertTrue(invoked)
+            assertEquals("It is 10:15.", result.text)
+            assertTrue(result.trace.first().toolResult?.isError == false)
         } finally {
             edge.close()
         }
@@ -261,6 +326,72 @@ class ToolAgentTest {
     }
 
     @Test
+    fun `reply strips think blocks from final answer and history`() = runTest {
+        installBridge(listOf("<think>private reasoning</think>Visible answer"))
+        val edge = createEdge(this)
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools = emptyList(),
+            )
+
+        try {
+            val result = agent.reply("Say something useful.", maxSteps = 1)
+
+            assertEquals("Visible answer", result.text)
+            assertEquals("Visible answer", agent.historySnapshot().last().content)
+            assertTrue(result.trace.single().rawModelOutput.contains("<think>private reasoning</think>"))
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
+    fun `reply retries when sanitized final text is empty`() = runTest {
+        val prompts = mutableListOf<String>()
+        installBridge(
+            listOf("""{"tool":"lookup","arguments":{"query":"Paris"}}"""),
+            listOf("<think>private reasoning only</think>"),
+            listOf("Visible answer after retry"),
+            promptLog = prompts,
+        )
+        val edge = createEdge(this)
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools =
+                    listOf(
+                        Tool(
+                            name = "lookup",
+                            description = "Looks up info",
+                            schema =
+                                ToolSchema(
+                                    parameters =
+                                        mapOf("query" to ToolParameter(ToolParameterType.STRING, "query")),
+                                ),
+                            handler = { ToolResult.success("Paris lookup complete") },
+                        ),
+                    ),
+            )
+
+        try {
+            val result = agent.reply("What is Paris?", maxSteps = 3)
+
+            assertEquals(ToolAgentFinishReason.COMPLETED, result.finishReason)
+            assertEquals("Visible answer after retry", result.text)
+            assertEquals(3, result.trace.size)
+            assertTrue(result.trace[1].rawModelOutput.contains("<think>private reasoning only</think>"))
+            assertEquals(3, prompts.size)
+            assertTrue(prompts[2].contains("Your previous response contained no user-visible text"))
+            assertTrue(!prompts[2].contains("<think>private reasoning only</think>"))
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
     fun `stream emits tool events before final text`() = runTest {
         installBridge(
             listOf("""{"tool":"lookup","arguments":{"query":"Paris"}}"""),
@@ -293,8 +424,84 @@ class ToolAgentTest {
             assertTrue(events.any { it is ToolAgentEvent.ToolCallRequested })
             assertTrue(events.any { it is ToolAgentEvent.ToolExecuting })
             assertTrue(events.any { it is ToolAgentEvent.ToolResultReceived })
-            assertTrue(events.any { it is ToolAgentEvent.TextChunk && it.value == "Paris " })
+            assertEquals(
+                "Paris is the capital.",
+                events.filterIsInstance<ToolAgentEvent.TextChunk>().joinToString("") { it.value },
+            )
             assertTrue(events.last() is ToolAgentEvent.Completed)
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
+    fun `stream retries when sanitized final text is empty`() = runTest {
+        val prompts = mutableListOf<String>()
+        installBridge(
+            listOf("""{"tool":"lookup","arguments":{"query":"Paris"}}"""),
+            listOf("<think>private reasoning only</think>"),
+            listOf("Visible answer after retry"),
+            promptLog = prompts,
+        )
+        val edge = createEdge(this)
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools =
+                    listOf(
+                        Tool(
+                            name = "lookup",
+                            description = "Looks up info",
+                            schema =
+                                ToolSchema(
+                                    parameters =
+                                        mapOf("query" to ToolParameter(ToolParameterType.STRING, "query")),
+                                ),
+                            handler = { ToolResult.success("Paris lookup complete") },
+                        ),
+                    ),
+            )
+
+        try {
+            val events = agent.stream("What is Paris?", maxSteps = 3).toList()
+            val completed = events.last() as ToolAgentEvent.Completed
+
+            assertEquals("Visible answer after retry", completed.result.text)
+            assertEquals(
+                "Visible answer after retry",
+                events.filterIsInstance<ToolAgentEvent.TextChunk>().joinToString("") { it.value },
+            )
+            assertEquals(1, events.filterIsInstance<ToolAgentEvent.ToolCallRequested>().size)
+            assertTrue(completed.result.trace[1].rawModelOutput.contains("<think>private reasoning only</think>"))
+            assertEquals(3, prompts.size)
+            assertTrue(prompts[2].contains("Your previous response contained no user-visible text"))
+            assertTrue(!prompts[2].contains("<think>private reasoning only</think>"))
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
+    fun `stream strips think blocks before emitting final text`() = runTest {
+        installBridge(listOf("<think>private reasoning</think>Visible ", "answer"))
+        val edge = createEdge(this)
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools = emptyList(),
+            )
+
+        try {
+            val events = agent.stream("Answer plainly.", maxSteps = 1).toList()
+            val emittedText = events.filterIsInstance<ToolAgentEvent.TextChunk>().joinToString("") { it.value }
+            val completed = events.last() as ToolAgentEvent.Completed
+
+            assertEquals("Visible answer", emittedText)
+            assertEquals("Visible answer", completed.result.text)
+            assertTrue(events.filterIsInstance<ToolAgentEvent.TextChunk>().none { it.value.contains("<think>") })
+            assertTrue(completed.result.trace.single().rawModelOutput.contains("<think>private reasoning</think>"))
         } finally {
             edge.close()
         }
@@ -328,7 +535,10 @@ class ToolAgentTest {
             },
         )
 
-    private fun installBridge(vararg responses: List<String>) {
+    private fun installBridge(
+        vararg responses: List<String>,
+        promptLog: MutableList<String>? = null,
+    ) {
         SmolLM.overrideNativeBridgeForTests {
             object : SmolLM.NativeBridge {
                 private var currentResponse = ArrayDeque<String>()
@@ -384,6 +594,7 @@ class ToolAgentTest {
                 override fun close(instance: SmolLM, modelPtr: Long) = Unit
 
                 override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {
+                    promptLog?.add(prompt)
                     val response = responses[responseIndex++]
                     currentResponse = ArrayDeque(response + listOf("[EOG]"))
                 }

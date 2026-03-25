@@ -53,6 +53,8 @@ object ToolPromptGenerator {
                         }
                     },
                 )
+            } else {
+                promptBuilder.append(" Params: none (send an empty arguments object).")
             }
             promptBuilder.append('\n')
         }
@@ -63,9 +65,15 @@ object ToolPromptGenerator {
             |Rules:
             |1. If a tool is needed, reply with JSON only using this exact shape:
             |{"tool":"tool_name","arguments":{"arg":"value"}}
-            |2. Do not wrap the JSON in prose when calling a tool.
-            |3. After a tool result appears, use it to continue. If the tool result reports an error, either fix the call or answer without that tool.
-            |4. If no tool is needed, reply in plain text only.
+            |2. For tools with no parameters, send an empty arguments object:
+            |{"tool":"tool_name","arguments":{}}
+            |3. Do not wrap the JSON in prose when calling a tool.
+            |4. For live device state like time, battery, or device info, do not guess. Call the relevant tool and use its result.
+            |5. After a tool result appears, use it to continue. If the tool result reports an error, either fix the call or answer without that tool.
+            |6. Copy numeric values, booleans, and URLs from tool results exactly. Do not change or invent them.
+            |7. Only claim an action succeeded if the tool result for that action says it succeeded.
+            |8. Do not repeat the same tool call with the same arguments if you already have a usable result. Once you have enough information, answer in plain text.
+            |9. If no tool is needed, reply in plain text only.
             |
             |Current Date: $currentDate.
             """.trimMargin(),

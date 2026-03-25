@@ -37,6 +37,7 @@ data class ToolSchema(
 ) {
     internal fun validate(arguments: JsonObject): List<String> {
         val errors = mutableListOf<String>()
+        val declaredParameters = parameters.keys
 
         parameters.forEach { (name, parameter) ->
             val value = arguments[name]
@@ -61,8 +62,12 @@ data class ToolSchema(
             }
         }
 
+        if (declaredParameters.isEmpty()) {
+            return errors
+        }
+
         arguments.keys
-            .filterNot(parameters::containsKey)
+            .filterNot(declaredParameters::contains)
             .forEach { name -> errors += "Unexpected argument '$name'." }
 
         return errors

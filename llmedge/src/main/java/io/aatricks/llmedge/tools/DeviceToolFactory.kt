@@ -1,10 +1,14 @@
 package io.aatricks.llmedge.tools
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -13,6 +17,7 @@ import kotlinx.serialization.json.put
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * Factory for creating real-world Android tools for the LLM.
@@ -66,6 +71,7 @@ class DeviceToolFactory(private val context: Context) {
             name = "get_battery_status",
             description = "Returns the current battery level and whether the device is charging.",
             handler = {
+                val batteryManager = context.getSystemService(BatteryManager::class.java)
                 val intentFilter = android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED)
                 val batteryStatus: Intent? = context.registerReceiver(null, intentFilter)
 
@@ -74,16 +80,16 @@ class DeviceToolFactory(private val context: Context) {
                     status == BatteryManager.BATTERY_STATUS_CHARGING ||
                         status == BatteryManager.BATTERY_STATUS_FULL
 
-                val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-                val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-                val batteryPct = if (level != -1 && scale != -1) (level * 100 / scale.toFloat()) else -1.0f
+                val (batteryPercent, source) = resolveBatteryPercent(batteryManager, batteryStatus)
+                val levelText = batteryPercent?.let { "$it%" } ?: "unavailable"
 
                 ToolResult.success(
-                    text = "Battery Level: ${batteryPct}%, Charging: $isCharging",
+                    text = "Battery Level: $levelText, Charging: $isCharging",
                     data =
                         buildJsonObject {
-                            put("batteryPercent", batteryPct)
+                            batteryPercent?.let { put("batteryPercent", it) }
                             put("isCharging", isCharging)
+                            source?.let { put("batterySource", it) }
                         },
                 )
             },
@@ -110,16 +116,16 @@ class DeviceToolFactory(private val context: Context) {
             },
         )
 
-    private fun openBrowser(args: JsonObject): ToolResult {
+    private suspend fun openBrowser(args: JsonObject): ToolResult {
         val url = args["url"]?.jsonPrimitive?.contentOrNull
             ?: return ToolResult.error("No URL provided.", jsonObject("code" to "missing_url"))
 
+        val intent = buildBrowserIntent(url)
+
         return try {
-            val intent =
-                Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            context.startActivity(intent)
+            withContext(Dispatchers.Main.immediate) {
+                launchBrowserIntent(intent)
+            }
             ToolResult.success(
                 text = "Successfully opened $url in the browser.",
                 data = jsonObject("url" to url),
@@ -136,7 +142,54 @@ class DeviceToolFactory(private val context: Context) {
             )
         }
     }
+
+    private fun resolveBatteryPercent(
+        batteryManager: BatteryManager?,
+        batteryStatus: Intent?,
+    ): Pair<Int?, String?> {
+        val reportedCapacity =
+            batteryManager
+                ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                ?.takeIf { it in 0..100 }
+        if (reportedCapacity != null) {
+            return reportedCapacity to "battery_manager"
+        }
+
+        val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        if (level < 0 || scale <= 0) {
+            return null to null
+        }
+
+        return ((level * 100f) / scale.toFloat()).roundToInt().coerceIn(0, 100) to "battery_changed"
+    }
+
+    private fun buildBrowserIntent(url: String): Intent =
+        Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
+        }
+
+    private fun launchBrowserIntent(intent: Intent) {
+        val activity = context.findActivity()
+        if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
+            activity.startActivity(intent)
+            return
+        }
+
+        context.startActivity(
+            Intent(intent).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        )
+    }
 }
+
+private tailrec fun Context.findActivity(): Activity? =
+    when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
 
 private fun jsonObject(vararg fields: Pair<String, Any?>): JsonObject =
     buildJsonObject {

@@ -24,7 +24,12 @@ class ToolPromptGeneratorTest {
                                                     description = "search query",
                                                 ),
                                         ),
-                                ),
+                            ),
+                            handler = { ToolResult.success("ok") },
+                        ),
+                        Tool(
+                            name = "clock",
+                            description = "Returns the current time",
                             handler = { ToolResult.success("ok") },
                         ),
                     ),
@@ -34,7 +39,9 @@ class ToolPromptGeneratorTest {
 
         assertTrue(prompt.contains("You are concise."))
         assertTrue(prompt.contains("search [read_only]: Searches docs"))
+        assertTrue(prompt.contains("clock [read_only]: Returns the current time Params: none"))
         assertTrue(prompt.contains("""{"tool":"tool_name","arguments":{"arg":"value"}}"""))
+        assertTrue(prompt.contains("""{"tool":"tool_name","arguments":{}}"""))
         assertTrue(prompt.contains("query (string)"))
         assertTrue(prompt.contains("Current Date: 2026-03-08."))
     }
