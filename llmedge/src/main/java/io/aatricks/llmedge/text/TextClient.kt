@@ -10,6 +10,10 @@ import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.tools.Tool
+import io.aatricks.llmedge.tools.ToolAgent
+import io.aatricks.llmedge.tools.ToolPolicies
+import io.aatricks.llmedge.tools.ToolPolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collect
@@ -228,6 +232,21 @@ class TextClient internal constructor(
         systemPrompt: String? = null,
         options: TextModelOptions = TextModelOptions(),
     ): ChatSession = ChatSession(this, model, memory, systemPrompt, options)
+
+    /**
+     * Create a Kotlin-managed tool-calling agent backed by this client.
+     *
+     * The returned [ToolAgent] replays transcript state in Kotlin and requires explicit policy
+     * approval before action tools execute.
+     */
+    fun toolAgent(
+        tools: List<Tool>,
+        model: ModelSpec = config.models.text,
+        memory: ConversationWindow = ConversationWindow(),
+        systemPrompt: String? = null,
+        options: TextModelOptions = TextModelOptions(),
+        policy: ToolPolicy = ToolPolicies.DENY_ACTIONS,
+    ): ToolAgent = ToolAgent(this, tools, model, memory, systemPrompt, options, policy)
 
     internal suspend fun acquire(model: ModelSpec, options: TextModelOptions): ManagedTextModel {
         val key = buildCacheKey(model, options)

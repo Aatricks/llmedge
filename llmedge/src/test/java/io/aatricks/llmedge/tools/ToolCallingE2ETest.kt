@@ -1,7 +1,8 @@
 package io.aatricks.llmedge.tools
 
-import android.content.Context
-import io.aatricks.llmedge.text.runtime.SmolLM
+import io.aatricks.llmedge.LLMEdge
+import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.text.TextModelOptions
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Assume
@@ -34,7 +35,6 @@ class ToolCallingE2ETest {
 
     @Test
     fun `test agent tool calling end-to-end`() = runBlocking {
-        // 1. Tool calling needs a stronger instruct model than the tiny smoke-test model.
         val modelPath = resolveToolModelPath()
         println("[ToolCallingE2ETest] modelPath=$modelPath")
         Assume.assumeTrue(
@@ -42,54 +42,40 @@ class ToolCallingE2ETest {
             !modelPath.isNullOrBlank() && File(modelPath).exists()
         )
         val resolvedModelPath = modelPath!!
-
-        // 2. Initialize SmolLM
-        println("[ToolCallingE2ETest] Initializing SmolLM...")
-        val smol = SmolLM(useVulkan = false)
-        
+        val edge = LLMEdge.create(RuntimeEnvironment.getApplication(), this)
         try {
-            smol.load(resolvedModelPath, SmolLM.InferenceParams(
-                contextSize = 2048,
-                temperature = 0.0f, // Use low temperature for deterministic tool calls
-                storeChats = true
-            ))
-            println("[ToolCallingE2ETest] Model loaded.")
-
-            // 3. Define real tools using the factory
             val factory = DeviceToolFactory(RuntimeEnvironment.getApplication())
             val batteryTool = factory.createGetBatteryStatusTool()
             var toolCalled = false
-            
-            // Wrap the tool to track if it was called
-            val wrappedBatteryTool = batteryTool.copy(execute = { args ->
+
+            val wrappedBatteryTool = batteryTool.copy(handler = { args ->
                 toolCalled = true
-                batteryTool.execute(args)
+                batteryTool.handler(args)
             })
-
-            // 4. Create the agent
-            val agent = LLMAgent(smol, listOf(wrappedBatteryTool))
-
-            // 5. Run the chat
+            val agent =
+                edge.text.toolAgent(
+                    model = ModelSpec.localFile(resolvedModelPath),
+                    options = TextModelOptions(contextSize = 2048, temperature = 0.0f, useVulkan = false),
+                    tools = listOf(wrappedBatteryTool),
+                )
             val query = "What is my current battery level?"
             println("[ToolCallingE2ETest] Query: $query")
-            
-            val finalAnswer = agent.chat(query, maxSteps = 2)
-            
-            println("[ToolCallingE2ETest] Final Answer: $finalAnswer")
 
-            // 6. Assertions
+            val finalAnswer = agent.reply(query, maxSteps = 2)
+
+            println("[ToolCallingE2ETest] Final Answer: ${finalAnswer.text}")
             assertTrue("Tool should have been called", toolCalled)
-            assertTrue("Final answer should contain battery level", 
-                finalAnswer.contains("battery", ignoreCase = true) || 
-                finalAnswer.contains("%")
+            assertTrue(
+                "Final answer should contain battery level",
+                finalAnswer.text.contains("battery", ignoreCase = true) ||
+                    finalAnswer.text.contains("%"),
             )
-
         } catch (e: Exception) {
             println("[ToolCallingE2ETest] Test failed: ${e.message}")
             e.printStackTrace()
             throw e
         } finally {
-            smol.close()
+            edge.close()
         }
     }
 }

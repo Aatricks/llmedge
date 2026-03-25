@@ -6,37 +6,71 @@ import java.time.LocalDate
  * Generates system prompts to instruct the LLM on how to format its tool calls.
  */
 object ToolPromptGenerator {
-
-    /**
-     * Serializes a list of [Tool] definitions into a system prompt string.
-     */
     @JvmStatic
-    fun generateSystemPrompt(tools: List<Tool>, currentDate: LocalDate = LocalDate.now()): String {
-        if (tools.isEmpty()) return "You are a helpful assistant."
-
+    fun generateSystemPrompt(
+        tools: List<Tool>,
+        baseSystemPrompt: String? = null,
+        currentDate: LocalDate = LocalDate.now(),
+    ): String {
         val promptBuilder = StringBuilder()
-        promptBuilder.append("You have access to these TOOLS:\n")
 
-        tools.forEach { tool ->
-            promptBuilder.append("- ${tool.name}: ${tool.description}. Params: ")
-            val params = tool.parameters.map { "${it.key} (${it.value.type})" }
-            promptBuilder.append(params.joinToString(", "))
-            promptBuilder.append("\n")
+        baseSystemPrompt
+            ?.takeUnless(String::isBlank)
+            ?.let {
+                promptBuilder.append(it.trim())
+                promptBuilder.append("\n\n")
+            }
+
+        if (tools.isEmpty()) {
+            promptBuilder.append("You are a helpful assistant.")
+            return promptBuilder.toString()
         }
 
-        promptBuilder.append("""
-            
-            RULES:
-            1. If you need info from a tool, you MUST call it using this EXACT JSON format:
-            {"tool_name": "NAME", "arguments": {"KEY": "VALUE"}}
-            2. After calling a tool, you will receive the "TOOL_RESULT".
-            3. Once you have the TOOL_RESULT, use it to provide a helpful response to the user in plain text. DO NOT call the tool again with the same arguments.
-            4. If you have the final answer, reply in plain text ONLY.
+        promptBuilder.append("You can use these tools when necessary.\n")
+        tools.forEach { tool ->
+            promptBuilder.append("- ")
+            promptBuilder.append(tool.name)
+            promptBuilder.append(" [")
+            promptBuilder.append(tool.kind.name.lowercase())
+            promptBuilder.append("]: ")
+            promptBuilder.append(tool.description)
+            if (tool.schema.parameters.isNotEmpty()) {
+                promptBuilder.append(" Params: ")
+                promptBuilder.append(
+                    tool.schema.parameters.entries.joinToString(", ") { (name, parameter) ->
+                        buildString {
+                            append(name)
+                            append(" (")
+                            append(parameter.type.name.lowercase())
+                            if (!parameter.required) {
+                                append(", optional")
+                            }
+                            if (parameter.enumValues.isNotEmpty()) {
+                                append(", enum=")
+                                append(parameter.enumValues.joinToString("|"))
+                            }
+                            append(")")
+                        }
+                    },
+                )
+            }
+            promptBuilder.append('\n')
+        }
 
-            Current Date: $currentDate.
-        """.trimIndent())
+        promptBuilder.append(
+            """
+            |
+            |Rules:
+            |1. If a tool is needed, reply with JSON only using this exact shape:
+            |{"tool":"tool_name","arguments":{"arg":"value"}}
+            |2. Do not wrap the JSON in prose when calling a tool.
+            |3. After a tool result appears, use it to continue. If the tool result reports an error, either fix the call or answer without that tool.
+            |4. If no tool is needed, reply in plain text only.
+            |
+            |Current Date: $currentDate.
+            """.trimMargin(),
+        )
 
-        return promptBuilder.toString()
+        return promptBuilder.toString().trim()
     }
 }
-

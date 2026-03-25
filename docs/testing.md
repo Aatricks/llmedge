@@ -68,7 +68,7 @@ Coverage:
 - `text/ChatSessionLinuxE2ETest` — current `LLMEdge.text.session(...)` multi-turn facade on Linux
 - `speech/SpeechClientLinuxE2ETest` — current `LLMEdge.speech.transcribe(...)` facade on Linux
 - `WhisperLinuxE2ETest` — low-level Whisper STT pipeline on Linux
-- `ToolCallingE2ETest` — tool-calling loop using a stronger local model (`LLMEDGE_TEST_TOOL_MODEL_PATH`)
+- `ToolCallingE2ETest` — `LLMEdge.text.toolAgent(...)` loop using a stronger local model (`LLMEDGE_TEST_TOOL_MODEL_PATH`)
 - `BarkLinuxE2ETest` — Bark JNI bindings on Linux, plus full TTS generation when a Bark model is supplied
 - `ConversationWindowTest` / `PromptRendererTest` — Kotlin-managed chat-window trimming, prompt replay, and `<think>` stripping logic
 

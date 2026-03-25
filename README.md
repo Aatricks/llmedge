@@ -38,6 +38,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
    - [Downloading Models](#downloading-models)
    - [Reasoning Controls](#reasoning-controls)
    - [Managed Chat Sessions](#managed-chat-sessions)
+   - [Tool Calling](#tool-calling)
    - [Image Text Extraction (OCR)](#image-text-extraction-ocr)
    - [Vision Models](#vision-models)
    - [Speech-to-Text (Whisper)](#speech-to-text-whisper)
@@ -182,6 +183,37 @@ viewModelScope.launch {
 ```
 
 The new session API keeps transcript state in Kotlin, applies sliding-window trimming, and strips replayed `<think>...</think>` blocks by default so reasoning-heavy models do not exhaust the context window as quickly.
+
+### Tool Calling
+
+Use `edge.text.toolAgent(...)` when you want the model to call app-defined tools. Read-only tools execute automatically; action tools require an explicit policy decision.
+
+```kotlin
+val edge = LLMEdge.create(context, viewModelScope)
+val factory = DeviceToolFactory(context)
+
+val agent = edge.text.toolAgent(
+    tools = factory.createDefaultTools(),
+    systemPrompt = "Be concise and only use tools when needed.",
+    policy = ToolPolicies.ALLOW_ALL, // or keep the default to deny action tools
+)
+
+viewModelScope.launch {
+    val result = agent.reply("What time is it and how much battery is left?")
+    println(result.text)
+
+    agent.stream("Open https://example.com").collect { event ->
+        when (event) {
+            is ToolAgentEvent.ToolCallRequested -> println("Tool: ${event.call.tool}")
+            is ToolAgentEvent.TextChunk -> print(event.value)
+            is ToolAgentEvent.Completed -> println("\nDone: ${event.result.finishReason}")
+            else -> Unit
+        }
+    }
+}
+```
+
+Tool calls use a structured JSON envelope internally: `{"tool":"name","arguments":{...}}`. The parser also accepts the legacy `tool_name` field for robustness, but new prompts only emit the `tool` shape.
 
 ### Text Generation Performance Tuning
 
