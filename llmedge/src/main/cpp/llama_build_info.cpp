@@ -5,3 +5,5 @@
 // minimal definitions to satisfy the linker.
 int LLAMA_BUILD_NUMBER = 0;
 char const * LLAMA_COMMIT = "";
+char const * LLAMA_COMPILER = "";
+char const * LLAMA_BUILD_TARGET = "";

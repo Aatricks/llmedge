@@ -32,12 +32,27 @@ set(SMOLLM_SOURCES
 
         ${COMMON_DIR}/arg.cpp
         ${COMMON_DIR}/base64.hpp
+        ${COMMON_DIR}/chat-auto-parser-generator.cpp
+        ${COMMON_DIR}/chat-auto-parser-helpers.cpp
+        ${COMMON_DIR}/chat-diff-analyzer.cpp
+        ${COMMON_DIR}/chat-peg-parser.cpp
+        ${COMMON_DIR}/chat.cpp
         ${COMMON_DIR}/common.cpp
         ${COMMON_DIR}/console.cpp
         ${COMMON_DIR}/json-schema-to-grammar.cpp
         ${COMMON_DIR}/log.cpp
         ${COMMON_DIR}/ngram-cache.cpp
+        ${COMMON_DIR}/peg-parser.cpp
+        ${COMMON_DIR}/reasoning-budget.cpp
         ${COMMON_DIR}/sampling.cpp
+        ${COMMON_DIR}/unicode.cpp
+
+        ${COMMON_DIR}/jinja/caps.cpp
+        ${COMMON_DIR}/jinja/lexer.cpp
+        ${COMMON_DIR}/jinja/parser.cpp
+        ${COMMON_DIR}/jinja/runtime.cpp
+        ${COMMON_DIR}/jinja/string.cpp
+        ${COMMON_DIR}/jinja/value.cpp
 
         # llmedge-local build info for llama.cpp common
         ${LLMEDGE_CPP_ROOT}/llama_build_info.cpp

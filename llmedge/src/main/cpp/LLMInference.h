@@ -1,11 +1,23 @@
 #pragma once
 #include "llama.h"
+#include "chat.h"
 #include "common.h"
 #include <string>
 #include <vector>
 #include <functional>
 
 class LLMInference {
+    enum class ChatFormatterMode {
+        LEGACY,
+        JINJA,
+    };
+
+    struct FormattedPrompt {
+        std::string prompt;
+        int         renderedLength = 0;
+        ChatFormatterMode modeUsed = ChatFormatterMode::LEGACY;
+    };
+
     // llama.cpp-specific types
     llama_context* _ctx = nullptr;
     llama_model*   _model = nullptr;
@@ -24,7 +36,10 @@ class LLMInference {
     std::vector<llama_pos>   _batchPos;
     int                      _nPast = 0;
     int                      _prevLen = 0;
-    const char*              _chatTemplate;
+    std::string              _chatTemplateSrc;
+    common_chat_templates_ptr _chatTemplates;
+    ChatFormatterMode        _chatFormatterMode = ChatFormatterMode::LEGACY;
+    ChatFormatterMode        _prevFormatterMode = ChatFormatterMode::LEGACY;
 
     // stores the complete response for the given query
     std::string _response;
@@ -59,6 +74,11 @@ class LLMInference {
     bool _eogReached = false;
 
     bool _isValidUtf8(const char* response);
+    FormattedPrompt formatChatMessages(size_t messageCount, bool addGenerationPrompt);
+    FormattedPrompt formatChatMessagesJinja(size_t messageCount, bool addGenerationPrompt) const;
+    FormattedPrompt formatChatMessagesLegacy(size_t messageCount, bool addGenerationPrompt) const;
+    std::vector<common_chat_msg> buildCommonChatMessages(size_t messageCount) const;
+    void downgradeChatFormatter(const char* reason);
 
   public:
     void loadModel(const char* modelPath, float minP, float temperature, bool storeChats, long contextSize,

@@ -110,14 +110,23 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
     _systemPromptKVSnapshot.clear();
     _cachedSystemPromptHash = 0;
     _systemPromptTokenCount = 0;
-
-    if (chatTemplate == nullptr) {
-        _chatTemplate = llama_model_chat_template(_model, nullptr);
+    _chatTemplates.reset();
+    _chatFormatterMode = ChatFormatterMode::LEGACY;
+    _prevFormatterMode = ChatFormatterMode::LEGACY;
+    if (chatTemplate != nullptr && chatTemplate[0] != '\0') {
+        _chatTemplateSrc = chatTemplate;
     } else {
-        _chatTemplate = strdup(chatTemplate);
-        if (!_chatTemplate) {
-            throw std::runtime_error("strdup() failed for chatTemplate (out of memory)");
-        }
+        const char* modelTemplate = llama_model_chat_template(_model, nullptr);
+        _chatTemplateSrc = modelTemplate ? modelTemplate : "";
+    }
+
+    try {
+        _chatTemplates = common_chat_templates_init(_model, _chatTemplateSrc);
+        _chatFormatterMode = ChatFormatterMode::JINJA;
+        LOGi("Initialized Jinja chat templates");
+    } catch (const std::exception& error) {
+        LOGe("Failed to initialize Jinja chat templates, falling back to legacy formatting: %s", error.what());
+        _chatTemplates.reset();
     }
     this->_storeChats = storeChats;
     _disableThinking = false;
@@ -134,6 +143,93 @@ LLMInference::addChatMessage(const char *message, const char *role) {
         throw std::runtime_error("strdup() failed in addChatMessage (out of memory)");
     }
     _messages.push_back({roleCopy, msgCopy});
+}
+
+std::vector<common_chat_msg>
+LLMInference::buildCommonChatMessages(size_t messageCount) const {
+    const size_t boundedCount = std::min(messageCount, _messages.size());
+    std::vector<common_chat_msg> messages;
+    messages.reserve(boundedCount);
+    for (size_t i = 0; i < boundedCount; ++i) {
+        common_chat_msg message;
+        message.role = _messages[i].role ? _messages[i].role : "";
+        message.content = _messages[i].content ? _messages[i].content : "";
+        messages.push_back(std::move(message));
+    }
+    return messages;
+}
+
+LLMInference::FormattedPrompt
+LLMInference::formatChatMessagesJinja(size_t messageCount, bool addGenerationPrompt) const {
+    if (!_chatTemplates) {
+        throw std::runtime_error("Jinja chat templates are unavailable");
+    }
+
+    common_chat_templates_inputs inputs;
+    inputs.messages = buildCommonChatMessages(messageCount);
+    inputs.add_generation_prompt = addGenerationPrompt;
+    inputs.use_jinja = true;
+
+    auto params = common_chat_templates_apply(_chatTemplates.get(), inputs);
+    if (params.prompt.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("formatted Jinja prompt exceeds int range");
+    }
+
+    FormattedPrompt result;
+    result.prompt = std::move(params.prompt);
+    result.renderedLength = static_cast<int>(result.prompt.size());
+    result.modeUsed = ChatFormatterMode::JINJA;
+    return result;
+}
+
+LLMInference::FormattedPrompt
+LLMInference::formatChatMessagesLegacy(size_t messageCount, bool addGenerationPrompt) const {
+    const size_t boundedCount = std::min(messageCount, _messages.size());
+    const char* templateSrc = _chatTemplateSrc.empty() ? nullptr : _chatTemplateSrc.c_str();
+    int renderedLength =
+        llama_chat_apply_template(templateSrc, _messages.data(), boundedCount, addGenerationPrompt, nullptr, 0);
+    if (renderedLength < 0) {
+        throw std::runtime_error("legacy llama_chat_apply_template() failed");
+    }
+
+    std::vector<char> buffer(std::max(renderedLength, 1));
+    renderedLength =
+        llama_chat_apply_template(templateSrc, _messages.data(), boundedCount, addGenerationPrompt, buffer.data(),
+                                  static_cast<int32_t>(buffer.size()));
+    if (renderedLength < 0) {
+        throw std::runtime_error("legacy llama_chat_apply_template() failed on second pass");
+    }
+    if (renderedLength > static_cast<int>(buffer.size())) {
+        throw std::runtime_error("legacy llama_chat_apply_template() exceeded output buffer");
+    }
+
+    FormattedPrompt result;
+    result.prompt.assign(buffer.data(), renderedLength);
+    result.renderedLength = renderedLength;
+    result.modeUsed = ChatFormatterMode::LEGACY;
+    return result;
+}
+
+void
+LLMInference::downgradeChatFormatter(const char* reason) {
+    if (_chatFormatterMode == ChatFormatterMode::LEGACY) {
+        return;
+    }
+    _chatFormatterMode = ChatFormatterMode::LEGACY;
+    LOGe("Disabling Jinja chat formatting for this session and falling back to legacy mode: %s", reason);
+}
+
+LLMInference::FormattedPrompt
+LLMInference::formatChatMessages(size_t messageCount, bool addGenerationPrompt) {
+    if (_chatFormatterMode == ChatFormatterMode::JINJA && _chatTemplates) {
+        try {
+            return formatChatMessagesJinja(messageCount, addGenerationPrompt);
+        } catch (const std::exception& error) {
+            downgradeChatFormatter(error.what());
+        }
+    }
+
+    return formatChatMessagesLegacy(messageCount, addGenerationPrompt);
 }
 
 float
@@ -212,18 +308,12 @@ LLMInference::startCompletion(const char *query) {
         }
     }
     addChatMessage(finalQuery.c_str(), "user");
-    // apply the chat-template
-    int newLen = llama_chat_apply_template(_chatTemplate, _messages.data(), _messages.size(), true,
-                                           _formattedMessages.data(), _formattedMessages.size());
-    if (newLen > (int) _formattedMessages.size()) {
-        // resize the output buffer `_formattedMessages`
-        // and re-apply the chat template
-        _formattedMessages.resize(newLen);
-        newLen = llama_chat_apply_template(_chatTemplate, _messages.data(), _messages.size(), true,
-                                           _formattedMessages.data(), _formattedMessages.size());
-    }
-    if (newLen < 0) {
-        throw std::runtime_error("llama_chat_apply_template() in LLMInference::startCompletion() failed");
+    const auto renderedPrompt = formatChatMessages(_messages.size(), true);
+    const int newLen = renderedPrompt.renderedLength;
+    _formattedMessages.assign(renderedPrompt.prompt.begin(), renderedPrompt.prompt.end());
+    if (_prevLen > 0 && renderedPrompt.modeUsed != _prevFormatterMode) {
+        LOGi("Chat formatter changed between turns; resetting cached prompt prefix");
+        _prevLen = 0;
     }
 
     // --- System prompt KV cache snapshotting ---
@@ -244,9 +334,17 @@ LLMInference::startCompletion(const char *query) {
         if (systemMsgCount > 0) {
             size_t currentHash = std::hash<std::string>{}(systemContent);
 
-            int sysTemplateLen = llama_chat_apply_template(
-                _chatTemplate, _messages.data(), systemMsgCount, false, nullptr, 0);
-            if (sysTemplateLen < 0) sysTemplateLen = 0;
+            int sysTemplateLen = 0;
+            try {
+                const auto systemPrompt = formatChatMessages(systemMsgCount, false);
+                if (systemPrompt.modeUsed == renderedPrompt.modeUsed) {
+                    sysTemplateLen = systemPrompt.renderedLength;
+                } else {
+                    LOGi("Skipping system prompt KV snapshot because formatter mode changed during rendering");
+                }
+            } catch (const std::exception& error) {
+                LOGe("Failed to format system prompt for KV snapshotting, skipping snapshot: %s", error.what());
+            }
 
             if (currentHash == _cachedSystemPromptHash && !_systemPromptKVSnapshot.empty()) {
                 // Restore KV state from cached snapshot
@@ -486,12 +584,12 @@ LLMInference::completionLoopBatch(int maxTokens) {
 void
 LLMInference::stopCompletion() {
     if (_storeChats) {
-        _prevLen = llama_chat_apply_template(_chatTemplate, _messages.data(), _messages.size(), false, nullptr, 0);
-        if (_prevLen < 0) {
-            throw std::runtime_error("llama_chat_apply_template() in LLMInference::stopCompletion() failed");
-        }
+        const auto renderedPrompt = formatChatMessages(_messages.size(), false);
+        _prevLen = renderedPrompt.renderedLength;
+        _prevFormatterMode = renderedPrompt.modeUsed;
     } else {
         _prevLen = 0;
+        _prevFormatterMode = _chatFormatterMode;
         _nPast = 0;
         _preservePreparedKvForNextCompletion = false;
     }
@@ -507,6 +605,7 @@ LLMInference::clearMessages() {
     }
     _messages.clear();
     _prevLen = 0;
+    _prevFormatterMode = _chatFormatterMode;
     _nPast = 0;
     _nCtxUsed = 0;
     _response.clear();
