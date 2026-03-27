@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "ggml-backend.h"
+
 // Include libmtmd headers via the include path so the build can switch between
 // upstream tools/mtmd and fork layouts such as examples/mtmd.
 #include "mtmd.h"
@@ -233,7 +235,7 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_io_aatricks_llmedge_text_runtime_SmolLM_loadModel(JNIEnv* env, jobject thiz, jstring modelPath, jfloat minP,
                                              jfloat temperature, jboolean storeChats, jlong contextSize,
                                              jstring chatTemplate, jint nThreads, jboolean useMmap, jboolean useMlock,
-                                             jboolean useVulkan, jboolean useFlashAttn, jint kvCacheTypeK, jint kvCacheTypeV,
+                                             jint backendId, jboolean useFlashAttn, jint kvCacheTypeK, jint kvCacheTypeV,
                                              jint nGpuLayers) {
     ScopedUtfChars modelPathCstr(env, modelPath);
     ScopedUtfChars chatTemplateCstr(env, chatTemplate);
@@ -244,7 +246,7 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_loadModel(JNIEnv* env, jobject thiz
     auto llmInference = std::make_unique<LLMInference>();
     try {
         llmInference->loadModel(modelPathCstr.get(), minP, temperature, storeChats, contextSize, chatTemplateCstr.get(), nThreads,
-                                useMmap, useMlock, useVulkan, useFlashAttn, kvCacheTypeK, kvCacheTypeV, nGpuLayers);
+                                useMmap, useMlock, backendId, useFlashAttn, kvCacheTypeK, kvCacheTypeV, nGpuLayers);
     } catch (const std::exception& error) {
         throwJavaException(env, "java/lang/IllegalStateException", error.what());
         return 0;
@@ -259,6 +261,32 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeHasVulkanBackendSupport(JNIEn
 #else
     (void) env;
     (void) thiz;
+    return JNI_FALSE;
+#endif
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeIsOpenClAvailable(JNIEnv* env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+#ifdef GGML_USE_OPENCL
+    ggml_backend_load_all();
+    ggml_backend_reg_t reg = ggml_backend_reg_by_name("OpenCL");
+    return (reg && ggml_backend_reg_dev_count(reg) > 0) ? JNI_TRUE : JNI_FALSE;
+#else
+    return JNI_FALSE;
+#endif
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeIsVulkanAvailable(JNIEnv* env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+#ifdef GGML_USE_VULKAN
+    ggml_backend_load_all();
+    ggml_backend_reg_t reg = ggml_backend_reg_by_name("Vulkan");
+    return (reg && ggml_backend_reg_dev_count(reg) > 0) ? JNI_TRUE : JNI_FALSE;
+#else
     return JNI_FALSE;
 #endif
 }

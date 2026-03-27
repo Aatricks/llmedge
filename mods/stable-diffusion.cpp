@@ -24,10 +24,15 @@
 #include <atomic>
 
 static std::atomic<bool> g_sd_vulkan_enabled{true};
+static std::atomic<bool> g_sd_opencl_enabled{true};
 static std::atomic<int> g_sd_vulkan_device{-1};
 
 extern "C" SD_API void sd_set_vulkan_enabled(bool enabled) {
     g_sd_vulkan_enabled.store(enabled);
+}
+
+extern "C" SD_API void sd_set_opencl_enabled(bool enabled) {
+    g_sd_opencl_enabled.store(enabled);
 }
 
 extern "C" SD_API void sd_set_vulkan_device(int device_index) {
@@ -179,8 +184,22 @@ public:
         LOG_DEBUG("Using Metal backend");
         backend = ggml_backend_metal_init();
 #endif
+#ifdef SD_USE_OPENCL
+        if (!backend && allow_opencl && g_sd_opencl_enabled.load()) {
+            LOG_DEBUG("Using OpenCL backend");
+            // ggml_log_set(ggml_log_callback_default, nullptr); // Optional ggml logs
+            backend = ggml_backend_opencl_init();
+            if (!backend) {
+                LOG_WARN("Failed to initialize OpenCL backend");
+            }
+        } else if (!g_sd_opencl_enabled.load()) {
+            LOG_DEBUG("OpenCL backend disabled (llmedge)");
+        } else if (!allow_opencl) {
+            LOG_DEBUG("OpenCL backend disabled by GGML_DISABLE_OPENCL");
+        }
+#endif
 #ifdef SD_USE_VULKAN
-        if (allow_vulkan) {
+        if (!backend && allow_vulkan) {
             const int device_count = ggml_backend_vk_get_device_count();
             LOG_DEBUG("Using Vulkan backend (devices=%d)", device_count);
 
@@ -224,24 +243,10 @@ public:
             } else {
                 LOG_WARN("Vulkan backend compiled in, but no Vulkan devices were enumerated");
             }
-        } else {
-            if (!g_sd_vulkan_enabled.load()) {
-                LOG_DEBUG("Vulkan backend disabled (llmedge)");
-            } else {
-                LOG_DEBUG("Vulkan backend disabled by GGML_DISABLE_VULKAN");
-            }
-        }
-#endif
-#ifdef SD_USE_OPENCL
-        if (!backend && allow_opencl) {
-            LOG_DEBUG("Using OpenCL backend");
-            // ggml_log_set(ggml_log_callback_default, nullptr); // Optional ggml logs
-            backend = ggml_backend_opencl_init();
-            if (!backend) {
-                LOG_WARN("Failed to initialize OpenCL backend");
-            }
-        } else if (!allow_opencl) {
-            LOG_DEBUG("OpenCL backend disabled by GGML_DISABLE_OPENCL");
+        } else if (!g_sd_vulkan_enabled.load()) {
+            LOG_DEBUG("Vulkan backend disabled (llmedge)");
+        } else if (!allow_vulkan) {
+            LOG_DEBUG("Vulkan backend disabled by GGML_DISABLE_VULKAN");
         }
 #endif
 #ifdef SD_USE_SYCL

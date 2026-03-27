@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cstring>
+#include <cstdlib>
 
 #include "jni_thread_cache.h"
 
@@ -38,6 +39,7 @@ inline int __android_log_print(int level, const char* tag, const char* format, .
 #endif
 
 #include "whisper.h"
+#include "ggml-backend.h"
 
 #define LOG_TAG "WhisperJNI"
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -54,6 +56,8 @@ struct WhisperHandle {
     jmethodID segmentMethodID = nullptr;
     std::mutex mutex;
 };
+
+static std::mutex g_whisper_backend_preference_mutex;
 
 static void throwJavaException(JNIEnv* env, const char* className, const char* message) {
     if (!env) return;
@@ -167,7 +171,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetSystemInfo(JNIEnv* env, jcl
 JNIEXPORT jlong JNICALL
 Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCreate(JNIEnv* env, jclass,
                                                jstring jModelPath,
-                                               jboolean useGpu,
+                                               jint backendId,
                                                jboolean flashAttn,
                                                jint gpuDevice) {
     if (!jModelPath) {
@@ -181,15 +185,49 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCreate(JNIEnv* env, jclass,
         return 0;
     }
 
-    ALOGI("Initializing Whisper with model: %s, useGpu=%d, flashAttn=%d, gpuDevice=%d",
-          modelPath, useGpu, flashAttn, gpuDevice);
+    const bool useGpu = backendId != 0;
+    const char * preferredBackend = nullptr;
+    switch (backendId) {
+        case 1:
+            preferredBackend = "OpenCL";
+            break;
+        case 2:
+            preferredBackend = "Vulkan";
+            break;
+        default:
+            preferredBackend = nullptr;
+            break;
+    }
 
-    whisper_context_params cparams = whisper_context_default_params();
-    cparams.use_gpu = useGpu;
-    cparams.flash_attn = flashAttn;
-    cparams.gpu_device = gpuDevice;
+    ALOGI("Initializing Whisper with model: %s, backendId=%d, flashAttn=%d, gpuDevice=%d",
+          modelPath, backendId, flashAttn, gpuDevice);
 
-    whisper_context* ctx = whisper_init_from_file_with_params(modelPath, cparams);
+    whisper_context* ctx = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_whisper_backend_preference_mutex);
+        const char* previousBackend = std::getenv("LLMEDGE_PREFERRED_GGML_BACKEND");
+        std::string previousBackendValue = previousBackend ? previousBackend : "";
+        const bool hadPreviousBackend = previousBackend != nullptr;
+
+        if (preferredBackend) {
+            setenv("LLMEDGE_PREFERRED_GGML_BACKEND", preferredBackend, 1);
+        } else {
+            unsetenv("LLMEDGE_PREFERRED_GGML_BACKEND");
+        }
+
+        whisper_context_params cparams = whisper_context_default_params();
+        cparams.use_gpu = useGpu;
+        cparams.flash_attn = flashAttn;
+        cparams.gpu_device = gpuDevice;
+
+        ctx = whisper_init_from_file_with_params(modelPath, cparams);
+
+        if (hadPreviousBackend) {
+            setenv("LLMEDGE_PREFERRED_GGML_BACKEND", previousBackendValue.c_str(), 1);
+        } else {
+            unsetenv("LLMEDGE_PREFERRED_GGML_BACKEND");
+        }
+    }
     env->ReleaseStringUTFChars(jModelPath, modelPath);
 
     if (!ctx) {
@@ -204,6 +242,32 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCreate(JNIEnv* env, jclass,
 
     ALOGI("Whisper context created successfully, handle=%p", handle);
     return reinterpret_cast<jlong>(handle);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeIsOpenClAvailable(JNIEnv* env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+#ifdef GGML_USE_OPENCL
+    ggml_backend_load_all();
+    ggml_backend_reg_t reg = ggml_backend_reg_by_name("OpenCL");
+    return (reg && ggml_backend_reg_dev_count(reg) > 0) ? JNI_TRUE : JNI_FALSE;
+#else
+    return JNI_FALSE;
+#endif
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeIsVulkanAvailable(JNIEnv* env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+#ifdef GGML_USE_VULKAN
+    ggml_backend_load_all();
+    ggml_backend_reg_t reg = ggml_backend_reg_by_name("Vulkan");
+    return (reg && ggml_backend_reg_dev_count(reg) > 0) ? JNI_TRUE : JNI_FALSE;
+#else
+    return JNI_FALSE;
+#endif
 }
 
 JNIEXPORT void JNICALL

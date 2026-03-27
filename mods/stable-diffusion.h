@@ -375,6 +375,10 @@ SD_API void sd_set_preview_callback(sd_preview_cb_t cb, enum preview_t mode, int
 // This flag is process-global and should be set immediately before creating a new sd_ctx.
 SD_API void sd_set_vulkan_enabled(bool enabled);
 
+// llmedge extension: allow forcing CPU/Vulkan backends off so OpenCL can be selected explicitly.
+// This flag is process-global and should be set immediately before creating a new sd_ctx.
+SD_API void sd_set_opencl_enabled(bool enabled);
+
 // llmedge extension: pick a Vulkan device index (best-effort).
 // This is process-global and should be set immediately before creating a new sd_ctx.
 SD_API void sd_set_vulkan_device(int device_index);

@@ -84,7 +84,7 @@ class LLMInference {
 
   public:
     void loadModel(const char* modelPath, float minP, float temperature, bool storeChats, long contextSize,
-                   const char* chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan,
+                   const char* chatTemplate, int nThreads, bool useMmap, bool useMlock, int backendId,
                    bool useFlashAttn = true, int kvCacheTypeKCode = -1, int kvCacheTypeVCode = -1,
                    int nGpuLayers = 99);
 

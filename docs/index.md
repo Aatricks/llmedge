@@ -9,7 +9,7 @@ llmedge is a lightweight toolkit for running LLM inference, vision models, and m
 - Native C++ inference via [llama.cpp](https://github.com/ggerganov/llama.cpp) (GGUF model support)
 - Kotlin API for Android with coroutines and Flow support
 - Automatic CPU feature detection (FP16, dotprod, SVE, i8mm)
-- Optional Vulkan acceleration for compatible devices
+- Optional Android GPU acceleration with experimental OpenCL preferred first, Vulkan fallback second, and CPU fallback last
 - Memory-aware context size capping
 - **Optimized Inference**: KV cache reuse for compact multi-turn chats, plus `ChatSession` for bounded Kotlin-managed replay when reasoning traces would otherwise exhaust context.
 

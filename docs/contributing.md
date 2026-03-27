@@ -11,7 +11,7 @@ Thanks for your interest in contributing to `llmedge`! This project contains nat
 - Android SDK & NDK r27+ (for native builds)
 - CMake 3.22+ and Ninja
 - Git with submodule support
-- (Optional) VULKAN_SDK for Vulkan builds
+- (Optional) `VULKAN_SDK` if you are building the Vulkan path on the host
 
 ### Initial Setup
 
@@ -315,14 +315,18 @@ The project uses CMake via Android Gradle plugin:
 # Clean native builds
 rm -rf llmedge/.cxx
 
-# Rebuild with Vulkan
-./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs="-DGGML_VULKAN=ON -DSD_VULKAN=ON"
+# Rebuild with Android GPU backends
+./gradlew :llmedge:assembleRelease \
+  -PllmedgeAndroidOpencl=ON \
+  -Pandroid.jniCmakeArgs="-DGGML_VULKAN=ON -DSD_VULKAN=ON"
 ```
 
 On Linux/macOS hosts the Gradle build enables Vulkan by default. On Windows hosts it now defaults
 to `OFF` because the upstream shader-generator step is still fragile under the Android cross-build
 toolchain; opt back in explicitly with `-DGGML_VULKAN=ON -DSD_VULKAN=ON` only when that path is
-known to work in your environment.
+known to work in your environment. Experimental OpenCL is Android-only, `arm64-v8a`-only, and
+opt-in through `-PllmedgeAndroidOpencl=ON`. At runtime, llmedge prefers OpenCL first, then Vulkan,
+then CPU for text, Whisper, and image/video requests.
 
 ### Debugging Native Code
 

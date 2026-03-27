@@ -31,6 +31,12 @@ android {
 
     val hostIsWindows = System.getProperty("os.name")?.startsWith("Windows", ignoreCase = true) == true
     val defaultVulkanFlag = if (hostIsWindows) "OFF" else "ON"
+    val openClFlag =
+        providers.gradleProperty("llmedgeAndroidOpencl")
+            .orElse(providers.environmentVariable("LLMEDGE_ANDROID_OPENCL"))
+            .orElse("OFF")
+            .get()
+            .uppercase()
 
     defaultConfig {
         minSdk = 30  // Vulkan 1.2 requires API 30+ (Android 11)
@@ -49,6 +55,7 @@ android {
                 arguments += "-DCMAKE_BUILD_TYPE=Release"
                 arguments += "-DSD_VULKAN=$defaultVulkanFlag"
                 arguments += "-DGGML_VULKAN=$defaultVulkanFlag"
+                arguments += "-DLLMEDGE_ANDROID_OPENCL=$openClFlag"
                 arguments += "-DWAN_SUPPORT=ON"
 
                 // (debugging) uncomment the following line to enable debug builds
@@ -234,6 +241,9 @@ android {
             }
         }
     packaging {
+        jniLibs {
+            excludes += "**/libOpenCL.so"
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             // Handle duplicate files from JavaCPP

@@ -20,11 +20,15 @@ import android.content.Context
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeCall
+import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.model.ModelFileValidator
+import io.aatricks.llmedge.runtime.BackendRuntimePolicy
+import io.aatricks.llmedge.runtime.ComputeBackend
+import io.aatricks.llmedge.runtime.ComputeSubsystem
 import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -57,7 +61,10 @@ import kotlinx.coroutines.withContext
  * whisper.close()
  * ```
  */
-class Whisper private constructor(private val handle: Long) : AutoCloseable {
+class Whisper private constructor(
+    private val handle: Long,
+    internal val activeBackend: ComputeBackend = ComputeBackend.CPU,
+) : AutoCloseable {
 
     /** Represents a transcribed segment with timing information. */
     data class TranscriptionSegment(
@@ -599,9 +606,11 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
     private external fun nativeGetMaxLanguageId(): Int
     private external fun nativeGetLanguageId(lang: String): Int
     private external fun nativeGetLanguageString(langId: Int): String
+    private external fun nativeIsOpenClAvailable(): Boolean
+    private external fun nativeIsVulkanAvailable(): Boolean
     private external fun nativeCreate(
             modelPath: String,
-            useGpu: Boolean,
+            backendId: Int,
             flashAttn: Boolean,
             gpuDevice: Int
     ): Long
@@ -662,8 +671,58 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             )
         }
 
+        internal interface LoadBridge {
+            fun create(
+                modelPath: String,
+                backend: ComputeBackend,
+                flashAttn: Boolean,
+                gpuDevice: Int,
+            ): Long
+        }
+
         // Dummy instance used to invoke static native methods that are now at the class level.
-        private val staticInvoker by lazy { Whisper(0L) }
+        private val staticInvoker by lazy { Whisper(0L, ComputeBackend.CPU) }
+        private val loadBridgeProvider =
+            NativeBridgeProvider<Unit, LoadBridge> { _ ->
+                object : LoadBridge {
+                    override fun create(
+                        modelPath: String,
+                        backend: ComputeBackend,
+                        flashAttn: Boolean,
+                        gpuDevice: Int,
+                    ): Long =
+                        staticInvoker.nativeCreate(
+                            modelPath,
+                            backend.id,
+                            flashAttn,
+                            gpuDevice,
+                        )
+                }
+            }
+
+        private var openClAvailabilityOverrideForTests: Boolean? = null
+        private var vulkanAvailabilityOverrideForTests: Boolean? = null
+
+        internal fun overrideLoadBridgeForTests(provider: () -> LoadBridge) {
+            loadBridgeProvider.override { _ -> provider() }
+        }
+
+        internal fun resetLoadBridgeForTests() {
+            loadBridgeProvider.reset()
+        }
+
+        internal fun overrideBackendAvailabilityForTests(
+            openClAvailable: Boolean? = null,
+            vulkanAvailable: Boolean? = null,
+        ) {
+            openClAvailabilityOverrideForTests = openClAvailable
+            vulkanAvailabilityOverrideForTests = vulkanAvailable
+        }
+
+        internal fun resetBackendAvailabilityForTests() {
+            openClAvailabilityOverrideForTests = null
+            vulkanAvailabilityOverrideForTests = null
+        }
 
         /** Check if native bindings are available. */
         @JvmStatic
@@ -730,6 +789,26 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
             }
         }
 
+        @JvmStatic
+        fun isOpenClAvailable(): Boolean =
+            openClAvailabilityOverrideForTests
+                ?:
+            try {
+                staticInvoker.nativeIsOpenClAvailable()
+            } catch (_: UnsatisfiedLinkError) {
+                false
+            }
+
+        @JvmStatic
+        fun isVulkanBackendAvailable(): Boolean =
+            vulkanAvailabilityOverrideForTests
+                ?:
+            try {
+                staticInvoker.nativeIsVulkanAvailable()
+            } catch (_: UnsatisfiedLinkError) {
+                false
+            }
+
         /**
          * Load a Whisper model from a file path.
          *
@@ -747,24 +826,50 @@ class Whisper private constructor(private val handle: Long) : AutoCloseable {
                 gpuDevice: Int = 0
         ): Whisper {
             val validatedModel = ModelFileValidator.requireReadableFile(modelPath, "Whisper model")
-            val handle =
-                    NativeCall.requireHandle(
-                        NativeCall.binding(
-                            "whisper",
-                            "Whisper JNI bindings are unavailable.",
-                        ) {
-                            staticInvoker.nativeCreate(
+            val loadBridge = loadBridgeProvider.create(Unit)
+            val candidates =
+                BackendRuntimePolicy.candidates(
+                    subsystem = ComputeSubsystem.WHISPER,
+                    allowGpu = useGpu,
+                    openClAvailable = isOpenClAvailable(),
+                    vulkanAvailable = isVulkanBackendAvailable(),
+                )
+            var lastError: Throwable? = null
+            for (backend in candidates) {
+                try {
+                    val handle =
+                        NativeCall.requireHandle(
+                            NativeCall.binding(
+                                "whisper",
+                                "Whisper JNI bindings are unavailable.",
+                            ) {
+                                loadBridge.create(
                                     validatedModel.absolutePath,
-                                    useGpu,
+                                    backend,
                                     flashAttn,
-                                    gpuDevice
-                            )
-                        },
-                        validatedModel.absolutePath,
-                        "The native Whisper loader returned an invalid handle.",
-                    )
+                                    gpuDevice,
+                                )
+                            },
+                            validatedModel.absolutePath,
+                            "The native Whisper loader returned an invalid handle.",
+                        )
+                    return Whisper(handle, backend)
+                } catch (e: NativeBindingException) {
+                    throw e
+                } catch (e: Throwable) {
+                    lastError = e
+                    if (backend != ComputeBackend.CPU) {
+                        BackendRuntimePolicy.blacklist(ComputeSubsystem.WHISPER, backend)
+                        logW(LOG_TAG, "Failed to load Whisper on $backend; retrying with the next backend")
+                    }
+                }
+            }
 
-            return Whisper(handle)
+            throw ModelLoadException(
+                validatedModel.absolutePath,
+                lastError?.message ?: "The native Whisper loader returned an invalid handle.",
+                lastError,
+            )
         }
 
         /**

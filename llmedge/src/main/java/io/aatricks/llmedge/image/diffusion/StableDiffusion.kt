@@ -17,6 +17,7 @@
 package io.aatricks.llmedge.image.diffusion
 
 import io.aatricks.llmedge.runtime.CpuTopology
+import io.aatricks.llmedge.runtime.ComputeBackend
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -682,12 +683,22 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
         }
 
         @JvmStatic
+        fun isOpenClAvailable(): Boolean {
+            return try {
+                nativeIsOpenClAvailable()
+            } catch (_: Throwable) {
+                false
+            }
+        }
+
+        @JvmStatic
         private external fun nativeCreate(
                 modelPath: String,
                 vaePath: String?,
                 t5xxlPath: String?,
                 taesdPath: String?,
                 nThreads: Int,
+                enableOpenCl: Boolean,
                 useVulkan: Boolean,
                 offloadToCpu: Boolean,
                 keepClipOnCpu: Boolean,
@@ -722,6 +733,9 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
 
         @JvmStatic
         private external fun nativeCheckBindings(): Boolean
+
+        @JvmStatic
+        private external fun nativeIsOpenClAvailable(): Boolean
 
         private suspend fun inferVideoModelMetadata(
                 resolvedModelPath: String,
@@ -774,6 +788,112 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 loraModelDir: String? = null,
                 loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
         ): StableDiffusion =
+                loadInternal(
+                    context = context,
+                    modelId = modelId,
+                    filename = filename,
+                    modelPath = modelPath,
+                    vaePath = vaePath,
+                    t5xxlPath = t5xxlPath,
+                    taesdPath = taesdPath,
+                    nThreads = nThreads,
+                    offloadToCpu = offloadToCpu,
+                    keepClipOnCpu = keepClipOnCpu,
+                    keepVaeOnCpu = keepVaeOnCpu,
+                    flashAttn = flashAttn,
+                    vaeDecodeOnly = vaeDecodeOnly,
+                    sequentialLoad = sequentialLoad,
+                    allowOpenCl = true,
+                    allowVulkan = allowVulkan,
+                    forceVulkan = forceVulkan,
+                    preferPerformanceMode = preferPerformanceMode,
+                    token = token,
+                    forceDownload = forceDownload,
+                    flowShift = flowShift,
+                    loraModelDir = loraModelDir,
+                    loraApplyMode = loraApplyMode,
+                    preferredBackend = null,
+                    allowBackendFallbackToCpu = true,
+                )
+
+        internal suspend fun loadWithRuntimeBackend(
+                context: Context,
+                modelId: String? = null,
+                filename: String? = null,
+                modelPath: String? = null,
+                vaePath: String? = null,
+                t5xxlPath: String? = null,
+                taesdPath: String? = null,
+                nThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                offloadToCpu: Boolean = false,
+                keepClipOnCpu: Boolean = false,
+                keepVaeOnCpu: Boolean = false,
+                flashAttn: Boolean = true,
+                vaeDecodeOnly: Boolean = true,
+                sequentialLoad: Boolean? = null,
+                preferPerformanceMode: Boolean = false,
+                token: String? = null,
+                forceDownload: Boolean = false,
+                flowShift: Float = Float.POSITIVE_INFINITY,
+                loraModelDir: String? = null,
+                loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
+                preferredBackend: ComputeBackend,
+        ): StableDiffusion =
+                loadInternal(
+                    context = context,
+                    modelId = modelId,
+                    filename = filename,
+                    modelPath = modelPath,
+                    vaePath = vaePath,
+                    t5xxlPath = t5xxlPath,
+                    taesdPath = taesdPath,
+                    nThreads = nThreads,
+                    offloadToCpu = offloadToCpu,
+                    keepClipOnCpu = keepClipOnCpu,
+                    keepVaeOnCpu = keepVaeOnCpu,
+                    flashAttn = flashAttn,
+                    vaeDecodeOnly = vaeDecodeOnly,
+                    sequentialLoad = sequentialLoad,
+                    allowOpenCl = preferredBackend == ComputeBackend.OPENCL,
+                    allowVulkan = preferredBackend == ComputeBackend.VULKAN,
+                    forceVulkan = preferredBackend == ComputeBackend.VULKAN,
+                    preferPerformanceMode = preferPerformanceMode,
+                    token = token,
+                    forceDownload = forceDownload,
+                    flowShift = flowShift,
+                    loraModelDir = loraModelDir,
+                    loraApplyMode = loraApplyMode,
+                    preferredBackend = preferredBackend,
+                    allowBackendFallbackToCpu = false,
+                )
+
+        private suspend fun loadInternal(
+                context: Context,
+                modelId: String? = null,
+                filename: String? = null,
+                modelPath: String? = null,
+                vaePath: String? = null,
+                t5xxlPath: String? = null,
+                taesdPath: String? = null,
+                nThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                offloadToCpu: Boolean = false,
+                keepClipOnCpu: Boolean = false,
+                keepVaeOnCpu: Boolean = false,
+                flashAttn: Boolean = true,
+                vaeDecodeOnly: Boolean = true,
+                sequentialLoad: Boolean? = null,
+                allowOpenCl: Boolean = true,
+                allowVulkan: Boolean = true,
+                forceVulkan: Boolean = false,
+                preferPerformanceMode: Boolean = false,
+                token: String? = null,
+                forceDownload: Boolean = false,
+                flowShift: Float = Float.POSITIVE_INFINITY,
+                loraModelDir: String? = null,
+                loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
+                preferredBackend: ComputeBackend? = null,
+                allowBackendFallbackToCpu: Boolean = true,
+        ): StableDiffusion =
                 withContext(Dispatchers.IO) {
                     val resolved =
                         StableDiffusionLoadSupport.resolveRequestedAssets(
@@ -803,12 +923,15 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         flashAttn = flashAttn,
                         vaeDecodeOnly = vaeDecodeOnly,
                         sequentialLoad = sequentialLoad,
+                        allowOpenCl = allowOpenCl,
                         allowVulkan = allowVulkan,
                         forceVulkan = forceVulkan,
                         preferPerformanceMode = preferPerformanceMode,
                         flowShift = flowShift,
                         loraModelDir = loraModelDir,
                         loraApplyMode = loraApplyMode,
+                        preferredBackend = preferredBackend,
+                        allowBackendFallbackToCpu = allowBackendFallbackToCpu,
                     )
                 }
 
@@ -862,12 +985,15 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         flashAttn = flashAttn,
                         vaeDecodeOnly = vaeDecodeOnly,
                         sequentialLoad = sequentialLoad,
+                        allowOpenCl = true,
                         allowVulkan = allowVulkan,
                         forceVulkan = forceVulkan,
                         preferPerformanceMode = preferPerformanceMode,
                         flowShift = flowShift,
                         loraModelDir = loraModelDir,
                         loraApplyMode = loraApplyMode,
+                        preferredBackend = null,
+                        allowBackendFallbackToCpu = true,
                     )
                 }
 
@@ -882,12 +1008,15 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             flashAttn: Boolean,
             vaeDecodeOnly: Boolean,
             sequentialLoad: Boolean?,
+            allowOpenCl: Boolean,
             allowVulkan: Boolean,
             forceVulkan: Boolean,
             preferPerformanceMode: Boolean,
             flowShift: Float,
             loraModelDir: String?,
             loraApplyMode: LoraApplyMode,
+            preferredBackend: ComputeBackend?,
+            allowBackendFallbackToCpu: Boolean,
         ): StableDiffusion {
             val loadPlan =
                 StableDiffusionLoadHeuristics.planLoad(
@@ -898,6 +1027,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     offloadToCpu = offloadToCpu,
                     keepClipOnCpu = keepClipOnCpu,
                     keepVaeOnCpu = keepVaeOnCpu,
+                    allowOpenCl = allowOpenCl,
                     allowVulkan = allowVulkan,
                     forceVulkan = forceVulkan,
                 )
@@ -913,21 +1043,20 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 flashAttn = flashAttn,
             )
 
-            val requestedVulkan = allowVulkan && (forceVulkan || loadPlan.chosenDevice >= 0)
+            val requestedVulkan = loadPlan.chosenBackend == ComputeBackend.VULKAN
 
             val handle =
-                createHandleWithGpuFallback(
+                createHandleWithBackendFallback(
                     resolved = resolved,
                     taesdPath = taesdPath,
                     nThreads = nThreads,
                     loadPlan = loadPlan,
                     flashAttn = flashAttn,
                     vaeDecodeOnly = vaeDecodeOnly,
-                    allowVulkan = allowVulkan,
-                    forceVulkan = forceVulkan,
                     flowShift = flowShift,
                     loraModelDir = loraModelDir,
                     loraApplyMode = loraApplyMode,
+                    allowBackendFallbackToCpu = allowBackendFallbackToCpu,
                 )
             if (handle == 0L) {
                 throw ModelLoadException(
@@ -968,7 +1097,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                 "Initializing StableDiffusion (effective): modelPath=$resolvedModelPath, " +
                     "nThreads=$nThreads, sequentialLoad=${loadPlan.effectiveSequentialLoad}, " +
                     "offloadToCpu=${loadPlan.effectiveOffloadToCpu}, " +
-                    "keepClipOnCpu=${loadPlan.effectiveKeepClipOnCpu}, " +
+                    "keepClipOnCpu=${loadPlan.effectiveKeepClipOnCpu}, backend=${loadPlan.chosenBackend}, " +
                     "keepVaeOnCpu=${loadPlan.effectiveKeepVaeOnCpu}, flashAttn=$flashAttn",
             )
             if (loadPlan.chosenDevice >= 0) {
@@ -979,24 +1108,24 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             }
         }
 
-        private fun createHandleWithGpuFallback(
+        private fun createHandleWithBackendFallback(
             resolved: StableDiffusionResolvedAssets,
             taesdPath: String?,
             nThreads: Int,
             loadPlan: StableDiffusionLoadHeuristics.LoadPlan,
             flashAttn: Boolean,
             vaeDecodeOnly: Boolean,
-            allowVulkan: Boolean,
-            forceVulkan: Boolean,
             flowShift: Float,
             loraModelDir: String?,
             loraApplyMode: LoraApplyMode,
+            allowBackendFallbackToCpu: Boolean,
         ): Long {
             var effectiveOffloadToCpu = loadPlan.effectiveOffloadToCpu
             var effectiveKeepClipOnCpu = loadPlan.effectiveKeepClipOnCpu
             var effectiveKeepVaeOnCpu = loadPlan.effectiveKeepVaeOnCpu
 
-            val shouldUseVulkan = allowVulkan && (forceVulkan || loadPlan.chosenDevice >= 0)
+            val enableOpenCl = loadPlan.chosenBackend == ComputeBackend.OPENCL
+            val shouldUseVulkan = loadPlan.chosenBackend == ComputeBackend.VULKAN
 
             var handle =
                 nativeCreateOrThrow(
@@ -1005,6 +1134,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     t5xxlPath = resolved.t5xxlPath,
                     taesdPath = taesdPath,
                     nThreads = nThreads,
+                    enableOpenCl = enableOpenCl,
                     useVulkan = shouldUseVulkan,
                     offloadToCpu = effectiveOffloadToCpu,
                     keepClipOnCpu = effectiveKeepClipOnCpu,
@@ -1015,8 +1145,8 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     loraModelDir = loraModelDir,
                     loraApplyMode = loraApplyMode,
                 )
-            if (handle == 0L && shouldUseVulkan) {
-                logW(LOG_TAG, "nativeCreate failed with Vulkan enabled; retrying with CPU backend")
+            if (handle == 0L && allowBackendFallbackToCpu && loadPlan.chosenBackend != ComputeBackend.CPU) {
+                logW(LOG_TAG, "nativeCreate failed on ${loadPlan.chosenBackend}; retrying with CPU backend")
                 handle =
                     nativeCreateOrThrow(
                         modelPath = resolved.modelPath,
@@ -1024,6 +1154,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         t5xxlPath = resolved.t5xxlPath,
                         taesdPath = taesdPath,
                         nThreads = nThreads,
+                        enableOpenCl = false,
                         useVulkan = false,
                         offloadToCpu = effectiveOffloadToCpu,
                         keepClipOnCpu = effectiveKeepClipOnCpu,
@@ -1034,30 +1165,30 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                         loraModelDir = loraModelDir,
                         loraApplyMode = loraApplyMode,
                     )
-
-                if (handle == 0L && !effectiveOffloadToCpu) {
-                    logW(LOG_TAG, "nativeCreate failed on CPU backend; retrying with CPU offload")
-                    effectiveOffloadToCpu = true
-                    effectiveKeepClipOnCpu = true
-                    effectiveKeepVaeOnCpu = true
-                    handle =
-                        nativeCreateOrThrow(
-                            modelPath = resolved.modelPath,
-                            vaePath = resolved.vaePath,
-                            t5xxlPath = resolved.t5xxlPath,
-                            taesdPath = taesdPath,
-                            nThreads = nThreads,
-                            useVulkan = false,
-                            offloadToCpu = effectiveOffloadToCpu,
-                            keepClipOnCpu = effectiveKeepClipOnCpu,
-                            keepVaeOnCpu = effectiveKeepVaeOnCpu,
-                            flashAttn = flashAttn,
-                            vaeDecodeOnly = vaeDecodeOnly,
-                            flowShift = flowShift,
-                            loraModelDir = loraModelDir,
-                            loraApplyMode = loraApplyMode,
-                        )
-                }
+            }
+            if (handle == 0L && !effectiveOffloadToCpu) {
+                logW(LOG_TAG, "nativeCreate failed on CPU backend; retrying with CPU offload")
+                effectiveOffloadToCpu = true
+                effectiveKeepClipOnCpu = true
+                effectiveKeepVaeOnCpu = true
+                handle =
+                    nativeCreateOrThrow(
+                        modelPath = resolved.modelPath,
+                        vaePath = resolved.vaePath,
+                        t5xxlPath = resolved.t5xxlPath,
+                        taesdPath = taesdPath,
+                        nThreads = nThreads,
+                        enableOpenCl = false,
+                        useVulkan = false,
+                        offloadToCpu = effectiveOffloadToCpu,
+                        keepClipOnCpu = effectiveKeepClipOnCpu,
+                        keepVaeOnCpu = effectiveKeepVaeOnCpu,
+                        flashAttn = flashAttn,
+                        vaeDecodeOnly = vaeDecodeOnly,
+                        flowShift = flowShift,
+                        loraModelDir = loraModelDir,
+                        loraApplyMode = loraApplyMode,
+                    )
             }
             return handle
         }
@@ -1068,6 +1199,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
             t5xxlPath: String?,
             taesdPath: String?,
             nThreads: Int,
+            enableOpenCl: Boolean,
             useVulkan: Boolean,
             offloadToCpu: Boolean,
             keepClipOnCpu: Boolean,
@@ -1085,6 +1217,7 @@ class StableDiffusion private constructor(private val handle: Long) : AutoClosea
                     t5xxlPath,
                     taesdPath,
                     nThreads,
+                    enableOpenCl,
                     useVulkan,
                     offloadToCpu,
                     keepClipOnCpu,

@@ -3,6 +3,9 @@ package io.aatricks.llmedge.speech
 import android.content.Context
 import io.aatricks.llmedge.speech.tts.BarkTTS
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.runtime.BackendRuntimePolicy
+import io.aatricks.llmedge.runtime.ComputeBackend
+import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.runtime.ModelCache
 import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.core.ModelCacheFactory
@@ -128,10 +131,17 @@ class SpeechClient internal constructor(
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
     ): List<Whisper.TranscriptionSegment> {
         val runtime = acquireWhisper(model, loadOptions)
-        return runtime.mutex.withLock {
-            withContext(scope.inferenceDispatcher) {
-                runtime.whisper.transcribe(audioSamples, params)
+        return try {
+            runtime.mutex.withLock {
+                withContext(scope.inferenceDispatcher) {
+                    runtime.whisper.transcribe(audioSamples, params)
+                }
             }
+        } catch (error: io.aatricks.llmedge.core.InferenceFailedException) {
+            if (recordWhisperBackendFailureIfNeeded(model, loadOptions, runtime, error)) {
+                return transcribe(audioSamples, model, params, loadOptions)
+            }
+            throw error
         }
     }
 
@@ -149,10 +159,17 @@ class SpeechClient internal constructor(
         nThreads: Int = 0,
     ): String? {
         val runtime = acquireWhisper(model, loadOptions)
-        return runtime.mutex.withLock {
-            withContext(scope.inferenceDispatcher) {
-                runtime.whisper.detectLanguage(audioSamples, nThreads)
+        return try {
+            runtime.mutex.withLock {
+                withContext(scope.inferenceDispatcher) {
+                    runtime.whisper.detectLanguage(audioSamples, nThreads)
+                }
             }
+        } catch (error: io.aatricks.llmedge.core.InferenceFailedException) {
+            if (recordWhisperBackendFailureIfNeeded(model, loadOptions, runtime, error)) {
+                return detectLanguage(audioSamples, model, loadOptions, nThreads)
+            }
+            throw error
         }
     }
 
@@ -167,7 +184,15 @@ class SpeechClient internal constructor(
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
     ): StreamingTranscriptionSession {
         val runtime = acquireWhisper(model, loadOptions)
-        val transcriber = runtime.mutex.withLock { runtime.whisper.createStreamingTranscriber(params) }
+        val transcriber =
+            try {
+                runtime.mutex.withLock { runtime.whisper.createStreamingTranscriber(params) }
+            } catch (error: io.aatricks.llmedge.core.InferenceFailedException) {
+                if (recordWhisperBackendFailureIfNeeded(model, loadOptions, runtime, error)) {
+                    return createStreamingSession(model, params, loadOptions)
+                }
+                throw error
+            }
         return scope.resources.register(StreamingTranscriptionSession(transcriber))
     }
 
@@ -231,19 +256,78 @@ class SpeechClient internal constructor(
         model: ModelSpec,
         options: WhisperLoadOptions,
     ): ManagedWhisperModel {
-        val key = listOf(model.cacheKey, options.useGpu, options.flashAttention, options.gpuDevice).joinToString("|")
-        whisperCache.get(key)?.let { return it }
+        val keyPrefix = buildWhisperCacheKeyPrefix(model, options)
+        findCachedWhisperRuntime(keyPrefix, options)?.let { return it }
         return whisperLoadMutex.withLock {
-            whisperCache.get(key)?.let { return@withLock it }
+            findCachedWhisperRuntime(keyPrefix, options)?.let { return@withLock it }
             val file = resolver.resolve(context, model)
             val runtime = ManagedWhisperModel(
                 fileSizeBytes = file.length(),
                 whisper = Whisper.load(file.absolutePath, options.useGpu, options.flashAttention, options.gpuDevice),
             )
-            whisperCache.put(key, runtime, runtime.fileSizeBytes)
+            whisperCache.put(
+                buildWhisperCacheKey(keyPrefix, runtime.whisper.activeBackend),
+                runtime,
+                runtime.fileSizeBytes,
+            )
             runtime
         }
     }
+
+    private fun buildWhisperCacheKeyPrefix(model: ModelSpec, options: WhisperLoadOptions): String =
+        listOf(model.cacheKey, options.useGpu, options.flashAttention, options.gpuDevice).joinToString("|")
+
+    private fun buildWhisperCacheKey(prefix: String, backend: ComputeBackend): String =
+        "$prefix|backend=${backend.name}"
+
+    private fun findCachedWhisperRuntime(
+        prefix: String,
+        options: WhisperLoadOptions,
+    ): ManagedWhisperModel? {
+        val candidates =
+            BackendRuntimePolicy.candidates(
+                subsystem = ComputeSubsystem.WHISPER,
+                allowGpu = options.useGpu,
+                openClAvailable = Whisper.isOpenClAvailable(),
+                vulkanAvailable = Whisper.isVulkanBackendAvailable(),
+            )
+        for (backend in candidates) {
+            whisperCache.get(buildWhisperCacheKey(prefix, backend))?.let { return it }
+        }
+        return null
+    }
+
+    private fun invalidateWhisperRuntime(
+        model: ModelSpec,
+        options: WhisperLoadOptions,
+        backend: ComputeBackend,
+    ) {
+        whisperCache.remove(buildWhisperCacheKey(buildWhisperCacheKeyPrefix(model, options), backend))
+    }
+
+    private fun recordWhisperBackendFailureIfNeeded(
+        model: ModelSpec,
+        options: WhisperLoadOptions,
+        runtime: ManagedWhisperModel,
+        error: io.aatricks.llmedge.core.InferenceFailedException,
+    ): Boolean {
+        if (!isBackendFailure(error)) {
+            return false
+        }
+        val backend = runtime.whisper.activeBackend
+        if (backend == ComputeBackend.CPU) {
+            return false
+        }
+        BackendRuntimePolicy.blacklist(ComputeSubsystem.WHISPER, backend)
+        invalidateWhisperRuntime(model, options, backend)
+        return true
+    }
+
+    private fun isBackendFailure(error: io.aatricks.llmedge.core.InferenceFailedException): Boolean =
+        error.message?.contains("backend", ignoreCase = true) == true ||
+            error.cause?.message?.contains("backend", ignoreCase = true) == true ||
+            error.message?.contains("device lost", ignoreCase = true) == true ||
+            error.cause?.message?.contains("device lost", ignoreCase = true) == true
 
     private suspend fun acquireBark(
         model: ModelSpec,

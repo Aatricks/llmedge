@@ -16,11 +16,70 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <memory>
+
+namespace {
+
+enum class RequestedBackend : int {
+    CPU = 0,
+    OPENCL = 1,
+    VULKAN = 2,
+};
+
+const char * backend_name(const RequestedBackend backend) {
+    switch (backend) {
+        case RequestedBackend::OPENCL:
+            return "OpenCL";
+        case RequestedBackend::VULKAN:
+            return "Vulkan";
+        case RequestedBackend::CPU:
+        default:
+            return "CPU";
+    }
+}
+
+bool is_gpu_backend(const RequestedBackend backend) {
+    return backend == RequestedBackend::OPENCL || backend == RequestedBackend::VULKAN;
+}
+
+ggml_backend_dev_t find_backend_device(const RequestedBackend backend, const int desired_index) {
+    if (!is_gpu_backend(backend)) {
+        return nullptr;
+    }
+
+    const char * wanted_reg_name = backend_name(backend);
+    int matched_index = 0;
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        const auto dev_type = ggml_backend_dev_type(dev);
+        if (dev_type != GGML_BACKEND_DEVICE_TYPE_GPU &&
+            dev_type != GGML_BACKEND_DEVICE_TYPE_IGPU &&
+            dev_type != GGML_BACKEND_DEVICE_TYPE_ACCEL) {
+            continue;
+        }
+
+        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
+        const char * reg_name = reg ? ggml_backend_reg_name(reg) : nullptr;
+        if (!reg_name || std::strcmp(reg_name, wanted_reg_name) != 0) {
+            continue;
+        }
+
+        if (matched_index == desired_index) {
+            return dev;
+        }
+        ++matched_index;
+    }
+
+    return nullptr;
+}
+
+} // namespace
 
 void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, bool storeChats, long contextSize,
-                        const char *chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan,
+                        const char *chatTemplate, int nThreads, bool useMmap, bool useMlock, int backendId,
                         bool useFlashAttn, int kvCacheTypeKCode, int kvCacheTypeVCode, int nGpuLayers) {
+    const RequestedBackend requestedBackend = static_cast<RequestedBackend>(backendId);
     LOGi("loading model with"
          "\n\tmodel_path = %s"
          "\n\tminP = %f"
@@ -31,13 +90,19 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
          "\n\tnThreads = %d"
          "\n\tuseMmap = %d"
          "\n\tuseMlock = %d"
-         "\n\tuseVulkan = %d"
+         "\n\tbackend = %s"
          "\n\tuseFlashAttn = %d",
-         model_path, minP, temperature, storeChats, contextSize, chatTemplate, nThreads, useMmap, useMlock, useVulkan, useFlashAttn);
+         model_path, minP, temperature, storeChats, contextSize, chatTemplate, nThreads, useMmap, useMlock,
+         backend_name(requestedBackend), useFlashAttn);
 
 #if !defined(GGML_USE_VULKAN)
-    if (useVulkan) {
+    if (requestedBackend == RequestedBackend::VULKAN) {
         throw std::runtime_error("The requested llmedge text runtime was built without Vulkan support");
+    }
+#endif
+#if !defined(GGML_USE_OPENCL)
+    if (requestedBackend == RequestedBackend::OPENCL) {
+        throw std::runtime_error("The requested llmedge text runtime was built without OpenCL support");
     }
 #endif
 
@@ -45,16 +110,31 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
     llama_model_params model_params = llama_model_default_params();
     model_params.use_mmap = useMmap;
     model_params.use_mlock = useMlock;
-    if (useVulkan) {
-        model_params.n_gpu_layers = nGpuLayers > 0 ? nGpuLayers : 99;
+    std::unique_ptr<ggml_backend_dev_t[]> requested_devices;
+    if (is_gpu_backend(requestedBackend)) {
+        ggml_backend_dev_t selected_device = find_backend_device(requestedBackend, 0);
+        if (!selected_device) {
+            throw std::runtime_error(std::string("Requested backend not available: ") + backend_name(requestedBackend));
+        }
+
+        const char * device_name = ggml_backend_dev_name(selected_device);
+        const char * device_description = ggml_backend_dev_description(selected_device);
+        LOGi("Using %s device: %s (%s)",
+             backend_name(requestedBackend),
+             device_name ? device_name : "unknown",
+             device_description ? device_description : "unknown");
+
+        requested_devices = std::make_unique<ggml_backend_dev_t[]>(2);
+        requested_devices[0] = selected_device;
+        requested_devices[1] = nullptr;
+        model_params.devices = requested_devices.get();
+        model_params.split_mode = LLAMA_SPLIT_MODE_NONE;
+        model_params.n_gpu_layers = nGpuLayers > 0 ? nGpuLayers : -1;
     }
     _model = llama_model_load_from_file(model_path, model_params);
     if (!_model) {
         LOGe("failed to load model from %s", model_path);
-        if (useVulkan) {
-            throw std::runtime_error("loadModel() failed with the requested Vulkan/offload configuration");
-        }
-        throw std::runtime_error("loadModel() failed");
+        throw std::runtime_error(std::string("loadModel() failed on ") + backend_name(requestedBackend));
     }
 
     // create an instance of llama_context
@@ -79,16 +159,23 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
     // Map llmedge-owned KV cache type codes to the backend-specific ggml_type.
     ctx_params.type_k = llmedge_resolve_kv_cache_type(kvCacheTypeKCode, "kvCacheTypeK");
     ctx_params.type_v = llmedge_resolve_kv_cache_type(kvCacheTypeVCode, "kvCacheTypeV");
-    if (useVulkan && model_params.n_gpu_layers > 0) {
+    if (is_gpu_backend(requestedBackend) && model_params.n_gpu_layers != 0) {
         ctx_params.offload_kqv = true;
     }
     _ctx = llama_init_from_model(_model, ctx_params);
+    if (!_ctx && is_gpu_backend(requestedBackend) && ctx_params.offload_kqv) {
+        LOGi("Context creation with KQV offload failed, retrying without offload");
+        ctx_params.offload_kqv = false;
+        _ctx = llama_init_from_model(_model, ctx_params);
+    }
     if (!_ctx) {
         LOGe("llama_new_context_with_model() returned null)");
-        if (useVulkan && ctx_params.offload_kqv) {
-            throw std::runtime_error("llama_new_context_with_model() returned null with the requested Vulkan/KQV offload configuration");
+        if (is_gpu_backend(requestedBackend) && ctx_params.offload_kqv) {
+            throw std::runtime_error(std::string("llama_new_context_with_model() returned null with the requested ") +
+                                     backend_name(requestedBackend) + "/KQV offload configuration");
         }
-        throw std::runtime_error("llama_new_context_with_model() returned null");
+        throw std::runtime_error(std::string("llama_new_context_with_model() returned null on ") +
+                                 backend_name(requestedBackend));
     }
 
     common_params_sampling sampler_params;

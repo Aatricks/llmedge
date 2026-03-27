@@ -81,6 +81,10 @@ target_compile_features(whisper_jni PUBLIC c_std_11 cxx_std_17)
 
 target_compile_options(whisper_jni PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3 -fopenmp)
 
+if (LLMEDGE_OPENCL_ENABLED)
+        llmedge_enable_android_opencl(whisper_jni "${WHISPER_GGML_DIR}")
+endif()
+
 target_link_libraries(whisper_jni
         android log
         -fopenmp -static-openmp
