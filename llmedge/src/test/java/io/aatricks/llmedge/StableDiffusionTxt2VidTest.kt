@@ -22,12 +22,7 @@ import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
-
-@Suppress("unused")
-private val disableNativeLoadForTxt2VidTests = run {
-    System.setProperty("llmedge.disableNativeLoad", "true")
-    true
-}
+import io.aatricks.llmedge.core.InferenceFailedException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -39,12 +34,14 @@ class StableDiffusionTxt2VidTest {
 
     @Before
     fun setUp() {
+        System.setProperty("llmedge.disableNativeLoad", "true")
         StableDiffusion.enableNativeBridgeForTests()
     }
 
     @After
     fun tearDown() {
         StableDiffusion.resetNativeBridgeForTests()
+        System.clearProperty("llmedge.disableNativeLoad")
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -334,7 +331,7 @@ class StableDiffusionTxt2VidTest {
         )
 
         val result = runCatching { sd.txt2vid(params) }
-        assertTrue(result.exceptionOrNull() is IllegalStateException)
+        assertTrue(result.exceptionOrNull() is InferenceFailedException)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -563,7 +560,7 @@ class StableDiffusionTxt2VidTest {
 
         val result = runCatching { sd.txt2vid(params, tempCallback) }
 
-        assertTrue(result.exceptionOrNull() is IllegalStateException)
+        assertTrue(result.exceptionOrNull() is InferenceFailedException)
         assertEquals(3, setProgressInvocations.size)
         assertSame(cachedCallback, setProgressInvocations[0])
         assertSame(tempCallback, setProgressInvocations[1])

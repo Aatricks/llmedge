@@ -2,11 +2,14 @@ package io.aatricks.llmedge
 
 import android.content.Context
 import io.mockk.*
+import io.aatricks.llmedge.core.InferenceFailedException
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicBoolean
 import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
@@ -16,66 +19,73 @@ import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 
-@Suppress("unused")
-private val disableNativeLoadForTests = run {
-    System.setProperty("llmedge.disableNativeLoad", "true")
-    StableDiffusion.enableNativeBridgeForTests()
-    StableDiffusion.overrideNativeBridgeForTests { instance ->
-        object : StableDiffusion.NativeBridge {
-            override fun txt2img(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                vaeTiling: Boolean,
-                easyCacheEnabled: Boolean,
-                easyCacheReuseThreshold: Float,
-                easyCacheStartPercent: Float,
-                easyCacheEndPercent: Float,
-            ): ByteArray? = null
-            override fun txt2vid(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                videoFrames: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                sampleMethod: SampleMethod,
-                    scheduler: Scheduler,
-                strength: Float,
-                initImage: ByteArray?,
-                initWidth: Int,
-                initHeight: Int,
-                vaceStrength: Float,
-                easyCacheEnabled: Boolean,
-                easyCacheReuseThreshold: Float,
-                easyCacheStartPercent: Float,
-                easyCacheEndPercent: Float,
-            ): Array<ByteArray>? = arrayOf(byteArrayOf(1, 2, 3))
+class StableDiffusionVideoTest {
+    @Before
+    fun setUp() {
+        System.setProperty("llmedge.disableNativeLoad", "true")
+        StableDiffusion.enableNativeBridgeForTests()
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray? = null
 
-            override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {}
-            override fun cancelGeneration(handle: Long) {}
-            override fun precomputeCondition(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                clipSkip: Int,
-            ): PrecomputedCondition? = null
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = arrayOf(byteArrayOf(1, 2, 3))
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {}
+
+                override fun cancelGeneration(handle: Long) {}
+
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): PrecomputedCondition? = null
+            }
         }
     }
-    true
-}
 
-class StableDiffusionVideoTest {
+    @After
+    fun tearDown() {
+        StableDiffusion.resetNativeBridgeForTests()
+        System.clearProperty("llmedge.disableNativeLoad")
+    }
 
     @Test
     fun `wan architecture metadata counts as video`() {
@@ -164,13 +174,16 @@ class StableDiffusionVideoTest {
         // In unit tests, android.util.Log is not mocked which can cause RuntimeException
         // before the IllegalArgumentException is thrown. We accept either exception type.
         assertTrue(
-            "Expected IllegalArgumentException or RuntimeException (Log not mocked) but got: ${error?.javaClass?.name}",
+            "Expected IllegalArgumentException, InferenceFailedException, or RuntimeException (Log not mocked) but got: ${error?.javaClass?.name}",
             error is IllegalArgumentException ||
-            (error is RuntimeException && error.message?.contains("not mocked") == true)
+                error is InferenceFailedException ||
+                (error is RuntimeException && error.message?.contains("not mocked") == true),
         )
-        // Only check the message if it's IllegalArgumentException
-        if (error is IllegalArgumentException) {
-            assertTrue("Expected message to contain 'modelPath or modelId'", error.message?.contains("modelPath or modelId") == true)
+        if (error is IllegalArgumentException || error is InferenceFailedException) {
+            assertTrue(
+                "Expected message to contain 'modelPath or modelId'",
+                error.message?.contains("modelPath or modelId") == true,
+            )
         }
     }
 

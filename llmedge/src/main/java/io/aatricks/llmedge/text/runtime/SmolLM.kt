@@ -18,29 +18,23 @@ package io.aatricks.llmedge.text.runtime
 
 import io.aatricks.llmedge.runtime.CpuTopology
 import io.aatricks.llmedge.runtime.ComputeBackend
-import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.runtime.GGUFReader
-import io.aatricks.llmedge.runtime.BackendRuntimePolicy
 
 import android.content.Context
-import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.InvalidModelStateException
 import io.aatricks.llmedge.core.ModelLoadException
-import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
-import io.aatricks.llmedge.model.ModelFileValidator
+import io.aatricks.llmedge.text.runtime.internal.SmolLMCompletionSupport
+import io.aatricks.llmedge.text.runtime.internal.SmolLMLoader
+import io.aatricks.llmedge.text.runtime.internal.SmolLMStateSupport
+import io.aatricks.llmedge.text.runtime.internal.SmolLMVisionInterop
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.withContext
 
 /**
  * Kotlin wrapper for the native LLM runtime. Handles loading models and providing a simple API for
@@ -410,6 +404,14 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             s.selectedBackend = if (useVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
             return s
         }
+
+        internal fun supportLogD(message: String) = logD(LOG_TAG, message)
+
+        internal fun supportLogW(message: String) = logW(LOG_TAG, message)
+
+        internal fun supportIsOpenClAvailable(): Boolean = isOpenClAvailable()
+
+        internal fun supportIsVulkanBackendAvailable(): Boolean = isVulkanBackendAvailable()
     }
 
     private var nativePtr = 0L
@@ -606,120 +608,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     suspend fun load(
             modelPath: String,
             params: InferenceParams = InferenceParams(),
-    ) =
-            withContext(Dispatchers.IO) {
-                val validatedModel = ModelFileValidator.requireGgufFile(modelPath, "SmolLM model")
-                if (nativePtr != 0L) {
-                    close()
-                }
-
-                val ggufReader = GGUFReader()
-                val resolvedContextSize: Long
-                val resolvedChatTemplate: String
-                val fileType: Int?
-                val dominantTensorType: Int?
-                try {
-                    ggufReader.load(validatedModel.absolutePath)
-                    val modelContextSize =
-                            ggufReader.getContextSize() ?: DefaultInferenceParams.contextSize
-                    resolvedContextSize = resolveContextSize(params.contextSize, modelContextSize)
-                    resolvedChatTemplate = resolveChatTemplate(params.chatTemplate, ggufReader)
-                    fileType = ggufReader.getFileType()
-                    dominantTensorType = ggufReader.getDominantTensorType()
-                } finally {
-                    ggufReader.close()
-                }
-                @Suppress("DEPRECATION")
-                val storeChats = params.storeChats
-                val promptThreads = params.numThreads.coerceAtLeast(1)
-                val backendCandidates =
-                    requestedLoadBackend?.let(::listOf)
-                        ?: BackendRuntimePolicy.candidates(
-                            subsystem = ComputeSubsystem.TEXT,
-                            allowGpu = useVulkanGPU,
-                            openClAvailable = isOpenClAvailable(),
-                            vulkanAvailable = isVulkanBackendAvailable(),
-                        )
-
-                var lastLoadError: Throwable? = null
-                nativePtr = 0L
-                for (backend in backendCandidates) {
-                    requestedLoadBackend = backend
-                    try {
-                        val candidateHandle =
-                            NativeCall.binding("smollm", "SmolLM JNI bindings are unavailable.") {
-                                nativeBridge.loadModel(
-                                    this@SmolLM,
-                                    validatedModel.absolutePath,
-                                    params.minP,
-                                    params.temperature,
-                                    storeChats,
-                                    resolvedContextSize,
-                                    resolvedChatTemplate,
-                                    promptThreads,
-                                    params.useMmap,
-                                    params.useMlock,
-                                    backend == ComputeBackend.VULKAN,
-                                    params.useFlashAttn,
-                                    params.kvCacheTypeK.nativeCode,
-                                    params.kvCacheTypeV.nativeCode,
-                                    params.nGpuLayers,
-                                )
-                            }
-                        nativePtr =
-                            NativeCall.requireHandle(
-                                candidateHandle,
-                                validatedModel.absolutePath,
-                                "The native SmolLM loader returned an invalid handle.",
-                            )
-                        selectedBackend = backend
-                        break
-                    } catch (e: NativeBindingException) {
-                        requestedLoadBackend = null
-                        throw e
-                    } catch (e: IllegalStateException) {
-                        lastLoadError =
-                            ModelLoadException(
-                                validatedModel.absolutePath,
-                                e.message ?: "The native SmolLM loader reported an unknown error.",
-                                e,
-                            )
-                    } catch (e: ModelLoadException) {
-                        lastLoadError = e
-                    }
-
-                    if (backend != ComputeBackend.CPU) {
-                        BackendRuntimePolicy.blacklist(ComputeSubsystem.TEXT, backend)
-                        logW(LOG_TAG, "Failed to load SmolLM on $backend; retrying with the next backend")
-                    }
-                }
-                requestedLoadBackend = null
-                if (nativePtr == 0L) {
-                    throw (lastLoadError
-                        ?: ModelLoadException(
-                            validatedModel.absolutePath,
-                            "The native SmolLM loader returned an invalid handle.",
-                        ))
-                }
-                val generationThreads = (params.generationThreads ?: promptThreads).coerceAtLeast(1)
-                nativeBridge.configureThreading(this@SmolLM, nativePtr, generationThreads, promptThreads)
-                val reasoningBudget =
-                        resolvedReasoningBudget(params.thinkingMode, params.reasoningBudget)
-                applyReasoningState(params.thinkingMode, reasoningBudget)
-
-                // Pin inference threads to performance cores on big.LITTLE SoCs
-                val pCoreMask = CpuTopology.getPerformanceCoreMask()
-                if (pCoreMask != 0L) {
-                    setThreadAffinity(nativePtr, pCoreMask)
-                }
-                loadedInferenceParams =
-                        params.copy(
-                                contextSize = resolvedContextSize,
-                                chatTemplate = resolvedChatTemplate,
-                        numThreads = promptThreads,
-                        generationThreads = generationThreads,
-                        )
-            }
+    ) = SmolLMLoader.load(this, modelPath, params)
 
     /**
      * Downloads a GGUF model from Hugging Face (if needed) and loads it for inference.
@@ -876,57 +765,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         query: String,
         dispatcher: CoroutineDispatcher,
         batchSize: Int,
-    ): Flow<String> =
-            flow {
-                        verifyHandle()
-                        try {
-                            nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
-                            if (batchSize > 1) {
-                                // Use raw byte-based JNI path to avoid per-batch NewStringUTF
-                                // overhead. The byte path returns null from the default interface
-                                // method when not implemented by test bridges, so we try it first
-                                // and fall back to the String path.
-                                val eogBytes = "[EOG]".toByteArray(Charsets.UTF_8)
-                                var bytes = try {
-                                    nativeBridge.completionLoopBatchBytes(this@SmolLM, nativePtr, batchSize)
-                                } catch (_: Throwable) { null }
-
-                                if (bytes != null) {
-                                    // Byte-based fast path
-                                    while (!bytes.contentEquals(eogBytes) && bytes!!.isNotEmpty()) {
-                                        currentCoroutineContext().ensureActive()
-                                        emit(String(bytes!!, Charsets.UTF_8))
-                                        bytes = nativeBridge.completionLoopBatchBytes(this@SmolLM, nativePtr, batchSize)
-                                        if (bytes == null) break
-                                    }
-                                } else {
-                                    // Fallback: String-based path (test bridges)
-                                    var piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, batchSize)
-                                    while (piece != "[EOG]" && piece.isNotEmpty()) {
-                                        currentCoroutineContext().ensureActive()
-                                        emit(piece)
-                                        piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, batchSize)
-                                    }
-                                }
-                            } else {
-                                var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-                                while (piece != "[EOG]") {
-                                    currentCoroutineContext().ensureActive()
-                                    emit(piece)
-                                    piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-                                }
-                            }
-                        } catch (e: IllegalStateException) {
-                            throw InferenceFailedException(
-                                operation = "SmolLM streaming completion",
-                                detail = e.message ?: "The native completion loop failed.",
-                                cause = e,
-                            )
-                        } finally {
-                            nativeBridge.stopCompletion(this@SmolLM, nativePtr)
-                        }
-                    }
-                    .flowOn(dispatcher)
+    ): Flow<String> = SmolLMCompletionSupport.getResponseAsFlow(this, query, dispatcher, batchSize)
 
     /**
      * Returns the LLM response to the given query as a String. This function is blocking and will
@@ -944,81 +783,11 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         query: String,
         maxTokens: Int = -1,
         batchSize: Int = DEFAULT_BLOCKING_BATCH_SIZE,
-    ): String {
-        verifyHandle()
-        logD(LOG_TAG, "getResponse: starting completion. maxTokens=$maxTokens, batchSize=$batchSize, queryLength=${query.length}")
-        nativeBridge.startCompletion(this@SmolLM, nativePtr, query)
-        try {
-            val estimatedCapacity = if (maxTokens > 0) maxTokens * 4 else 512
-            val responseBuilder = StringBuilder(estimatedCapacity)
-            var tokensGenerated = 0
-
-            if (batchSize > 1) {
-                val effectiveBatch = if (maxTokens > 0) minOf(batchSize, maxTokens) else batchSize
-                var piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, effectiveBatch)
-                while (piece != "[EOG]" && piece.isNotEmpty()) {
-                    responseBuilder.append(piece)
-                    tokensGenerated += effectiveBatch
-
-                    if (maxTokens > 0 && tokensGenerated >= maxTokens) {
-                        logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
-                        break
-                    }
-
-                    val remaining =
-                        if (maxTokens > 0) minOf(batchSize, maxTokens - tokensGenerated) else batchSize
-                    if (remaining <= 0) break
-                    piece = nativeBridge.completionLoopBatch(this@SmolLM, nativePtr, remaining)
-                }
-                if (piece == "[EOG]") {
-                    logD(LOG_TAG, "getResponse: [EOG] received after ~$tokensGenerated tokens.")
-                }
-            } else {
-                var piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-                while (piece != "[EOG]") {
-                    responseBuilder.append(piece)
-                    tokensGenerated++
-
-                    if (tokensGenerated % 10 == 0) {
-                        logD(LOG_TAG, "Generated $tokensGenerated tokens...")
-                    }
-
-                    if (maxTokens > 0 && tokensGenerated >= maxTokens) {
-                        logD(LOG_TAG, "getResponse: maxTokens ($maxTokens) reached. Stopping.")
-                        break
-                    }
-
-                    piece = nativeBridge.completionLoop(this@SmolLM, nativePtr)
-                }
-                if (piece == "[EOG]") {
-                    logD(LOG_TAG, "getResponse: [EOG] received after $tokensGenerated tokens.")
-                }
-            }
-
-            return responseBuilder.toString().also { response ->
-                logD(LOG_TAG, "getResponse: finished. Total length=${response.length}")
-            }
-        } catch (e: IllegalStateException) {
-            throw InferenceFailedException(
-                operation = "SmolLM completion",
-                detail = e.message ?: "The native completion loop failed.",
-                cause = e,
-            )
-        } finally {
-            nativeBridge.stopCompletion(this, nativePtr)
-        }
-    }
+    ): String = SmolLMCompletionSupport.getResponse(this, query, maxTokens, batchSize)
 
     /** Public helper to stop a currently running completion loop (best effort). */
     fun stopCompletion() {
-        if (nativePtr == 0L) return
-        logD(LOG_TAG, "stopCompletion invoked")
-        try {
-            nativeBridge.stopCompletion(this, nativePtr)
-        } catch (e: Throwable) {
-            // best-effort: log and ignore
-            logW(LOG_TAG, "stopCompletion failed: ${'$'}{e.message}")
-        }
+        SmolLMCompletionSupport.stopCompletion(this)
     }
 
     /**
@@ -1042,6 +811,63 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             throw InvalidModelStateException("Model is not loaded. Use SmolLM.load to load the model first.")
         }
     }
+
+    internal fun supportRequireHandle(): Long {
+        verifyHandle()
+        return nativePtr
+    }
+
+    internal val supportNativeBridge: NativeBridge
+        get() = nativeBridge
+
+    internal var supportNativePtr: Long
+        get() = nativePtr
+        set(value) {
+            nativePtr = value
+        }
+
+    internal var supportRequestedLoadBackend: ComputeBackend?
+        get() = requestedLoadBackend
+        set(value) {
+            requestedLoadBackend = value
+        }
+
+    internal var supportSelectedBackend: ComputeBackend
+        get() = selectedBackend
+        set(value) {
+            selectedBackend = value
+        }
+
+    internal val supportUseVulkanGpu: Boolean
+        get() = useVulkanGPU
+
+    internal var supportLoadedInferenceParams: InferenceParams?
+        get() = loadedInferenceParams
+        set(value) {
+            loadedInferenceParams = value
+        }
+
+    internal fun supportResolveContextSize(requested: Long?, modelContextSize: Long): Long =
+        resolveContextSize(requested, modelContextSize)
+
+    internal fun supportResolveChatTemplate(explicit: String?, ggufReader: GGUFReader): String =
+        resolveChatTemplate(explicit, ggufReader)
+
+    internal fun supportPreflightBackendCompatibility(
+        modelPath: String,
+        params: InferenceParams,
+        fileType: Int?,
+        dominantTensorType: Int?,
+    ) = preflightBackendCompatibility(modelPath, params, fileType, dominantTensorType)
+
+    internal fun supportApplyReasoningState(mode: ThinkingMode, budget: Int) =
+        applyReasoningState(mode, budget)
+
+    internal fun supportResolvedReasoningBudget(mode: ThinkingMode, override: Int?): Int =
+        resolvedReasoningBudget(mode, override)
+
+    internal fun supportSetThreadAffinity(modelPtr: Long, coreMask: Long) =
+        setThreadAffinity(modelPtr, coreMask)
 
     private fun preflightBackendCompatibility(
         modelPath: String,
@@ -1180,12 +1006,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * embeddings are present in the KV cache for subsequent generation. Returns true on success.
      */
     fun decodePreparedEmbeddings(embdPath: String, metaPath: String, nBatch: Int = 1): Boolean {
-        verifyHandle()
-        return try {
-            nativeBridge.nativeDecodePreparedEmbeddings(this, nativePtr, embdPath, metaPath, nBatch)
-        } catch (e: UnsatisfiedLinkError) {
-            false
-        }
+        return SmolLMVisionInterop.decodePreparedEmbeddings(this, embdPath, metaPath, nBatch)
     }
 
     /**
@@ -1194,26 +1015,11 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * Returns true on success.
      */
     fun decodeEmbeddingsBuffer(embeddings: io.aatricks.llmedge.vision.VisionEmbeddings, nBatch: Int = 1): Boolean {
-        verifyHandle()
-        return try {
-            nativeBridge.nativeDecodeEmbeddingsBuffer(
-                this, nativePtr, embeddings.data,
-                embeddings.nTokens, embeddings.nx, embeddings.ny,
-                embeddings.embdDim, embeddings.useMrope, embeddings.useNonCausal,
-                nBatch,
-            )
-        } catch (e: UnsatisfiedLinkError) {
-            false
-        }
+        return SmolLMVisionInterop.decodeEmbeddingsBuffer(this, embeddings, nBatch)
     }
 
     internal fun primeImageBuffer(projectorNativePtr: Long, imageData: ByteArray, nBatch: Int = 1): Boolean {
-        verifyHandle()
-        return try {
-            nativeBridge.nativePrimeImageBuffer(this, nativePtr, projectorNativePtr, imageData, nBatch)
-        } catch (e: UnsatisfiedLinkError) {
-            false
-        }
+        return SmolLMVisionInterop.primeImageBuffer(this, projectorNativePtr, imageData, nBatch)
     }
 
     /**
@@ -1221,70 +1027,40 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * Returns null on failure.
      */
     fun getStateBytes(): ByteArray? {
-        verifyHandle()
-        return try {
-            nativeBridge.getStateBytes(this, nativePtr)
-        } catch (e: UnsatisfiedLinkError) {
-            null
-        }
+        return SmolLMStateSupport.getStateBytes(this)
     }
 
     /**
      * Restore the full model state (including KV cache) from a byte array.
      */
     fun setStateBytes(state: ByteArray): Boolean {
-        verifyHandle()
-        return try {
-            nativeBridge.setStateBytes(this, nativePtr, state)
-        } catch (e: UnsatisfiedLinkError) {
-            false
-        }
+        return SmolLMStateSupport.setStateBytes(this, state)
     }
 
     /**
      * Export a single sequence (seq_id) state blob which contains the KV cache for that sequence.
      */
     fun getSequenceStateBytes(seqId: Int = 0): ByteArray? {
-        verifyHandle()
-        return try {
-            nativeBridge.getSequenceStateBytes(this, nativePtr, seqId)
-        } catch (e: UnsatisfiedLinkError) {
-            null
-        }
+        return SmolLMStateSupport.getSequenceStateBytes(this, seqId)
     }
 
     /**
      * Import a single sequence (seq_id) state blob which contains the KV cache for that sequence.
      */
     fun setSequenceStateBytes(seqId: Int, state: ByteArray): Boolean {
-        verifyHandle()
-        return try {
-            nativeBridge.setSequenceStateBytes(this, nativePtr, seqId, state)
-        } catch (e: UnsatisfiedLinkError) {
-            false
-        }
+        return SmolLMStateSupport.setSequenceStateBytes(this, seqId, state)
     }
 
     /**
      * Clears the KV cache stored in the model context.
      */
     fun clearKvCache() {
-        verifyHandle()
-        try {
-            nativeBridge.clearKvCache(this, nativePtr)
-        } catch (e: UnsatisfiedLinkError) {
-            // ignore if not available
-        }
+        SmolLMStateSupport.clearKvCache(this)
     }
 
     /** Clears any native chat/system messages stored on this runtime. */
     fun clearMessages() {
-        verifyHandle()
-        try {
-            nativeBridge.clearMessages(this, nativePtr)
-        } catch (e: UnsatisfiedLinkError) {
-            // ignore if not available
-        }
+        SmolLMStateSupport.clearMessages(this)
     }
 
     private external fun close(modelPtr: Long)

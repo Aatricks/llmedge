@@ -24,18 +24,13 @@ import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.AndroidLogAdapter
-import io.aatricks.llmedge.huggingface.HuggingFaceHub
-import io.aatricks.llmedge.model.ModelFileValidator
-import io.aatricks.llmedge.runtime.BackendRuntimePolicy
+import io.aatricks.llmedge.speech.stt.internal.WhisperCompanionSupport
+import io.aatricks.llmedge.speech.stt.internal.WhisperStreamingState
 import io.aatricks.llmedge.runtime.ComputeBackend
-import io.aatricks.llmedge.runtime.ComputeSubsystem
-import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -61,7 +56,7 @@ import kotlinx.coroutines.withContext
  * whisper.close()
  * ```
  */
-class Whisper private constructor(
+class Whisper internal constructor(
     private val handle: Long,
     internal val activeBackend: ComputeBackend = ComputeBackend.CPU,
 ) : AutoCloseable {
@@ -379,27 +374,7 @@ class Whisper private constructor(
      */
     class StreamingTranscriber
     internal constructor(private val whisper: Whisper, private val params: StreamingParams) {
-        private val mutex = Mutex()
-        // Use FloatArray-backed ring buffer instead of MutableList<Float> to avoid boxing
-        private var audioBuffer = FloatArray(0)
-        private var audioBufferSize = 0
-        private var previousAudio = FloatArray(0)
-        private var previousAudioSize = 0
-
-        @Volatile private var isRunning = false
-
-        @Volatile private var isPaused = false
-
-        private var segmentIndex = 0
-        private var totalProcessedMs: Long = 0
-
-        // Samples per millisecond at 16kHz
-        private val samplesPerMs = SAMPLE_RATE / 1000
-
-        // Calculate sample counts from milliseconds
-        private val samplesStep = params.stepMs * samplesPerMs
-        private val samplesLength = params.lengthMs * samplesPerMs
-        private val samplesKeep = min(params.keepMs, params.stepMs) * samplesPerMs
+        private val state = WhisperStreamingState(whisper, params)
 
         /**
          * Feed audio samples to the streaming transcriber.
@@ -411,51 +386,25 @@ class Whisper private constructor(
          *
          * @param samples Audio samples to add to the buffer
          */
-        suspend fun feedAudio(samples: FloatArray) =
-                mutex.withLock {
-                    if (isRunning && !isPaused) {
-                        val needed = audioBufferSize + samples.size
-                        if (needed > audioBuffer.size) {
-                            audioBuffer = audioBuffer.copyOf(maxOf(needed, audioBuffer.size * 2, 4096))
-                        }
-                        System.arraycopy(samples, 0, audioBuffer, audioBufferSize, samples.size)
-                        audioBufferSize += samples.size
-                    }
-                }
+        suspend fun feedAudio(samples: FloatArray) = state.feedAudio(samples)
 
         /** Get the current audio buffer size in milliseconds. */
-        fun getBufferedAudioMs(): Int {
-            return audioBufferSize / samplesPerMs
-        }
+        fun getBufferedAudioMs(): Int = state.getBufferedAudioMs()
 
         /** Check if enough audio is buffered for processing. */
-        fun hasEnoughAudio(): Boolean {
-            return audioBufferSize >= samplesStep
-        }
+        fun hasEnoughAudio(): Boolean = state.hasEnoughAudio()
 
         /** Clear the audio buffer. */
-        suspend fun clearBuffer() =
-                mutex.withLock {
-                    audioBufferSize = 0
-                    previousAudioSize = 0
-                    segmentIndex = 0
-                    totalProcessedMs = 0
-                }
+        suspend fun clearBuffer() = state.clearBuffer()
 
         /** Pause audio collection (transcription continues with buffered audio). */
-        fun pause() {
-            isPaused = true
-        }
+        fun pause() = state.pause()
 
         /** Resume audio collection. */
-        fun resume() {
-            isPaused = false
-        }
+        fun resume() = state.resume()
 
         /** Stop the streaming transcription. */
-        fun stop() {
-            isRunning = false
-        }
+        fun stop() = state.stop()
 
         /**
          * Start streaming transcription, returning a Flow of transcription segments.
@@ -465,30 +414,7 @@ class Whisper private constructor(
          *
          * @return Flow emitting TranscriptionSegment as they are transcribed
          */
-        fun start(): Flow<TranscriptionSegment> =
-                flow {
-                            isRunning = true
-                            isPaused = false
-
-                            while (isRunning) {
-                                // Wait until we have enough audio
-                                var currentBufferSize: Int
-                                mutex.withLock { currentBufferSize = audioBufferSize }
-
-                                if (currentBufferSize < samplesStep) {
-                                    // Sleep briefly and check again
-                                    kotlinx.coroutines.delay(50)
-                                    continue
-                                }
-
-                                // Process the audio chunk
-                                val segments = processNextChunk()
-                                for (segment in segments) {
-                                    emit(segment)
-                                }
-                            }
-                        }
-                        .flowOn(Dispatchers.IO)
+        fun start(): Flow<TranscriptionSegment> = state.start()
 
         /**
          * Process a single chunk of audio immediately.
@@ -498,101 +424,7 @@ class Whisper private constructor(
          *
          * @return List of transcription segments from this chunk
          */
-        suspend fun processNextChunk(): List<TranscriptionSegment> =
-                mutex.withLock {
-                    if (audioBufferSize < samplesStep) {
-                        return@withLock emptyList()
-                    }
-
-                    val newSamplesCount = samplesStep
-
-                    // Remove processed samples from buffer by shifting
-                    val removeCount = min(samplesStep, audioBufferSize)
-
-                    // Calculate how many samples to take from previous audio for context
-                    val takeFromPrevious = min(previousAudioSize, samplesLength - newSamplesCount)
-
-                    // Build the full audio window: [previous context] + [new samples]
-                    val windowSamples = FloatArray(takeFromPrevious + newSamplesCount)
-
-                    // Copy previous context
-                    if (takeFromPrevious > 0) {
-                        System.arraycopy(previousAudio, previousAudioSize - takeFromPrevious,
-                                windowSamples, 0, takeFromPrevious)
-                    }
-
-                    // Copy new samples from audioBuffer
-                    System.arraycopy(audioBuffer, 0, windowSamples, takeFromPrevious, newSamplesCount)
-
-                    // Shift remaining audio buffer
-                    if (removeCount < audioBufferSize) {
-                        System.arraycopy(audioBuffer, removeCount, audioBuffer, 0, audioBufferSize - removeCount)
-                    }
-                    audioBufferSize -= removeCount
-
-                    // Update previous audio buffer for next iteration
-                    val keepSamples = min(windowSamples.size, samplesKeep + samplesLength)
-                    val startIdx = windowSamples.size - keepSamples
-                    if (keepSamples > previousAudio.size) {
-                        previousAudio = FloatArray(keepSamples)
-                    }
-                    System.arraycopy(windowSamples, startIdx, previousAudio, 0, keepSamples)
-                    previousAudioSize = keepSamples
-
-                    // Apply VAD if enabled
-                    if (params.useVad && !hasVoiceActivity(windowSamples)) {
-                        return@withLock emptyList()
-                    }
-
-                    // Transcribe the window
-                    val transcribeParams =
-                            TranscribeParams(
-                                    nThreads = params.nThreads,
-                                    translate = params.translate,
-                                    language = params.language,
-                                    temperature = 0.0f, // Greedy decoding for streaming
-                                    beamSize = 1
-                            )
-
-                    val segments = whisper.transcribe(windowSamples, transcribeParams)
-
-                    // Adjust timestamps to reflect actual position in the stream
-                    val timeOffsetCentiseconds = (totalProcessedMs / 10).toInt()
-                    val adjustedSegments =
-                            segments.map { segment ->
-                                TranscriptionSegment(
-                                        index = segmentIndex++,
-                                        startTime = segment.startTime + timeOffsetCentiseconds,
-                                        endTime = segment.endTime + timeOffsetCentiseconds,
-                                        text = segment.text
-                                )
-                            }
-
-                    totalProcessedMs += params.stepMs
-
-                    return@withLock adjustedSegments
-                }
-
-        /**
-         * Simple Voice Activity Detection. Returns true if voice activity is detected in the
-         * samples.
-         */
-        private fun hasVoiceActivity(samples: FloatArray): Boolean {
-            if (samples.isEmpty()) return false
-
-            // Calculate RMS energy
-            var sumSquares = 0.0
-            for (sample in samples) {
-                sumSquares += sample * sample
-            }
-            val rms = kotlin.math.sqrt(sumSquares / samples.size)
-
-            // Simple threshold-based VAD
-            // The threshold is normalized to typical speech levels
-            val energyThreshold = params.vadThreshold * 0.02f // Adjusted for float PCM
-
-            return rms > energyThreshold
-        }
+        suspend fun processNextChunk(): List<TranscriptionSegment> = state.processNextChunk()
     }
 
     override fun close() {
@@ -644,6 +476,22 @@ class Whisper private constructor(
     private external fun nativeResetTimings(handle: Long)
     private external fun nativePrintTimings(handle: Long)
 
+    internal fun supportCheckBindings(): Boolean = nativeCheckBindings()
+
+    internal fun supportGetVersion(): String = nativeGetVersion()
+
+    internal fun supportGetSystemInfo(): String = nativeGetSystemInfo()
+
+    internal fun supportGetMaxLanguageId(): Int = nativeGetMaxLanguageId()
+
+    internal fun supportGetLanguageId(lang: String): Int = nativeGetLanguageId(lang)
+
+    internal fun supportGetLanguageString(langId: Int): String = nativeGetLanguageString(langId)
+
+    internal fun supportIsOpenClAvailable(): Boolean = nativeIsOpenClAvailable()
+
+    internal fun supportIsVulkanAvailable(): Boolean = nativeIsVulkanAvailable()
+
     companion object {
         private const val LOG_TAG = "Whisper"
 
@@ -681,8 +529,8 @@ class Whisper private constructor(
         }
 
         // Dummy instance used to invoke static native methods that are now at the class level.
-        private val staticInvoker by lazy { Whisper(0L, ComputeBackend.CPU) }
-        private val loadBridgeProvider =
+        internal val staticInvoker by lazy { Whisper(0L, ComputeBackend.CPU) }
+        internal val loadBridgeProvider =
             NativeBridgeProvider<Unit, LoadBridge> { _ ->
                 object : LoadBridge {
                     override fun create(
@@ -700,8 +548,8 @@ class Whisper private constructor(
                 }
             }
 
-        private var openClAvailabilityOverrideForTests: Boolean? = null
-        private var vulkanAvailabilityOverrideForTests: Boolean? = null
+        internal var openClAvailabilityOverrideForTests: Boolean? = null
+        internal var vulkanAvailabilityOverrideForTests: Boolean? = null
 
         internal fun overrideLoadBridgeForTests(provider: () -> LoadBridge) {
             loadBridgeProvider.override { _ -> provider() }
@@ -726,40 +574,16 @@ class Whisper private constructor(
 
         /** Check if native bindings are available. */
         @JvmStatic
-        fun checkBindings(): Boolean {
-            return try {
-                staticInvoker.nativeCheckBindings()
-            } catch (e: UnsatisfiedLinkError) {
-                false
-            }
-        }
+        fun checkBindings(): Boolean = WhisperCompanionSupport.checkBindings(staticInvoker)
 
         /** Get the whisper.cpp version string. */
-        @JvmStatic fun getVersion(): String {
-            return try {
-                staticInvoker.nativeGetVersion()
-            } catch (e: UnsatisfiedLinkError) {
-                "unknown"
-            }
-        }
+        @JvmStatic fun getVersion(): String = WhisperCompanionSupport.getVersion(staticInvoker)
 
         /** Get system information string. */
-        @JvmStatic fun getSystemInfo(): String {
-            return try {
-                staticInvoker.nativeGetSystemInfo()
-            } catch (e: UnsatisfiedLinkError) {
-                "unknown"
-            }
-        }
+        @JvmStatic fun getSystemInfo(): String = WhisperCompanionSupport.getSystemInfo(staticInvoker)
 
         /** Get the maximum language ID supported. */
-        @JvmStatic fun getMaxLanguageId(): Int {
-            return try {
-                staticInvoker.nativeGetMaxLanguageId()
-            } catch (e: UnsatisfiedLinkError) {
-                0
-            }
-        }
+        @JvmStatic fun getMaxLanguageId(): Int = WhisperCompanionSupport.getMaxLanguageId(staticInvoker)
 
         /**
          * Get the language ID for a language code or name.
@@ -767,13 +591,7 @@ class Whisper private constructor(
          * @param lang Language code (e.g., "en") or name (e.g., "english")
          * @return Language ID or -1 if not found
          */
-        @JvmStatic fun getLanguageId(lang: String): Int {
-            return try {
-                staticInvoker.nativeGetLanguageId(lang)
-            } catch (e: UnsatisfiedLinkError) {
-                -1
-            }
-        }
+        @JvmStatic fun getLanguageId(lang: String): Int = WhisperCompanionSupport.getLanguageId(staticInvoker, lang)
 
         /**
          * Get the language code for a language ID.
@@ -781,33 +599,16 @@ class Whisper private constructor(
          * @param langId Language ID
          * @return Language code (e.g., "en") or empty string if not found
          */
-        @JvmStatic fun getLanguageString(langId: Int): String {
-            return try {
-                staticInvoker.nativeGetLanguageString(langId)
-            } catch (e: UnsatisfiedLinkError) {
-                "unknown"
-            }
-        }
+        @JvmStatic fun getLanguageString(langId: Int): String =
+            WhisperCompanionSupport.getLanguageString(staticInvoker, langId)
 
         @JvmStatic
         fun isOpenClAvailable(): Boolean =
-            openClAvailabilityOverrideForTests
-                ?:
-            try {
-                staticInvoker.nativeIsOpenClAvailable()
-            } catch (_: UnsatisfiedLinkError) {
-                false
-            }
+            WhisperCompanionSupport.isOpenClAvailable(staticInvoker, openClAvailabilityOverrideForTests)
 
         @JvmStatic
         fun isVulkanBackendAvailable(): Boolean =
-            vulkanAvailabilityOverrideForTests
-                ?:
-            try {
-                staticInvoker.nativeIsVulkanAvailable()
-            } catch (_: UnsatisfiedLinkError) {
-                false
-            }
+            WhisperCompanionSupport.isVulkanBackendAvailable(staticInvoker, vulkanAvailabilityOverrideForTests)
 
         /**
          * Load a Whisper model from a file path.
@@ -824,53 +625,21 @@ class Whisper private constructor(
                 useGpu: Boolean = false,
                 flashAttn: Boolean = true,
                 gpuDevice: Int = 0
-        ): Whisper {
-            val validatedModel = ModelFileValidator.requireReadableFile(modelPath, "Whisper model")
-            val loadBridge = loadBridgeProvider.create(Unit)
-            val candidates =
-                BackendRuntimePolicy.candidates(
-                    subsystem = ComputeSubsystem.WHISPER,
-                    allowGpu = useGpu,
-                    openClAvailable = isOpenClAvailable(),
-                    vulkanAvailable = isVulkanBackendAvailable(),
-                )
-            var lastError: Throwable? = null
-            for (backend in candidates) {
-                try {
-                    val handle =
-                        NativeCall.requireHandle(
-                            NativeCall.binding(
-                                "whisper",
-                                "Whisper JNI bindings are unavailable.",
-                            ) {
-                                loadBridge.create(
-                                    validatedModel.absolutePath,
-                                    backend,
-                                    flashAttn,
-                                    gpuDevice,
-                                )
-                            },
-                            validatedModel.absolutePath,
-                            "The native Whisper loader returned an invalid handle.",
-                        )
-                    return Whisper(handle, backend)
-                } catch (e: NativeBindingException) {
-                    throw e
-                } catch (e: Throwable) {
-                    lastError = e
-                    if (backend != ComputeBackend.CPU) {
-                        BackendRuntimePolicy.blacklist(ComputeSubsystem.WHISPER, backend)
-                        logW(LOG_TAG, "Failed to load Whisper on $backend; retrying with the next backend")
-                    }
-                }
+        ): Whisper =
+            WhisperCompanionSupport.load(
+                modelPath = modelPath,
+                useGpu = useGpu,
+                flashAttn = flashAttn,
+                gpuDevice = gpuDevice,
+                staticInvoker = staticInvoker,
+                createHandle = { path, backend, useFlashAttn, device ->
+                    loadBridgeProvider.create(Unit).create(path, backend, useFlashAttn, device)
+                },
+                openClAvailabilityOverride = openClAvailabilityOverrideForTests,
+                vulkanAvailabilityOverride = vulkanAvailabilityOverrideForTests,
+            ) { backend ->
+                logW(LOG_TAG, "Failed to load Whisper on $backend; retrying with the next backend")
             }
-
-            throw ModelLoadException(
-                validatedModel.absolutePath,
-                lastError?.message ?: "The native Whisper loader returned an invalid handle.",
-                lastError,
-            )
-        }
 
         /**
          * Load a Whisper model with Android Context support. This allows loading models from app
@@ -891,16 +660,14 @@ class Whisper private constructor(
                 flashAttn: Boolean = true,
                 gpuDevice: Int = 0
         ): Whisper =
-                withContext(Dispatchers.IO) {
-                    val actualPath =
-                            ModelFileValidator.resolveReadableFile(
-                                    context,
-                                    modelPath,
-                                    "Whisper model"
-                            ).absolutePath
-
-                    load(actualPath, useGpu, flashAttn, gpuDevice)
-                }
+            WhisperCompanionSupport.load(
+                context = context,
+                modelPath = modelPath,
+                useGpu = useGpu,
+                flashAttn = flashAttn,
+                gpuDevice = gpuDevice,
+                loadFromPath = ::load,
+            )
 
         /**
          * Download and load a Whisper model from Hugging Face Hub.
@@ -924,15 +691,15 @@ class Whisper private constructor(
                 gpuDevice: Int = 0,
                 token: String? = null
         ): Whisper =
-                withContext(Dispatchers.IO) {
-                    val result =
-                            HuggingFaceHub.ensureModelOnDisk(
-                                    context = context,
-                                    modelId = modelId,
-                                    filename = modelFile,
-                                    token = token
-                            )
-                    load(result.file.absolutePath, useGpu, flashAttn, gpuDevice)
-                }
+            WhisperCompanionSupport.loadFromHuggingFace(
+                context = context,
+                modelId = modelId,
+                modelFile = modelFile,
+                useGpu = useGpu,
+                flashAttn = flashAttn,
+                gpuDevice = gpuDevice,
+                token = token,
+                loadFromPath = ::load,
+            )
     }
 }
