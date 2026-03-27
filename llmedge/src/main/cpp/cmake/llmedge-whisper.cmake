@@ -2,7 +2,18 @@
 # Build whisper with its OWN ggml sources compiled directly into whisper_jni
 # to avoid target name conflicts and ensure API compatibility.
 
-get_filename_component(WHISPER_DIR "${LLMEDGE_CPP_ROOT}/../../../../whisper.cpp" ABSOLUTE)
+include("${LLMEDGE_CPP_ROOT}/cmake/llmedge-mods.cmake")
+
+get_filename_component(WHISPER_DIR_UPSTREAM "${LLMEDGE_CPP_ROOT}/../../../../whisper.cpp" ABSOLUTE)
+get_filename_component(LLMEDGE_REPO_ROOT "${LLMEDGE_CPP_ROOT}/../../../.." ABSOLUTE)
+set(LLMEDGE_MODS_DIR "${LLMEDGE_REPO_ROOT}/mods")
+llmedge_prepare_patch_modded_tree(
+        NAME "whisper.cpp"
+        SOURCE_ROOT "${WHISPER_DIR_UPSTREAM}"
+        MODS_ROOT "${LLMEDGE_MODS_DIR}/whisper.cpp"
+        USE_MODS_VAR "LLMEDGE_WHISPER_USE_MODS"
+        OUT_VAR WHISPER_DIR
+)
 set(WHISPER_GGML_DIR ${WHISPER_DIR}/ggml)
 
 if (NOT EXISTS "${WHISPER_DIR}/include/whisper.h")

@@ -169,6 +169,8 @@ public:
     }
 
     void init_backend() {
+        const bool allow_vulkan = g_sd_vulkan_enabled.load() && getenv("GGML_DISABLE_VULKAN") == nullptr;
+        const bool allow_opencl = getenv("GGML_DISABLE_OPENCL") == nullptr;
 #ifdef SD_USE_CUDA
         LOG_DEBUG("Using CUDA backend");
         backend = ggml_backend_cuda_init(0);
@@ -178,7 +180,7 @@ public:
         backend = ggml_backend_metal_init();
 #endif
 #ifdef SD_USE_VULKAN
-        if (g_sd_vulkan_enabled.load()) {
+        if (allow_vulkan) {
             const int device_count = ggml_backend_vk_get_device_count();
             LOG_DEBUG("Using Vulkan backend (devices=%d)", device_count);
 
@@ -223,15 +225,23 @@ public:
                 LOG_WARN("Vulkan backend compiled in, but no Vulkan devices were enumerated");
             }
         } else {
-            LOG_DEBUG("Vulkan backend disabled (llmedge)");
+            if (!g_sd_vulkan_enabled.load()) {
+                LOG_DEBUG("Vulkan backend disabled (llmedge)");
+            } else {
+                LOG_DEBUG("Vulkan backend disabled by GGML_DISABLE_VULKAN");
+            }
         }
 #endif
 #ifdef SD_USE_OPENCL
-        LOG_DEBUG("Using OpenCL backend");
-        // ggml_log_set(ggml_log_callback_default, nullptr); // Optional ggml logs
-        backend = ggml_backend_opencl_init();
-        if (!backend) {
-            LOG_WARN("Failed to initialize OpenCL backend");
+        if (!backend && allow_opencl) {
+            LOG_DEBUG("Using OpenCL backend");
+            // ggml_log_set(ggml_log_callback_default, nullptr); // Optional ggml logs
+            backend = ggml_backend_opencl_init();
+            if (!backend) {
+                LOG_WARN("Failed to initialize OpenCL backend");
+            }
+        } else if (!allow_opencl) {
+            LOG_DEBUG("OpenCL backend disabled by GGML_DISABLE_OPENCL");
         }
 #endif
 #ifdef SD_USE_SYCL

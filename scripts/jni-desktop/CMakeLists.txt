@@ -4,6 +4,9 @@ project(sdcpp_desktop)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+get_filename_component(LLMEDGE_CPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../llmedge/src/main/cpp" ABSOLUTE)
+include("${LLMEDGE_CPP_ROOT}/cmake/llmedge-mods.cmake")
+
 # Point to stable-diffusion.cpp root.
 set(SD_ROOT_OVERRIDE "" CACHE PATH "Override path to stable-diffusion.cpp root")
 if (SD_ROOT_OVERRIDE)
@@ -11,8 +14,8 @@ if (SD_ROOT_OVERRIDE)
 else()
     get_filename_component(SD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../stable-diffusion.cpp" ABSOLUTE)
 endif()
-
-get_filename_component(LLMEDGE_CPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../llmedge/src/main/cpp" ABSOLUTE)
+get_filename_component(LLMEDGE_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+set(LLMEDGE_MODS_DIR "${LLMEDGE_REPO_ROOT}/mods")
 
 # Options to control what to build
 option(BUILD_SDCPP "Build stable-diffusion.cpp JNI" ON)
@@ -71,7 +74,14 @@ endif()
 # SmolLM (llama.cpp) JNI
 # ------------------------------------------------------------
 if(BUILD_SMOLLM)
-    get_filename_component(LLAMA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../llama.cpp" ABSOLUTE)
+    get_filename_component(LLAMA_ROOT_UPSTREAM "${CMAKE_CURRENT_SOURCE_DIR}/../../llama.cpp" ABSOLUTE)
+    llmedge_prepare_patch_modded_tree(
+        NAME "llama.cpp"
+        SOURCE_ROOT "${LLAMA_ROOT_UPSTREAM}"
+        MODS_ROOT "${LLMEDGE_MODS_DIR}/llama.cpp"
+        USE_MODS_VAR "LLMEDGE_LLAMA_USE_MODS"
+        OUT_VAR LLAMA_ROOT
+    )
     message(STATUS "Using llama.cpp root: ${LLAMA_ROOT}")
     set(LLMEDGE_LLAMA_USE_MEMORY_API OFF CACHE BOOL "Use llama_memory_* APIs instead of llama_kv_cache_* compatibility APIs" FORCE)
 
@@ -137,7 +147,14 @@ endif()
 option(WHISPER_DESKTOP_JNI "Build whisper JNI for desktop" OFF)
 
 if(WHISPER_DESKTOP_JNI)
-    get_filename_component(WHISPER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../whisper.cpp" ABSOLUTE)
+    get_filename_component(WHISPER_ROOT_UPSTREAM "${CMAKE_CURRENT_SOURCE_DIR}/../../whisper.cpp" ABSOLUTE)
+    llmedge_prepare_patch_modded_tree(
+        NAME "whisper.cpp"
+        SOURCE_ROOT "${WHISPER_ROOT_UPSTREAM}"
+        MODS_ROOT "${LLMEDGE_MODS_DIR}/whisper.cpp"
+        USE_MODS_VAR "LLMEDGE_WHISPER_USE_MODS"
+        OUT_VAR WHISPER_ROOT
+    )
 
     if(EXISTS "${WHISPER_ROOT}/include/whisper.h")
         # Configure whisper.cpp build options

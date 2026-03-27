@@ -1,0 +1,334 @@
+diff --git a/ggml/src/ggml-vulkan.cpp b/ggml/src/ggml-vulkan.cpp
+index c880898cc..e0c194f3d 100644
+--- a/ggml/src/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan.cpp
+@@ -1,15 +1,30 @@
+ #include "ggml-vulkan.h"
+ #include <vulkan/vulkan_core.h>
+ #if defined(GGML_VULKAN_RUN_TESTS) || defined(GGML_VULKAN_CHECK_RESULTS)
+ #include <chrono>
+ #include "ggml-cpu.h"
+ #endif
+ 
++// Use Vulkan-Hpp dynamic dispatch so Android does not require direct linkage
++// against newer core Vulkan entry points such as vkResetQueryPool.
++#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
++// We intentionally provide our own dispatcher storage to avoid colliding with
++// other libraries that may also include vulkan.hpp in the same process.
++#if VK_HEADER_VERSION >= 301
++namespace vk::detail { class DispatchLoaderDynamic; }
++using vk::detail::DispatchLoaderDynamic;
++#else
++namespace vk { class DispatchLoaderDynamic; }
++using vk::DispatchLoaderDynamic;
++#endif
++DispatchLoaderDynamic & ggml_vk_default_dispatcher();
++#define VULKAN_HPP_DEFAULT_DISPATCHER ggml_vk_default_dispatcher()
++
+ #include <vulkan/vulkan.hpp>
+ 
+ #include <algorithm>
+ #include <cmath>
+ #include <iomanip>
+ #include <iostream>
+ #include <tuple>
+ #include <vector>
+@@ -3772,22 +3787,31 @@ static void ggml_vk_print_gpu_info(size_t idx) {
+     }
+ }
+ 
+ static bool ggml_vk_instance_validation_ext_available(const std::vector<vk::ExtensionProperties>& instance_extensions);
+ static bool ggml_vk_instance_portability_enumeration_ext_available(const std::vector<vk::ExtensionProperties>& instance_extensions);
+ 
+ static bool ggml_vk_instance_debug_utils_ext_available(const std::vector<vk::ExtensionProperties> & instance_extensions);
+ 
++static DispatchLoaderDynamic ggml_vk_default_dispatcher_instance;
++DispatchLoaderDynamic & ggml_vk_default_dispatcher() {
++    return ggml_vk_default_dispatcher_instance;
++}
++
+ static void ggml_vk_instance_init() {
+     if (vk_instance_initialized) {
+         return;
+     }
+     VK_LOG_DEBUG("ggml_vk_instance_init()");
+ 
++    // Initialize global/instance-level proc resolution first. This avoids
++    // direct symbol linkage to Vulkan 1.2 loader entry points on Android.
++    ggml_vk_default_dispatcher_instance.init(vkGetInstanceProcAddr);
++
+     uint32_t api_version = vk::enumerateInstanceVersion();
+ 
+     if (api_version < VK_API_VERSION_1_2) {
+         std::cerr << "ggml_vulkan: Error: Vulkan 1.2 required." << std::endl;
+         GGML_ABORT("fatal error");
+     }
+ 
+     vk::ApplicationInfo app_info{ "ggml-vulkan", 1, nullptr, 0, api_version };
+@@ -3846,16 +3870,20 @@ static void ggml_vk_instance_init() {
+         vk_instance.pfn_vkCmdBeginDebugUtilsLabelEXT = (PFN_vkCmdBeginDebugUtilsLabelEXT) vkGetInstanceProcAddr(vk_instance.instance, "vkCmdBeginDebugUtilsLabelEXT");
+         vk_instance.pfn_vkCmdEndDebugUtilsLabelEXT =   (PFN_vkCmdEndDebugUtilsLabelEXT) vkGetInstanceProcAddr(vk_instance.instance, "vkCmdEndDebugUtilsLabelEXT");
+         vk_instance.pfn_vkCmdInsertDebugUtilsLabelEXT = (PFN_vkCmdInsertDebugUtilsLabelEXT) vkGetInstanceProcAddr(vk_instance.instance, "vkCmdInsertDebugUtilsLabelEXT");
+ 
+     }
+ 
+     vk_perf_logger_enabled = getenv("GGML_VK_PERF_LOGGER") != nullptr;
+ 
++    // Switch Vulkan-Hpp over to the created instance before any instance-level
++    // or device-level commands are issued through the C++ wrappers.
++    VULKAN_HPP_DEFAULT_DISPATCHER.init(vk_instance.instance);
++
+     // Emulate behavior of CUDA_VISIBLE_DEVICES for Vulkan
+     char * devices_env = getenv("GGML_VK_VISIBLE_DEVICES");
+     if (devices_env != nullptr) {
+         size_t num_available_devices = vk_instance.instance.enumeratePhysicalDevices().size();
+ 
+         std::string devices(devices_env);
+         std::replace(devices.begin(), devices.end(), ',', ' ');
+ 
+diff --git a/ggml/src/ggml.c b/ggml/src/ggml.c
+index a08579076..52cd0e5cc 100644
+--- a/ggml/src/ggml.c
++++ b/ggml/src/ggml.c
+@@ -16927,16 +16927,17 @@ static int ggml_compute_forward_mul_mat(
+         if (ith == 0) printf("quantize(%s): %d us\n", dst->name, (int)(t2 - t1));
+ #endif
+ 
+     }
+ 
+     const void * wdata    = (src1->type == vec_dot_type) ? src1->data : params->wdata;
+ 
+     if (src1->type != vec_dot_type && dst->type == GGML_TYPE_F32) {
++#if GGML_USE_IQK_MULMAT
+         const size_t row_size = ggml_row_size(vec_dot_type, ne10);
+         if (iqk_mul_mat_4d(ne01, ne11, ne00,
+                     ne02, ne03, ne12, ne13, nb02, nb03, row_size*ne11, row_size*ne11*ne12,
+                     nb2/sizeof(float), nb3/sizeof(float),
+                     src0->type, src0->data, nb01,
+                     vec_dot_type, wdata, row_size,
+                     (float *)dst->data, nb1/sizeof(float), ith, nth)) {
+             if (!cgraph) return node_n;
+@@ -16953,16 +16954,17 @@ static int ggml_compute_forward_mul_mat(
+                     src0_next->ne[2], src0_next->ne[3], ne12, ne13, src0_next->nb[2], src0_next->nb[3], row_size*ne11, row_size*ne11*ne12,
+                     dst_next->nb[2]/sizeof(float), dst_next->nb[3]/sizeof(float),
+                     src0_next->type, src0_next->data, src0_next->nb[1],
+                     vec_dot_type, wdata, row_size,
+                     (float *)dst_next->data, dst_next->nb[1]/sizeof(float), ith, nth)) break;
+                 ++node_n;
+             }
+         }
++#endif
+         return node_n;
+     }
+ 
+     if (ith == 0) {
+         atomic_store(&params->shared->current_chunk, nth);
+     }
+     ggml_barrier(params->shared);
+ 
+@@ -22588,22 +22590,24 @@ static void ggml_compute_forward_delta_net_f32(
+     float * out_data  = (float *) dst->data;
+     float * state_out = out_data + output_size;
+ 
+     const int ith = params->ith;
+     const int nth = params->nth;
+ 
+     int repeat_type = dst->op_params[0];
+ 
++#if GGML_USE_IQK_MULMAT
+     if (iqk_fused_delta_net(head_dim, n_heads, gqa_ratio, repeat_type, n_tokens, n_seqs,
+                 src2->nb[1]/sizeof(float), src2->nb[2]/sizeof(float), src2->nb[3]/sizeof(float),
+                 q_data, k_data, v_data, g_data, beta_data, state_in,
+                 out_data, state_out, ith, nth)) {
+         return;
+     }
++#endif
+ 
+     // TODO: fix this in case we need to fall back to it.
+     const int64_t total_heads = n_heads * n_seqs;
+     const int64_t heads_per_thread = (total_heads + nth - 1) / nth;
+     const int64_t h_start = ith * heads_per_thread;
+     const int64_t h_end = (h_start + heads_per_thread < total_heads) ? h_start + heads_per_thread : total_heads;
+ 
+     const float eps = 1e-12f;
+@@ -24196,21 +24200,29 @@ static int ggml_compute_forward(struct ggml_compute_params * params, struct ggml
+                 i = ggml_compute_forward_mul_mat(params, tensor, cgraph, i);
+             } break;
+         case GGML_OP_MUL_MAT_ID:
+             {
+                 ggml_compute_forward_mul_mat_id(params, tensor);
+             } break;
+         case GGML_OP_MOE_FUSED_UP_GATE:
+             {
++#if GGML_USE_IQK_MULMAT
+                 ggml_compute_forward_mul_mat_id_up_gate(params, tensor);
++#else
++                GGML_ABORT("fatal error");
++#endif
+             } break;
+         case GGML_OP_FUSED_UP_GATE:
+             {
++#if GGML_USE_IQK_MULMAT
+                 ggml_compute_forward_mul_mat_up_gate(params, tensor);
++#else
++                GGML_ABORT("fatal error");
++#endif
+             } break;
+         case GGML_OP_OUT_PROD:
+             {
+                 ggml_compute_forward_out_prod(params, tensor);
+             } break;
+         case GGML_OP_SCALE:
+             {
+                 ggml_compute_forward_scale(params, tensor);
+@@ -24282,31 +24294,35 @@ static int ggml_compute_forward(struct ggml_compute_params * params, struct ggml
+                 ggml_compute_forward_diag_mask_inf(params, tensor);
+             } break;
+         case GGML_OP_DIAG_MASK_ZERO:
+             {
+                 ggml_compute_forward_diag_mask_zero(params, tensor);
+             } break;
+         case GGML_OP_SOFT_MAX:
+             {
++#if GGML_USE_IQK_MULMAT
+                 if (fusion && i + 4 < cgraph->n_nodes &&
+                     cgraph->nodes[i+1]->op == GGML_OP_RESHAPE  &&
+                     cgraph->nodes[i+2]->op == GGML_OP_ARGSORT  &&
+                     cgraph->nodes[i+3]->op == GGML_OP_VIEW     &&
+                     cgraph->nodes[i+4]->op == GGML_OP_GET_ROWS &&
+                     cgraph->nodes[i+0]->type == GGML_TYPE_F32  &&
+                     cgraph->nodes[i+4]->type == GGML_TYPE_F32  &&
+                     cgraph->nodes[i+3]->type == GGML_TYPE_I32) {
+                     iqk_topk_moe(cgraph->nodes[i]->ne[0], cgraph->nodes[i+4]->ne[1], cgraph->nodes[i]->ne[1],
+                             (const float *)cgraph->nodes[i]->data, (float *)cgraph->nodes[i+4]->data, (int32_t *)cgraph->nodes[i+3]->data,
+                             params->ith, params->nth);
+                     i += 4;
+                 } else {
+                     ggml_compute_forward_soft_max(params, tensor);
+                 }
++#else
++                ggml_compute_forward_soft_max(params, tensor);
++#endif
+             } break;
+         case GGML_OP_SOFT_MAX_BACK:
+             {
+                 ggml_compute_forward_soft_max_back(params, tensor);
+             } break;
+         case GGML_OP_ROPE:
+             {
+                 ggml_compute_forward_rope(params, tensor);
+diff --git a/ggml/src/iqk/iqk_config.h b/ggml/src/iqk/iqk_config.h
+index 78e1d6fc4..bb92338f0 100644
+--- a/ggml/src/iqk/iqk_config.h
++++ b/ggml/src/iqk/iqk_config.h
+@@ -5,17 +5,17 @@
+ //
+ 
+ #pragma once
+ 
+ #if defined IQK_IMPLEMENT
+ #undef IQK_IMPLEMENT
+ #endif
+ 
+-#if defined __AVX2__ || defined __ARM_FEATURE_DOTPROD
++#if defined(IQK_FORCE_IMPLEMENT) || defined(__AVX2__) || defined(__ARM_FEATURE_DOTPROD)
+ #define IQK_IMPLEMENT
+ #endif
+ 
+ #ifdef GGML_SHARED
+ #    if defined(_WIN32) && !defined(__MINGW32__)
+ #        ifdef GGML_BUILD
+ #            define IQK_API __declspec(dllexport)
+ #        else
+@@ -48,9 +48,8 @@
+ #endif
+ #if defined HAVE_VNNI256
+     #undef HAVE_VNNI256
+ #endif
+ #if defined(__AVXVNNI__) || (defined(__AVX512VNNI__) && defined(__AVX512VL__))
+     #define HAVE_VNNI256
+ #endif
+ #endif
+-
+diff --git a/ggml/src/iqk/iqk_flash_attn.cpp b/ggml/src/iqk/iqk_flash_attn.cpp
+index 0c9677b14..7f286f75d 100644
+--- a/ggml/src/iqk/iqk_flash_attn.cpp
++++ b/ggml/src/iqk/iqk_flash_attn.cpp
+@@ -433,17 +433,21 @@ extern "C" IQK_API bool iqk_flash_attn_noalibi(int type_q, int type_mask, float
+         }
+     }
+ 
+     return true;
+ }
+ 
+ #else
+ 
+-bool iqk_flash_attn_noalibi([[maybe_unused]] int type_q, [[maybe_unused]] int type_mask, [[maybe_unused]] float max_bias,
++extern "C" IQK_API size_t iqk_fa_work_buffer_size([[maybe_unused]] const struct ggml_tensor * dst, [[maybe_unused]] int nth) {
++    return 0;
++}
++
++extern "C" IQK_API bool iqk_flash_attn_noalibi([[maybe_unused]] int type_q, [[maybe_unused]] int type_mask, [[maybe_unused]] float max_bias,
+                             [[maybe_unused]] int neq3, [[maybe_unused]] int neq2, [[maybe_unused]] long nbq3, [[maybe_unused]] long nbq2,
+                             [[maybe_unused]] int nek3, [[maybe_unused]] int nek2, [[maybe_unused]] long nbk3, [[maybe_unused]] long nbk2,
+                             [[maybe_unused]] int nev3, [[maybe_unused]] int nev2, [[maybe_unused]] long nbv3, [[maybe_unused]] long nbv2,
+                             [[maybe_unused]] int ne2,  [[maybe_unused]] int ne1,  [[maybe_unused]] long nb1,
+                             [[maybe_unused]] int type_k,             // type of k
+                             [[maybe_unused]] int type_v,             // type of v
+                             [[maybe_unused]] int Dk,                 // K head size
+                             [[maybe_unused]] int Dv,                 // V head size
+@@ -452,18 +456,18 @@ bool iqk_flash_attn_noalibi([[maybe_unused]] int type_q, [[maybe_unused]] int ty
+                             [[maybe_unused]] int stride_q,           // distance between q columns in bytes
+                             [[maybe_unused]] int stride_k,           // distance between k rows in bytes
+                             [[maybe_unused]] int stride_v,           // distance between v rows in bytes
+                             [[maybe_unused]] int stride_m,           // distance between mask rows (in bytes
+                             [[maybe_unused]] const void  * q,        // q matrix.
+                             [[maybe_unused]] const void  * k,        // k matrix. Assumed to be fp16, nq x nk elements
+                             [[maybe_unused]] const void  * v,        // v matrix. Assumed to be fp16, nq x nk elements
+                             [[maybe_unused]] const void  * mask,     // mask. If not null, assumed to be fp16. nq x nk elements
++                            [[maybe_unused]] const void  * sinks,    // sinks. If not null, assumed to be fp16.
+                             [[maybe_unused]] float         scale,    // scale applied before softmax
+                             [[maybe_unused]] float         softcap,  // if > 0, a "soft-cap" operation is applied before softmax
+                             [[maybe_unused]] float       * qkv,      // v*softmax(scale*(k*q))
+                             [[maybe_unused]] void * work_buffer, [[maybe_unused]] barrier_t barrier, [[maybe_unused]] void * barrier_data,
+                             [[maybe_unused]] int ith, [[maybe_unused]] int nth, [[maybe_unused]] int n_swa) {
+     return false;
+ }
+ 
+ #endif
+-
+diff --git a/ggml/src/iqk/iqk_mul_mat.cpp b/ggml/src/iqk/iqk_mul_mat.cpp
+index 1ee910db8..67581caf3 100644
+--- a/ggml/src/iqk/iqk_mul_mat.cpp
++++ b/ggml/src/iqk/iqk_mul_mat.cpp
+@@ -1745,21 +1745,29 @@ extern "C" IQK_API bool iqk_mul_mat_moe(long, long, long, int, int, const void *
+         const void *, int, int) {
+     GGML_ABORT("Unsupported CPU. You may need to manually set compilation flags\n");
+     return false;
+ }
+ 
+ extern "C" IQK_API bool iqk_moe_fused_up_gate(long /*Nx*/, long /*Ny*/, long /*ne00*/, int /*ne11*/, int /*unary_op*/,
+         int /*typeA*/, const void * /*Aup*/, const void * /*Agate*/, long /*strideA*/,
+         int /*typeB*/, const void * /*B*/, long /*strideB*/,
++        const char * /*up_b_c*/, const char * /*gate_b_c*/,
+         float * /*C*/, long /*nb1*/, long /*nb2*/, const void * /*vrow_mapping*/, float, int /*ith*/, int /*nth*/) {
+     GGML_ABORT("Unsupported CPU. You may need to manually set compilation flags\n");
+     return false;
+ }
+ 
+-bool iqk_fused_delta_net(int, int, int, int, int, int,
++extern "C" IQK_API void iqk_topk_moe([[maybe_unused]] int n_experts, [[maybe_unused]] int n_experts_used,
++        [[maybe_unused]] int nrows, [[maybe_unused]] const float * logits,
++        [[maybe_unused]] float * weights, [[maybe_unused]] int32_t * ids,
++        [[maybe_unused]] int ith, [[maybe_unused]] int nth) {
++}
++
++extern "C" IQK_API bool iqk_fused_delta_net(int, int, int, int, int, int,
++        size_t, size_t, size_t,
+         const float *, const float *, const float *, const float *, const float *,
+         const float *, float *, float *, int, int) {
+     return false;
+ }
+ 
+ 
+ #endif

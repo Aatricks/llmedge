@@ -1,7 +1,18 @@
 # Shared llmedge native build configuration.
 # The root CMakeLists.txt should set LLMEDGE_CPP_ROOT before including this file.
 
-get_filename_component(LLAMA_DIR "${LLMEDGE_CPP_ROOT}/../../../../llama.cpp" ABSOLUTE)
+include("${LLMEDGE_CPP_ROOT}/cmake/llmedge-mods.cmake")
+
+get_filename_component(LLAMA_DIR_UPSTREAM "${LLMEDGE_CPP_ROOT}/../../../../llama.cpp" ABSOLUTE)
+get_filename_component(LLMEDGE_REPO_ROOT "${LLMEDGE_CPP_ROOT}/../../../.." ABSOLUTE)
+set(LLMEDGE_MODS_DIR "${LLMEDGE_REPO_ROOT}/mods")
+llmedge_prepare_patch_modded_tree(
+        NAME "llama.cpp"
+        SOURCE_ROOT "${LLAMA_DIR_UPSTREAM}"
+        MODS_ROOT "${LLMEDGE_MODS_DIR}/llama.cpp"
+        USE_MODS_VAR "LLMEDGE_LLAMA_USE_MODS"
+        OUT_VAR LLAMA_DIR
+)
 
 set(GGML_DIR ${LLAMA_DIR}/ggml)
 set(COMMON_DIR ${LLAMA_DIR}/common)
