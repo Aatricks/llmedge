@@ -92,6 +92,10 @@ set(SMOLLM_SOURCES
 
         ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
         ${LLMEDGE_CPP_ROOT}/smollm.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_completion.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_embeddings.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_load.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_state.cpp
         # libmtmd (multimodal projector) from llama.cpp
         ${MTMD_DIR}/mtmd.cpp
         ${MTMD_DIR}/mtmd-helper.cpp
