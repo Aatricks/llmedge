@@ -1,7 +1,9 @@
 #pragma once
+#include "llmedge_llama_compat.h"
 #include "llama.h"
 #include "chat.h"
 #include "common.h"
+#include "sampling.h"
 #include <string>
 #include <vector>
 #include <functional>
@@ -21,7 +23,7 @@ class LLMInference {
     // llama.cpp-specific types
     llama_context* _ctx = nullptr;
     llama_model*   _model = nullptr;
-    llama_sampler* _sampler = nullptr;
+    common_sampler* _sampler = nullptr;
     llama_token    _currToken = 0;
     llama_batch*   _batch = nullptr;
 
@@ -83,7 +85,7 @@ class LLMInference {
   public:
     void loadModel(const char* modelPath, float minP, float temperature, bool storeChats, long contextSize,
                    const char* chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan,
-                   bool useFlashAttn = true, int kvCacheTypeK = -1, int kvCacheTypeV = -1,
+                   bool useFlashAttn = true, int kvCacheTypeKCode = -1, int kvCacheTypeVCode = -1,
                    int nGpuLayers = 99);
 
     void addChatMessage(const char* message, const char* role);

@@ -108,12 +108,51 @@ class SmolLMVisionAdapter(
             val embdFile = File(imageFile.parentFile, "${imageFile.nameWithoutExtension}.bin")
             val metaFile = File(embdFile.absolutePath + ".meta.json")
             val usingPreparedEmbeddings = imageFile.extension.equals("bin", ignoreCase = true)
-            val visionPrompt =
-                if (usingPreparedEmbeddings) {
-                    prompt
-                } else {
-                    formatVisionPrompt(prompt, imageFile)
+
+            if (!usingPreparedEmbeddings) {
+                val projectorPathValue = mmprojPath
+                if (!projectorPathValue.isNullOrBlank()) {
+                    val projector = Projector()
+                    try {
+                        projector.init(projectorPathValue, smolLM.getNativeModelPointer())
+                        check(projector.isReady()) {
+                            "Native projector initialization failed for ${File(projectorPathValue).name}."
+                        }
+                        val primed = smolLM.primeImageBuffer(projector.nativeHandle(), imageFile.readBytes(), params.nBatch ?: 1)
+                        check(primed) {
+                            "The current runtime could not prime multimodal context for ${File(projectorPathValue).name}."
+                        }
+
+                        val finalPrompt =
+                            params.systemPrompt
+                                ?.takeUnless(String::isBlank)
+                                ?.let { systemPrompt -> "$systemPrompt\n\n$prompt" }
+                                ?: prompt
+                        val response =
+                            smolLM.getResponse(
+                                query = finalPrompt,
+                                maxTokens = params.maxTokens,
+                                batchSize = VISION_GENERATION_BATCH_SIZE,
+                            )
+                        val duration = System.currentTimeMillis() - startTime
+
+                        val tokensIn = estimateTokens(finalPrompt)
+                        val tokensOut = estimateTokens(response)
+
+                        return@withContext VisionResult(
+                            text = response,
+                            durationMs = duration,
+                            modelId = getModelId(),
+                            tokensIn = tokensIn,
+                            tokensOut = tokensOut,
+                        )
+                    } finally {
+                        projector.close()
+                    }
                 }
+            }
+
+            val visionPrompt = prompt
             if (!embdFile.exists() || !metaFile.exists()) {
                 throw IllegalStateException(
                     "Prepared multimodal embeddings are missing. Ensure the projector mmproj file matches the model and native projector support is available.",

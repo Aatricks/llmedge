@@ -5,13 +5,17 @@ import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.runtime.GGUFReader
+import io.aatricks.llmedge.text.runtime.SmolLM
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -23,6 +27,18 @@ class ChatSessionLinuxE2ETest {
 
     private val MODEL_PATH_ENV = "LLMEDGE_TEST_TEXT_MODEL_PATH"
     private val LIB_PATH_ENV = "LLMEDGE_BUILD_NATIVE_LIB_PATH"
+
+    @Before
+    fun resetNativeBridges() {
+        SmolLM.resetNativeBridgeForTests()
+        GGUFReader.resetNativeBridgeForTests()
+    }
+
+    @After
+    fun tearDown() {
+        SmolLM.resetNativeBridgeForTests()
+        GGUFReader.resetNativeBridgeForTests()
+    }
 
     @Test
     fun `llmedge text session runs multi turn chat on linux`() = runBlocking {

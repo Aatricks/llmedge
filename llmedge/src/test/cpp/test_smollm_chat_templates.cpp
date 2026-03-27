@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 
+void test_llmedge_llama_compat();
+void test_gguf_reader_metadata();
+
 namespace {
 
 void require(bool condition, const std::string & message) {
@@ -89,6 +92,8 @@ int main() {
         test_jinja_template_renders_and_legacy_rejects();
         test_legacy_template_still_formats();
         test_malformed_jinja_throws_while_legacy_template_remains_available();
+        test_llmedge_llama_compat();
+        test_gguf_reader_metadata();
         std::cout << "smollm_chat_template_tests passed" << std::endl;
         return EXIT_SUCCESS;
     } catch (const std::exception & error) {

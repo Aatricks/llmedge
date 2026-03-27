@@ -20,7 +20,7 @@
 void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, bool storeChats, long contextSize,
                         const char *chatTemplate, int nThreads, bool useMmap, bool useMlock, bool useVulkan,
-                        bool useFlashAttn, int kvCacheTypeK, int kvCacheTypeV, int nGpuLayers) {
+                        bool useFlashAttn, int kvCacheTypeKCode, int kvCacheTypeVCode, int nGpuLayers) {
     LOGi("loading model with"
          "\n\tmodel_path = %s"
          "\n\tminP = %f"
@@ -35,8 +35,11 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
          "\n\tuseFlashAttn = %d",
          model_path, minP, temperature, storeChats, contextSize, chatTemplate, nThreads, useMmap, useMlock, useVulkan, useFlashAttn);
 
-    // load dynamic backends
-    ggml_backend_load_all();
+#if !defined(GGML_USE_VULKAN)
+    if (useVulkan) {
+        throw std::runtime_error("The requested llmedge text runtime was built without Vulkan support");
+    }
+#endif
 
     // create an instance of llama_model
     llama_model_params model_params = llama_model_default_params();
@@ -46,14 +49,11 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         model_params.n_gpu_layers = nGpuLayers > 0 ? nGpuLayers : 99;
     }
     _model = llama_model_load_from_file(model_path, model_params);
-    if (!_model && useVulkan) {
-        // Vulkan init may have failed — fall back to CPU-only
-        LOGi("Vulkan model load failed, retrying with CPU-only (n_gpu_layers=0)");
-        model_params.n_gpu_layers = 0;
-        _model = llama_model_load_from_file(model_path, model_params);
-    }
     if (!_model) {
         LOGe("failed to load model from %s", model_path);
+        if (useVulkan) {
+            throw std::runtime_error("loadModel() failed with the requested Vulkan/offload configuration");
+        }
         throw std::runtime_error("loadModel() failed");
     }
 
@@ -69,39 +69,49 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
     ctx_params.n_ubatch = std::min(ctx_params.n_batch, 128u);
     ctx_params.n_threads = nThreads;
     ctx_params.n_threads_batch = nThreads;
-    ctx_params.no_perf = true;
-    // Flash attention: let llama.cpp auto-detect the best mode
-    ctx_params.flash_attn_type = useFlashAttn ? LLAMA_FLASH_ATTN_TYPE_AUTO : LLAMA_FLASH_ATTN_TYPE_DISABLED;
-    // KV cache type: defaults to F16 (~30-40% memory savings) but can be overridden
-    // to Q8_0/Q4_0 for further savings on memory-constrained devices.
-    // -1 means use the default (F16); positive values are ggml_type enum values.
-    ctx_params.type_k = kvCacheTypeK >= 0 ? static_cast<ggml_type>(kvCacheTypeK) : GGML_TYPE_F16;
-    ctx_params.type_v = kvCacheTypeV >= 0 ? static_cast<ggml_type>(kvCacheTypeV) : GGML_TYPE_F16;
+    ctx_params.flash_attn = useFlashAttn;
+#if !defined(__ANDROID__) && defined(__x86_64__)
+    // Observed on local Linux x86_64 with the ik_llama.cpp fork: Q8_KV decode aborts inside
+    // the fused up/gate IQK kernel path. Keeping the host JNI build on the non-fused code path
+    // restores functional inference for desktop validation without changing Android behavior.
+    ctx_params.fused_up_gate = false;
+#endif
+    // Map llmedge-owned KV cache type codes to the backend-specific ggml_type.
+    ctx_params.type_k = llmedge_resolve_kv_cache_type(kvCacheTypeKCode, "kvCacheTypeK");
+    ctx_params.type_v = llmedge_resolve_kv_cache_type(kvCacheTypeVCode, "kvCacheTypeV");
     if (useVulkan && model_params.n_gpu_layers > 0) {
         ctx_params.offload_kqv = true;
     }
     _ctx = llama_init_from_model(_model, ctx_params);
-    if (!_ctx && useVulkan && ctx_params.offload_kqv) {
-        LOGi("Context creation with KQV offload failed, retrying without offload");
-        ctx_params.offload_kqv = false;
-        _ctx = llama_init_from_model(_model, ctx_params);
-    }
     if (!_ctx) {
         LOGe("llama_new_context_with_model() returned null)");
+        if (useVulkan && ctx_params.offload_kqv) {
+            throw std::runtime_error("llama_new_context_with_model() returned null with the requested Vulkan/KQV offload configuration");
+        }
         throw std::runtime_error("llama_new_context_with_model() returned null");
     }
 
-    // create an instance of llama_sampler
-    llama_sampler_chain_params sampler_params = llama_sampler_chain_default_params();
-    sampler_params.no_perf = true;
-    _sampler = llama_sampler_chain_init(sampler_params);
-    // Expanded sampling chain: top-k → min-p → temperature → dist
-    llama_sampler_chain_add(_sampler, llama_sampler_init_top_k(40));
-    if (minP > 0.0f) {
-        llama_sampler_chain_add(_sampler, llama_sampler_init_min_p(minP, 1));
+    common_params_sampling sampler_params;
+    sampler_params.top_k = 40;
+    sampler_params.top_p = 1.0f;
+    sampler_params.tfs_z = 1.0f;
+    sampler_params.typical_p = 1.0f;
+    sampler_params.temp = temperature;
+    sampler_params.min_p = minP > 0.0f ? minP : 0.0f;
+    sampler_params.penalty_repeat = 1.0f;
+    sampler_params.penalty_freq = 0.0f;
+    sampler_params.penalty_present = 0.0f;
+    sampler_params.dry_multiplier = 0.0f;
+    sampler_params.samplers_sequence = {
+        llama_sampler_type::TOP_K,
+        llama_sampler_type::MIN_P,
+        llama_sampler_type::TEMPERATURE,
+        llama_sampler_type::DIST,
+    };
+    _sampler = common_sampler_init(_model, sampler_params);
+    if (_sampler == nullptr) {
+        throw std::runtime_error("common_sampler_init() returned null");
     }
-    llama_sampler_chain_add(_sampler, llama_sampler_init_temp(temperature));
-    llama_sampler_chain_add(_sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     _formattedMessages = std::vector<char>(llama_n_ctx(_ctx));
     _messages.clear();
@@ -350,8 +360,8 @@ LLMInference::startCompletion(const char *query) {
                 // Restore KV state from cached snapshot
                 LOGi("Restoring system prompt KV snapshot (hash=%zu, tokens=%d)",
                      currentHash, _systemPromptTokenCount);
-                llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
-                size_t nset = llama_state_seq_set_data(
+                llmedge_kv_cache_seq_rm(_ctx, -1, -1, -1);
+                size_t nset = llmedge_state_seq_set_data(
                     _ctx, _systemPromptKVSnapshot.data(), _systemPromptKVSnapshot.size(), 0);
                 if (nset == 0) {
                     LOGe("Failed to restore system prompt KV snapshot, processing normally");
@@ -366,12 +376,11 @@ LLMInference::startCompletion(const char *query) {
             } else if (sysTemplateLen > 0) {
                 // Decode system prompt and create a new snapshot
                 LOGi("Creating system prompt KV snapshot (hash=%zu)", currentHash);
-                llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
+                llmedge_kv_cache_seq_rm(_ctx, -1, -1, -1);
 
                 std::string sysPrompt(_formattedMessages.begin(),
                                       _formattedMessages.begin() + sysTemplateLen);
-                std::vector<llama_token> sysTokens = common_tokenize(
-                    llama_model_get_vocab(_model), sysPrompt, true, true);
+                std::vector<llama_token> sysTokens = common_tokenize(_model, sysPrompt, true, true);
 
                 if (!sysTokens.empty()) {
                     llama_batch sysBatch = {};
@@ -385,9 +394,9 @@ LLMInference::startCompletion(const char *query) {
                     if (llama_decode(_ctx, sysBatch) < 0) {
                         LOGe("Failed to decode system prompt for snapshot");
                     } else {
-                        size_t stateSize = llama_state_seq_get_size(_ctx, 0);
+                        size_t stateSize = llmedge_state_seq_get_size(_ctx, 0);
                         _systemPromptKVSnapshot.resize(stateSize);
-                        size_t ncopy = llama_state_seq_get_data(
+                        size_t ncopy = llmedge_state_seq_get_data(
                             _ctx, _systemPromptKVSnapshot.data(),
                             _systemPromptKVSnapshot.size(), 0);
                         if (ncopy == stateSize) {
@@ -412,7 +421,7 @@ LLMInference::startCompletion(const char *query) {
     std::string prompt(_formattedMessages.begin() + _prevLen, _formattedMessages.begin() + newLen);
     // Only add special tokens (like BOS) if we are at the start of the context
     bool add_special = (_prevLen == 0); 
-    _promptTokens = common_tokenize(llama_model_get_vocab(_model), prompt, add_special, true);
+    _promptTokens = common_tokenize(_model, prompt, add_special, true);
     if (_promptTokens.empty()) {
         LOGe("tokenize() returned no tokens for prompt; aborting completion");
         throw std::runtime_error("empty prompt tokenization");
@@ -434,19 +443,19 @@ LLMInference::startCompletion(const char *query) {
     if (restoredFromSnapshot) {
          n_past = snapshotNPast;
     } else if (_preservePreparedKvForNextCompletion) {
-         int max_seq_pos = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0);
+         int max_seq_pos = llmedge_kv_cache_seq_pos_max(_ctx, 0);
          if (max_seq_pos >= 0) {
              n_past = max_seq_pos + 1;
          }
          LOGi("Preserving prepared KV cache for completion (n_past=%d)", n_past);
     } else if (_storeChats && _prevLen > 0) {
-         int max_seq_pos = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0);
+         int max_seq_pos = llmedge_kv_cache_seq_pos_max(_ctx, 0);
          if (max_seq_pos >= 0) {
              n_past = max_seq_pos + 1;
          }
     } else {
          n_past = 0;
-         llama_memory_seq_rm(llama_get_memory(_ctx), -1, -1, -1);
+         llmedge_kv_cache_seq_rm(_ctx, -1, -1, -1);
     }
 
         _preservePreparedKvForNextCompletion = false;
@@ -510,7 +519,7 @@ LLMInference::completionLoop() {
     // check if the length of the inputs to the model
     // have exceeded the context size of the model
     uint32_t contextSize = llama_n_ctx(_ctx);
-    _nCtxUsed = llama_memory_seq_pos_max(llama_get_memory(_ctx), 0) + 1;
+    _nCtxUsed = llmedge_kv_cache_seq_pos_max(_ctx, 0) + 1;
     if (_nCtxUsed + _batch->n_tokens > contextSize) {
         throw std::runtime_error("context size reached");
     }
@@ -523,7 +532,8 @@ LLMInference::completionLoop() {
 
     // sample a token and check if it is an EOG (end of generation token)
     // convert the integer token to its corresponding word-piece
-    _currToken = llama_sampler_sample(_sampler, _ctx, -1);
+    _currToken = common_sampler_sample(_sampler, _ctx, -1);
+    common_sampler_accept(_sampler, _ctx, _currToken, true);
     if (llama_vocab_is_eog(llama_model_get_vocab(_model), _currToken)) {
         _eogReached = true;
         if (_storeChats) {
@@ -686,9 +696,9 @@ LLMInference::~LLMInference() {
         free(const_cast<char *>(message.content));
     }
     llama_free(_ctx);
-    llama_model_free(_model);
+    llama_free_model(_model);
     delete _batch;
-    llama_sampler_free(_sampler);
+    common_sampler_free(_sampler);
 }
 
 // Safe accessors used by JNI/native glue. Return internal pointers; caller must not free.

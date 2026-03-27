@@ -1,6 +1,6 @@
 [submodule "llama.cpp"]
 	path = llama.cpp
-	url = https://github.com/ggml-org/llama.cpp.git
+	url = https://github.com/ikawrakow/ik_llama.cpp.git
 
 [submodule "stable-diffusion.cpp"]
     path = stable-diffusion.cpp

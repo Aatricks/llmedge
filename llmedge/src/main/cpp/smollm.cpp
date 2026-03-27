@@ -1,15 +1,19 @@
 #include "LLMInference.h"
+#include "llmedge_llama_compat.h"
 #include <jni.h>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
-// Include libmtmd headers from llama.cpp to enable projector-based encoding
-#include "../../../../llama.cpp/tools/mtmd/mtmd.h"
-#include "../../../../llama.cpp/tools/mtmd/mtmd-helper.h"
+// Include libmtmd headers via the include path so the build can switch between
+// upstream tools/mtmd and fork layouts such as examples/mtmd.
+#include "mtmd.h"
+#include "mtmd-helper.h"
 
 namespace {
 
@@ -53,11 +57,174 @@ class ScopedUtfChars {
 };
 
 LLMInference* requireInference(JNIEnv* env, jlong modelPtr, const char* operation) {
+    // Guard against obviously invalid sentinel/test handles so a bad JNI call becomes a
+    // Java-side error instead of dereferencing near-null memory and crashing the JVM.
+    if (modelPtr > 0 && modelPtr < 4096) {
+        throwInvalidHandle(env, operation);
+        return nullptr;
+    }
     auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
     if (!llmInference) {
         throwInvalidHandle(env, operation);
     }
     return llmInference;
+}
+
+struct DecodeEmbeddingsBatch {
+    int n_pos_per_embd;
+    int n_mmproj_embd;
+    std::vector<llama_pos>      pos;
+    std::vector<llama_pos>      pos_view;
+    std::vector<int32_t>        n_seq_id;
+    std::vector<llama_seq_id>   seq_id_0;
+    std::vector<llama_seq_id *> seq_ids;
+    std::vector<int8_t>         logits;
+    llama_batch batch {};
+
+    DecodeEmbeddingsBatch(float * embd, int32_t n_tokens, int n_pos_per_token, int embd_dim) :
+            n_pos_per_embd(n_pos_per_token), n_mmproj_embd(embd_dim) {
+        pos.resize(static_cast<size_t>(n_tokens) * static_cast<size_t>(n_pos_per_embd));
+        n_seq_id.resize(n_tokens);
+        seq_id_0.resize(1);
+        seq_ids.resize(static_cast<size_t>(n_tokens) + 1);
+        logits.resize(n_tokens);
+        seq_ids[n_tokens] = nullptr;
+        batch = {
+                /* n_tokens = */ n_tokens,
+                /* token    = */ nullptr,
+                /* embd     = */ embd,
+                /* pos      = */ pos.data(),
+                /* n_seq_id = */ n_seq_id.data(),
+                /* seq_id   = */ seq_ids.data(),
+                /* logits   = */ logits.data(),
+        };
+    }
+
+    void setPositionNormal(llama_pos pos_0, llama_seq_id seq_id) {
+        seq_id_0[0] = seq_id;
+        for (int i = 0; i < batch.n_tokens; ++i) {
+            batch.pos[i] = pos_0 + i;
+            batch.n_seq_id[i] = 1;
+            batch.seq_id[i] = seq_id_0.data();
+            batch.logits[i] = false;
+        }
+    }
+
+    void setPositionMRope2d(llama_pos pos_0, int nx, int ny, llama_seq_id seq_id) {
+        seq_id_0[0] = seq_id;
+        const int total = batch.n_tokens;
+        for (int y = 0; y < ny; ++y) {
+            for (int x = 0; x < nx; ++x) {
+                const int i = y * nx + x;
+                if (i >= total) {
+                    break;
+                }
+                pos[i] = pos_0;
+                pos[i + total] = pos_0 + y;
+                pos[i + total * 2] = pos_0 + x;
+                pos[i + total * 3] = 0;
+            }
+        }
+        for (int i = 0; i < total; ++i) {
+            batch.n_seq_id[i] = 1;
+            batch.seq_id[i] = seq_id_0.data();
+            batch.logits[i] = false;
+        }
+    }
+
+    void setPositionMRope1d(llama_pos pos_0, llama_seq_id seq_id) {
+        seq_id_0[0] = seq_id;
+        const int total = batch.n_tokens;
+        for (int i = 0; i < total; ++i) {
+            pos[i] = pos_0 + i;
+            pos[i + total] = pos_0 + i;
+            pos[i + total * 2] = pos_0 + i;
+            pos[i + total * 3] = 0;
+            batch.n_seq_id[i] = 1;
+            batch.seq_id[i] = seq_id_0.data();
+            batch.logits[i] = false;
+        }
+    }
+
+    llama_batch getView(int offset, int n_tokens) {
+        llama_pos * pos_ptr = nullptr;
+        pos_view.clear();
+        if (n_pos_per_embd > 1) {
+            pos_view.reserve(static_cast<size_t>(n_tokens) * static_cast<size_t>(n_pos_per_embd));
+            for (int i = 0; i < n_pos_per_embd; ++i) {
+                const size_t src_idx = static_cast<size_t>(i) * static_cast<size_t>(batch.n_tokens) + static_cast<size_t>(offset);
+                pos_view.insert(
+                        pos_view.end(),
+                        pos.data() + src_idx,
+                        pos.data() + src_idx + n_tokens);
+            }
+            pos_ptr = pos_view.data();
+        } else {
+            pos_ptr = pos.data() + offset;
+        }
+        return {
+                /* n_tokens = */ n_tokens,
+                /* token    = */ nullptr,
+                /* embd     = */ batch.embd + static_cast<size_t>(offset) * static_cast<size_t>(n_mmproj_embd),
+                /* pos      = */ pos_ptr,
+                /* n_seq_id = */ batch.n_seq_id + offset,
+                /* seq_id   = */ batch.seq_id + offset,
+                /* logits   = */ batch.logits + offset,
+        };
+    }
+};
+
+bool decodeEmbeddingsIntoKv(
+        llama_context * lctx,
+        float * embd,
+        int32_t n_tokens,
+        int embd_dim,
+        int nx,
+        int ny,
+        bool use_mrope,
+        bool use_non_causal,
+        int n_batch) {
+    if (!lctx || !embd || n_tokens <= 0 || embd_dim <= 0 || n_batch <= 0) {
+        return false;
+    }
+
+    const int effective_batch = std::max(n_batch, n_tokens);
+    const llama_pos seq_pos_max = llmedge_kv_cache_seq_pos_max(lctx, 0);
+    const llama_pos n_past = seq_pos_max >= 0 ? seq_pos_max + 1 : 0;
+    const int n_pos_per_embd = use_mrope ? 4 : 1;
+    DecodeEmbeddingsBatch batch_embd(embd, n_tokens, n_pos_per_embd, embd_dim);
+
+    if (use_mrope) {
+        if (nx > 0 && ny > 0) {
+            batch_embd.setPositionMRope2d(n_past, nx, ny, 0);
+        } else {
+            batch_embd.setPositionMRope1d(n_past, 0);
+        }
+    } else {
+        batch_embd.setPositionNormal(n_past, 0);
+    }
+
+    if (use_non_causal) {
+        llama_set_causal_attn(lctx, false);
+    }
+
+    bool success = true;
+    const int32_t n_img_batches = (n_tokens + effective_batch - 1) / effective_batch;
+    for (int32_t i_batch = 0; i_batch < n_img_batches; ++i_batch) {
+        const int pos_offset = i_batch * effective_batch;
+        const int n_tokens_batch = std::min(effective_batch, n_tokens - pos_offset);
+        llama_batch batch_view = batch_embd.getView(pos_offset, n_tokens_batch);
+        if (llama_decode(lctx, batch_view) != 0) {
+            success = false;
+            break;
+        }
+    }
+
+    if (use_non_causal) {
+        llama_set_causal_attn(lctx, true);
+    }
+
+    return success;
 }
 
 } // namespace
@@ -83,6 +250,17 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_loadModel(JNIEnv* env, jobject thiz
         return 0;
     }
     return reinterpret_cast<jlong>(llmInference.release());
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeHasVulkanBackendSupport(JNIEnv* env, jobject thiz) {
+#ifdef GGML_USE_VULKAN
+    return JNI_TRUE;
+#else
+    (void) env;
+    (void) thiz;
+    return JNI_FALSE;
+#endif
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -201,7 +379,10 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_close(JNIEnv* env, jobject thiz, jl
     if (!modelPtr) {
         return;
     }
-    auto* llmInference = reinterpret_cast<LLMInference*>(modelPtr);
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return;
+    }
     delete llmInference;
 }
 
@@ -609,6 +790,92 @@ Java_io_aatricks_llmedge_vision_Projector_nativeEncodeImageBuffer(JNIEnv* env, j
     return result;
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_nativePrimeImageBuffer(
+        JNIEnv * env,
+        jobject thiz,
+        jlong modelPtr,
+        jlong projectorPtr,
+        jbyteArray imageData,
+        jint nBatch) {
+    (void) thiz;
+    if (!imageData || projectorPtr == 0 || nBatch <= 0) {
+        return JNI_FALSE;
+    }
+
+    auto * llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return JNI_FALSE;
+    }
+
+    llama_context * lctx = llmInference->getContext();
+    mtmd_context * mtmd = reinterpret_cast<mtmd_context *>(projectorPtr);
+    if (!lctx || !mtmd) {
+        return JNI_FALSE;
+    }
+
+    const jsize data_len = env->GetArrayLength(imageData);
+    if (data_len <= 0) {
+        return JNI_FALSE;
+    }
+
+    jbyte * raw_bytes = env->GetByteArrayElements(imageData, nullptr);
+    if (!raw_bytes) {
+        return JNI_FALSE;
+    }
+
+    mtmd_bitmap * bmp = mtmd_helper_bitmap_init_from_buf(
+            mtmd,
+            reinterpret_cast<const unsigned char *>(raw_bytes),
+            static_cast<size_t>(data_len));
+    env->ReleaseByteArrayElements(imageData, raw_bytes, JNI_ABORT);
+    if (!bmp) {
+        return JNI_FALSE;
+    }
+
+    const mtmd_bitmap * bitmaps[1] = { bmp };
+    mtmd_input_text txt = { "<__media__>", false, false };
+    mtmd_input_chunks * chunks = mtmd_input_chunks_init();
+    if (!chunks) {
+        mtmd_bitmap_free(bmp);
+        return JNI_FALSE;
+    }
+
+    const int32_t tok_res = mtmd_tokenize(mtmd, chunks, &txt, bitmaps, 1);
+    if (tok_res != 0) {
+        mtmd_bitmap_free(bmp);
+        mtmd_input_chunks_free(chunks);
+        return JNI_FALSE;
+    }
+
+    int effective_batch = nBatch;
+    for (size_t i = 0; i < mtmd_input_chunks_size(chunks); ++i) {
+        const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
+        if (!chunk) {
+            continue;
+        }
+        const auto type = mtmd_input_chunk_get_type(chunk);
+        if (type == MTMD_INPUT_CHUNK_TYPE_IMAGE || type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+            effective_batch = std::max(effective_batch, static_cast<int>(mtmd_input_chunk_get_n_tokens(chunk)));
+        }
+    }
+
+    const llama_pos seq_pos_max = llmedge_kv_cache_seq_pos_max(lctx, 0);
+    const llama_pos n_past = seq_pos_max >= 0 ? seq_pos_max + 1 : 0;
+    llama_pos new_n_past = n_past;
+    const int32_t eval_res = mtmd_helper_eval_chunks(mtmd, lctx, chunks, n_past, 0, effective_batch, false, &new_n_past);
+
+    mtmd_bitmap_free(bmp);
+    mtmd_input_chunks_free(chunks);
+
+    if (eval_res != 0) {
+        return JNI_FALSE;
+    }
+
+    llmInference->markPreparedKvForNextCompletion();
+    return JNI_TRUE;
+}
+
 // Buffer-based embedding decoding: accepts float array + metadata, populates KV cache
 extern "C" JNIEXPORT jboolean JNICALL
 Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeDecodeEmbeddingsBuffer(JNIEnv* env, jobject thiz, jlong modelPtr,
@@ -630,48 +897,16 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeDecodeEmbeddingsBuffer(JNIEnv
     jfloat* embdData = env->GetFloatArrayElements(embeddings, nullptr);
     if (!embdData) return JNI_FALSE;
 
-    int n_pos_per_embd = useMrope ? 4 : 1;
-    int32_t n_img_batches = (nTokens + nBatch - 1) / nBatch;
-    bool success = true;
-
-    for (int32_t i_batch = 0; i_batch < n_img_batches && success; ++i_batch) {
-        int pos_offset = i_batch * nBatch;
-        int n_tokens_batch = std::min(static_cast<int>(nBatch), static_cast<int>(nTokens) - pos_offset);
-
-        llama_batch batch = llama_batch_init(n_tokens_batch, 0, 1);
-        batch.embd = embdData + static_cast<size_t>(pos_offset) * static_cast<size_t>(embdDim);
-
-        std::vector<llama_pos> pos(n_tokens_batch * n_pos_per_embd);
-        if (n_pos_per_embd == 1) {
-            for (int i = 0; i < n_tokens_batch; ++i) pos[i] = static_cast<llama_pos>(pos_offset + i);
-        } else {
-            if (nx > 0 && ny > 0) {
-                for (int y = 0; y < ny; ++y) {
-                    for (int x = 0; x < nx; ++x) {
-                        int idx = y * nx + x;
-                        if (idx < pos_offset || idx >= pos_offset + n_tokens_batch) continue;
-                        int out_idx = idx - pos_offset;
-                        pos[out_idx] = static_cast<llama_pos>(idx);
-                    }
-                }
-            } else {
-                for (int i = 0; i < n_tokens_batch; ++i) pos[i] = static_cast<llama_pos>(pos_offset + i);
-            }
-        }
-
-        llama_batch decode_batch = {
-            /*n_tokens=*/ n_tokens_batch,
-            /*token=*/ nullptr,
-            /*embd=*/ batch.embd,
-            /*pos=*/ pos.data(),
-            /*n_seq_id=*/ nullptr,
-            /*seq_id=*/ nullptr,
-            /*logits=*/ nullptr,
-        };
-
-        int32_t ret = llama_decode(lctx, decode_batch);
-        if (ret != 0) success = false;
-    }
+    const bool success = decodeEmbeddingsIntoKv(
+            lctx,
+            embdData,
+            nTokens,
+            embdDim,
+            nx,
+            ny,
+            useMrope == JNI_TRUE,
+            useNonCausal == JNI_TRUE,
+            nBatch);
 
     env->ReleaseFloatArrayElements(embeddings, embdData, JNI_ABORT);
 
@@ -765,67 +1000,17 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeDecodePreparedEmbeddings(JNIE
         return JNI_FALSE;
     }
 
-    // Prepare batch decoding similar to mtmd_helper_decode_image_chunk
-    int n_pos_per_embd = use_mrope ? 4 : 1;
-    int n_mmproj_embd = embd_dim;
-    int32_t i_batch = 0;
-    int32_t n_img_batches = (n_tokens + nBatch - 1) / nBatch;
-
-    // Helper to run llama_decode on a portion of embeddings
-    auto run_decode_batch = [&](int offset, int n_tokens_batch) -> bool {
-        // create a llama_batch that references the right slice of embd_buf
-        llama_batch batch = llama_batch_init(n_tokens_batch, 0, 1);
-        // tokens are not used; set embd pointer to slice
-        batch.embd = embd_buf.data() + static_cast<size_t>(offset) * static_cast<size_t>(n_mmproj_embd);
-        // set pos array
-        std::vector<llama_pos> pos(n_tokens_batch * n_pos_per_embd);
-        if (n_pos_per_embd == 1) {
-            for (int i = 0; i < n_tokens_batch; ++i) pos[i] = static_cast<llama_pos>(offset + i);
-        } else {
-            // mrope 2d: try to reconstruct as row-major
-            // If nx/ny are provided, use them; otherwise treat as linear
-            if (nx > 0 && ny > 0) {
-                for (int y = 0; y < ny; ++y) {
-                    for (int x = 0; x < nx; ++x) {
-                        int idx = y * nx + x;
-                        if (idx < offset || idx >= offset + n_tokens_batch) continue;
-                        int out_idx = idx - offset;
-                        pos[out_idx] = static_cast<llama_pos>(0 + idx);
-                        // fill the other dims similarly (pos array will be expanded later)
-                    }
-                }
-            } else {
-                for (int i = 0; i < n_tokens_batch; ++i) {
-                    // fallback mapping
-                    pos[i] = static_cast<llama_pos>(offset + i);
-                }
-            }
-        }
-
-        // We will call llama_decode with a batch that has embd pointer and pos filled
-        // Note: llama_decode expects a llama_batch struct; here we craft minimal fields
-        llama_batch decode_batch = {
-            /*n_tokens=*/ n_tokens_batch,
-            /*token=*/ nullptr,
-            /*embd=*/ batch.embd,
-            /*pos=*/ pos.data(),
-            /*n_seq_id=*/ nullptr,
-            /*seq_id=*/ nullptr,
-            /*logits=*/ nullptr,
-        };
-
-        int32_t ret = llama_decode(lctx, decode_batch);
-        return ret == 0;
-    };
-
-    while (i_batch < n_img_batches) {
-        int pos_offset = i_batch * nBatch;
-        int n_tokens_batch = std::min(static_cast<int>(nBatch), n_tokens - pos_offset);
-        bool ok = run_decode_batch(pos_offset, n_tokens_batch);
-        if (!ok) {
-            return JNI_FALSE;
-        }
-        i_batch++;
+    if (!decodeEmbeddingsIntoKv(
+                lctx,
+                embd_buf.data(),
+                n_tokens,
+                embd_dim,
+                nx,
+                ny,
+                use_mrope,
+                use_non_causal,
+                nBatch)) {
+        return JNI_FALSE;
     }
 
     llmInference->markPreparedKvForNextCompletion();
@@ -882,10 +1067,10 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeGetSequenceStateBytes(JNIEnv*
     }
     llama_context* ctx = llmInference->getContext();
     if (!ctx) return nullptr;
-    size_t size = llama_state_seq_get_size(ctx, static_cast<llama_seq_id>(seqId));
+    size_t size = llmedge_state_seq_get_size(ctx, static_cast<llama_seq_id>(seqId));
     if (size == 0) return nullptr;
     std::vector<uint8_t> buf(size);
-    size_t written = llama_state_seq_get_data(ctx, buf.data(), buf.size(), static_cast<llama_seq_id>(seqId));
+    size_t written = llmedge_state_seq_get_data(ctx, buf.data(), buf.size(), static_cast<llama_seq_id>(seqId));
     if (written == 0) return nullptr;
     jbyteArray arr = env->NewByteArray(static_cast<jsize>(written));
     if (!arr) return nullptr;
@@ -907,7 +1092,7 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeSetSequenceStateBytes(JNIEnv*
     if (len <= 0) return JNI_FALSE;
     std::vector<uint8_t> buf(static_cast<size_t>(len));
     env->GetByteArrayRegion(state, 0, len, reinterpret_cast<jbyte*>(buf.data()));
-    size_t written = llama_state_seq_set_data(ctx, buf.data(), buf.size(), static_cast<llama_seq_id>(seqId));
+    size_t written = llmedge_state_seq_set_data(ctx, buf.data(), buf.size(), static_cast<llama_seq_id>(seqId));
     return (written == static_cast<size_t>(len)) ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -920,7 +1105,7 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeClearKvCache(JNIEnv* env, job
     }
     llama_context* ctx = llmInference->getContext();
     if (!ctx) return;
-    llama_memory_clear(llama_get_memory(ctx), true);
+    llmedge_kv_cache_clear(ctx);
 }
 
 extern "C" JNIEXPORT void JNICALL

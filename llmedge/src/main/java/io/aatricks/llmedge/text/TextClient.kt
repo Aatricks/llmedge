@@ -18,9 +18,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class TextModelOptions(
     val contextSize: Long? = null,
@@ -65,6 +67,7 @@ internal class ManagedTextModel(
     val model: SmolLM,
 ) : AutoCloseable {
     val mutex: Mutex = Mutex()
+    private val closed = AtomicBoolean(false)
 
     fun estimatedNativeMemoryBytes(): Long =
         maxOf(
@@ -73,8 +76,19 @@ internal class ManagedTextModel(
             fileSizeBytes,
         )
 
+    fun ensureOpen() {
+        check(!closed.get()) { "Text runtime has been closed" }
+    }
+
     override fun close() {
-        model.close()
+        if (!closed.compareAndSet(false, true)) {
+            return
+        }
+        runBlocking {
+            mutex.withLock {
+                model.close()
+            }
+        }
     }
 }
 
@@ -278,6 +292,7 @@ class TextClient internal constructor(
     ): String =
         runtime.mutex.withLock {
             withContext(scope.inferenceDispatcher) {
+                runtime.ensureOpen()
                 prepareModel(runtime.model, systemPrompt, options)
                 try {
                     val effectiveBatchSize = resolveBatchSize(batchSize, maxTokens)
@@ -312,6 +327,7 @@ class TextClient internal constructor(
     ): Pair<String, ByteArray?> =
         runtime.mutex.withLock {
             withContext(scope.inferenceDispatcher) {
+                runtime.ensureOpen()
                 if (restoreState != null) {
                     runtime.model.setStateBytes(restoreState)
                     runtime.model.setThinkingMode(options.thinkingMode)
@@ -338,6 +354,7 @@ class TextClient internal constructor(
         flow {
             runtime.mutex.withLock {
                 withContext(scope.inferenceDispatcher) {
+                    runtime.ensureOpen()
                     prepareModel(runtime.model, systemPrompt, options)
                 }
                 try {

@@ -1,15 +1,18 @@
 package io.aatricks.llmedge
 
 import android.content.Context
+import io.aatricks.llmedge.runtime.GGUFReader
+import io.aatricks.llmedge.text.runtime.SmolLM
+import java.io.File
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.*
 import org.junit.Assume
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import kotlinx.coroutines.runBlocking
-import org.junit.Assert.*
-import java.io.File
-import io.aatricks.llmedge.text.runtime.SmolLM
 
 /**
  * Linux-host end-to-end test for text inference using a real native library (libsmollm.so)
@@ -26,6 +29,18 @@ class TextInferenceLinuxE2ETest {
 
     private val MODEL_PATH_ENV = "LLMEDGE_TEST_TEXT_MODEL_PATH"
     private val LIB_PATH_ENV = "LLMEDGE_BUILD_NATIVE_LIB_PATH" // Reusing this for check, though strictly not needed if LD_LIBRARY_PATH is set
+
+    @Before
+    fun resetNativeBridges() {
+        SmolLM.resetNativeBridgeForTests()
+        GGUFReader.resetNativeBridgeForTests()
+    }
+
+    @After
+    fun tearDown() {
+        SmolLM.resetNativeBridgeForTests()
+        GGUFReader.resetNativeBridgeForTests()
+    }
 
     @Test
     fun `desktop end-to-end text inference`() = runBlocking {

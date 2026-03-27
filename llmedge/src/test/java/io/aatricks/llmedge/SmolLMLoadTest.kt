@@ -4,9 +4,12 @@ import java.io.File
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.runtime.GGUFReader
 import io.aatricks.llmedge.text.runtime.SmolLM
 
@@ -29,6 +32,8 @@ class SmolLMLoadTest {
                 override fun getArchitecture(nativeHandle: Long): String = "llama"
                 override fun getParameterCount(nativeHandle: Long): String = "7B"
                 override fun getModelName(nativeHandle: Long): String = "TestModel"
+                override fun getFileType(nativeHandle: Long): Int = 149
+                override fun getDominantTensorType(nativeHandle: Long): Int = 151
                 override fun releaseGGUFContext(nativeHandle: Long) {}
             }
         }
@@ -98,6 +103,7 @@ class SmolLMLoadTest {
                 override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String = "[EOG]"
                 override fun stopCompletion(instance: SmolLM, modelPtr: Long) {}
                 override fun clearKvCache(instance: SmolLM, modelPtr: Long) {}
+                override fun hasVulkanBackendSupport(instance: SmolLM): Boolean = true
             }
         }
 
@@ -122,5 +128,116 @@ class SmolLMLoadTest {
         assertEquals(listOf(2 to 6), configuredThreads)
         // We can't assert exact calls, but at least one call should have been recorded
         assertEquals(true, setReasoningArgs.isNotEmpty())
+    }
+
+    @Test
+    fun `load fails early with GGUF metadata when Vulkan build support is unavailable`() = runTest {
+        var loadModelCalled = false
+
+        SmolLM.overrideNativeBridgeForTests { _ ->
+            object : SmolLM.NativeBridge {
+                override fun loadModel(
+                    instance: SmolLM,
+                    modelPath: String,
+                    minP: Float,
+                    temperature: Float,
+                    storeChats: Boolean,
+                    contextSize: Long,
+                    chatTemplate: String,
+                    nThreads: Int,
+                    useMmap: Boolean,
+                    useMlock: Boolean,
+                    useVulkan: Boolean,
+                    useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
+                ): Long {
+                    loadModelCalled = true
+                    return 123L
+                }
+
+                override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) {}
+                override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) {}
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = 0f
+                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = 0L
+                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = 0L
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 0
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0L
+                override fun nativeDecodePreparedEmbeddings(instance: SmolLM, modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean = false
+                override fun close(instance: SmolLM, modelPtr: Long) {}
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {}
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String = "[EOG]"
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String = "[EOG]"
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) {}
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) {}
+                override fun hasVulkanBackendSupport(instance: SmolLM): Boolean = false
+            }
+        }
+
+        val smol = SmolLM(useVulkan = true)
+        val error: ModelLoadException =
+            try {
+                smol.load(createTempGgufFile().absolutePath, SmolLM.InferenceParams())
+                throw AssertionError("Expected ModelLoadException for missing Vulkan backend support")
+            } catch (e: ModelLoadException) {
+                e
+            }
+
+        assertFalse(loadModelCalled)
+        assertTrue(error.message?.contains("useVulkan=true") == true)
+        assertTrue(error.message?.contains("Q8_KV (149)") == true)
+        assertTrue(error.message?.contains("Q8_KV (151)") == true)
+    }
+
+    @Test
+    fun `cpu load skips Vulkan preflight and allows Q8_KV metadata`() = runTest {
+        var loadModelCalled = false
+
+        SmolLM.overrideNativeBridgeForTests { _ ->
+            object : SmolLM.NativeBridge {
+                override fun loadModel(
+                    instance: SmolLM,
+                    modelPath: String,
+                    minP: Float,
+                    temperature: Float,
+                    storeChats: Boolean,
+                    contextSize: Long,
+                    chatTemplate: String,
+                    nThreads: Int,
+                    useMmap: Boolean,
+                    useMlock: Boolean,
+                    useVulkan: Boolean,
+                    useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
+                ): Long {
+                    loadModelCalled = true
+                    return 321L
+                }
+
+                override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) {}
+                override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) {}
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = 0f
+                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = 0L
+                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = 0L
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 0
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0L
+                override fun nativeDecodePreparedEmbeddings(instance: SmolLM, modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean = false
+                override fun close(instance: SmolLM, modelPtr: Long) {}
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {}
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String = "[EOG]"
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String = "[EOG]"
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) {}
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) {}
+                override fun hasVulkanBackendSupport(instance: SmolLM): Boolean = false
+            }
+        }
+
+        val smol = SmolLM(useVulkan = false)
+        smol.load(createTempGgufFile().absolutePath, SmolLM.InferenceParams())
+
+        assertTrue(loadModelCalled)
     }
 }

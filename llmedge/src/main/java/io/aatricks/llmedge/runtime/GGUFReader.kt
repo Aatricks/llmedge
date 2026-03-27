@@ -36,6 +36,8 @@ class GGUFReader : Closeable {
         fun getArchitecture(nativeHandle: Long): String
         fun getParameterCount(nativeHandle: Long): String
         fun getModelName(nativeHandle: Long): String
+        fun getFileType(nativeHandle: Long): Int = -1
+        fun getDominantTensorType(nativeHandle: Long): Int = -1
         fun releaseGGUFContext(nativeHandle: Long)
     }
 
@@ -128,6 +130,18 @@ class GGUFReader : Closeable {
         return name.ifEmpty { null }
     }
 
+    internal fun getFileType(): Int? {
+        verifyHandle()
+        val fileType = nativeBridge.getFileType(nativeHandle)
+        return if (fileType < 0) null else fileType
+    }
+
+    internal fun getDominantTensorType(): Int? {
+        verifyHandle()
+        val dominantTensorType = nativeBridge.getDominantTensorType(nativeHandle)
+        return if (dominantTensorType < 0) null else dominantTensorType
+    }
+
     override fun close() {
         if (nativeHandle != 0L) {
             nativeBridge.releaseGGUFContext(nativeHandle)
@@ -148,6 +162,8 @@ class GGUFReader : Closeable {
         override external fun getArchitecture(nativeHandle: Long): String
         override external fun getParameterCount(nativeHandle: Long): String
         override external fun getModelName(nativeHandle: Long): String
+        override external fun getFileType(nativeHandle: Long): Int
+        override external fun getDominantTensorType(nativeHandle: Long): Int
         override external fun releaseGGUFContext(nativeHandle: Long)
     }
 }

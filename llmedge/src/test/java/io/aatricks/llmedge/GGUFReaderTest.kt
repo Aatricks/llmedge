@@ -90,6 +90,8 @@ class GGUFReaderTest {
                 override fun getArchitecture(nativeHandle: Long): String = "llama"
                 override fun getParameterCount(nativeHandle: Long): String = "7B"
                 override fun getModelName(nativeHandle: Long): String = "Test Model"
+                override fun getFileType(nativeHandle: Long): Int = 149
+                override fun getDominantTensorType(nativeHandle: Long): Int = 151
                 override fun releaseGGUFContext(nativeHandle: Long) {}
             }
         }
@@ -109,6 +111,8 @@ class GGUFReaderTest {
             assertEquals("llama", reader.getArchitecture())
             assertEquals("7B", reader.getParameterCount())
             assertEquals("Test Model", reader.getModelName())
+            assertEquals(149, reader.getFileType())
+            assertEquals(151, reader.getDominantTensorType())
 
             // Test close
             reader.close()
@@ -128,6 +132,8 @@ class GGUFReaderTest {
                 override fun getArchitecture(nativeHandle: Long): String = ""
                 override fun getParameterCount(nativeHandle: Long): String = ""
                 override fun getModelName(nativeHandle: Long): String = ""
+                override fun getFileType(nativeHandle: Long): Int = -1
+                override fun getDominantTensorType(nativeHandle: Long): Int = -1
                 override fun releaseGGUFContext(nativeHandle: Long) {}
             }
         }
@@ -146,6 +152,8 @@ class GGUFReaderTest {
             assertNull(reader.getArchitecture())
             assertNull(reader.getParameterCount())
             assertNull(reader.getModelName())
+            assertNull(reader.getFileType())
+            assertNull(reader.getDominantTensorType())
 
             reader.close()
 

@@ -119,6 +119,17 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 useNonCausal: Boolean,
                 nBatch: Int
         ): Boolean = false
+        fun nativePrimeImageBuffer(
+                instance: SmolLM,
+                modelPtr: Long,
+                projectorNativePtr: Long,
+                imageData: ByteArray,
+                nBatch: Int
+        ): Boolean = false
+        fun getStateBytes(instance: SmolLM, modelPtr: Long): ByteArray? = null
+        fun setStateBytes(instance: SmolLM, modelPtr: Long, state: ByteArray): Boolean = false
+        fun getSequenceStateBytes(instance: SmolLM, modelPtr: Long, seqId: Int): ByteArray? = null
+        fun setSequenceStateBytes(instance: SmolLM, modelPtr: Long, seqId: Int, state: ByteArray): Boolean = false
         fun close(instance: SmolLM, modelPtr: Long)
         fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String)
         fun completionLoop(instance: SmolLM, modelPtr: Long): String
@@ -127,12 +138,31 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         fun completionLoopBatchBytes(instance: SmolLM, modelPtr: Long, maxTokens: Int): ByteArray? = null
         fun stopCompletion(instance: SmolLM, modelPtr: Long)
         fun clearKvCache(instance: SmolLM, modelPtr: Long)
+        fun hasVulkanBackendSupport(instance: SmolLM): Boolean = true
     }
     companion object {
         private const val LOG_TAG = "SmolLM"
         private const val DEFAULT_CONTEXT_SIZE_CAP: Long = 8_192L
         private const val MIN_CONTEXT_SIZE: Long = 1_024L
         private const val DEFAULT_REASONING_BUDGET: Int = -1
+        private val GGUF_FILE_TYPE_NAMES =
+            mapOf(
+                138 to "IQ2_K",
+                139 to "IQ3_K",
+                140 to "IQ4_K",
+                141 to "IQ5_K",
+                142 to "IQ6_K",
+                149 to "Q8_KV",
+            )
+        private val GGUF_TENSOR_TYPE_NAMES =
+            mapOf(
+                137 to "IQ2_K",
+                138 to "IQ3_K",
+                139 to "IQ4_K",
+                140 to "IQ5_K",
+                141 to "IQ6_K",
+                151 to "Q8_KV",
+            )
         /** Device-aware batch size: scales with P-core count for optimal JNI throughput. */
         val DEFAULT_BLOCKING_BATCH_SIZE: Int =
             CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.TOKEN_GENERATION)
@@ -291,6 +321,32 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                 nBatch
                         )
                 override fun close(instance: SmolLM, modelPtr: Long) = instance.close(modelPtr)
+                override fun nativePrimeImageBuffer(
+                        instance: SmolLM,
+                        modelPtr: Long,
+                        projectorNativePtr: Long,
+                        imageData: ByteArray,
+                        nBatch: Int
+                ): Boolean =
+                        instance.nativePrimeImageBuffer(modelPtr, projectorNativePtr, imageData, nBatch)
+                override fun getStateBytes(instance: SmolLM, modelPtr: Long): ByteArray? =
+                        instance.nativeGetStateBytes(modelPtr)
+                override fun setStateBytes(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    state: ByteArray,
+                ): Boolean = instance.nativeSetStateBytes(modelPtr, state)
+                override fun getSequenceStateBytes(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    seqId: Int,
+                ): ByteArray? = instance.nativeGetSequenceStateBytes(modelPtr, seqId)
+                override fun setSequenceStateBytes(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    seqId: Int,
+                    state: ByteArray,
+                ): Boolean = instance.nativeSetSequenceStateBytes(modelPtr, seqId, state)
                 override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) =
                         instance.startCompletion(modelPtr, prompt)
                 override fun completionLoop(instance: SmolLM, modelPtr: Long): String =
@@ -302,7 +358,9 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 override fun stopCompletion(instance: SmolLM, modelPtr: Long) =
                         instance.stopCompletion(modelPtr)
                 override fun clearKvCache(instance: SmolLM, modelPtr: Long) =
-                        instance.nativeClearKvCache(modelPtr)
+                    instance.nativeClearKvCache(modelPtr)
+                override fun hasVulkanBackendSupport(instance: SmolLM): Boolean =
+                    instance.nativeHasVulkanBackendSupport()
             }
         }
 
@@ -363,6 +421,14 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
 
         internal val reasoningBudget: Int
             get() = if (this == DISABLED) 0 else DEFAULT_REASONING_BUDGET
+    }
+
+    enum class KvCacheType(internal val nativeCode: Int) {
+        DEFAULT(0),
+        F16(1),
+        Q8_0(2),
+        Q4_0(3),
+        Q8_KV(4),
     }
 
     /**
@@ -441,10 +507,10 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             val useFlashAttn: Boolean = true,
             val thinkingMode: ThinkingMode = ThinkingMode.DEFAULT,
             val reasoningBudget: Int? = null,
-            /** KV cache type for keys. -1 (default) = F16. Use ggml_type ordinals for Q8_0 (8), Q4_0 (2), etc. */
-            val kvCacheTypeK: Int = -1,
-            /** KV cache type for values. -1 (default) = F16. Use ggml_type ordinals for Q8_0 (8), Q4_0 (2), etc. */
-            val kvCacheTypeV: Int = -1,
+            /** Stable llmedge KV cache type for keys. Backend-specific ggml_type mapping happens natively. */
+            val kvCacheTypeK: KvCacheType = KvCacheType.DEFAULT,
+            /** Stable llmedge KV cache type for values. Backend-specific ggml_type mapping happens natively. */
+            val kvCacheTypeV: KvCacheType = KvCacheType.DEFAULT,
             /** Number of layers to offload to GPU. Only used when Vulkan is enabled. Default 99 = all layers. */
             val nGpuLayers: Int = 99,
     )
@@ -502,15 +568,25 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                 val ggufReader = GGUFReader()
                 val resolvedContextSize: Long
                 val resolvedChatTemplate: String
+                val fileType: Int?
+                val dominantTensorType: Int?
                 try {
                     ggufReader.load(validatedModel.absolutePath)
                     val modelContextSize =
                             ggufReader.getContextSize() ?: DefaultInferenceParams.contextSize
                     resolvedContextSize = resolveContextSize(params.contextSize, modelContextSize)
                     resolvedChatTemplate = resolveChatTemplate(params.chatTemplate, ggufReader)
+                    fileType = ggufReader.getFileType()
+                    dominantTensorType = ggufReader.getDominantTensorType()
                 } finally {
                     ggufReader.close()
                 }
+                preflightBackendCompatibility(
+                    modelPath = validatedModel.absolutePath,
+                    params = params,
+                    fileType = fileType,
+                    dominantTensorType = dominantTensorType,
+                )
                 nativePtr =
                     try {
                         @Suppress("DEPRECATION")
@@ -530,8 +606,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
                                     params.useMlock,
                                     useVulkanGPU,
                                     params.useFlashAttn,
-                                    params.kvCacheTypeK,
-                                    params.kvCacheTypeV,
+                                    params.kvCacheTypeK.nativeCode,
+                                    params.kvCacheTypeV.nativeCode,
                                     params.nGpuLayers
                             )
                         }
@@ -891,6 +967,41 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         }
     }
 
+    private fun preflightBackendCompatibility(
+        modelPath: String,
+        params: InferenceParams,
+        fileType: Int?,
+        dominantTensorType: Int?,
+    ) {
+        if (!useVulkanGPU || nativeBridge.hasVulkanBackendSupport(this)) {
+            return
+        }
+        val detail =
+            buildString {
+                append("SmolLM was configured with useVulkan=true, but the active native build does not include Vulkan support")
+                append(".")
+                append(" nGpuLayers=")
+                append(params.nGpuLayers)
+                append(", kvCacheTypeK=")
+                append(params.kvCacheTypeK.name)
+                append(", kvCacheTypeV=")
+                append(params.kvCacheTypeV.name)
+                append(", ggufFileType=")
+                append(describeQuantizedValue(fileType, GGUF_FILE_TYPE_NAMES))
+                append(", dominantTensorType=")
+                append(describeQuantizedValue(dominantTensorType, GGUF_TENSOR_TYPE_NAMES))
+                append(".")
+                append(" Disable Vulkan for CPU-only loading or install a Vulkan-enabled llmedge build.")
+            }
+        throw ModelLoadException(modelPath, detail)
+    }
+
+    private fun describeQuantizedValue(value: Int?, names: Map<Int, String>): String =
+        when (value) {
+            null -> "unknown"
+            else -> names[value]?.let { "$it ($value)" } ?: "unknown($value)"
+        }
+
     private external fun loadModel(
             modelPath: String,
             minP: Float,
@@ -927,6 +1038,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     private external fun getResponseGenerationDurationMicros(modelPtr: Long): Long
 
     private external fun nativeGetLastGenerationMetrics(modelPtr: Long): LongArray?
+
+    private external fun nativeHasVulkanBackendSupport(): Boolean
 
     private external fun nativeConfigureThreading(modelPtr: Long, generationThreads: Int, promptThreads: Int)
 
@@ -967,6 +1080,12 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             embdDim: Int,
             useMrope: Boolean,
             useNonCausal: Boolean,
+            nBatch: Int
+    ): Boolean
+    private external fun nativePrimeImageBuffer(
+            modelPtr: Long,
+            projectorNativePtr: Long,
+            imageData: ByteArray,
             nBatch: Int
     ): Boolean
 
@@ -1012,6 +1131,15 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         }
     }
 
+    internal fun primeImageBuffer(projectorNativePtr: Long, imageData: ByteArray, nBatch: Int = 1): Boolean {
+        verifyHandle()
+        return try {
+            nativeBridge.nativePrimeImageBuffer(this, nativePtr, projectorNativePtr, imageData, nBatch)
+        } catch (e: UnsatisfiedLinkError) {
+            false
+        }
+    }
+
     /**
      * Capture the full model state (including KV cache) as a byte array.
      * Returns null on failure.
@@ -1019,7 +1147,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     fun getStateBytes(): ByteArray? {
         verifyHandle()
         return try {
-            nativeGetStateBytes(nativePtr)
+            nativeBridge.getStateBytes(this, nativePtr)
         } catch (e: UnsatisfiedLinkError) {
             null
         }
@@ -1031,7 +1159,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     fun setStateBytes(state: ByteArray): Boolean {
         verifyHandle()
         return try {
-            nativeSetStateBytes(nativePtr, state)
+            nativeBridge.setStateBytes(this, nativePtr, state)
         } catch (e: UnsatisfiedLinkError) {
             false
         }
@@ -1043,7 +1171,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     fun getSequenceStateBytes(seqId: Int = 0): ByteArray? {
         verifyHandle()
         return try {
-            nativeGetSequenceStateBytes(nativePtr, seqId)
+            nativeBridge.getSequenceStateBytes(this, nativePtr, seqId)
         } catch (e: UnsatisfiedLinkError) {
             null
         }
@@ -1055,7 +1183,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     fun setSequenceStateBytes(seqId: Int, state: ByteArray): Boolean {
         verifyHandle()
         return try {
-            nativeSetSequenceStateBytes(nativePtr, seqId, state)
+            nativeBridge.setSequenceStateBytes(this, nativePtr, seqId, state)
         } catch (e: UnsatisfiedLinkError) {
             false
         }

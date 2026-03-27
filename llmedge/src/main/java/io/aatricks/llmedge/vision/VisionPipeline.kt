@@ -87,15 +87,9 @@ internal class VisionPipeline(
                     val jpegBytes = jpegStream.toByteArray()
 
                     onStatus?.invoke("Preparing multimodal embeddings")
-                    val embeddings = projector.encodeImageBuffer(jpegBytes)
-                    if (embeddings != null) {
+                    val primed = smol.primeImageBuffer(projector.nativeHandle(), jpegBytes, nBatch = 1)
+                    if (primed) {
                         onStatus?.invoke("Running vision analysis")
-                        val adapter = SmolLMVisionAdapter(context, smol)
-                        val decodeOk = smol.decodeEmbeddingsBuffer(embeddings, nBatch = 1)
-                        check(decodeOk) {
-                            "Buffer-based embedding decode failed for ${projectorFile.name}."
-                        }
-
                         val visionPrompt = request.prompt
                         val response = smol.getResponse(
                             query = visionPrompt,
@@ -114,7 +108,34 @@ internal class VisionPipeline(
                             ),
                         )
                     } else {
-                        null
+                        val embeddings = projector.encodeImageBuffer(jpegBytes)
+                        if (embeddings != null) {
+                            onStatus?.invoke("Running vision analysis")
+                            val decodeOk = smol.decodeEmbeddingsBuffer(embeddings, nBatch = 1)
+                            check(decodeOk) {
+                                "Buffer-based embedding decode failed for ${projectorFile.name}."
+                            }
+
+                            val visionPrompt = request.prompt
+                            val response = smol.getResponse(
+                                query = visionPrompt,
+                                batchSize = 1,
+                            )
+
+                            if (!isWarm) {
+                                runtimeCache.put(cacheKey, VisionRuntimeCache.CachedRuntime(smol, projector))
+                            }
+
+                            VisionPipelineResult(
+                                text = response,
+                                runtimeMemory = VisionRuntimeMemory(
+                                    nativeBytes = smol.getEstimatedNativeMemoryBytes(),
+                                    stateBytes = smol.getEstimatedStateMemoryBytes(),
+                                ),
+                            )
+                        } else {
+                            null
+                        }
                     }
                 } catch (_: UnsatisfiedLinkError) {
                     null

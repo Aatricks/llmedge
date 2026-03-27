@@ -91,6 +91,8 @@ class Projector : AutoCloseable {
 
     fun isReady(): Boolean = nativePtr != 0L
 
+    internal fun nativeHandle(): Long = nativePtr
+
     fun encodeImageToFile(imagePath: String, outPath: String): Boolean {
         return try {
             if (nativePtr == 0L) {

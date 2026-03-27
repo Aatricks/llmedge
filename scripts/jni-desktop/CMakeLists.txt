@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(sdcpp_desktop)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Point to stable-diffusion.cpp root.
@@ -73,6 +73,7 @@ endif()
 if(BUILD_SMOLLM)
     get_filename_component(LLAMA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../llama.cpp" ABSOLUTE)
     message(STATUS "Using llama.cpp root: ${LLAMA_ROOT}")
+    set(LLMEDGE_LLAMA_USE_MEMORY_API OFF CACHE BOOL "Use llama_memory_* APIs instead of llama_kv_cache_* compatibility APIs" FORCE)
 
     # Configure llama.cpp options
     set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -80,28 +81,51 @@ if(BUILD_SMOLLM)
     set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
     set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
-    set(LLAMA_BUILD_COMMON ON CACHE BOOL "" FORCE)
+    set(LLAMA_LLGUIDANCE OFF CACHE BOOL "" FORCE)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+        # ik_llama.cpp IQK kernels only compile their real x86 path when the build enables
+        # AVX2-or-better CPU features. Without this, Linux host builds fall back to stubbed
+        # implementations that abort at runtime for Q8_KV / IQ*_K* inference.
+        set(GGML_NATIVE ON CACHE BOOL "" FORCE)
+        set(GGML_AVX2 ON CACHE BOOL "" FORCE)
+        set(GGML_FMA ON CACHE BOOL "" FORCE)
+        set(GGML_F16C ON CACHE BOOL "" FORCE)
+    endif()
+    if(NOT DEFINED GGML_VULKAN)
+        set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
+    endif()
 
     # Add llama.cpp
     add_subdirectory(${LLAMA_ROOT} llama.cpp)
+    add_subdirectory(${LLAMA_ROOT}/examples/mtmd llama.cpp-mtmd)
+    add_subdirectory(${LLAMA_ROOT}/examples/quantize llama.cpp-quantize)
 
     # Build smollm shared library
     add_library(smollm SHARED
         ${LLMEDGE_CPP_ROOT}/smollm.cpp
         ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
+        ${LLMEDGE_CPP_ROOT}/gguf_reader_internal.cpp
         ${LLMEDGE_CPP_ROOT}/GGUFReader.cpp
     )
 
     target_include_directories(smollm PRIVATE
         ${LLAMA_ROOT}/include
         ${LLAMA_ROOT}/common
+        ${LLAMA_ROOT}/examples/mtmd
+        ${LLAMA_ROOT}/ggml/include
+        ${LLAMA_ROOT}/ggml/src
         ${LLAMA_ROOT} # For some internal headers if needed
         ${JNI_INCLUDE_DIRS}
+    )
+
+    target_compile_definitions(smollm PRIVATE
+        LLMEDGE_LLAMA_USE_MEMORY_API=$<BOOL:${LLMEDGE_LLAMA_USE_MEMORY_API}>
     )
 
     target_link_libraries(smollm PRIVATE
         llama
         common
+        mtmd
         ${JNI_LIBRARIES}
     )
 endif()

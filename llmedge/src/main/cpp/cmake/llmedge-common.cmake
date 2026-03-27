@@ -6,80 +6,79 @@ get_filename_component(LLAMA_DIR "${LLMEDGE_CPP_ROOT}/../../../../llama.cpp" ABS
 set(GGML_DIR ${LLAMA_DIR}/ggml)
 set(COMMON_DIR ${LLAMA_DIR}/common)
 set(VENDOR_DIR ${LLAMA_DIR}/vendor)
-set(SMOLLM_SOURCES
+if(EXISTS "${LLAMA_DIR}/tools/mtmd/mtmd.cpp")
+        set(MTMD_DIR "${LLAMA_DIR}/tools/mtmd")
+elseif(EXISTS "${LLAMA_DIR}/examples/mtmd/mtmd.cpp")
+        set(MTMD_DIR "${LLAMA_DIR}/examples/mtmd")
+else()
+        message(FATAL_ERROR "No compatible mtmd sources found under ${LLAMA_DIR}")
+endif()
+
+set(LLMEDGE_LLAMA_USE_MEMORY_API OFF CACHE BOOL "Use llama_memory_* APIs instead of llama_kv_cache_* compatibility APIs" FORCE)
+file(GLOB LLMEDGE_COMMON_SOURCES CONFIGURE_DEPENDS
+        "${COMMON_DIR}/*.cpp"
+        "${COMMON_DIR}/jinja/*.cpp"
+)
+set(LLMEDGE_IQK_BASE_SOURCES
+        ${GGML_DIR}/src/iqk/iqk_quantize.cpp
+        ${GGML_DIR}/src/iqk/iqk_cpu_ops.cpp
+        ${GGML_DIR}/src/iqk/iqk_mul_mat.cpp
+        ${GGML_DIR}/src/iqk/iqk_flash_attn.cpp
+)
+set(LLMEDGE_IQK_DOTPROD_SOURCES
+        ${GGML_DIR}/src/iqk/iqk_gemm_floats.cpp
+        ${GGML_DIR}/src/iqk/iqk_gemm_kquants.cpp
+        ${GGML_DIR}/src/iqk/iqk_gemm_ktquants.cpp
+        ${GGML_DIR}/src/iqk/iqk_gemm_iquants.cpp
+        ${GGML_DIR}/src/iqk/iqk_gemm_iqk_quants.cpp
+        ${GGML_DIR}/src/iqk/iqk_gemm_1bit.cpp
+        ${GGML_DIR}/src/iqk/iqk_gemm_legacy_quants.cpp
+        ${GGML_DIR}/src/iqk/fa/iqk_fa_576_512.cpp
+        ${GGML_DIR}/src/iqk/fa/iqk_fa_320_256.cpp
+        ${GGML_DIR}/src/iqk/fa/iqk_fa_192_128.cpp
+        ${GGML_DIR}/src/iqk/fa/iqk_fa_192_192.cpp
+        ${GGML_DIR}/src/iqk/fa/iqk_fa_256_256.cpp
+        ${GGML_DIR}/src/iqk/fa/iqk_fa_128_128.cpp
+        ${GGML_DIR}/src/iqk/fa/iqk_fa_96_96.cpp
+        ${GGML_DIR}/src/iqk/fa/iqk_fa_64_64.cpp
+)
+set_source_files_properties(
+        ${GGML_DIR}/src/iqk/iqk_cpu_ops.cpp
+        PROPERTIES COMPILE_DEFINITIONS "IQK_FORCE_IMPLEMENT"
+)
+set(LLMEDGE_GGML_CORE_SOURCES
         ${GGML_DIR}/src/ggml-alloc.c
         ${GGML_DIR}/src/ggml-backend.cpp
-        ${GGML_DIR}/src/ggml-threading.cpp
         ${GGML_DIR}/src/ggml-quants.c
-        ${GGML_DIR}/src/ggml-backend-reg.cpp
-        ${GGML_DIR}/src/ggml-backend-dl.cpp
-        ${GGML_DIR}/src/ggml-opt.cpp
-        ${GGML_DIR}/src/ggml-cpu/ops.cpp
-        ${GGML_DIR}/src/ggml-cpu/vec.cpp
-        ${GGML_DIR}/src/ggml-cpu/quants.c
-        ${GGML_DIR}/src/ggml-cpu/traits.cpp
-        ${GGML_DIR}/src/ggml-cpu/unary-ops.cpp
-        ${GGML_DIR}/src/ggml-cpu/binary-ops.cpp
-        ${GGML_DIR}/src/ggml-cpu/ggml-cpu.c
-        ${GGML_DIR}/src/ggml-cpu/ggml-cpu.cpp
         ${GGML_DIR}/src/ggml.c
-        ${GGML_DIR}/src/gguf.cpp
+)
+set(LLMEDGE_GGML_VULKAN_SOURCES)
+set(LLMEDGE_GGML_EXTRA_INCLUDES)
+set(LLMEDGE_GGML_EXTRA_LIBS)
+set(LLMEDGE_GGML_EXTRA_DEFINITIONS)
+set(LLMEDGE_GGML_ARCH_SOURCES)
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+        list(APPEND LLMEDGE_GGML_ARCH_SOURCES ${GGML_DIR}/src/ggml-aarch64.c)
+endif()
+set(SMOLLM_SOURCES
+        ${LLMEDGE_GGML_CORE_SOURCES}
+        ${LLMEDGE_GGML_ARCH_SOURCES}
 
         # llama.cpp core sources are globbed below (LLAMA_CPP_SOURCES) to tolerate upstream file renames.
 
-        ${VENDOR_DIR}/nlohmann/json_fwd.hpp
-        ${VENDOR_DIR}/nlohmann/json.hpp
-
-        ${COMMON_DIR}/arg.cpp
-        ${COMMON_DIR}/base64.hpp
-        ${COMMON_DIR}/chat-auto-parser-generator.cpp
-        ${COMMON_DIR}/chat-auto-parser-helpers.cpp
-        ${COMMON_DIR}/chat-diff-analyzer.cpp
-        ${COMMON_DIR}/chat-peg-parser.cpp
-        ${COMMON_DIR}/chat.cpp
-        ${COMMON_DIR}/common.cpp
-        ${COMMON_DIR}/console.cpp
-        ${COMMON_DIR}/json-schema-to-grammar.cpp
-        ${COMMON_DIR}/log.cpp
-        ${COMMON_DIR}/ngram-cache.cpp
-        ${COMMON_DIR}/peg-parser.cpp
-        ${COMMON_DIR}/reasoning-budget.cpp
-        ${COMMON_DIR}/sampling.cpp
-        ${COMMON_DIR}/unicode.cpp
-
-        ${COMMON_DIR}/jinja/caps.cpp
-        ${COMMON_DIR}/jinja/lexer.cpp
-        ${COMMON_DIR}/jinja/parser.cpp
-        ${COMMON_DIR}/jinja/runtime.cpp
-        ${COMMON_DIR}/jinja/string.cpp
-        ${COMMON_DIR}/jinja/value.cpp
-
-        # llmedge-local build info for llama.cpp common
-        ${LLMEDGE_CPP_ROOT}/llama_build_info.cpp
+        ${LLMEDGE_COMMON_SOURCES}
 
         ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
         ${LLMEDGE_CPP_ROOT}/smollm.cpp
         # libmtmd (multimodal projector) from llama.cpp
-        ${LLAMA_DIR}/tools/mtmd/mtmd.cpp
-        ${LLAMA_DIR}/tools/mtmd/mtmd-helper.cpp
-        ${LLAMA_DIR}/tools/mtmd/mtmd-audio.cpp
-        ${LLAMA_DIR}/tools/mtmd/clip.cpp
+        ${MTMD_DIR}/mtmd.cpp
+        ${MTMD_DIR}/mtmd-helper.cpp
+        ${MTMD_DIR}/mtmd-audio.cpp
+        ${MTMD_DIR}/clip.cpp
 )
 
-if (${ANDROID_ABI} STREQUAL "arm64-v8a" OR ${ANDROID_ABI} STREQUAL "armeabi-v7a")
-        list(APPEND SMOLLM_SOURCES
-                ${GGML_DIR}/src/ggml-cpu/arch/arm/quants.c
-                ${GGML_DIR}/src/ggml-cpu/arch/arm/repack.cpp
-        )
-elseif (${ANDROID_ABI} STREQUAL "x86" OR ${ANDROID_ABI} STREQUAL "x86_64")
-        list(APPEND SMOLLM_SOURCES
-                ${GGML_DIR}/src/ggml-cpu/arch/x86/quants.c
-                ${GGML_DIR}/src/ggml-cpu/arch/x86/repack.cpp
-        )
-endif()
-
-# mtmd has additional model-specific graph implementations under tools/mtmd/models/*.cpp
-file(GLOB MTMD_MODEL_SOURCES "${LLAMA_DIR}/tools/mtmd/models/*.cpp")
+# mtmd may provide additional model-specific graph implementations under models/*.cpp
+file(GLOB MTMD_MODEL_SOURCES "${MTMD_DIR}/models/*.cpp")
 if(MTMD_MODEL_SOURCES)
         list(APPEND SMOLLM_SOURCES ${MTMD_MODEL_SOURCES})
 endif()
@@ -139,23 +138,180 @@ if (VULKAN_ENABLED)
         set(Vulkan_glslc_FOUND ON)
         set(Vulkan_glslc_EXECUTABLE "${Vulkan_GLSLC_EXECUTABLE}")
     endif()
+
+    if(NOT Vulkan_GLSLC_EXECUTABLE)
+        message(FATAL_ERROR "GGML_VULKAN is enabled but glslc was not found")
+    endif()
+
+    function(llmedge_test_shader_extension_support extension_name test_shader_file result_variable)
+        execute_process(
+                COMMAND ${Vulkan_GLSLC_EXECUTABLE} -o - -fshader-stage=compute --target-env=vulkan1.3 "${test_shader_file}"
+                OUTPUT_QUIET
+                ERROR_VARIABLE glslc_error
+        )
+
+        if("${glslc_error}" MATCHES ".*extension not supported: ${extension_name}.*")
+            set(${result_variable} OFF PARENT_SCOPE)
+        else()
+            set(${result_variable} ON PARENT_SCOPE)
+        endif()
+    endfunction()
+
+    set(_llmedge_vk_shader_gen_cmake_args)
+    if (NOT GGML_VULKAN_NO_COOPMAT)
+        llmedge_test_shader_extension_support(
+                "GL_KHR_cooperative_matrix"
+                "${GGML_DIR}/src/vulkan-shaders/test_coopmat_support.comp"
+                "GGML_VULKAN_COOPMAT_GLSLC_SUPPORT"
+        )
+        if (GGML_VULKAN_COOPMAT_GLSLC_SUPPORT)
+            list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_COOPMAT_GLSLC_SUPPORT)
+            list(APPEND _llmedge_vk_shader_gen_cmake_args -DGGML_VULKAN_COOPMAT_GLSLC_SUPPORT=ON)
+        endif()
+    endif()
+
+    if (NOT GGML_VULKAN_NO_COOPMAT2)
+        llmedge_test_shader_extension_support(
+                "GL_NV_cooperative_matrix2"
+                "${GGML_DIR}/src/vulkan-shaders/test_coopmat2_support.comp"
+                "GGML_VULKAN_COOPMAT2_GLSLC_SUPPORT"
+        )
+        if (GGML_VULKAN_COOPMAT2_GLSLC_SUPPORT)
+            list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_COOPMAT2_GLSLC_SUPPORT)
+            list(APPEND _llmedge_vk_shader_gen_cmake_args -DGGML_VULKAN_COOPMAT2_GLSLC_SUPPORT=ON)
+        endif()
+    endif()
+
+    if (NOT GGML_VULKAN_NO_INT_DOT)
+        llmedge_test_shader_extension_support(
+                "GL_EXT_integer_dot_product"
+                "${GGML_DIR}/src/vulkan-shaders/test_integer_dot_support.comp"
+                "GGML_VULKAN_INTEGER_DOT_GLSLC_SUPPORT"
+        )
+        if (GGML_VULKAN_INTEGER_DOT_GLSLC_SUPPORT)
+            list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_INTEGER_DOT_GLSLC_SUPPORT)
+            list(APPEND _llmedge_vk_shader_gen_cmake_args -DGGML_VULKAN_INTEGER_DOT_GLSLC_SUPPORT=ON)
+        endif()
+    endif()
+
+    if (NOT GGML_VULKAN_NO_BF16)
+        llmedge_test_shader_extension_support(
+                "GL_EXT_bfloat16"
+                "${GGML_DIR}/src/vulkan-shaders/test_bfloat16_support.comp"
+                "GGML_VULKAN_BFLOAT16_GLSLC_SUPPORT"
+        )
+        if (GGML_VULKAN_BFLOAT16_GLSLC_SUPPORT)
+            list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_BFLOAT16_GLSLC_SUPPORT)
+            list(APPEND _llmedge_vk_shader_gen_cmake_args -DGGML_VULKAN_BFLOAT16_GLSLC_SUPPORT=ON)
+        endif()
+    endif()
+
+    list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_USE_VULKAN)
+    if (GGML_VULKAN_CHECK_RESULTS)
+        list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_CHECK_RESULTS)
+    endif()
+    if (GGML_VULKAN_DEBUG)
+        list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_DEBUG)
+    endif()
+    if (GGML_VULKAN_MEMORY_DEBUG)
+        list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_MEMORY_DEBUG)
+    endif()
+    if (GGML_VULKAN_SHADER_DEBUG_INFO)
+        list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_SHADER_DEBUG_INFO)
+        list(APPEND _llmedge_vk_shader_gen_cmake_args -DGGML_VULKAN_SHADER_DEBUG_INFO=ON)
+    endif()
+    if (GGML_VULKAN_PERF)
+        list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_PERF)
+    endif()
+    if (GGML_VULKAN_VALIDATE)
+        list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_VALIDATE)
+    endif()
+    if (GGML_VULKAN_RUN_TESTS)
+        list(APPEND LLMEDGE_GGML_EXTRA_DEFINITIONS GGML_VULKAN_RUN_TESTS)
+    endif()
+
+    if (CMAKE_MAKE_PROGRAM)
+        set(_LLMEDGE_GGML_VK_HOST_TC "${CMAKE_CURRENT_BINARY_DIR}/ggml_vulkan_host_toolchain.cmake")
+        file(WRITE "${_LLMEDGE_GGML_VK_HOST_TC}" "# Autogenerated by llmedge CMake\n"
+                "set(CMAKE_SYSTEM_NAME \"${CMAKE_HOST_SYSTEM_NAME}\")\n"
+                "set(CMAKE_SYSTEM_PROCESSOR \"${CMAKE_HOST_SYSTEM_PROCESSOR}\")\n"
+                "set(CMAKE_BUILD_TYPE Release)\n"
+                "set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n"
+                "set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY NEVER)\n"
+                "set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE NEVER)\n"
+                "set(CMAKE_MAKE_PROGRAM \"${CMAKE_MAKE_PROGRAM}\" CACHE FILEPATH \"\" FORCE)\n"
+                "set(CMAKE_GENERATOR \"Ninja\" CACHE STRING \"\" FORCE)\n"
+        )
+        set(GGML_VULKAN_SHADERS_GEN_TOOLCHAIN "${_LLMEDGE_GGML_VK_HOST_TC}" CACHE STRING "Toolchain for ggml-vulkan shader generator" FORCE)
+    endif()
+
+    include(ExternalProject)
+    set(_llmedge_vk_shader_gen_install_dir "${CMAKE_CURRENT_BINARY_DIR}/llmedge-vulkan-shaders-gen")
+    set(_llmedge_vk_shader_gen_build_dir "${CMAKE_CURRENT_BINARY_DIR}/llmedge-vulkan-shaders-gen-build")
+    set(_llmedge_vk_shader_gen_args
+            -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+            -DCMAKE_INSTALL_BINDIR=.
+            -DCMAKE_BUILD_TYPE=Release
+    )
+    if (CMAKE_CROSSCOMPILING AND GGML_VULKAN_SHADERS_GEN_TOOLCHAIN)
+        list(APPEND _llmedge_vk_shader_gen_args -DCMAKE_TOOLCHAIN_FILE=${GGML_VULKAN_SHADERS_GEN_TOOLCHAIN})
+    endif()
+    list(APPEND _llmedge_vk_shader_gen_args ${_llmedge_vk_shader_gen_cmake_args})
+
+    ExternalProject_Add(
+            llmedge-text-vulkan-shaders-gen
+            SOURCE_DIR "${GGML_DIR}/src/vulkan-shaders"
+            BINARY_DIR "${_llmedge_vk_shader_gen_build_dir}"
+            INSTALL_DIR "${_llmedge_vk_shader_gen_install_dir}"
+            CMAKE_ARGS ${_llmedge_vk_shader_gen_args}
+            BUILD_COMMAND ${CMAKE_COMMAND} --build . --config Release
+            INSTALL_COMMAND ${CMAKE_COMMAND} -E env --unset=DESTDIR ${CMAKE_COMMAND} --install . --config Release
+    )
+
+    set(_llmedge_vk_host_suffix "")
+    if (CMAKE_HOST_WIN32)
+        set(_llmedge_vk_host_suffix ".exe")
+    endif()
+    set(_llmedge_vk_genshaders_cmd "${_llmedge_vk_shader_gen_install_dir}/vulkan-shaders-gen${_llmedge_vk_host_suffix}")
+    set(_llmedge_vk_header "${CMAKE_CURRENT_BINARY_DIR}/ggml-vulkan-shaders.hpp")
+    set(_llmedge_vk_source "${CMAKE_CURRENT_BINARY_DIR}/ggml-vulkan-shaders.cpp")
+    set(_llmedge_vk_input_dir "${GGML_DIR}/src/vulkan-shaders")
+    set(_llmedge_vk_output_dir "${CMAKE_CURRENT_BINARY_DIR}/vulkan-shaders.spv")
+    file(GLOB _llmedge_vk_shader_files CONFIGURE_DEPENDS "${_llmedge_vk_input_dir}/*.comp")
+
+    add_custom_command(
+            OUTPUT "${_llmedge_vk_header}" "${_llmedge_vk_source}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${_llmedge_vk_output_dir}"
+            COMMAND "${_llmedge_vk_genshaders_cmd}"
+                    --glslc "${Vulkan_GLSLC_EXECUTABLE}"
+                    --input-dir "${_llmedge_vk_input_dir}"
+                    --output-dir "${_llmedge_vk_output_dir}"
+                    --target-hpp "${_llmedge_vk_header}"
+                    --target-cpp "${_llmedge_vk_source}"
+                    --no-clean
+            DEPENDS ${_llmedge_vk_shader_files} llmedge-text-vulkan-shaders-gen
+            COMMENT "Generate Vulkan shaders for llmedge text runtime"
+    )
+
+    list(APPEND LLMEDGE_GGML_VULKAN_SOURCES
+            ${GGML_DIR}/src/ggml-vulkan.cpp
+            "${_llmedge_vk_source}"
+    )
+    list(APPEND LLMEDGE_GGML_EXTRA_INCLUDES
+            ${Vulkan_INCLUDE_DIRS}
+            "${CMAKE_CURRENT_BINARY_DIR}"
+    )
+    list(APPEND LLMEDGE_GGML_EXTRA_LIBS "${VULKAN_LIB}")
+endif()
+
+if(LLMEDGE_GGML_VULKAN_SOURCES)
+        list(APPEND SMOLLM_SOURCES ${LLMEDGE_GGML_VULKAN_SOURCES})
 endif()
 
 set(GGUF_READER_SOURCES
-        ${GGML_DIR}/src/ggml.c
-        ${GGML_DIR}/src/ggml-alloc.c
-        ${GGML_DIR}/src/ggml-backend.cpp
-        ${GGML_DIR}/src/ggml-threading.cpp
-        ${GGML_DIR}/src/ggml-quants.c
-        ${GGML_DIR}/src/ggml-backend-reg.cpp
-        ${GGML_DIR}/src/ggml-opt.cpp
-        ${GGML_DIR}/src/ggml-cpu/ops.cpp
-        ${GGML_DIR}/src/ggml-cpu/vec.cpp
-        ${GGML_DIR}/src/ggml-cpu/unary-ops.cpp
-        ${GGML_DIR}/src/ggml-cpu/binary-ops.cpp
-        ${GGML_DIR}/src/ggml-cpu/ggml-cpu.c
-        ${GGML_DIR}/src/ggml-cpu/ggml-cpu.cpp
-        ${GGML_DIR}/src/gguf.cpp
+        ${LLMEDGE_GGML_CORE_SOURCES}
+        ${LLMEDGE_GGML_ARCH_SOURCES}
+        ${LLMEDGE_CPP_ROOT}/gguf_reader_internal.cpp
         ${LLMEDGE_CPP_ROOT}/GGUFReader.cpp
 )
 
@@ -171,16 +327,18 @@ function(build_library target_name)
             SHARED
             ${SMOLLM_SOURCES}
     )
+    target_compile_features(${target_name} PUBLIC c_std_11 cxx_std_20)
     target_include_directories(
             ${target_name}
             PUBLIC
             ${COMMON_DIR}
             ${GGML_DIR}/include
             ${GGML_DIR}/src
-            ${GGML_DIR}/src/ggml-cpu
+            ${GGML_DIR}/src/iqk
+            ${LLMEDGE_GGML_EXTRA_INCLUDES}
             ${LLAMA_DIR}/include
             ${LLAMA_DIR}/src
-            ${LLAMA_DIR}/tools/mtmd
+            ${MTMD_DIR}
             ${VENDOR_DIR}
     )
 
@@ -192,6 +350,8 @@ function(build_library target_name)
             PRIVATE
             GGML_COMMIT=""
             GGML_VERSION=""
+            ${LLMEDGE_GGML_EXTRA_DEFINITIONS}
+            LLMEDGE_LLAMA_USE_MEMORY_API=$<BOOL:${LLMEDGE_LLAMA_USE_MEMORY_API}>
     )
 
     target_compile_options(
@@ -213,6 +373,7 @@ function(build_library target_name)
             ${target_name}
             android log dl
             -fopenmp -static-openmp
+            ${LLMEDGE_GGML_EXTRA_LIBS}
     )
 
     target_link_options(
@@ -223,8 +384,22 @@ function(build_library target_name)
     )
 endfunction()
 
+function(enable_iqk_target target_name)
+    target_sources(${target_name} PRIVATE ${LLMEDGE_IQK_BASE_SOURCES})
+    target_compile_definitions(
+            ${target_name}
+            PRIVATE
+            GGML_USE_IQK_MULMAT
+            GGML_IQK_FLASH_ATTENTION
+    )
+endfunction()
+
 function(build_library_arm64 target_name cpu_flags)
     build_library(${target_name})
+    enable_iqk_target(${target_name})
+    if("${cpu_flags}" MATCHES "dotprod")
+        target_sources(${target_name} PRIVATE ${LLMEDGE_IQK_DOTPROD_SOURCES})
+    endif()
     target_compile_options(
             ${target_name}
             PUBLIC
@@ -245,6 +420,7 @@ function(build_library_universal target_name)
     build_library(${target_name})
     set(_ggml_cpu_flags -DGGML_USE_CPU)
     if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+        enable_iqk_target(${target_name})
         list(APPEND _ggml_cpu_flags -DGGML_USE_CPU_AARCH64)
     endif()
     target_compile_options(

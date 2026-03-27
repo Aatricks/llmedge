@@ -36,6 +36,10 @@ android {
         minSdk = 30  // Vulkan 1.2 requires API 30+ (Android 11)
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+        ndk {
+            // The ik_llama.cpp migration is currently validated only on arm64.
+            abiFilters += "arm64-v8a"
+        }
         externalNativeBuild {
             cmake {
                 cppFlags += listOf()
@@ -76,6 +80,12 @@ android {
     }
         testOptions {
             unitTests.all {
+                val testUserHome =
+                    System.getenv("LLMEDGE_TEST_USER_HOME")
+                        ?: System.getenv("HOME")
+                        ?: System.getProperty("user.home")
+                it.systemProperty("user.home", testUserHome)
+
                 // Optional: show test stdout/stderr in Gradle output (useful for long-running
                 // local E2E tests that download models or run generation).
                 val showTestOutput =

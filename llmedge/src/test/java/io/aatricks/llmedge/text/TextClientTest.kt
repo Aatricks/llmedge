@@ -753,6 +753,115 @@ class TextClientTest {
     }
 
     @Test
+    fun `chat session state snapshots stay inside the mocked native bridge`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile = createTempGgufFile(context.cacheDir)
+        val modelSpec = ModelSpec.localFile(modelFile)
+        val resolver =
+            object : ModelResolver {
+                override suspend fun resolve(
+                    context: Context,
+                    spec: ModelSpec,
+                    onProgress: ((io.aatricks.llmedge.core.ProgressEvent.Downloading) -> Unit)?,
+                ): File =
+                    when (spec) {
+                        is ModelSpec.LocalFile -> spec.file
+                        else -> error("Unexpected spec: $spec")
+                    }
+            }
+
+        var getStateCalls = 0
+        var setStateCalls = 0
+        val restoredStates = mutableListOf<String>()
+
+        SmolLM.overrideNativeBridgeForTests {
+            object : SmolLM.NativeBridge {
+                private var queue = ArrayDeque<String>()
+
+                override fun loadModel(
+                    instance: SmolLM,
+                    modelPath: String,
+                    minP: Float,
+                    temperature: Float,
+                    storeChats: Boolean,
+                    contextSize: Long,
+                    chatTemplate: String,
+                    nThreads: Int,
+                    useMmap: Boolean,
+                    useMlock: Boolean,
+                    useVulkan: Boolean,
+                    useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
+                ): Long = 1L
+
+                override fun setReasoningOptions(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    disableThinking: Boolean,
+                    reasoningBudget: Int,
+                ) = Unit
+
+                override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) = Unit
+
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = 1f
+                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = 1L
+                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = 1L
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 1
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0L
+                override fun nativeDecodePreparedEmbeddings(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    embdPath: String,
+                    metaPath: String,
+                    nBatch: Int,
+                ): Boolean = true
+                override fun getStateBytes(instance: SmolLM, modelPtr: Long): ByteArray =
+                    "snapshot-${++getStateCalls}".encodeToByteArray()
+                override fun setStateBytes(instance: SmolLM, modelPtr: Long, state: ByteArray): Boolean {
+                    setStateCalls++
+                    restoredStates += state.decodeToString()
+                    return true
+                }
+                override fun close(instance: SmolLM, modelPtr: Long) = Unit
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {
+                    queue = ArrayDeque(listOf("reply-${getStateCalls + 1}", "[EOG]"))
+                }
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String = queue.removeFirst()
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String =
+                    completionLoop(instance, modelPtr)
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) = Unit
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) = Unit
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            TextClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(textCacheSize = 1, textCacheMemoryMb = 64),
+                modelResolver = resolver,
+            )
+
+        try {
+            val session = client.session(model = modelSpec, systemPrompt = "Be concise")
+            val first = session.reply("Hi")
+            val second = session.reply("And again")
+
+            assertEquals("reply-1", first)
+            assertEquals("reply-2", second)
+            assertEquals(2, getStateCalls)
+            assertEquals(1, setStateCalls)
+            assertEquals(listOf("snapshot-1"), restoredStates)
+        } finally {
+            client.close()
+            edgeScope.close()
+        }
+    }
+
+    @Test
     fun `text client forwards separate prompt and generation thread counts`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val modelFile = createTempGgufFile(context.cacheDir)

@@ -24,12 +24,13 @@ endif()
 # library target for GGUFReader
 set(TARGET_NAME_GGUF_READER ggufreader)
 add_library(${TARGET_NAME_GGUF_READER} SHARED ${GGUF_READER_SOURCES})
+target_compile_features(${TARGET_NAME_GGUF_READER} PUBLIC c_std_11 cxx_std_20)
 target_include_directories(
         ${TARGET_NAME_GGUF_READER}
         PUBLIC
         ${GGML_DIR}/include
         ${GGML_DIR}/src
-        ${GGML_DIR}/src/ggml-cpu
+        ${GGML_DIR}/src/iqk
 )
 # Constants GGML_COMMIT and GGML_VERSION in ggml.c
 # are supplied through llama.cpp's CMake script (that in turn gets them from git)
@@ -40,9 +41,21 @@ target_compile_definitions(
         GGML_COMMIT=""
         GGML_VERSION=""
 )
+set(_gguf_reader_cpu_flags -DGGML_USE_CPU)
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+    target_sources(${TARGET_NAME_GGUF_READER} PRIVATE ${LLMEDGE_IQK_BASE_SOURCES})
+    target_compile_definitions(
+            ${TARGET_NAME_GGUF_READER}
+            PRIVATE
+            GGML_USE_IQK_MULMAT
+            GGML_IQK_FLASH_ATTENTION
+    )
+    list(APPEND _gguf_reader_cpu_flags -DGGML_USE_CPU_AARCH64)
+endif()
 target_compile_options(
         ${TARGET_NAME_GGUF_READER}
         PUBLIC
+        ${_gguf_reader_cpu_flags}
         -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3
 )
 target_link_options(
