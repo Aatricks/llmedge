@@ -252,7 +252,7 @@ class VisionTest {
     }
 
     @Test
-    fun `SmolLMVisionAdapter analyze uses single-token generation after decoding embeddings`() = runTest {
+    fun `SmolLMVisionAdapter analyze uses batched generation after decoding embeddings`() = runTest {
         val mockContext = mockk<android.content.Context>()
         val mockSmolLM = mockk<io.aatricks.llmedge.text.runtime.SmolLM>()
         val adapter = SmolLMVisionAdapter(mockContext, mockSmolLM)
@@ -282,7 +282,13 @@ class VisionTest {
                     1,
                 )
             } returns true
-            every { mockSmolLM.getResponse("Describe the image", 256, 1) } returns "vision-result"
+            every {
+                mockSmolLM.getResponse(
+                    "Describe the image",
+                    256,
+                    io.aatricks.llmedge.text.runtime.SmolLM.DEFAULT_BLOCKING_BATCH_SIZE,
+                )
+            } returns "vision-result"
 
             val result =
                 adapter.analyze(
@@ -300,7 +306,11 @@ class VisionTest {
                 )
             }
             verify(exactly = 1) {
-                mockSmolLM.getResponse("Describe the image", 256, 1)
+                mockSmolLM.getResponse(
+                    "Describe the image",
+                    256,
+                    io.aatricks.llmedge.text.runtime.SmolLM.DEFAULT_BLOCKING_BATCH_SIZE,
+                )
             }
         } finally {
             unmockkObject(ImageUtils)

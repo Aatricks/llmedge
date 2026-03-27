@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.model.ModelSpec
+import io.mockk.coVerify
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.async
@@ -59,5 +60,27 @@ class VisionClientTest {
         assertNotNull(memory)
         assertEquals(100L, memory?.nativeBytes)
         assertEquals(10L, memory?.stateBytes)
+    }
+
+    @Test
+    fun `prepare forwards default runtime settings to pipeline`() = runTest {
+        val context = mockk<Context>(relaxed = true)
+        val pipeline = mockk<VisionPipeline>(relaxed = true)
+        val model = mockk<ModelSpec>()
+        val projector = mockk<ModelSpec>()
+        val config = LLMEdgeConfig(defaultTextThreads = 6, defaultTextGenerationThreads = 3)
+        val client = VisionClient(context, pipeline, config)
+
+        client.prepare(model = model, projector = projector)
+
+        coVerify(exactly = 1) {
+            pipeline.prepare(
+                model = model,
+                projector = projector,
+                numThreads = 6,
+                generationThreads = 3,
+                onStatus = null,
+            )
+        }
     }
 }

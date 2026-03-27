@@ -38,7 +38,7 @@ class LLMEdge private constructor(
     val text: TextClient = TextClient(appContext, edgeScope, config, resolver)
     val speech: SpeechClient = SpeechClient(appContext, edgeScope, config, resolver)
     val image: ImageClient = ImageClient(appContext, edgeScope, config, resolver)
-    val vision: VisionClient = VisionClient(appContext, VisionPipeline(appContext, resolver), config)
+    val vision: VisionClient = VisionClient(appContext, VisionPipeline(appContext, resolver, config), config)
     val rag: RAGClient = RAGClient(appContext, edgeScope, config, resolver)
 
     override fun close() {

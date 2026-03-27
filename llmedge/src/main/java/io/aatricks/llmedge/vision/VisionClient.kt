@@ -49,6 +49,24 @@ class VisionClient internal constructor(
         return result.text
     }
 
+    /**
+     * Warm the configured vision runtime so the first analysis request avoids model/projector
+     * initialization on the critical path.
+     */
+    suspend fun prepare(
+        model: ModelSpec = defaultModel,
+        projector: ModelSpec = defaultProjector,
+        numThreads: Int = defaultPromptThreads,
+        generationThreads: Int = defaultGenerationThreads,
+    ) {
+        pipeline.prepare(
+            model = model,
+            projector = projector,
+            numThreads = numThreads,
+            generationThreads = generationThreads,
+        )
+    }
+
     suspend fun analyze(
         image: Bitmap,
         prompt: String,

@@ -40,7 +40,7 @@ class SmolLMVisionAdapter(
     
     companion object {
         private const val TAG = "SmolLMVision"
-        private const val VISION_GENERATION_BATCH_SIZE = 1
+        private val VISION_GENERATION_BATCH_SIZE = SmolLM.DEFAULT_BLOCKING_BATCH_SIZE
     }
     
     // These will be set when loading a vision model
