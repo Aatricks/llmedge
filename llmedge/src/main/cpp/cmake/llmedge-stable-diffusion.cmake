@@ -193,7 +193,12 @@ if (TARGET ggml-vulkan AND vulkan_hpp_SOURCE_DIR)
 endif()
 
 add_library(sdcpp SHARED
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_common.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_condition.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_image.cpp
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_load.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_video.cpp
 )
 
 target_include_directories(sdcpp

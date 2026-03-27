@@ -26,7 +26,7 @@ struct SdHandle {
 void sd_jni_notify_frame_buffer_freed(const void* ptr);
 void sd_jni_notify_frame_array_freed(const void* ptr);
 #else
-#define SD_JNI_INTERNAL static
+#define SD_JNI_INTERNAL
 inline void sd_jni_notify_frame_buffer_freed(const void*) {}
 inline void sd_jni_notify_frame_array_freed(const void*) {}
 #endif
