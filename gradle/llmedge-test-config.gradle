@@ -1,0 +1,102 @@
+android {
+    testOptions {
+        unitTests.all { test ->
+            def testUserHome = System.getenv("LLMEDGE_TEST_USER_HOME") ?: System.getenv("HOME") ?: System.getProperty("user.home")
+            test.systemProperty("user.home", testUserHome)
+
+            def showTestOutput =
+                (System.getenv("LLMEDGE_SHOW_TEST_OUTPUT")?.equalsIgnoreCase("true")) ||
+                    (project.findProperty("llmedgeShowTestOutput")?.toString()?.equalsIgnoreCase("true"))
+            if (showTestOutput) {
+                test.testLogging {
+                    showStandardStreams = true
+                    events(
+                        org.gradle.api.tasks.testing.logging.TestLogEvent.FAILED,
+                        org.gradle.api.tasks.testing.logging.TestLogEvent.SKIPPED,
+                        org.gradle.api.tasks.testing.logging.TestLogEvent.PASSED,
+                        org.gradle.api.tasks.testing.logging.TestLogEvent.STANDARD_OUT,
+                        org.gradle.api.tasks.testing.logging.TestLogEvent.STANDARD_ERROR,
+                    )
+                }
+            }
+
+            def nativeLibPath = System.getenv("LLMEDGE_BUILD_NATIVE_LIB_PATH")
+            def skipE2E = System.getenv("LLMEDGE_SKIP_E2E_IN_UNIT")?.equalsIgnoreCase("true")
+
+            if (skipE2E) {
+                println("LLMEDGE CI: Skipping E2E tests for task ${test.name}")
+                [
+                    "*LinuxE2ETest",
+                    "*IntegrationTest",
+                    "*ImageGenerationTest",
+                    "*VideoGenerationTest",
+                    "*StableDiffusionTxt2VidTest",
+                    "*StableDiffusionTxt2ImgTest",
+                    "*VideoI2VAndLoraE2ETest",
+                    "*VideoGenerationSequentialE2ETest",
+                    "*VideoGenerationHQTest",
+                    "*VideoGenerationExportTest",
+                    "*SamplerSchedulerGifTest",
+                    "*FullPhonePathCatTest",
+                    "*BarkTTSTest",
+                    "*WhisperTest",
+                    "*ReproductionTest",
+                    "*WanCatGifTask",
+                    "*LLMEdgeManagerTest",
+                    "*MemoryManagementTest",
+                    "*MetadataInferenceTest",
+                    "*StableDiffusionVideoModelDetectorExtraTest",
+                    "*StableDiffusionVideoTest",
+                    "*VideoGenerateParamsTest",
+                    "*VideoModelDetectorTest",
+                    "*BitmapConversionTest",
+                    "*CombinedHeuristicTest",
+                ].each { pattern -> test.filter.excludeTestsMatching(pattern) }
+            }
+
+            def whisperLibPath = System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")
+            def barkLibPath = System.getenv("LLMEDGE_BUILD_BARK_LIB_PATH")
+            def hasNativeLib = nativeLibPath || whisperLibPath || barkLibPath
+            if (!hasNativeLib) {
+                test.systemProperty("llmedge.disableNativeLoad", "true")
+            } else {
+                test.systemProperty("llmedge.disableNativeLoad", "false")
+                def libraryPaths = []
+                if (nativeLibPath) libraryPaths << new File(nativeLibPath).parent
+                if (whisperLibPath) libraryPaths << new File(whisperLibPath).parent
+                if (barkLibPath) libraryPaths << new File(barkLibPath).parent
+                libraryPaths << "${rootProject.projectDir}/scripts/jni-desktop/build/bin"
+                test.jvmArgs("-Djava.library.path=${libraryPaths.join(':')}")
+                test.maxHeapSize = "12g"
+
+                [
+                    "LLMEDGE_TEST_MODEL_PATH",
+                    "LLMEDGE_TEST_MODEL_ID",
+                    "LLMEDGE_TEST_MODEL_FILENAME",
+                    "LLMEDGE_TEST_T5_PATH",
+                    "LLMEDGE_TEST_VAE_PATH",
+                    "LLMEDGE_TEST_TAESD_PATH",
+                    "LLMEDGE_TEST_VAE_FILENAME",
+                    "LLMEDGE_TEST_T5_MODEL_ID",
+                    "LLMEDGE_TEST_T5_FILENAME",
+                    "LLMEDGE_TEST_FORCE_DOWNLOAD",
+                    "LLMEDGE_TEST_VIDEO_FRAMES",
+                    "LLMEDGE_TEST_STEPS",
+                    "LLMEDGE_TEST_WIDTH",
+                    "LLMEDGE_TEST_HEIGHT",
+                    "LLMEDGE_TEST_WHISPER_MODEL_PATH",
+                    "LLMEDGE_BUILD_WHISPER_LIB_PATH",
+                    "LLMEDGE_TEST_AUDIO_PATH",
+                    "LLMEDGE_TEST_BARK_MODEL_PATH",
+                    "LLMEDGE_BUILD_BARK_LIB_PATH",
+                ].each { key ->
+                    def value = System.getenv(key)
+                    if (value) {
+                        test.systemProperty(key, value)
+                    }
+                }
+            }
+        }
+
+    }
+}

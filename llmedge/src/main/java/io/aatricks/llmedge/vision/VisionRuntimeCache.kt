@@ -1,14 +1,14 @@
 package io.aatricks.llmedge.vision
 
-import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.core.runtime.SingleEntryRuntimeCache
+import io.aatricks.llmedge.text.runtime.SmolLM
 
 /**
- * Cache for warmed vision runtimes (SmolLM + Projector pairs) to avoid
- * cold-starting the model on every vision request.
+ * Cache for warmed vision runtimes (SmolLM + Projector pairs).
  *
- * Keyed by (modelPath, projectorPath). Holds at most [maxEntries] entries;
- * when full, evicts the least-recently-used entry.
+ * The current vision pipeline only reuses a single runtime at a time, so this cache intentionally
+ * keeps one LRU-style entry and closes the previous runtime on replacement.
  */
 internal class VisionRuntimeCache(private val maxEntries: Int = 1) {
     companion object {
@@ -23,20 +23,24 @@ internal class VisionRuntimeCache(private val maxEntries: Int = 1) {
         var lastUsedMs: Long = System.currentTimeMillis(),
     ) : AutoCloseable {
         override fun close() {
-            try { projector.close() } catch (e: Exception) {
+            try {
+                projector.close()
+            } catch (e: Exception) {
                 AndroidLogAdapter.w(TAG, "Error closing projector: ${e.message}")
             }
-            try { smolLM.close() } catch (e: Exception) {
+            try {
+                smolLM.close()
+            } catch (e: Exception) {
                 AndroidLogAdapter.w(TAG, "Error closing SmolLM: ${e.message}")
             }
         }
     }
 
-    private val cache = LinkedHashMap<CacheKey, CachedRuntime>(4, 0.75f, true)
+    private val cache = SingleEntryRuntimeCache<CacheKey, CachedRuntime>(TAG)
 
     @Synchronized
     fun get(key: CacheKey): CachedRuntime? {
-        val entry = cache[key]
+        val entry = cache.get(key)
         if (entry != null) {
             entry.lastUsedMs = System.currentTimeMillis()
             AndroidLogAdapter.d(TAG, "Cache HIT for ${key.modelPath}")
@@ -45,21 +49,18 @@ internal class VisionRuntimeCache(private val maxEntries: Int = 1) {
     }
 
     @Synchronized
-    fun put(key: CacheKey, runtime: CachedRuntime) {
-        while (cache.size >= maxEntries) {
-            val lruKey = cache.keys.first()
-            val evicted = cache.remove(lruKey)
-            AndroidLogAdapter.i(TAG, "Evicting vision runtime for ${lruKey.modelPath}")
-            evicted?.close()
-        }
-        cache[key] = runtime
+    fun put(
+        key: CacheKey,
+        runtime: CachedRuntime,
+    ) {
+        check(maxEntries == 1) { "VisionRuntimeCache currently supports a single cached runtime." }
+        cache.put(key, runtime)
         AndroidLogAdapter.i(TAG, "Cached vision runtime for ${key.modelPath}")
     }
 
     @Synchronized
     fun releaseAll() {
-        AndroidLogAdapter.i(TAG, "Releasing all cached vision runtimes (${cache.size} entries)")
-        cache.values.forEach { it.close() }
+        AndroidLogAdapter.i(TAG, "Releasing all cached vision runtimes")
         cache.clear()
     }
 }

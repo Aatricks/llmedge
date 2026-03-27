@@ -2,21 +2,23 @@ package io.aatricks.llmedge.text
 
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.runtime.BackendRuntimePolicy
-import io.aatricks.llmedge.runtime.ComputeBackend
-import io.aatricks.llmedge.runtime.ComputeSubsystem
-import io.aatricks.llmedge.runtime.ModelCache
-import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.runtime.BackendFailureClassifier
+import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
+import io.aatricks.llmedge.core.runtime.ManagedRuntime
+import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
+import io.aatricks.llmedge.core.runtime.RuntimeCoordinator
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.tools.Tool
 import io.aatricks.llmedge.tools.ToolAgent
 import io.aatricks.llmedge.tools.ToolPolicies
 import io.aatricks.llmedge.tools.ToolPolicy
+import io.aatricks.llmedge.runtime.ComputeSubsystem
+import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collect
@@ -68,16 +70,18 @@ internal fun TextModelOptions.toInferenceParams(config: LLMEdgeConfig): SmolLM.I
 internal class ManagedTextModel(
     val fileSizeBytes: Long,
     val model: SmolLM,
-) : AutoCloseable {
-    val mutex: Mutex = Mutex()
+) : ManagedRuntime {
+    override val mutex: Mutex = Mutex()
     private val closed = AtomicBoolean(false)
 
-    fun estimatedNativeMemoryBytes(): Long =
+    private fun estimatedNativeMemoryBytes(): Long =
         maxOf(
             model.getEstimatedNativeMemoryBytes().takeIf { it > 0L } ?: 0L,
             fileSizeBytes + model.getEstimatedStateMemoryBytes().coerceAtLeast(0L),
             fileSizeBytes,
         )
+
+    override fun estimatedSizeBytes(): Long = estimatedNativeMemoryBytes()
 
     fun ensureOpen() {
         check(!closed.get()) { "Text runtime has been closed" }
@@ -118,6 +122,15 @@ class TextClient internal constructor(
             maxMemoryMB = config.textCacheMemoryMb,
         )
     private val loadMutex = Mutex()
+    private val coordinator =
+        RuntimeCoordinator<ModelSpec, TextModelOptions, ManagedTextModel>(
+            cache = cache,
+            cacheKeyPrefix = ::buildCacheKeyPrefix,
+            loadRuntime = ::loadRuntime,
+            activeBackend = { it.model.getActiveBackend() },
+            candidateRequest = ::candidateRequest,
+            loadMutex = loadMutex,
+        )
 
     /**
      * Preload a text model into the cache so later generation calls avoid the initial model-load
@@ -129,7 +142,7 @@ class TextClient internal constructor(
         model: ModelSpec = config.models.text,
         options: TextModelOptions = TextModelOptions(),
     ) {
-        acquire(model, options)
+        coordinator.acquire(model, options)
     }
 
     /**
@@ -289,24 +302,7 @@ class TextClient internal constructor(
     ): ToolAgent = ToolAgent(this, tools, model, memory, systemPrompt, options, policy)
 
     internal suspend fun acquire(model: ModelSpec, options: TextModelOptions): ManagedTextModel {
-        val keyPrefix = buildCacheKeyPrefix(model, options)
-        findCachedRuntime(keyPrefix, options)?.let { return it }
-
-        return loadMutex.withLock {
-            findCachedRuntime(keyPrefix, options)?.let { return@withLock it }
-            val modelFile = modelResolver.resolve(context, model)
-            val smol = SmolLM(useVulkan = options.useVulkan ?: config.textUseVulkan)
-            smol.load(modelFile.absolutePath, options.toInferenceParams(config))
-            val runtime = ManagedTextModel(fileSizeBytes = modelFile.length(), model = smol)
-            val key = buildCacheKey(keyPrefix, smol.getActiveBackend())
-            cache.put(
-                key = key,
-                model = runtime,
-                sizeBytes = runtime.estimatedNativeMemoryBytes(),
-                sizeProvider = runtime::estimatedNativeMemoryBytes,
-            )
-            runtime
-        }
+        return coordinator.acquire(model, options)
     }
 
     internal suspend fun complete(
@@ -437,11 +433,8 @@ class TextClient internal constructor(
         }
     }
 
-    private fun buildCacheKey(model: ModelSpec, options: TextModelOptions): String =
-        buildCacheKey(buildCacheKeyPrefix(model, options), ComputeBackend.CPU)
-
     private fun buildCacheKeyPrefix(model: ModelSpec, options: TextModelOptions): String =
-        listOf(
+        RuntimeCacheKeyBuilder.prefix(
             model.cacheKey,
             "ctx=${options.contextSize ?: config.defaultTextContextSize ?: 0L}",
             "threads=${options.numThreads ?: config.defaultTextThreads}",
@@ -449,46 +442,14 @@ class TextClient internal constructor(
             "mmap=${options.useMmap ?: config.defaultUseMmap}",
             "mlock=${options.useMlock ?: config.defaultUseMlock}",
             "flash=${options.useFlashAttention ?: config.defaultUseFlashAttention}",
-        ).joinToString("|")
-
-    private fun buildCacheKey(prefix: String, backend: ComputeBackend): String =
-        "$prefix|backend=${backend.name}"
-
-    private fun findCachedRuntime(
-        prefix: String,
-        options: TextModelOptions,
-    ): ManagedTextModel? {
-        val allowGpu = options.useVulkan ?: config.textUseVulkan
-        val candidates =
-            BackendRuntimePolicy.candidates(
-                subsystem = ComputeSubsystem.TEXT,
-                allowGpu = allowGpu,
-                openClAvailable = SmolLM.isOpenClAvailable(),
-                vulkanAvailable = SmolLM.isVulkanBackendAvailable(),
-            )
-        for (backend in candidates) {
-            cache.get(buildCacheKey(prefix, backend))?.let { return it }
-        }
-        return null
-    }
+        )
 
     override fun close() {
         cache.clear()
     }
 
     private fun invalidateRuntime(model: ModelSpec, options: TextModelOptions) {
-        val prefix = buildCacheKeyPrefix(model, options)
-        ComputeBackend.entries.forEach { backend ->
-            cache.remove(buildCacheKey(prefix, backend))
-        }
-    }
-
-    private fun invalidateRuntime(
-        model: ModelSpec,
-        options: TextModelOptions,
-        backend: ComputeBackend,
-    ) {
-        cache.remove(buildCacheKey(buildCacheKeyPrefix(model, options), backend))
+        coordinator.invalidate(model, options)
     }
 
     private fun recordBackendFailureIfNeeded(
@@ -497,15 +458,11 @@ class TextClient internal constructor(
         runtime: ManagedTextModel,
         error: InferenceFailedException,
     ) {
-        if (!isBackendFailure(error)) {
+        val blacklisted = coordinator.recordBackendFailureIfNeeded(model, options, runtime, error)
+        if (!blacklisted) {
             return
         }
         val backend = runtime.model.getActiveBackend()
-        if (backend == ComputeBackend.CPU) {
-            return
-        }
-        BackendRuntimePolicy.blacklist(ComputeSubsystem.TEXT, backend)
-        invalidateRuntime(model, options, backend)
         AndroidLogAdapter.w(
             LOG_TAG,
             "Blacklisting $backend for text inference after a backend-specific failure on '${model.cacheKey}'",
@@ -532,8 +489,23 @@ class TextClient internal constructor(
             error.cause?.message?.contains("llama_decode() failed") == true
 
     private fun isBackendFailure(error: InferenceFailedException): Boolean =
-        error.message?.contains("backend", ignoreCase = true) == true ||
-            error.cause?.message?.contains("backend", ignoreCase = true) == true ||
-            error.message?.contains("device lost", ignoreCase = true) == true ||
-            error.cause?.message?.contains("device lost", ignoreCase = true) == true
+        BackendFailureClassifier.isBackendFailure(error)
+
+    private fun candidateRequest(options: TextModelOptions): BackendCandidateResolver.Request =
+        BackendCandidateResolver.Request(
+            subsystem = ComputeSubsystem.TEXT,
+            allowGpu = options.useVulkan ?: config.textUseVulkan,
+            openClAvailable = SmolLM.isOpenClAvailable(),
+            vulkanAvailable = SmolLM.isVulkanBackendAvailable(),
+        )
+
+    private suspend fun loadRuntime(
+        model: ModelSpec,
+        options: TextModelOptions,
+    ): ManagedTextModel {
+        val modelFile = modelResolver.resolve(context, model)
+        val smol = SmolLM(useVulkan = options.useVulkan ?: config.textUseVulkan)
+        smol.load(modelFile.absolutePath, options.toInferenceParams(config))
+        return ManagedTextModel(fileSizeBytes = modelFile.length(), model = smol)
+    }
 }

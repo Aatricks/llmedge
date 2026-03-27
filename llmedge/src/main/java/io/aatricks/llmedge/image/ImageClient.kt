@@ -22,6 +22,7 @@ import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.ProgressEvent
+import io.aatricks.llmedge.core.runtime.BackendExecutionRunner
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
 import kotlinx.coroutines.channels.awaitClose
@@ -117,9 +118,13 @@ class ImageClient internal constructor(
                     height = params.height,
                     forceEnable = if (params.flashAttention) null else false,
                 )
-            val candidates = imageBackendCandidates()
-            var lastError: Throwable? = null
-            for (backend in candidates) {
+            return@withLock runAcrossBackends(
+                candidates = imageBackendCandidates(),
+                subsystem = ComputeSubsystem.IMAGE,
+                failureReason = "image generation failure",
+                retryMessage = "Retrying image generation on the next backend after failure on",
+                finalFailureMessage = "Image generation failed without a reported cause",
+            ) { backend ->
                 var model: StableDiffusion? = null
                 try {
                     model =
@@ -138,7 +143,7 @@ class ImageClient internal constructor(
                         )
                     activeModel = model
                     val easyCache = resolveEasyCache(model, params.easyCache)
-                    return@withLock model.txt2img(
+                    model.txt2img(
                         GenerateParams(
                             prompt = params.prompt,
                             negative = params.negative,
@@ -152,23 +157,11 @@ class ImageClient internal constructor(
                     ).also {
                         lastGenerationMetrics = model.getLastGenerationMetrics()
                     }
-                } catch (t: Throwable) {
-                    lastError = t
-                    if (backend != ComputeBackend.CPU) {
-                        blacklistBackend(ComputeSubsystem.IMAGE, backend, "image generation failure")
-                        AndroidLogAdapter.w(
-                            LOG_TAG,
-                            "Retrying image generation on the next backend after failure on $backend",
-                        )
-                        continue
-                    }
-                    throw t
                 } finally {
                     activeModel = null
                     model?.close()
                 }
             }
-            throw lastError ?: IllegalStateException("Image generation failed without a reported cause")
         }
 
     /**
@@ -235,9 +228,13 @@ class ImageClient internal constructor(
         val vaePath = if (taesdPath == null) resolveVideoVae(params)?.absolutePath else null
         val textEncoderPath = resolveVideoTextEncoder(params)?.absolutePath
         val usingCustomTae = taesdPath != null
-        val candidates = videoBackendCandidates(usingCustomTae)
-        var lastError: Throwable? = null
-        for (backend in candidates) {
+        return runAcrossBackends(
+            candidates = videoBackendCandidates(usingCustomTae),
+            subsystem = ComputeSubsystem.VIDEO,
+            failureReason = "video generation failure",
+            retryMessage = "Retrying video generation on the next backend after failure on",
+            finalFailureMessage = "Video generation failed without a reported cause",
+        ) { backend ->
             var model: StableDiffusion? = null
             try {
                 model =
@@ -262,7 +259,7 @@ class ImageClient internal constructor(
                     )
                 activeModel = model
                 val easyCache = resolveEasyCache(model, params.easyCache)
-                return model.txt2vid(
+                model.txt2vid(
                     params =
                         VideoGenerateParams(
                             prompt = params.prompt,
@@ -290,23 +287,11 @@ class ImageClient internal constructor(
                 ).also {
                     lastGenerationMetrics = model.getLastGenerationMetrics()
                 }
-            } catch (t: Throwable) {
-                lastError = t
-                if (backend != ComputeBackend.CPU) {
-                    blacklistBackend(ComputeSubsystem.VIDEO, backend, "video generation failure")
-                    AndroidLogAdapter.w(
-                        LOG_TAG,
-                        "Retrying video generation on the next backend after failure on $backend",
-                    )
-                    continue
-                }
-                throw t
             } finally {
                 activeModel = null
                 model?.close()
             }
         }
-        throw lastError ?: IllegalStateException("Video generation failed without a reported cause")
     }
 
     private fun imageBackendCandidates(): List<ComputeBackend> =
@@ -347,9 +332,13 @@ class ImageClient internal constructor(
         val usingCustomTae = taesdPath != null
         val vaePath = if (taesdPath == null) resolveRequiredVideoVae(params).absolutePath else null
         val textEncoderPath = resolveRequiredVideoTextEncoder(params).absolutePath
-        val candidates = videoBackendCandidates(usingCustomTae)
-        var lastError: Throwable? = null
-        for (backend in candidates) {
+        return runAcrossBackends(
+            candidates = videoBackendCandidates(usingCustomTae),
+            subsystem = ComputeSubsystem.VIDEO,
+            failureReason = "sequential video generation failure",
+            retryMessage = "Retrying sequential video generation on the next backend after failure on",
+            finalFailureMessage = "Sequential video generation failed without a reported cause",
+        ) { backend ->
             var t5Model: StableDiffusion? = null
             var diffusionModel: StableDiffusion? = null
             try {
@@ -413,7 +402,7 @@ class ImageClient internal constructor(
                     )
                 activeModel = diffusionModel
                 val easyCache = resolveEasyCache(diffusionModel, params.easyCache)
-                return diffusionModel.txt2VidWithPrecomputedCondition(
+                diffusionModel.txt2VidWithPrecomputedCondition(
                     params =
                         VideoGenerateParams(
                             prompt = params.prompt,
@@ -443,24 +432,12 @@ class ImageClient internal constructor(
                 ).also {
                     lastGenerationMetrics = diffusionModel.getLastGenerationMetrics()
                 }
-            } catch (t: Throwable) {
-                lastError = t
-                if (backend != ComputeBackend.CPU) {
-                    blacklistBackend(ComputeSubsystem.VIDEO, backend, "sequential video generation failure")
-                    AndroidLogAdapter.w(
-                        LOG_TAG,
-                        "Retrying sequential video generation on the next backend after failure on $backend",
-                    )
-                    continue
-                }
-                throw t
             } finally {
                 activeModel = null
                 diffusionModel?.close()
                 t5Model?.close()
             }
         }
-        throw lastError ?: IllegalStateException("Sequential video generation failed without a reported cause")
     }
 
     private suspend fun resolveVideoVae(params: VideoGenerationRequest): java.io.File? {
@@ -499,4 +476,22 @@ class ImageClient internal constructor(
         cancelGeneration()
         activeModel = null
     }
+
+    private suspend fun <T> runAcrossBackends(
+        candidates: List<ComputeBackend>,
+        subsystem: ComputeSubsystem,
+        failureReason: String,
+        retryMessage: String,
+        finalFailureMessage: String,
+        execute: suspend (ComputeBackend) -> T,
+    ): T =
+        BackendExecutionRunner.run(
+            candidates = candidates,
+            failureMessage = finalFailureMessage,
+            onBackendFailure = { backend, _ ->
+                blacklistBackend(subsystem, backend, failureReason)
+                AndroidLogAdapter.w(LOG_TAG, "$retryMessage $backend")
+            },
+            execute = execute,
+        )
 }
