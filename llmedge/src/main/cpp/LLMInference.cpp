@@ -42,35 +42,29 @@ bool is_gpu_backend(const RequestedBackend backend) {
     return backend == RequestedBackend::OPENCL || backend == RequestedBackend::VULKAN;
 }
 
-ggml_backend_dev_t find_backend_device(const RequestedBackend backend, const int desired_index) {
+std::string find_backend_registry_name(const RequestedBackend backend, const int desired_index) {
     if (!is_gpu_backend(backend)) {
-        return nullptr;
+        return {};
     }
 
-    const char * wanted_reg_name = backend_name(backend);
+    const char * wanted_prefix = backend_name(backend);
+    const size_t wanted_prefix_len = std::strlen(wanted_prefix);
     int matched_index = 0;
-    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
-        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
-        const auto dev_type = ggml_backend_dev_type(dev);
-        if (dev_type != GGML_BACKEND_DEVICE_TYPE_GPU &&
-            dev_type != GGML_BACKEND_DEVICE_TYPE_IGPU &&
-            dev_type != GGML_BACKEND_DEVICE_TYPE_ACCEL) {
+    for (size_t i = 0; i < ggml_backend_reg_get_count(); ++i) {
+        const char * reg_name = ggml_backend_reg_get_name(i);
+        if (!reg_name) {
             continue;
         }
-
-        ggml_backend_reg_t reg = ggml_backend_dev_backend_reg(dev);
-        const char * reg_name = reg ? ggml_backend_reg_name(reg) : nullptr;
-        if (!reg_name || std::strcmp(reg_name, wanted_reg_name) != 0) {
+        if (std::strncmp(reg_name, wanted_prefix, wanted_prefix_len) != 0) {
             continue;
         }
-
         if (matched_index == desired_index) {
-            return dev;
+            return reg_name;
         }
         ++matched_index;
     }
 
-    return nullptr;
+    return {};
 }
 
 } // namespace
@@ -110,24 +104,18 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
     llama_model_params model_params = llama_model_default_params();
     model_params.use_mmap = useMmap;
     model_params.use_mlock = useMlock;
-    std::unique_ptr<ggml_backend_dev_t[]> requested_devices;
+    std::string requested_device_name;
     if (is_gpu_backend(requestedBackend)) {
-        ggml_backend_dev_t selected_device = find_backend_device(requestedBackend, 0);
-        if (!selected_device) {
+        requested_device_name = find_backend_registry_name(requestedBackend, 0);
+        if (requested_device_name.empty()) {
             throw std::runtime_error(std::string("Requested backend not available: ") + backend_name(requestedBackend));
         }
 
-        const char * device_name = ggml_backend_dev_name(selected_device);
-        const char * device_description = ggml_backend_dev_description(selected_device);
-        LOGi("Using %s device: %s (%s)",
+        LOGi("Using %s backend entry: %s",
              backend_name(requestedBackend),
-             device_name ? device_name : "unknown",
-             device_description ? device_description : "unknown");
+             requested_device_name.c_str());
 
-        requested_devices = std::make_unique<ggml_backend_dev_t[]>(2);
-        requested_devices[0] = selected_device;
-        requested_devices[1] = nullptr;
-        model_params.devices = requested_devices.get();
+        model_params.devices = requested_device_name.c_str();
         model_params.split_mode = LLAMA_SPLIT_MODE_NONE;
         model_params.n_gpu_layers = nGpuLayers > 0 ? nGpuLayers : -1;
     }

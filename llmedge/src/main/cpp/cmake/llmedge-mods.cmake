@@ -28,9 +28,9 @@ function(llmedge_prepare_patch_modded_tree)
         if (NOT _llmedge_patch_files)
             message(STATUS "${LLM_USE_MODS_VAR} enabled but no patches were found under ${LLM_MODS_ROOT}; using upstream tree")
         else()
-            find_package(Git QUIET)
-            if (NOT Git_FOUND)
-                message(FATAL_ERROR "${LLM_USE_MODS_VAR} requires Git so llmedge can apply patches from ${LLM_MODS_ROOT}")
+            find_program(LLMEDGE_PATCH_EXECUTABLE patch)
+            if (NOT LLMEDGE_PATCH_EXECUTABLE)
+                message(FATAL_ERROR "${LLM_USE_MODS_VAR} requires the 'patch' executable so llmedge can apply patches from ${LLM_MODS_ROOT}")
             endif()
 
             file(GLOB_RECURSE _llmedge_upstream_inputs CONFIGURE_DEPENDS "${LLM_SOURCE_ROOT}/*")
@@ -50,20 +50,18 @@ function(llmedge_prepare_patch_modded_tree)
                 execute_process(COMMAND ${CMAKE_COMMAND} -E rm -f "${_llmedge_tree_root}/.git")
                 execute_process(COMMAND ${CMAKE_COMMAND} -E rm -rf "${_llmedge_tree_root}/.git")
             endif()
-            file(RELATIVE_PATH _llmedge_tree_root_rel "${CMAKE_CURRENT_BINARY_DIR}" "${_llmedge_tree_root}")
-
             foreach(_llmedge_patch_file IN LISTS _llmedge_patch_files)
                 execute_process(
-                        COMMAND "${GIT_EXECUTABLE}" apply --check --unsafe-paths --directory "${_llmedge_tree_root_rel}" "${_llmedge_patch_file}"
-                        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+                        COMMAND "${CMAKE_COMMAND}" -E env TMPDIR="${CMAKE_CURRENT_BINARY_DIR}"
+                        "${LLMEDGE_PATCH_EXECUTABLE}" --dry-run --batch -p1 -d "${_llmedge_tree_root}" -i "${_llmedge_patch_file}"
                         RESULT_VARIABLE _llmedge_patch_check_result
                         OUTPUT_VARIABLE _llmedge_patch_check_output
                         ERROR_VARIABLE _llmedge_patch_check_error
                 )
                 if (NOT _llmedge_patch_check_result EQUAL 0)
                     execute_process(
-                            COMMAND "${GIT_EXECUTABLE}" apply --reverse --check --unsafe-paths --directory "${_llmedge_tree_root_rel}" "${_llmedge_patch_file}"
-                            WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+                            COMMAND "${CMAKE_COMMAND}" -E env TMPDIR="${CMAKE_CURRENT_BINARY_DIR}"
+                            "${LLMEDGE_PATCH_EXECUTABLE}" --dry-run --batch -R -p1 -d "${_llmedge_tree_root}" -i "${_llmedge_patch_file}"
                             RESULT_VARIABLE _llmedge_patch_reverse_result
                             OUTPUT_VARIABLE _llmedge_patch_reverse_output
                             ERROR_VARIABLE _llmedge_patch_reverse_error
@@ -75,8 +73,8 @@ function(llmedge_prepare_patch_modded_tree)
                 endif()
 
                 execute_process(
-                        COMMAND "${GIT_EXECUTABLE}" apply --verbose --unsafe-paths --directory "${_llmedge_tree_root_rel}" "${_llmedge_patch_file}"
-                        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+                        COMMAND "${CMAKE_COMMAND}" -E env TMPDIR="${CMAKE_CURRENT_BINARY_DIR}"
+                        "${LLMEDGE_PATCH_EXECUTABLE}" --batch -p1 -d "${_llmedge_tree_root}" -i "${_llmedge_patch_file}"
                         RESULT_VARIABLE _llmedge_patch_result
                         OUTPUT_VARIABLE _llmedge_patch_output
                         ERROR_VARIABLE _llmedge_patch_error

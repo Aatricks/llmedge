@@ -57,10 +57,12 @@ set(LLMEDGE_IQK_DOTPROD_SOURCES
         ${GGML_DIR}/src/iqk/fa/iqk_fa_96_96.cpp
         ${GGML_DIR}/src/iqk/fa/iqk_fa_64_64.cpp
 )
-# The IQK CPU implementation force-enable path is only needed for desktop x86 host builds.
-# On Android arm64 it pulls in vector helpers that are not available without the matching
-# dotprod/SIMD configuration and breaks JNI targets like ggufreader.
-if (NOT ANDROID AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+# The patched IQK sources rely on IQK_FORCE_IMPLEMENT in two cases:
+# - desktop x86 host builds, where upstream gating does not enable the implementation by default
+# - Android arm64 targets such as ggufreader and smollm_v8, which compile IQK sources without
+#   dotprod-specific march flags but still need the generic AArch64 NEON helper implementations
+if ((NOT ANDROID AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+        OR (ANDROID AND "${ANDROID_ABI}" STREQUAL "arm64-v8a"))
         set_source_files_properties(
                 ${GGML_DIR}/src/iqk/iqk_cpu_ops.cpp
                 PROPERTIES COMPILE_DEFINITIONS "IQK_FORCE_IMPLEMENT"

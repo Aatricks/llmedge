@@ -19,6 +19,17 @@
 
 namespace {
 
+bool has_registered_backend_prefix(const char * prefix) {
+    const size_t prefix_len = std::strlen(prefix);
+    for (size_t i = 0; i < ggml_backend_reg_get_count(); ++i) {
+        const char * reg_name = ggml_backend_reg_get_name(i);
+        if (reg_name && std::strncmp(reg_name, prefix, prefix_len) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void throwJavaException(JNIEnv* env, const char* className, const char* message) {
     if (!env) {
         return;
@@ -270,9 +281,7 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeIsOpenClAvailable(JNIEnv* env
     (void)env;
     (void)clazz;
 #ifdef GGML_USE_OPENCL
-    ggml_backend_load_all();
-    ggml_backend_reg_t reg = ggml_backend_reg_by_name("OpenCL");
-    return (reg && ggml_backend_reg_dev_count(reg) > 0) ? JNI_TRUE : JNI_FALSE;
+    return has_registered_backend_prefix("OpenCL") ? JNI_TRUE : JNI_FALSE;
 #else
     return JNI_FALSE;
 #endif
@@ -283,9 +292,7 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeIsVulkanAvailable(JNIEnv* env
     (void)env;
     (void)clazz;
 #ifdef GGML_USE_VULKAN
-    ggml_backend_load_all();
-    ggml_backend_reg_t reg = ggml_backend_reg_by_name("Vulkan");
-    return (reg && ggml_backend_reg_dev_count(reg) > 0) ? JNI_TRUE : JNI_FALSE;
+    return has_registered_backend_prefix("Vulkan") ? JNI_TRUE : JNI_FALSE;
 #else
     return JNI_FALSE;
 #endif
