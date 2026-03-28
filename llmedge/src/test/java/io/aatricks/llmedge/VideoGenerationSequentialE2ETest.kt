@@ -218,18 +218,22 @@ class VideoGenerationSequentialE2ETest {
             }
         }
 
-        val finalModel =
-                requireNotNull(resolvedModelPath) {
-                    "Model path not resolved (set LLMEDGE_TEST_MODEL_PATH or use LLMEDGE_TEST_MODEL_ID)"
-                }
-        val finalVae =
-                requireNotNull(resolvedVaePath) {
-                    "VAE path not resolved (set LLMEDGE_TEST_VAE_PATH or allow auto-download)"
-                }
-        val finalT5 =
-                requireNotNull(resolvedT5Path) {
-                    "T5 path not resolved (set LLMEDGE_TEST_T5_PATH or allow auto-download)"
-                }
+        Assume.assumeTrue(
+                "Model path not resolved (set LLMEDGE_TEST_MODEL_PATH or use LLMEDGE_TEST_MODEL_ID)",
+                !resolvedModelPath.isNullOrBlank(),
+        )
+        Assume.assumeTrue(
+                "VAE path not resolved (set LLMEDGE_TEST_VAE_PATH or allow auto-download)",
+                !resolvedVaePath.isNullOrBlank(),
+        )
+        Assume.assumeTrue(
+                "T5 path not resolved (set LLMEDGE_TEST_T5_PATH or allow auto-download)",
+                !resolvedT5Path.isNullOrBlank(),
+        )
+
+        val finalModel = requireNotNull(resolvedModelPath)
+        val finalVae = requireNotNull(resolvedVaePath)
+        val finalT5 = requireNotNull(resolvedT5Path)
 
         return WanPaths(modelPath = finalModel, vaePath = finalVae, t5Path = finalT5)
     }

@@ -58,6 +58,7 @@ internal data class DiffusionLoadOptions(
 internal class ManagedDiffusionModel(
     val fileSizeBytes: Long,
     val backend: ComputeBackend,
+    val flashAttnEnabled: Boolean,
     val model: StableDiffusion,
 ) : ManagedRuntime {
     override val mutex: Mutex = Mutex()
@@ -141,35 +142,14 @@ internal class DiffusionRuntimeLoader(
         var lastError: Throwable? = null
         for (backend in BackendCandidateResolver.candidates(request)) {
             try {
-                return ManagedDiffusionModel(
-                    fileSizeBytes =
-                        estimateFileSizeBytes(
-                            resolvedModel,
-                            resolvedVae,
-                            resolvedTextEncoder,
-                            resolvedTaehv,
-                        ),
+                return loadManagedModel(
+                    spec = spec,
+                    options = options,
                     backend = backend,
-                    model =
-                        StableDiffusion.loadWithRuntimeBackend(
-                            context = context,
-                            modelPath = resolvedModel.absolutePath,
-                            vaePath = resolvedVae?.absolutePath,
-                            t5xxlPath = resolvedTextEncoder?.absolutePath,
-                            taesdPath = resolvedTaehv?.absolutePath,
-                            nThreads = options.nThreads,
-                            offloadToCpu = options.offloadToCpu,
-                            keepClipOnCpu = options.keepClipOnCpu,
-                            keepVaeOnCpu = options.keepVaeOnCpu,
-                            flashAttn = options.flashAttn,
-                            vaeDecodeOnly = options.vaeDecodeOnly,
-                            sequentialLoad = options.sequentialLoad,
-                            preferPerformanceMode = options.preferPerformanceMode,
-                            flowShift = options.flowShift,
-                            loraModelDir = options.loraModelDir,
-                            loraApplyMode = options.loraApplyMode,
-                            preferredBackend = backend,
-                        ),
+                    resolvedModel = resolvedModel,
+                    resolvedVae = resolvedVae,
+                    resolvedTextEncoder = resolvedTextEncoder,
+                    resolvedTaehv = resolvedTaehv,
                 )
             } catch (error: Throwable) {
                 lastError = error
@@ -189,6 +169,114 @@ internal class DiffusionRuntimeLoader(
 
     private fun estimateFileSizeBytes(vararg files: File?): Long =
         files.filterNotNull().sumOf(File::length)
+
+    private suspend fun loadManagedModel(
+        spec: DiffusionRuntimeSpec,
+        options: DiffusionLoadOptions,
+        backend: ComputeBackend,
+        resolvedModel: File,
+        resolvedVae: File?,
+        resolvedTextEncoder: File?,
+        resolvedTaehv: File?,
+    ): ManagedDiffusionModel {
+        val fileSizeBytes =
+            estimateFileSizeBytes(
+                resolvedModel,
+                resolvedVae,
+                resolvedTextEncoder,
+                resolvedTaehv,
+            )
+        val preferredFlash = options.flashAttn
+        try {
+            return createManagedModel(
+                options = options,
+                backend = backend,
+                resolvedModel = resolvedModel,
+                resolvedVae = resolvedVae,
+                resolvedTextEncoder = resolvedTextEncoder,
+                resolvedTaehv = resolvedTaehv,
+                fileSizeBytes = fileSizeBytes,
+                flashAttn = preferredFlash,
+            )
+        } catch (error: Throwable) {
+            if (!shouldRetryWithoutFlash(spec, options)) {
+                throw error
+            }
+            AndroidLogAdapter.w(
+                LOG_TAG,
+                "Failed to load ${spec.role} runtime on $backend with flash attention; retrying once with flash attention disabled",
+            )
+            try {
+                return createManagedModel(
+                    options = options,
+                    backend = backend,
+                    resolvedModel = resolvedModel,
+                    resolvedVae = resolvedVae,
+                    resolvedTextEncoder = resolvedTextEncoder,
+                    resolvedTaehv = resolvedTaehv,
+                    fileSizeBytes = fileSizeBytes,
+                    flashAttn = false,
+                )
+            } catch (fallbackError: Throwable) {
+                fallbackError.addSuppressed(error)
+                throw fallbackError
+            }
+        }
+    }
+
+    private suspend fun createManagedModel(
+        options: DiffusionLoadOptions,
+        backend: ComputeBackend,
+        resolvedModel: File,
+        resolvedVae: File?,
+        resolvedTextEncoder: File?,
+        resolvedTaehv: File?,
+        fileSizeBytes: Long,
+        flashAttn: Boolean,
+    ): ManagedDiffusionModel {
+        AndroidLogAdapter.i(
+            LOG_TAG,
+            "Creating managed ${backend.name} runtime for ${resolvedModel.name} flash=$flashAttn sequential=${options.sequentialLoad}",
+        )
+        val model =
+            StableDiffusion.loadWithRuntimeBackend(
+                context = context,
+                modelPath = resolvedModel.absolutePath,
+                vaePath = resolvedVae?.absolutePath,
+                t5xxlPath = resolvedTextEncoder?.absolutePath,
+                taesdPath = resolvedTaehv?.absolutePath,
+                nThreads = options.nThreads,
+                offloadToCpu = options.offloadToCpu,
+                keepClipOnCpu = options.keepClipOnCpu,
+                keepVaeOnCpu = options.keepVaeOnCpu,
+                flashAttn = flashAttn,
+                vaeDecodeOnly = options.vaeDecodeOnly,
+                sequentialLoad = options.sequentialLoad,
+                preferPerformanceMode = options.preferPerformanceMode,
+                flowShift = options.flowShift,
+                loraModelDir = options.loraModelDir,
+                loraApplyMode = options.loraApplyMode,
+                preferredBackend = backend,
+            )
+        AndroidLogAdapter.i(
+            LOG_TAG,
+            "Managed ${backend.name} runtime ready for ${resolvedModel.name}",
+        )
+        return ManagedDiffusionModel(
+            fileSizeBytes = fileSizeBytes,
+            backend = backend,
+            flashAttnEnabled = flashAttn,
+            model = model,
+        )
+    }
+
+    private fun shouldRetryWithoutFlash(
+        spec: DiffusionRuntimeSpec,
+        options: DiffusionLoadOptions,
+    ): Boolean =
+        spec.role == DiffusionRuntimeRole.IMAGE &&
+            options.flashAttn &&
+            options.sequentialLoad != true
 }
 
 internal fun createDiffusionRuntimePool(

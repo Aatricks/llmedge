@@ -4,6 +4,8 @@ import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ModelCache
 import kotlinx.coroutines.sync.Mutex
 
+internal typealias RuntimeAcquireResult<TRuntime> = RuntimeCoordinator.AcquireResult<TRuntime>
+
 internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
     private val cache: ModelCache<TRuntime>,
     private val keyStrategy: RuntimeKeyStrategy<TSpec, TOptions>,
@@ -26,6 +28,11 @@ internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
         spec: TSpec,
         options: TOptions,
     ): TRuntime = coordinator.acquire(spec, options)
+
+    suspend fun acquireDetailed(
+        spec: TSpec,
+        options: TOptions,
+    ): RuntimeAcquireResult<TRuntime> = coordinator.acquireDetailed(spec, options)
 
     suspend fun loadDetached(
         spec: TSpec,

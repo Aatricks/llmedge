@@ -9,6 +9,9 @@ import io.aatricks.llmedge.core.ProgressEvent
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerateParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
+import io.aatricks.llmedge.image.diffusion.ImageGenerationPhase
+import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
+import io.aatricks.llmedge.image.diffusion.ImageRequestMetrics
 import io.aatricks.llmedge.image.diffusion.LoraApplyMode
 import io.aatricks.llmedge.image.diffusion.SampleMethod
 import io.aatricks.llmedge.image.diffusion.Scheduler
@@ -18,10 +21,12 @@ import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.BackendRuntimePolicy
+import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.runtime.CpuTopology
-import io.aatricks.llmedge.runtime.FlashAttentionHelper
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
@@ -88,8 +93,12 @@ class ImageClient internal constructor(
     @Volatile
     private var lastGenerationMetrics: GenerationMetrics? = null
 
+    @Volatile
+    private var lastImageRequestTrace: List<ImageGenerationTraceEvent> = emptyList()
+
     private val runtimePool = createDiffusionRuntimePool(context, scope, config, resolver)
     private val generationMutex = Mutex()
+    private val imageRequestIds = AtomicLong(0L)
 
     @Volatile
     private var activeModel: StableDiffusion? = null
@@ -113,27 +122,111 @@ class ImageClient internal constructor(
     ): Bitmap =
         generationMutex.withLock {
             lastGenerationMetrics = null
+            lastImageRequestTrace = emptyList()
             val request = imageRuntimeRequest(params)
+            val requestId = imageRequestIds.incrementAndGet()
+            AndroidLogAdapter.i(
+                LOG_TAG,
+                "Image request entering runtime acquisition: requestId=$requestId size=${params.width}x${params.height} steps=${params.steps}",
+            )
             executeWithRuntimeRetry(
                 request = request,
                 retryMessage = "Retrying image generation on the next backend after a backend-specific failure for",
-            ) { runtime ->
+            ) { acquired ->
+                val runtime = acquired.runtime
+                AndroidLogAdapter.i(
+                    LOG_TAG,
+                    "Image request runtime acquired: requestId=$requestId cacheHit=${acquired.acquire.cacheHit} backend=${acquired.acquire.backend} loadMs=${acquired.acquire.modelLoadTimeMs}",
+                )
                 runtime.mutex.withLock {
+                    AndroidLogAdapter.i(
+                        LOG_TAG,
+                        "Image request runtime mutex acquired: requestId=$requestId backend=${acquired.acquire.backend}",
+                    )
                     withActiveModel(runtime.model) { model ->
-                        val easyCache = resolveEasyCache(model, params.easyCache)
-                        model.txt2img(
-                            GenerateParams(
-                                prompt = params.prompt,
-                                negative = params.negative,
-                                width = params.width,
-                                height = params.height,
-                                steps = params.steps,
-                                cfgScale = params.cfgScale,
-                                seed = params.seed,
-                                easyCacheParams = easyCache,
-                            ),
-                        ).also {
-                            lastGenerationMetrics = model.getLastGenerationMetrics()
+                        AndroidLogAdapter.i(
+                            LOG_TAG,
+                            "Image request active model entered: requestId=$requestId",
+                        )
+                        model.beginImageRequestTrace(requestId)
+                        model.traceImagePhase(
+                            ImageGenerationPhase.REQUESTED,
+                            "promptChars=${params.prompt.length} size=${params.width}x${params.height} steps=${params.steps}",
+                        )
+                        model.traceImagePhase(
+                            ImageGenerationPhase.RUNTIME_ACQUIRED,
+                            "cacheHit=${acquired.acquire.cacheHit} acquireMs=${acquired.acquire.acquireTimeMs} loadMs=${acquired.acquire.modelLoadTimeMs} backend=${acquired.acquire.backend.name}",
+                        )
+                        try {
+                            val easyCache = resolveEasyCache(model, params.easyCache)
+                            model.traceImagePhase(
+                                ImageGenerationPhase.MODEL_READY,
+                                "flash=${runtime.flashAttnEnabled} easyCache=${easyCache.enabled}",
+                            )
+                            model.traceImagePhase(
+                                ImageGenerationPhase.TXT2IMG_ENTER,
+                                "ImageClient dispatching to StableDiffusion.txt2img",
+                            )
+                            val generationStartNanos = System.nanoTime()
+                            val bitmap =
+                                model.txt2img(
+                                    GenerateParams(
+                                        prompt = params.prompt,
+                                        negative = params.negative,
+                                        width = params.width,
+                                        height = params.height,
+                                        steps = params.steps,
+                                        cfgScale = params.cfgScale,
+                                        seed = params.seed,
+                                        easyCacheParams = easyCache,
+                                    ),
+                                )
+                            val generateMs = elapsedMillis(generationStartNanos)
+                            val requestMetrics =
+                                ImageRequestMetrics(
+                                    runtimeAcquireMs = acquired.acquire.acquireTimeMs,
+                                    modelLoadMs = acquired.acquire.modelLoadTimeMs,
+                                    generateMs = generateMs,
+                                    cacheHit = acquired.acquire.cacheHit,
+                                    backend = acquired.acquire.backend.name,
+                                    flashAttentionEnabled = runtime.flashAttnEnabled,
+                                    easyCacheEnabled = easyCache.enabled,
+                                    width = params.width,
+                                    height = params.height,
+                                    steps = params.steps,
+                                )
+                            val baseMetrics =
+                                model.getLastGenerationMetrics()
+                                    ?: fallbackImageMetrics(
+                                        runtime = runtime,
+                                        params = params,
+                                        generateMs = generateMs,
+                                    )
+                            lastGenerationMetrics = baseMetrics.withImageRequestMetrics(requestMetrics)
+                            logImageRequestMetrics(acquired.acquire.keyPrefix, requestMetrics)
+                            bitmap
+                        } catch (cancelled: CancellationException) {
+                            lastGenerationMetrics = null
+                            model.traceImagePhase(
+                                ImageGenerationPhase.CANCELLED,
+                                "ImageClient observed cancellation",
+                                cancelled,
+                            )
+                            throw cancelled
+                        } catch (t: Throwable) {
+                            lastGenerationMetrics = null
+                            model.traceImagePhase(
+                                ImageGenerationPhase.FAILED,
+                                "ImageClient observed failure: ${t.message}",
+                                t,
+                            )
+                            throw t
+                        } finally {
+                            lastImageRequestTrace = model.getLastImageRequestTraceForTests()
+                            AndroidLogAdapter.i(
+                                LOG_TAG,
+                                "Image request active model exit: requestId=$requestId phases=${lastImageRequestTrace.size}",
+                            )
                         }
                     }
                 }
@@ -194,6 +287,8 @@ class ImageClient internal constructor(
 
     fun getLastGenerationMetrics(): GenerationMetrics? = lastGenerationMetrics
 
+    internal fun getLastImageRequestTraceForTests(): List<ImageGenerationTraceEvent> = lastImageRequestTrace
+
     private suspend fun generateVideoDirect(
         params: VideoGenerationRequest,
         onProgress: ((String, Int, Int) -> Unit)? = null,
@@ -203,9 +298,9 @@ class ImageClient internal constructor(
         return executeWithRuntimeRetry(
             request = request,
             retryMessage = "Retrying video generation on the next backend after a backend-specific failure for",
-        ) { runtime ->
-            runtime.mutex.withLock {
-                withActiveModel(runtime.model) { model ->
+        ) { acquired ->
+            acquired.runtime.mutex.withLock {
+                withActiveModel(acquired.runtime.model) { model ->
                     val easyCache = resolveEasyCache(model, params.easyCache)
                     model.txt2vid(
                         params =
@@ -250,9 +345,9 @@ class ImageClient internal constructor(
             executeWithRuntimeRetry(
                 request = conditioningRequest,
                 retryMessage = "Retrying sequential video text conditioning on the next backend after a backend-specific failure for",
-            ) { runtime ->
-                runtime.mutex.withLock {
-                    withActiveModel(runtime.model) { model ->
+            ) { acquired ->
+                acquired.runtime.mutex.withLock {
+                    withActiveModel(acquired.runtime.model) { model ->
                         onProgress?.invoke("Loading text encoder", 0, params.steps)
                         onProgress?.invoke("Precomputing prompt conditioning", 0, params.steps)
                         val cond =
@@ -282,9 +377,9 @@ class ImageClient internal constructor(
         return executeWithRuntimeRetry(
             request = diffusionRequest,
             retryMessage = "Retrying sequential video diffusion on the next backend after a backend-specific failure for",
-        ) { runtime ->
-            runtime.mutex.withLock {
-                withActiveModel(runtime.model) { model ->
+        ) { acquired ->
+            acquired.runtime.mutex.withLock {
+                withActiveModel(acquired.runtime.model) { model ->
                     onProgress?.invoke("Loading diffusion model", 0, params.steps)
                     val easyCache = resolveEasyCache(model, params.easyCache)
                     model.txt2VidWithPrecomputedCondition(
@@ -325,12 +420,20 @@ class ImageClient internal constructor(
     private fun resolveEasyCache(
         model: StableDiffusion,
         requested: EasyCacheParams,
-    ): EasyCacheParams =
-        if (model.isEasyCacheSupported()) {
-            requested.copy(enabled = true)
+    ): EasyCacheParams {
+        if (!requested.enabled) {
+            return requested.copy(enabled = false)
+        }
+        return if (model.isEasyCacheSupported()) {
+            requested
         } else {
+            AndroidLogAdapter.w(
+                LOG_TAG,
+                "EasyCache requested but unsupported for the current model; disabling it for this request",
+            )
             requested.copy(enabled = false)
         }
+    }
 
     override fun close() {
         cancelGeneration()
@@ -339,12 +442,6 @@ class ImageClient internal constructor(
     }
 
     private fun imageRuntimeRequest(params: ImageGenerationRequest): RuntimeRequest {
-        val flashAttn =
-            FlashAttentionHelper.shouldUseFlashAttention(
-                width = params.width,
-                height = params.height,
-                forceEnable = if (params.flashAttention) null else false,
-            )
         return RuntimeRequest(
             spec =
                 DiffusionRuntimeSpec(
@@ -354,14 +451,20 @@ class ImageClient internal constructor(
             options =
                 DiffusionLoadOptions(
                     subsystem = ComputeSubsystem.IMAGE,
-                    allowGpu = config.preferPerformanceMode,
+                    // Keep GPU backends eligible by default. preferPerformanceMode tunes
+                    // heuristics, but should not silently force CPU or CPU-offloaded weights.
+                    allowGpu = true,
                     nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                    offloadToCpu = !config.preferPerformanceMode,
+                    offloadToCpu = false,
                     keepClipOnCpu = false,
                     keepVaeOnCpu = false,
-                    flashAttn = flashAttn,
+                    flashAttn = params.flashAttention,
                     vaeDecodeOnly = true,
-                    sequentialLoad = if (params.forceSequentialLoad) true else null,
+                    // Image generation should stay on the direct path unless the caller
+                    // explicitly forces sequential loading. The generic diffusion heuristic
+                    // is tuned for larger video/text-encoder loads and can incorrectly
+                    // downgrade GPU-capable image generation into CPU-heavy mode.
+                    sequentialLoad = params.forceSequentialLoad,
                     preferPerformanceMode = config.preferPerformanceMode,
                     loraModelDir = params.loraModelDir,
                     loraApplyMode = params.loraApplyMode,
@@ -383,7 +486,7 @@ class ImageClient internal constructor(
             options =
                 DiffusionLoadOptions(
                     subsystem = ComputeSubsystem.VIDEO,
-                    allowGpu = config.preferPerformanceMode && !usingCustomTae,
+                    allowGpu = !usingCustomTae,
                     nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                     offloadToCpu = usingCustomTae || !config.preferPerformanceMode,
                     keepClipOnCpu = usingCustomTae || !config.preferPerformanceMode,
@@ -409,7 +512,7 @@ class ImageClient internal constructor(
             options =
                 DiffusionLoadOptions(
                     subsystem = ComputeSubsystem.VIDEO,
-                    allowGpu = config.preferPerformanceMode && !usingCustomTae,
+                    allowGpu = !usingCustomTae,
                     nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
                     offloadToCpu = true,
                     keepClipOnCpu = true,
@@ -433,7 +536,7 @@ class ImageClient internal constructor(
             options =
                 DiffusionLoadOptions(
                     subsystem = ComputeSubsystem.VIDEO,
-                    allowGpu = config.preferPerformanceMode && !usingCustomTae,
+                    allowGpu = !usingCustomTae,
                     nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                     offloadToCpu = true,
                     keepClipOnCpu = true,
@@ -451,12 +554,21 @@ class ImageClient internal constructor(
     private suspend fun <T> executeWithRuntimeRetry(
         request: RuntimeRequest,
         retryMessage: String,
-        execute: suspend (ManagedDiffusionModel) -> T,
+        execute: suspend (AcquiredDiffusionRuntime) -> T,
     ): T {
         while (true) {
-            val runtime = runtimePool.acquire(request.spec, request.options)
+            AndroidLogAdapter.i(
+                LOG_TAG,
+                "Runtime acquire attempt: role=${request.spec.role} model=${request.spec.model.cacheKey}",
+            )
+            val acquire = runtimePool.acquireDetailed(request.spec, request.options)
+            val runtime = acquire.runtime
+            AndroidLogAdapter.i(
+                LOG_TAG,
+                "Runtime acquire completed: role=${request.spec.role} backend=${acquire.backend} cacheHit=${acquire.cacheHit} loadMs=${acquire.modelLoadTimeMs}",
+            )
             try {
-                return execute(runtime)
+                return execute(AcquiredDiffusionRuntime(runtime, acquire))
             } catch (error: Throwable) {
                 val blacklisted =
                     runtimePool.recordBackendFailureIfNeeded(
@@ -473,17 +585,60 @@ class ImageClient internal constructor(
         }
     }
 
+    private fun fallbackImageMetrics(
+        runtime: ManagedDiffusionModel,
+        params: ImageGenerationRequest,
+        generateMs: Long,
+    ): GenerationMetrics {
+        val totalSeconds = generateMs / 1000f
+        return GenerationMetrics(
+            totalTimeSeconds = totalSeconds,
+            framesPerSecond = if (totalSeconds > 0f) 1f / totalSeconds else 0f,
+            timePerStep = if (params.steps > 0) totalSeconds / params.steps else 0f,
+            peakMemoryUsageMb = 0L,
+            vulkanEnabled = runtime.backend == ComputeBackend.VULKAN,
+            frameConversionTimeSeconds = 0f,
+        )
+    }
+
+    private fun logImageRequestMetrics(
+        cacheKeyPrefix: String,
+        metrics: ImageRequestMetrics,
+    ) {
+        AndroidLogAdapter.i(
+            LOG_TAG,
+            "Image request metrics: cacheHit=${metrics.cacheHit}, loadMs=${metrics.modelLoadMs}, acquireMs=${metrics.runtimeAcquireMs}, " +
+                "generateMs=${metrics.generateMs}, totalMs=${metrics.totalWallTimeMs}, flash=${metrics.flashAttentionEnabled}, " +
+                "easyCache=${metrics.easyCacheEnabled}, size=${metrics.width}x${metrics.height}, steps=${metrics.steps}",
+        )
+        AndroidLogAdapter.d(
+            LOG_TAG,
+            "Image runtime debug: key='$cacheKeyPrefix', backend=${metrics.backend}",
+        )
+    }
+
+    private fun elapsedMillis(startNanos: Long): Long =
+        ((System.nanoTime() - startNanos) / 1_000_000L).coerceAtLeast(0L)
+
+    private data class AcquiredDiffusionRuntime(
+        val runtime: ManagedDiffusionModel,
+        val acquire: io.aatricks.llmedge.core.runtime.RuntimeAcquireResult<ManagedDiffusionModel>,
+    )
+
     private suspend fun <T> withActiveModel(
         model: StableDiffusion,
         execute: suspend (StableDiffusion) -> T,
     ): T {
         activeModel = model
+        AndroidLogAdapter.i(LOG_TAG, "withActiveModel enter: handle=${System.identityHashCode(model)}")
         return try {
             execute(model)
         } finally {
+            model.clearImageRequestTrace()
             if (activeModel === model) {
                 activeModel = null
             }
+            AndroidLogAdapter.i(LOG_TAG, "withActiveModel exit: handle=${System.identityHashCode(model)}")
         }
     }
 }

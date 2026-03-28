@@ -114,8 +114,18 @@ class ModelCache<T : AutoCloseable>(
         val toClose = mutableListOf<T>()
         lock.write {
             val resolvedSizeBytes = sizeProvider?.invoke()?.coerceAtLeast(0L) ?: sizeBytes
-            while (shouldEvict(resolvedSizeBytes)) {
-                evictLRULocked(toClose)
+            // Always allow the first insert. Otherwise a large model can get stuck in an
+            // impossible eviction loop when the cache is empty, and on Android this also keeps
+            // runtime acquisition off the live-memory binder path for the cold-load case.
+            if (cache.isEmpty()) {
+                logOversizedInsertIfNeeded(key, resolvedSizeBytes)
+            } else {
+                while (cache.isNotEmpty() && shouldEvict(resolvedSizeBytes)) {
+                    evictLRULocked(toClose)
+                }
+                if (cache.isEmpty() && shouldEvict(resolvedSizeBytes)) {
+                    logOversizedInsertIfNeeded(key, resolvedSizeBytes)
+                }
             }
 
             cache[key]?.let { oldEntry ->
@@ -163,6 +173,20 @@ class ModelCache<T : AutoCloseable>(
         } ?: maxMemoryMB
 
         return newMemoryMB > effectiveMax
+    }
+
+    private fun logOversizedInsertIfNeeded(
+        key: String,
+        resolvedSizeBytes: Long,
+    ) {
+        val configuredLimitBytes = maxMemoryMB * 1024L * 1024L
+        if (resolvedSizeBytes > configuredLimitBytes) {
+            AndroidLogAdapter.w(
+                TAG,
+                "Caching '$key' even though it exceeds the configured cache budget " +
+                    "(${resolvedSizeBytes / 1024 / 1024}MB > $maxMemoryMB MB) because the cache is empty",
+            )
+        }
     }
 
     private fun refreshEntrySize(entry: CacheEntry<T>) {

@@ -3,6 +3,7 @@ package io.aatricks.llmedge
 import android.content.Context
 import android.graphics.Bitmap
 import kotlinx.coroutines.runBlocking
+import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -26,6 +27,11 @@ class WanCatGifTask {
         val vaePath = File(modelDir, "wan_2.1_vae.safetensors").absolutePath
         val t5Path = File(modelDir, "umt5-xxl-encoder-Q3_K_S.gguf").absolutePath
         val taehvPath = File(modelDir, "taew2_1.safetensors").absolutePath
+
+        Assume.assumeTrue("WAN model file is missing", File(modelPath).exists())
+        Assume.assumeTrue("WAN VAE file is missing", File(vaePath).exists())
+        Assume.assumeTrue("WAN T5 file is missing", File(t5Path).exists())
+        Assume.assumeTrue("WAN TAEHV file is missing", File(taehvPath).exists())
 
         val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
         val prompt = "a cute cat, high quality, 4k"

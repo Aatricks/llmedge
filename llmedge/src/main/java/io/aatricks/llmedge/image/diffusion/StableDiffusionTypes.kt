@@ -139,15 +139,15 @@ data class VideoGenerateParams(
 
     fun validate(): Result<Unit> = runCatching {
         require(prompt.isNotBlank()) { "Prompt cannot be blank" }
-        require(width % 64 == 0 && width in 128..960) {
-            "Width must be a multiple of 64 in range 128..960"
+        require(width % 64 == 0 && width in 256..960) {
+            "Width must be a multiple of 64 in range 256..960"
         }
-        require(height % 64 == 0 && height in 128..960) {
-            "Height must be a multiple of 64 in range 128..960"
+        require(height % 64 == 0 && height in 256..960) {
+            "Height must be a multiple of 64 in range 256..960"
         }
         // Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
         // So 1-4 -> 1 frame, 5-8 -> 5 frames, 9-12 -> 9 frames, etc.
-        require(videoFrames in 5..64) {
+        require(videoFrames in 4..64) {
             "Frame count must be between 5 and 64. Note: Wan model rounds to (n-1)/4*4+1, so use 5+ for multiple frames"
         }
         require(steps in 1..50) { "Steps must be between 1 and 50" }
@@ -199,6 +199,9 @@ data class GenerationMetrics(
         val vulkanEnabled: Boolean,
         val frameConversionTimeSeconds: Float = 0f,
 ) {
+    var imageRequestMetrics: ImageRequestMetrics? = null
+        internal set
+
     val averageFrameTime: Float
         get() = if (framesPerSecond > 0f) 1f / framesPerSecond else 0f
 
@@ -217,6 +220,25 @@ data class GenerationMetrics(
             Vulkan: ${if (vulkanEnabled) "enabled" else "disabled"}
             Frame conversion: ${String.format("%.2f", frameConversionTimeSeconds)}s
         """.trimIndent()
+
+    fun withImageRequestMetrics(metrics: ImageRequestMetrics): GenerationMetrics =
+        copy().also { it.imageRequestMetrics = metrics }
+}
+
+data class ImageRequestMetrics(
+    val runtimeAcquireMs: Long,
+    val modelLoadMs: Long,
+    val generateMs: Long,
+    val cacheHit: Boolean,
+    val backend: String,
+    val flashAttentionEnabled: Boolean,
+    val easyCacheEnabled: Boolean,
+    val width: Int,
+    val height: Int,
+    val steps: Int,
+) {
+    val totalWallTimeMs: Long
+        get() = runtimeAcquireMs + generateMs
 }
 
 fun interface VideoProgressCallback {

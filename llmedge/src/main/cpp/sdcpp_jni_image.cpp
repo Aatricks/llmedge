@@ -1,6 +1,7 @@
 #include "sdcpp_jni_shared.h"
 
 #include <cstddef>
+#include <chrono>
 #include <cstdlib>
 #include <stdexcept>
 
@@ -49,6 +50,8 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
                            static_cast<float>(jEasyCacheEndPercent));
 
     sd_image_t* out = nullptr;
+    const auto t0 = std::chrono::steady_clock::now();
+    ALOGI("nativeTxt2Img: generate_image start width=%d height=%d steps=%d promptChars=%zu", width, height, steps, prompt ? strlen(prompt) : 0);
     try {
         out = generate_image(handle->ctx, &gen);
     } catch (const std::exception& e) {
@@ -65,6 +68,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
         ALOGE("generate_image failed");
         return nullptr;
     }
+
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0
+    ).count();
+    ALOGI("nativeTxt2Img: generate_image completed in %lldms", static_cast<long long>(elapsed_ms));
 
     const size_t byteCount = static_cast<size_t>(out[0].width) * out[0].height * out[0].channel;
     jbyteArray jbytes = env->NewByteArray(static_cast<jsize>(byteCount));
@@ -126,6 +134,8 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
                            static_cast<float>(jEasyCacheEndPercent));
 
     sd_image_t* out = nullptr;
+    const auto t0 = std::chrono::steady_clock::now();
+    ALOGI("nativeTxt2ImgArgb: generate_image start width=%d height=%d steps=%d promptChars=%zu", width, height, steps, prompt ? strlen(prompt) : 0);
     try {
         out = generate_image(handle->ctx, &gen);
     } catch (const std::exception& e) {
@@ -142,6 +152,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
         ALOGE("generate_image failed");
         return nullptr;
     }
+
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0
+    ).count();
+    ALOGI("nativeTxt2ImgArgb: generate_image completed in %lldms", static_cast<long long>(elapsed_ms));
 
     jintArray result = rgb_to_argb_int_array(env, out[0].data, out[0].width, out[0].height, out[0].channel);
 

@@ -21,7 +21,10 @@ class InferenceFailedException(
     operation: String,
     detail: String,
     cause: Throwable? = null,
-) : LLMEdgeException("$operation failed: $detail", cause)
+) : LLMEdgeException(
+    if (detail.isBlank()) "$operation failed" else "$operation failed: $detail",
+    cause,
+)
 
 class InvalidModelStateException(
     detail: String,

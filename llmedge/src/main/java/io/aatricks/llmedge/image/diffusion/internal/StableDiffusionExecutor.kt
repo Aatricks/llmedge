@@ -1,8 +1,10 @@
 package io.aatricks.llmedge.image.diffusion.internal
 
 import android.graphics.Bitmap
+import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.image.diffusion.ImageGenerationPhase
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
@@ -11,10 +13,13 @@ import io.aatricks.llmedge.image.diffusion.StableDiffusionOutputSupport
 import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 
 internal object StableDiffusionExecutor {
+    private const val LOG_TAG = "StableDiffusionExecutor"
+
     suspend fun txt2vid(
         instance: StableDiffusion,
         params: VideoGenerateParams,
@@ -46,7 +51,7 @@ internal object StableDiffusionExecutor {
         }
 
     fun setProgressCallback(instance: StableDiffusion, callback: VideoProgressCallback?) {
-        instance.state.cachedProgressCallback = callback
+        instance.updateCachedProgressCallback(callback)
         if (!StableDiffusion.supportIsNativeLibraryAvailable()) {
             return
         }
@@ -54,92 +59,243 @@ internal object StableDiffusionExecutor {
     }
 
     fun cancelGeneration(instance: StableDiffusion) {
-        instance.state.cancellationRequested.set(true)
+        if (instance.state.closed.get()) {
+            return
+        }
+        if (!instance.state.cancellationRequested.compareAndSet(false, true)) {
+            return
+        }
         if (!StableDiffusion.supportIsNativeLibraryAvailable()) {
             return
         }
-        instance.bridge.cancelGeneration(instance.state.handle)
+        runCatching {
+            instance.bridge.cancelGeneration(instance.state.handle)
+        }.onFailure { error ->
+            if (!instance.state.closed.get()) {
+                AndroidLogAdapter.w(
+                    LOG_TAG,
+                    "cancelGeneration bridge call failed: ${error.message}",
+                )
+            }
+        }
     }
 
     suspend fun txt2img(instance: StableDiffusion, params: GenerateParams): Bitmap =
-        withContext(StableDiffusion.diffusionDispatcher) {
-            val argbPixels =
+        run {
+            val dispatchQueuedAtNanos = System.nanoTime()
+            withContext(Dispatchers.IO) {
+                val dispatchDelayMs = ((System.nanoTime() - dispatchQueuedAtNanos) / 1_000_000L).coerceAtLeast(0L)
+                instance.traceImagePhase(
+                    ImageGenerationPhase.EXECUTOR_ENTER,
+                    "dispatchDelayMs=$dispatchDelayMs width=${params.width} height=${params.height} steps=${params.steps}",
+                )
+                AndroidLogAdapter.i(
+                    LOG_TAG,
+                    "txt2img executor start dispatchDelayMs=$dispatchDelayMs width=${params.width} height=${params.height} steps=${params.steps}",
+                )
+                val startNanos = System.nanoTime()
+                val memoryBefore = instance.readNativeMemoryMbForExecution()
+
                 try {
-                    instance.state.generationMutex.withLock {
-                        instance.bridge.txt2imgArgb(
-                            instance.state.handle,
-                            params.prompt,
-                            params.negative,
-                            params.width,
-                            params.height,
-                            params.steps,
-                            params.cfgScale,
-                            params.seed,
-                            params.vaeTiling,
-                            params.easyCacheParams.enabled,
-                            params.easyCacheParams.reuseThreshold,
-                            params.easyCacheParams.startPercent,
-                            params.easyCacheParams.endPercent,
+                    val argbPixels =
+                        try {
+                            AndroidLogAdapter.i(
+                                LOG_TAG,
+                                "txt2img attempting native ARGB path",
+                            )
+                            instance.traceImagePhase(
+                                ImageGenerationPhase.WAITING_GENERATION_MUTEX,
+                                "about to acquire generation mutex for ARGB path",
+                            )
+                            instance.state.generationMutex.withLock {
+                                instance.state.cancellationRequested.set(false)
+                                AndroidLogAdapter.i(
+                                    LOG_TAG,
+                                    "txt2img acquired generation mutex for native ARGB path",
+                                )
+                                instance.traceImagePhase(
+                                    ImageGenerationPhase.WAITING_GENERATION_MUTEX,
+                                    "generation mutex acquired for ARGB path",
+                                )
+                                instance.traceImagePhase(
+                                    ImageGenerationPhase.JNI_ARGB_ENTER,
+                                    "calling native ARGB image generation",
+                                )
+                                instance.bridge.txt2imgArgb(
+                                    instance.state.handle,
+                                    params.prompt,
+                                    params.negative,
+                                    params.width,
+                                    params.height,
+                                    params.steps,
+                                    params.cfgScale,
+                                    params.seed,
+                                    params.vaeTiling,
+                                    params.easyCacheParams.enabled,
+                                    params.easyCacheParams.reuseThreshold,
+                                    params.easyCacheParams.startPercent,
+                                    params.easyCacheParams.endPercent,
+                                )
+                            }
+                        } catch (_: UnsatisfiedLinkError) {
+                            AndroidLogAdapter.w(
+                                LOG_TAG,
+                                "txt2img ARGB JNI binding unavailable; falling back to RGB byte path",
+                            )
+                            null
+                        } catch (t: Throwable) {
+                            if (instance.state.cancellationRequested.get()) {
+                                instance.state.cancellationRequested.set(false)
+                                throw CancellationException("Image generation cancelled", t)
+                            }
+                            throw t
+                        } finally {
+                            instance.state.cancellationRequested.set(false)
+                        }
+
+                    if (argbPixels != null) {
+                        val conversionStart = System.nanoTime()
+                        val bitmap =
+                            Bitmap.createBitmap(
+                                argbPixels,
+                                0,
+                                params.width,
+                                params.width,
+                                params.height,
+                                Bitmap.Config.ARGB_8888,
+                            )
+                        val conversionSeconds = (System.nanoTime() - conversionStart) / 1_000_000_000f
+                        val totalSeconds = (System.nanoTime() - startNanos) / 1_000_000_000f
+                        val memoryAfter = instance.readNativeMemoryMbForExecution()
+                        instance.state.lastGenerationMetrics =
+                            GenerationMetrics(
+                                totalTimeSeconds = totalSeconds,
+                                framesPerSecond = if (totalSeconds > 0f) 1f / totalSeconds else 0f,
+                                timePerStep = if (params.steps > 0) totalSeconds / params.steps else 0f,
+                                peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
+                                vulkanEnabled = instance.state.vulkanEnabledForMetrics,
+                                frameConversionTimeSeconds = conversionSeconds,
+                            )
+                        instance.traceImagePhase(
+                            ImageGenerationPhase.COMPLETED,
+                            "ARGB path completed totalMs=${((System.nanoTime() - startNanos) / 1_000_000L).coerceAtLeast(0L)}",
+                        )
+                        return@withContext bitmap
+                    }
+
+                    AndroidLogAdapter.i(
+                        LOG_TAG,
+                        "txt2img attempting native RGB path",
+                    )
+                    instance.traceImagePhase(
+                        ImageGenerationPhase.WAITING_GENERATION_MUTEX,
+                        "about to acquire generation mutex for RGB path",
+                    )
+                    val bytes =
+                        try {
+                            instance.state.generationMutex.withLock {
+                                instance.state.cancellationRequested.set(false)
+                                AndroidLogAdapter.i(
+                                    LOG_TAG,
+                                    "txt2img acquired generation mutex for native RGB path",
+                                )
+                                instance.traceImagePhase(
+                                    ImageGenerationPhase.WAITING_GENERATION_MUTEX,
+                                    "generation mutex acquired for RGB path",
+                                )
+                                instance.traceImagePhase(
+                                    ImageGenerationPhase.JNI_RGB_ENTER,
+                                    "calling native RGB image generation",
+                                )
+                                instance.bridge.txt2img(
+                                    instance.state.handle,
+                                    params.prompt,
+                                    params.negative,
+                                    params.width,
+                                    params.height,
+                                    params.steps,
+                                    params.cfgScale,
+                                    params.seed,
+                                    params.vaeTiling,
+                                    params.easyCacheParams.enabled,
+                                    params.easyCacheParams.reuseThreshold,
+                                    params.easyCacheParams.startPercent,
+                                    params.easyCacheParams.endPercent,
+                                ) ?: throw InferenceFailedException(
+                                    operation = "Stable Diffusion image generation",
+                                    detail = "The native runtime reported a generation failure.",
+                                )
+                            }
+                        } catch (t: Throwable) {
+                            if (instance.state.cancellationRequested.get()) {
+                                instance.state.cancellationRequested.set(false)
+                                throw CancellationException("Image generation cancelled", t)
+                            }
+                            throw t
+                        } finally {
+                            instance.state.cancellationRequested.set(false)
+                        }
+
+                    val expectedMin = params.width * params.height * 3
+                    if (bytes.size < expectedMin) {
+                        StableDiffusion.supportLogWarning(
+                            "txt2img returned short RGB buffer: size=${bytes.size}, expectedAtLeast=$expectedMin (w=${params.width}, h=${params.height})",
                         )
                     }
-                } catch (_: UnsatisfiedLinkError) {
-                    null
-                }
-
-            if (argbPixels != null) {
-                return@withContext Bitmap.createBitmap(
-                    argbPixels,
-                    0,
-                    params.width,
-                    params.width,
-                    params.height,
-                    Bitmap.Config.ARGB_8888,
-                )
-            }
-
-            val bytes =
-                instance.state.generationMutex.withLock {
-                    instance.bridge.txt2img(
-                        instance.state.handle,
-                        params.prompt,
-                        params.negative,
-                        params.width,
-                        params.height,
-                        params.steps,
-                        params.cfgScale,
-                        params.seed,
-                        params.vaeTiling,
-                        params.easyCacheParams.enabled,
-                        params.easyCacheParams.reuseThreshold,
-                        params.easyCacheParams.startPercent,
-                        params.easyCacheParams.endPercent,
-                    ) ?: throw InferenceFailedException(
-                        operation = "Stable Diffusion image generation",
-                        detail = "The native runtime reported a generation failure.",
+                    val pixelCount = params.width * params.height
+                    val pixels =
+                        instance.state.txt2imgPixelBuffer.let { buf ->
+                            if (buf != null && buf.size >= pixelCount) {
+                                buf
+                            } else {
+                                IntArray(pixelCount).also { instance.state.txt2imgPixelBuffer = it }
+                            }
+                        }
+                    val conversionStart = System.nanoTime()
+                    val bitmap =
+                        io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(
+                            bytes,
+                            params.width,
+                            params.height,
+                            pixels,
+                        )
+                    val conversionSeconds = (System.nanoTime() - conversionStart) / 1_000_000_000f
+                    val totalSeconds = (System.nanoTime() - startNanos) / 1_000_000_000f
+                    val memoryAfter = instance.readNativeMemoryMbForExecution()
+                    instance.state.lastGenerationMetrics =
+                        GenerationMetrics(
+                            totalTimeSeconds = totalSeconds,
+                            framesPerSecond = if (totalSeconds > 0f) 1f / totalSeconds else 0f,
+                            timePerStep = if (params.steps > 0) totalSeconds / params.steps else 0f,
+                            peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
+                            vulkanEnabled = instance.state.vulkanEnabledForMetrics,
+                            frameConversionTimeSeconds = conversionSeconds,
+                        )
+                    instance.traceImagePhase(
+                        ImageGenerationPhase.COMPLETED,
+                        "RGB path completed totalMs=${((System.nanoTime() - startNanos) / 1_000_000L).coerceAtLeast(0L)}",
                     )
+                    bitmap
+                } catch (cancelled: CancellationException) {
+                    instance.state.lastGenerationMetrics = null
+                    instance.traceImagePhase(
+                        ImageGenerationPhase.CANCELLED,
+                        "Image generation cancelled in executor",
+                        cancelled,
+                    )
+                    throw cancelled
+                } catch (t: Throwable) {
+                    instance.state.lastGenerationMetrics = null
+                    instance.traceImagePhase(
+                        ImageGenerationPhase.FAILED,
+                        "Image generation failed in executor: ${t.message}",
+                        t,
+                    )
+                    throw t
+                } finally {
+                    instance.state.cancellationRequested.set(false)
                 }
-
-            val expectedMin = params.width * params.height * 3
-            if (bytes.size < expectedMin) {
-                StableDiffusion.supportLogWarning(
-                    "txt2img returned short RGB buffer: size=${bytes.size}, expectedAtLeast=$expectedMin (w=${params.width}, h=${params.height})",
-                )
             }
-            val pixelCount = params.width * params.height
-            val pixels =
-                instance.state.txt2imgPixelBuffer.let { buf ->
-                    if (buf != null && buf.size >= pixelCount) {
-                        buf
-                    } else {
-                        IntArray(pixelCount).also { instance.state.txt2imgPixelBuffer = it }
-                    }
-                }
-            io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(
-                bytes,
-                params.width,
-                params.height,
-                pixels,
-            )
         }
 
     fun isEasyCacheSupported(instance: StableDiffusion): Boolean {
@@ -264,8 +420,8 @@ internal object StableDiffusionExecutor {
                             instance.state.cancellationRequested.set(false)
                             generateFrames(initBytes, initWidth, initHeight)
                                 ?: throw InferenceFailedException(
-                                    operation = "Stable Diffusion video generation",
-                                    detail = "The native runtime reported a generation failure.",
+                                    operation = "Video generation",
+                                    detail = "",
                                 )
                         }
                     } catch (t: Throwable) {
@@ -280,8 +436,8 @@ internal object StableDiffusionExecutor {
 
                 if (frameBytes.isEmpty()) {
                     throw InferenceFailedException(
-                        operation = "Stable Diffusion video generation",
-                        detail = "The native runtime returned no frames.",
+                        operation = "Video generation",
+                        detail = "",
                     )
                 }
 

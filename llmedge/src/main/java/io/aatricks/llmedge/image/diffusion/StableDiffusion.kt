@@ -30,6 +30,7 @@ import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionExecutor
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionLoader
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -40,6 +41,9 @@ import kotlinx.coroutines.withContext
 class StableDiffusion internal constructor(private val handle: Long) : AutoCloseable {
     private val runtimeState = StableDiffusionState(handle)
     private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider.create(this)
+    // Legacy reflective tests still reach into these fields directly, so keep thin mirrors.
+    private val cancellationRequested = runtimeState.cancellationRequested
+    private var cachedProgressCallback: VideoProgressCallback? = null
 
     internal interface NativeBridge {
         fun txt2img(
@@ -304,15 +308,36 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
         private const val LOG_TAG = "StableDiffusion"
         private const val BYTES_IN_MB = 1024L * 1024L
         private const val MEMORY_PRESSURE_THRESHOLD = 0.85f
+        private const val DIFFUSION_DISPATCHER_THREADS = 2
 
         /**
-         * Dedicated single-thread dispatcher for diffusion workloads. Keeps heavy generation
-         * tasks off the shared IO pool so they don't starve network/disk operations.
+         * Dedicated dispatcher for diffusion workloads. Use a small fixed pool instead of a
+         * single thread so one wedged native generation cannot block every later image/video
+         * request in the process. Per-model generation is still serialized separately by mutexes.
          */
+        private val diffusionWorkerIds = AtomicInteger(0)
+
         val diffusionDispatcher: CoroutineDispatcher =
-            Executors.newSingleThreadExecutor { r ->
-                Thread(r, "llmedge-diffusion").apply { isDaemon = true }
+            Executors.newFixedThreadPool(DIFFUSION_DISPATCHER_THREADS) {
+                val workerId = diffusionWorkerIds.incrementAndGet()
+                Thread(it, "llmedge-diffusion-$workerId").apply { isDaemon = true }
             }.asCoroutineDispatcher()
+
+        @JvmStatic
+        private fun computeEffectiveSequentialLoad(
+            context: Context,
+            resolvedModelPath: String,
+            sequentialLoad: Boolean?,
+            preferPerformanceMode: Boolean,
+            activityManagerOverride: android.app.ActivityManager?,
+        ): Pair<Boolean, Long> =
+            StableDiffusionLoadHeuristics.computeEffectiveSequentialLoad(
+                context = context,
+                resolvedModelPath = resolvedModelPath,
+                sequentialLoad = sequentialLoad,
+                preferPerformanceMode = preferPerformanceMode,
+                activityManagerOverride = activityManagerOverride,
+            )
 
         private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
 
@@ -1249,6 +1274,44 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
     internal val state: StableDiffusionState
         get() = runtimeState
 
+    internal fun beginImageRequestTrace(requestId: Long) {
+        runtimeState.beginImageTrace(requestId)
+    }
+
+    internal fun traceImagePhase(
+        phase: ImageGenerationPhase,
+        detail: String? = null,
+        throwable: Throwable? = null,
+    ) {
+        if (phase.isTerminal() && runtimeState.currentImagePhase?.isTerminal() == true) {
+            return
+        }
+        val requestId = runtimeState.appendImageTrace(phase, detail) ?: return
+        val message =
+            buildString {
+                append("requestId=")
+                append(requestId)
+                append(", phase=")
+                append(phase.name)
+                if (!detail.isNullOrBlank()) {
+                    append(", detail=")
+                    append(detail)
+                }
+            }
+        if (throwable == null) {
+            AndroidLogAdapter.i("StableDiffusionTrace", message)
+        } else {
+            AndroidLogAdapter.e("StableDiffusionTrace", message, throwable)
+        }
+    }
+
+    internal fun clearImageRequestTrace() {
+        runtimeState.clearImageTraceState()
+    }
+
+    internal fun getLastImageRequestTraceForTests(): List<ImageGenerationTraceEvent> =
+        runtimeState.snapshotLastImageTrace()
+
     internal fun bitmapToRgbBytesForExecution(bitmap: Bitmap): Triple<ByteArray, Int, Int> =
         bitmapToRgbBytes(bitmap)
 
@@ -1269,8 +1332,18 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
     internal fun nativeIsEasyCacheSupportedForExecution(): Boolean =
         nativeIsEasyCacheSupported(handle)
 
-    suspend fun txt2img(params: GenerateParams): Bitmap =
-            StableDiffusionExecutor.txt2img(this, params)
+    internal fun updateCachedProgressCallback(callback: VideoProgressCallback?) {
+        cachedProgressCallback = callback
+        runtimeState.cachedProgressCallback = callback
+    }
+
+    suspend fun txt2img(params: GenerateParams): Bitmap {
+        traceImagePhase(
+            ImageGenerationPhase.TXT2IMG_ENTER,
+            "StableDiffusion.txt2img entered width=${params.width} height=${params.height} steps=${params.steps}",
+        )
+        return StableDiffusionExecutor.txt2img(this, params)
+    }
 
     fun isEasyCacheSupported(): Boolean {
         return StableDiffusionExecutor.isEasyCacheSupported(this)
@@ -1278,20 +1351,27 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
 
     override fun close() {
         // T096: Proper cleanup - cancel any ongoing generation, destroy native context, reset state
-        if (runtimeState.cancellationRequested.get()) {
-            runtimeState.cancellationRequested.set(false)
+        if (runtimeState.closed.get()) {
+            return
+        }
+        runCatching { cancelGeneration() }
+        if (!runtimeState.closed.compareAndSet(false, true)) {
+            return
         }
         // If tests have overridden the native bridge, the JNI library may not be loaded
         // so avoid calling nativeDestroy to prevent UnsatisfiedLinkError. See override
         // helpers in the companion object.
-        if (!Companion.nativeBridgeOverriddenForTests && isNativeLibraryAvailable) {
+        if (!Companion.nativeBridgeOverriddenForTests && isNativeLibraryAvailable && handle != 0L) {
             nativeDestroy(handle)
         }
+        runtimeState.cancellationRequested.set(false)
         runtimeState.modelMetadata = null
         runtimeState.easyCacheSupported = null
         runtimeState.lastGenerationMetrics = null
         runtimeState.cachedProgressCallback = null
+        cachedProgressCallback = null
         runtimeState.txt2imgPixelBuffer = null
+        runtimeState.clearImageTraceState()
     }
 
     private external fun nativeDestroy(handle: Long)
@@ -1415,6 +1495,9 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
         return StableDiffusionOutputSupport.bitmapToRgbBytes(bitmap, runtimeState.rgbBytesThreadLocal)
     }
 
+    private fun rgbBytesToBitmap(rgb: ByteArray, width: Int, height: Int): Bitmap =
+        io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(rgb, width, height)
+
     private fun convertFramesToBitmaps(
             frameBytesRgb24: Array<ByteArray>,
             width: Int,
@@ -1429,6 +1512,9 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
             },
         )
     }
+
+    private fun determineBatchSize(frameCount: Int): Int =
+        StableDiffusionOutputSupport.determineBatchSizeForTests(frameCount)
 
     /**
      * Wrapper that calls the native PrecomputeCondition API and converts to a Kotlin type.

@@ -4,9 +4,11 @@ import io.aatricks.llmedge.runtime.BackendRuntimePolicy
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.runtime.ModelCache
+import java.lang.Thread.sleep
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
@@ -66,6 +68,25 @@ class RuntimePoolTest {
 
         assertNotSame(cached, detached)
         assertEquals(2, loadCalls)
+    }
+
+    @Test
+    fun `acquireDetailed reports cold then warm runtime`() = runTest {
+        val pool =
+            createPool { _, _ ->
+                sleep(5)
+                FakeRuntime(ComputeBackend.CPU)
+            }
+
+        val cold = pool.acquireDetailed("model", FakeOptions(allowGpu = false))
+        val warm = pool.acquireDetailed("model", FakeOptions(allowGpu = false))
+
+        assertFalse(cold.cacheHit)
+        assertTrue(cold.modelLoadTimeMs > 0L)
+        assertTrue(cold.acquireTimeMs >= cold.modelLoadTimeMs)
+        assertTrue(warm.cacheHit)
+        assertEquals(0L, warm.modelLoadTimeMs)
+        assertSame(cold.runtime, warm.runtime)
     }
 
     @Test

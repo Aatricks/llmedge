@@ -20,9 +20,11 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockkObject
+import java.lang.Thread.sleep
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -252,6 +254,122 @@ class ImageClientTest {
             client.close()
             edgeScope.close()
             StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `image generation keeps gpu backend eligible when preferPerformanceMode is false`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val modelFile =
+            java.io.File.createTempFile("image-model", ".safetensors", baseDir).apply {
+                writeBytes(byteArrayOf(0x01))
+            }
+
+        mockkObject(LLMEdge.Companion)
+        every { LLMEdge.isVulkanAvailable() } returns true
+        every { StableDiffusion.isOpenClAvailable() } returns false
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray = ByteArray(width * height * 3) { 0x33 }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray> =
+                    Array(videoFrames) { ByteArray(width * height * 3) { 0x33 } }
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        val loadBackends = mutableListOf<ComputeBackend>()
+        val offloadFlags = mutableListOf<Boolean>()
+        val sequentialFlags = mutableListOf<Boolean?>()
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            loadBackends += callArgs[20] as ComputeBackend
+            offloadFlags += callArgs[8] as Boolean
+            sequentialFlags += callArgs[13] as Boolean?
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(preferPerformanceMode = false),
+                resolver = DefaultModelResolver(),
+            )
+
+        try {
+            val bitmap =
+                client.generate(
+                    ImageGenerationRequest(
+                        prompt = "test image",
+                        width = 256,
+                        height = 256,
+                        model = ModelSpec.localFile(modelFile),
+                    ),
+                )
+
+            assertEquals(listOf(ComputeBackend.VULKAN), loadBackends)
+            assertEquals(listOf(false), offloadFlags)
+            assertEquals(listOf(false), sequentialFlags)
+            assertEquals(256, bitmap.width)
+            assertEquals(256, bitmap.height)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+            try {
+                io.mockk.unmockkObject(LLMEdge.Companion)
+            } catch (_: Throwable) {
+            }
         }
     }
 
@@ -538,7 +656,7 @@ class ImageClientTest {
     }
 
     @Test
-    fun `image generation auto-enables easycache for supported models`() = runTest {
+    fun `image generation keeps easycache disabled unless explicitly requested`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val modelFile = java.io.File.createTempFile("flux-model", ".gguf", context.filesDir).apply { writeBytes(byteArrayOf(0x01)) }
         val easyCacheFlags = mutableListOf<Boolean>()
@@ -643,7 +761,7 @@ class ImageClientTest {
 
             assertEquals(64, bitmap.width)
             assertEquals(64, bitmap.height)
-            assertEquals(listOf(true), easyCacheFlags)
+            assertEquals(listOf(false), easyCacheFlags)
         } finally {
             client.close()
             edgeScope.close()
@@ -652,7 +770,7 @@ class ImageClientTest {
     }
 
     @Test
-    fun `image generation reuses cached runtime across requests`() = runTest {
+    fun `image generation reuses cached runtime across requests and reports warm metrics`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val modelFile = java.io.File.createTempFile("cached-image-model", ".gguf", context.filesDir).apply { writeBytes(byteArrayOf(0x01)) }
 
@@ -708,6 +826,7 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
             )
         } coAnswers {
+            sleep(5)
             val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
             constructor.isAccessible = true
             constructor.newInstance(1L)
@@ -723,6 +842,7 @@ class ImageClientTest {
             )
 
         try {
+            val metrics = mutableListOf<io.aatricks.llmedge.image.diffusion.ImageRequestMetrics>()
             repeat(2) {
                 val bitmap =
                     client.generate(
@@ -735,6 +855,7 @@ class ImageClientTest {
                     )
                 assertEquals(64, bitmap.width)
                 assertEquals(64, bitmap.height)
+                metrics += requireNotNull(client.getLastGenerationMetrics()?.imageRequestMetrics)
             }
 
             coVerify(exactly = 1) {
@@ -742,6 +863,11 @@ class ImageClientTest {
                     any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
                 )
             }
+            assertFalse(metrics.first().cacheHit)
+            assertTrue(metrics.first().modelLoadMs > 0L)
+            assertTrue(metrics.first().runtimeAcquireMs >= metrics.first().modelLoadMs)
+            assertTrue(metrics.last().cacheHit)
+            assertEquals(0L, metrics.last().modelLoadMs)
         } finally {
             client.close()
             edgeScope.close()
@@ -750,7 +876,7 @@ class ImageClientTest {
     }
 
     @Test
-    fun `sequential video generation auto-enables easycache for supported models`() = runTest {
+    fun `sequential video generation keeps easycache disabled unless explicitly requested`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val baseDir = context.filesDir
         val modelFile = java.io.File.createTempFile("wan-model", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
@@ -907,7 +1033,237 @@ class ImageClientTest {
                 ),
             ).collect()
 
-            assertEquals(listOf(true), easyCacheFlags)
+            assertEquals(listOf(false), easyCacheFlags)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `image generation retries same backend with flash attention disabled before backend fallback`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val modelFile =
+            java.io.File.createTempFile("flash-fallback-image", ".safetensors", baseDir).apply {
+                writeBytes(byteArrayOf(0x01))
+            }
+
+        mockkObject(LLMEdge.Companion)
+        every { LLMEdge.isVulkanAvailable() } returns true
+        every { StableDiffusion.isOpenClAvailable() } returns false
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray = ByteArray(width * height * 3) { 0x55 }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = null
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        val flashFlags = mutableListOf<Boolean>()
+        val loadBackends = mutableListOf<ComputeBackend>()
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            val flashAttn = callArgs[11] as Boolean
+            val backend = callArgs[20] as ComputeBackend
+            flashFlags += flashAttn
+            loadBackends += backend
+            if (flashAttn) {
+                throw IllegalStateException("flash init failed")
+            }
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(preferPerformanceMode = true),
+                resolver = DefaultModelResolver(),
+            )
+
+        try {
+            val bitmap =
+                client.generate(
+                    ImageGenerationRequest(
+                        prompt = "test image",
+                        width = 256,
+                        height = 256,
+                        flashAttention = true,
+                        model = ModelSpec.localFile(modelFile),
+                    ),
+                )
+
+            assertEquals(256, bitmap.width)
+            assertEquals(256, bitmap.height)
+            assertEquals(listOf(ComputeBackend.VULKAN, ComputeBackend.VULKAN), loadBackends)
+            assertEquals(listOf(true, false), flashFlags)
+            val metrics = requireNotNull(client.getLastGenerationMetrics())
+            val requestMetrics = requireNotNull(metrics.imageRequestMetrics)
+            assertFalse(requestMetrics.cacheHit)
+            assertEquals(false, requestMetrics.flashAttentionEnabled)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+            try {
+                io.mockk.unmockkObject(LLMEdge.Companion)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    @Test
+    fun `image generation preserves lora prompt tags and passes image lora load options`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val modelFile =
+            java.io.File.createTempFile("image-model-lora", ".safetensors", baseDir).apply {
+                writeBytes(byteArrayOf(0x01))
+            }
+        val loraDir = java.io.File(baseDir, "test-image-lora-dir").apply { mkdirs() }
+        val observedPrompts = mutableListOf<String>()
+        val observedLoraDirs = mutableListOf<String?>()
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray {
+                    observedPrompts += prompt
+                    return ByteArray(width * height * 3) { 0x44 }
+                }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = null
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            observedLoraDirs += callArgs[18] as String?
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(preferPerformanceMode = true),
+                resolver = DefaultModelResolver(),
+            )
+
+        try {
+            val bitmap =
+                client.generate(
+                    ImageGenerationRequest(
+                        prompt = "portrait <lora:detail-tweaker:1.0> test",
+                        negative = "bad anatomy <lora:detail-tweaker:0.5>",
+                        width = 128,
+                        height = 128,
+                        loraModelDir = loraDir.absolutePath,
+                        model = ModelSpec.localFile(modelFile),
+                    ),
+                )
+
+            assertEquals(128, bitmap.width)
+            assertEquals(128, bitmap.height)
+            assertEquals(listOf(loraDir.absolutePath), observedLoraDirs)
+            assertEquals(listOf("portrait <lora:detail-tweaker:1.0> test"), observedPrompts)
         } finally {
             client.close()
             edgeScope.close()

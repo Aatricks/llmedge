@@ -13,23 +13,65 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
     private val candidateRequest: (TOptions) -> BackendCandidateResolver.Request,
     private val loadMutex: Mutex = Mutex(),
 ) {
+    data class AcquireResult<TRuntime : ManagedRuntime>(
+        val runtime: TRuntime,
+        val cacheHit: Boolean,
+        val keyPrefix: String,
+        val backend: ComputeBackend,
+        val acquireTimeMs: Long,
+        val modelLoadTimeMs: Long,
+    )
+
     suspend fun acquire(
         spec: TSpec,
         options: TOptions,
-    ): TRuntime {
+    ): TRuntime = acquireDetailed(spec, options).runtime
+
+    suspend fun acquireDetailed(
+        spec: TSpec,
+        options: TOptions,
+    ): AcquireResult<TRuntime> {
         val prefix = cacheKeyPrefix(spec, options)
-        findCachedRuntime(prefix, options)?.let { return it }
+        val startNanos = System.nanoTime()
+        findCachedRuntime(prefix, options)?.let { runtime ->
+            return AcquireResult(
+                runtime = runtime,
+                cacheHit = true,
+                keyPrefix = prefix,
+                backend = activeBackend(runtime),
+                acquireTimeMs = elapsedMillis(startNanos),
+                modelLoadTimeMs = 0L,
+            )
+        }
 
         return loadMutex.withLock {
-            findCachedRuntime(prefix, options)?.let { return@withLock it }
+            findCachedRuntime(prefix, options)?.let { runtime ->
+                return@withLock AcquireResult(
+                    runtime = runtime,
+                    cacheHit = true,
+                    keyPrefix = prefix,
+                    backend = activeBackend(runtime),
+                    acquireTimeMs = elapsedMillis(startNanos),
+                    modelLoadTimeMs = 0L,
+                )
+            }
+            val loadStartNanos = System.nanoTime()
             val runtime = loadRuntime(spec, options)
+            val backend = activeBackend(runtime)
             cache.put(
-                key = RuntimeCacheKeyBuilder.withBackend(prefix, activeBackend(runtime)),
+                key = RuntimeCacheKeyBuilder.withBackend(prefix, backend),
                 model = runtime,
                 sizeBytes = runtime.estimatedSizeBytes(),
                 sizeProvider = runtime::estimatedSizeBytes,
             )
-            runtime
+            AcquireResult(
+                runtime = runtime,
+                cacheHit = false,
+                keyPrefix = prefix,
+                backend = backend,
+                acquireTimeMs = elapsedMillis(startNanos),
+                modelLoadTimeMs = elapsedMillis(loadStartNanos),
+            )
         }
     }
 
@@ -74,4 +116,7 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
         }
         return null
     }
+
+    private fun elapsedMillis(startNanos: Long): Long =
+        ((System.nanoTime() - startNanos) / 1_000_000L).coerceAtLeast(0L)
 }
