@@ -465,7 +465,7 @@ class ImageClient internal constructor(
                     // is tuned for larger video/text-encoder loads and can incorrectly
                     // downgrade GPU-capable image generation into CPU-heavy mode.
                     sequentialLoad = params.forceSequentialLoad,
-                    preferPerformanceMode = config.preferPerformanceMode,
+                    preferPerformanceMode = config.image.preferPerformanceMode,
                     loraModelDir = params.loraModelDir,
                     loraApplyMode = params.loraApplyMode,
                 ),
@@ -488,12 +488,12 @@ class ImageClient internal constructor(
                     subsystem = ComputeSubsystem.VIDEO,
                     allowGpu = !usingCustomTae,
                     nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                    offloadToCpu = usingCustomTae || !config.preferPerformanceMode,
-                    keepClipOnCpu = usingCustomTae || !config.preferPerformanceMode,
-                    keepVaeOnCpu = usingCustomTae || !config.preferPerformanceMode,
+                    offloadToCpu = usingCustomTae || !config.image.preferPerformanceMode,
+                    keepClipOnCpu = usingCustomTae || !config.image.preferPerformanceMode,
+                    keepVaeOnCpu = usingCustomTae || !config.image.preferPerformanceMode,
                     flashAttn = params.flashAttention,
                     vaeDecodeOnly = params.initImage == null,
-                    preferPerformanceMode = config.preferPerformanceMode,
+                    preferPerformanceMode = config.image.preferPerformanceMode,
                     flowShift = params.flowShift,
                     loraModelDir = params.loraModelDir,
                     loraApplyMode = params.loraApplyMode,
@@ -518,7 +518,7 @@ class ImageClient internal constructor(
                     keepClipOnCpu = true,
                     keepVaeOnCpu = true,
                     flashAttn = params.flashAttention,
-                    preferPerformanceMode = config.preferPerformanceMode,
+                    preferPerformanceMode = config.image.preferPerformanceMode,
                 ),
         )
     }
@@ -543,7 +543,7 @@ class ImageClient internal constructor(
                     keepVaeOnCpu = true,
                     flashAttn = params.flashAttention,
                     vaeDecodeOnly = params.initImage == null,
-                    preferPerformanceMode = config.preferPerformanceMode,
+                    preferPerformanceMode = config.image.preferPerformanceMode,
                     flowShift = params.flowShift,
                     loraModelDir = params.loraModelDir,
                     loraApplyMode = params.loraApplyMode,

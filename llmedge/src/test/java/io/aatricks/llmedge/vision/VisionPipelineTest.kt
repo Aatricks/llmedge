@@ -39,6 +39,8 @@ class VisionPipelineTest {
 
         coEvery { resolver.resolve(context, model) } returns modelFile
         coEvery { resolver.resolve(context, projectorSpec) } returns projectorFile
+        every { model.cacheKey } returns "vision-model"
+        every { projectorSpec.cacheKey } returns "vision-projector"
         coEvery { smol.load(any(), any()) } returns Unit
         every { smol.getNativeModelPointer() } returns 33L
         every { projector.isReady() } returns true
@@ -91,6 +93,8 @@ class VisionPipelineTest {
 
         coEvery { resolver.resolve(context, model) } returns modelFile
         coEvery { resolver.resolve(context, projectorSpec) } returns projectorFile
+        every { model.cacheKey } returns "default-model"
+        every { projectorSpec.cacheKey } returns "default-projector"
         coEvery { smol.load(modelFile.absolutePath, capture(paramsSlot)) } returns Unit
         every { smol.getNativeModelPointer() } returns 44L
         every { projector.isReady() } returns true

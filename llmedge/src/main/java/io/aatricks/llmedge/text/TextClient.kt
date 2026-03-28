@@ -45,15 +45,15 @@ data class TextGenerationRequest(
 
 internal fun TextModelOptions.toInferenceParams(config: LLMEdgeConfig): SmolLM.InferenceParams =
     SmolLM.InferenceParams(
-        minP = minP ?: config.defaultTextMinP,
-        temperature = temperature ?: config.defaultTextTemperature,
+        minP = minP ?: config.text.minP,
+        temperature = temperature ?: config.text.temperature,
         storeChats = false,
-        contextSize = contextSize ?: config.defaultTextContextSize,
-        numThreads = numThreads ?: config.defaultTextThreads.coerceAtLeast(1),
-        generationThreads = generationThreads ?: numThreads ?: config.defaultTextGenerationThreads.coerceAtLeast(1),
-        useMmap = useMmap ?: config.defaultUseMmap,
-        useMlock = useMlock ?: config.defaultUseMlock,
-        useFlashAttn = useFlashAttention ?: config.defaultUseFlashAttention,
+        contextSize = contextSize ?: config.text.contextSize,
+        numThreads = numThreads ?: config.text.promptThreads,
+        generationThreads = generationThreads ?: numThreads ?: config.text.generationThreads,
+        useMmap = useMmap ?: config.text.useMmap,
+        useMlock = useMlock ?: config.text.useMlock,
+        useFlashAttn = useFlashAttention ?: config.text.useFlashAttention,
         thinkingMode = thinkingMode,
         reasoningBudget = reasoningBudget,
     )
@@ -353,7 +353,7 @@ class TextClient internal constructor(
     }
 
     private fun resolveStreamBatchSize(requestedBatchSize: Int): Int {
-        val configuredBatchSize = config.defaultTextStreamBatchSize.coerceAtLeast(1)
+        val configuredBatchSize = config.text.streamBatchSize
         return when {
             requestedBatchSize == 0 -> configuredBatchSize
             requestedBatchSize > 0 -> requestedBatchSize
@@ -362,7 +362,7 @@ class TextClient internal constructor(
     }
 
     private fun resolveBatchSize(requestedBatchSize: Int, maxTokens: Int): Int {
-        val configuredBatchSize = config.defaultTextBatchSize.coerceAtLeast(1)
+        val configuredBatchSize = config.text.batchSize
         val preferredBatchSize =
             when {
                 requestedBatchSize == 0 -> configuredBatchSize
@@ -402,8 +402,8 @@ class TextClient internal constructor(
     }
 
     private fun buildSafeRetryRequest(request: TextGenerationRequest): TextGenerationRequest? {
-        val effectiveUsesVulkan = request.options.useVulkan ?: config.textUseVulkan
-        val effectiveUsesFlashAttention = request.options.useFlashAttention ?: config.defaultUseFlashAttention
+        val effectiveUsesVulkan = request.options.useVulkan ?: config.text.useVulkan
+        val effectiveUsesFlashAttention = request.options.useFlashAttention ?: config.text.useFlashAttention
         val effectiveBatchSize = resolveBatchSize(request.batchSize, request.maxTokens)
 
         if (!effectiveUsesVulkan && !effectiveUsesFlashAttention && effectiveBatchSize == 1) {

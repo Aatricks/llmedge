@@ -22,7 +22,6 @@ import io.aatricks.llmedge.runtime.GGUFReader
 
 import android.content.Context
 import io.aatricks.llmedge.core.InvalidModelStateException
-import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
@@ -30,6 +29,7 @@ import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.text.runtime.internal.SmolLMCompletionSupport
 import io.aatricks.llmedge.text.runtime.internal.SmolLMLoader
+import io.aatricks.llmedge.text.runtime.internal.SmolLMRuntimeConfigSupport
 import io.aatricks.llmedge.text.runtime.internal.SmolLMStateSupport
 import io.aatricks.llmedge.text.runtime.internal.SmolLMVisionInterop
 import kotlinx.coroutines.CoroutineDispatcher
@@ -822,51 +822,25 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         params: InferenceParams,
         fileType: Int?,
         dominantTensorType: Int?,
-    ) = preflightBackendCompatibility(modelPath, params, fileType, dominantTensorType)
+    ) = SmolLMRuntimeConfigSupport.preflightBackendCompatibility(
+        useVulkanGpu = runtimeState.useVulkanGpu,
+        hasVulkanBackendSupport = bridge.hasVulkanBackendSupport(this),
+        modelPath = modelPath,
+        params = params,
+        fileType = fileType,
+        dominantTensorType = dominantTensorType,
+        ggufFileTypeNames = GGUF_FILE_TYPE_NAMES,
+        ggufTensorTypeNames = GGUF_TENSOR_TYPE_NAMES,
+    )
 
     internal fun applyReasoningStateForLoad(mode: ThinkingMode, budget: Int) =
-        applyReasoningState(mode, budget)
+        SmolLMRuntimeConfigSupport.applyReasoningState(this, mode, budget)
 
     internal fun resolvedReasoningBudgetForLoad(mode: ThinkingMode, override: Int?): Int =
-        resolvedReasoningBudget(mode, override)
+        SmolLMRuntimeConfigSupport.resolvedReasoningBudget(mode, override, DEFAULT_REASONING_BUDGET)
 
     internal fun setThreadAffinityForLoad(modelPtr: Long, coreMask: Long) =
         setThreadAffinity(modelPtr, coreMask)
-
-    private fun preflightBackendCompatibility(
-        modelPath: String,
-        params: InferenceParams,
-        fileType: Int?,
-        dominantTensorType: Int?,
-    ) {
-        if (!runtimeState.useVulkanGpu || bridge.hasVulkanBackendSupport(this)) {
-            return
-        }
-        val detail =
-            buildString {
-                append("SmolLM was configured with useVulkan=true, but the active native build does not include Vulkan support")
-                append(".")
-                append(" nGpuLayers=")
-                append(params.nGpuLayers)
-                append(", kvCacheTypeK=")
-                append(params.kvCacheTypeK.name)
-                append(", kvCacheTypeV=")
-                append(params.kvCacheTypeV.name)
-                append(", ggufFileType=")
-                append(describeQuantizedValue(fileType, GGUF_FILE_TYPE_NAMES))
-                append(", dominantTensorType=")
-                append(describeQuantizedValue(dominantTensorType, GGUF_TENSOR_TYPE_NAMES))
-                append(".")
-                append(" Disable Vulkan for CPU-only loading or install a Vulkan-enabled llmedge build.")
-            }
-        throw ModelLoadException(modelPath, detail)
-    }
-
-    private fun describeQuantizedValue(value: Int?, names: Map<Int, String>): String =
-        when (value) {
-            null -> "unknown"
-            else -> names[value]?.let { "$it ($value)" } ?: "unknown($value)"
-        }
 
     private external fun loadModel(
             modelPath: String,
@@ -1045,54 +1019,28 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     private external fun setThreadAffinity(modelPtr: Long, coreMask: Long)
 
     private fun applyReasoningState(mode: ThinkingMode, budget: Int) {
-        val effectiveMode = if (budget == 0) ThinkingMode.DISABLED else mode
-        runtimeState.currentThinkingMode = effectiveMode
-        runtimeState.currentReasoningBudget = budget
-        val nativePtr = runtimeState.nativePtr
-        if (nativePtr != 0L) {
-            bridge.setReasoningOptions(
-                    this,
-                    nativePtr,
-                    effectiveMode.disableReasoning || budget == 0,
-                    budget
-            )
-        }
+        SmolLMRuntimeConfigSupport.applyReasoningState(this, mode, budget)
     }
 
     private fun resolvedReasoningBudget(mode: ThinkingMode, override: Int?): Int {
-        return override ?: if (mode.disableReasoning) 0 else DEFAULT_REASONING_BUDGET
+        return SmolLMRuntimeConfigSupport.resolvedReasoningBudget(mode, override, DEFAULT_REASONING_BUDGET)
     }
 
     private fun resolveContextSize(requested: Long?, modelContextSize: Long): Long {
-        if (requested != null) {
-            // If explicitly requested, trust the caller and clamp only to absolute limits
-            return requested.coerceIn(MIN_CONTEXT_SIZE, DEFAULT_CONTEXT_SIZE_CAP)
-        }
-        val desired = modelContextSize
-        val heapAwareCap = recommendedContextCap()
-        val effectiveCap = minOf(DEFAULT_CONTEXT_SIZE_CAP, heapAwareCap)
-        val clamped = desired.coerceIn(MIN_CONTEXT_SIZE, effectiveCap)
-        if (desired != clamped) {
-            val heapMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
+        return SmolLMRuntimeConfigSupport.resolveContextSize(
+            requested = requested,
+            modelContextSize = modelContextSize,
+            minContextSize = MIN_CONTEXT_SIZE,
+            defaultContextSizeCap = DEFAULT_CONTEXT_SIZE_CAP,
+        ) { desired, clamped, heapMb ->
             logW(
-                    LOG_TAG,
-                    "Context window $desired→$clamped tokens to fit heap (${heapMb}MB max). " +
-                            "Override via InferenceParams(contextSize=...).",
+                LOG_TAG,
+                "Context window $desired→$clamped tokens to fit heap (${heapMb}MB max). " +
+                    "Override via InferenceParams(contextSize=...).",
             )
         }
-        return clamped
     }
 
     private fun resolveChatTemplate(explicit: String?, ggufReader: GGUFReader): String =
-            explicit ?: (ggufReader.getChatTemplate() ?: DefaultInferenceParams.chatTemplate)
-
-    private fun recommendedContextCap(): Long {
-        val heapMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
-        return when {
-            heapMb <= 256 -> 2_048L
-            heapMb <= 384 -> 4_096L
-            heapMb <= 512 -> 6_144L
-            else -> DEFAULT_CONTEXT_SIZE_CAP
-        }
-    }
+            SmolLMRuntimeConfigSupport.resolveChatTemplate(explicit, ggufReader, DefaultInferenceParams.chatTemplate)
 }

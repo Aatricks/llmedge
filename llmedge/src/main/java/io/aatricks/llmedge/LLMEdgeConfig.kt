@@ -4,6 +4,35 @@ import io.aatricks.llmedge.model.ModelRegistry
 import io.aatricks.llmedge.runtime.CpuTopology
 import io.aatricks.llmedge.text.runtime.SmolLM
 
+data class RuntimeCacheConfig(
+    val maxEntries: Int,
+    val maxMemoryMb: Long,
+)
+
+data class TextRuntimeConfig(
+    val cache: RuntimeCacheConfig,
+    val useVulkan: Boolean,
+    val promptThreads: Int,
+    val generationThreads: Int,
+    val batchSize: Int,
+    val streamBatchSize: Int,
+    val contextSize: Long?,
+    val minP: Float,
+    val temperature: Float,
+    val useMmap: Boolean,
+    val useMlock: Boolean,
+    val useFlashAttention: Boolean,
+)
+
+data class SpeechRuntimeConfig(
+    val cache: RuntimeCacheConfig,
+)
+
+data class ImageRuntimeConfig(
+    val cache: RuntimeCacheConfig,
+    val preferPerformanceMode: Boolean,
+)
+
 data class LLMEdgeConfig(
     val models: ModelRegistry = ModelRegistry(),
     val preferPerformanceMode: Boolean = false,
@@ -24,4 +53,31 @@ data class LLMEdgeConfig(
     val defaultUseMmap: Boolean = true,
     val defaultUseMlock: Boolean = false,
     val defaultUseFlashAttention: Boolean = true,
-)
+) {
+    val text: TextRuntimeConfig =
+        TextRuntimeConfig(
+            cache = RuntimeCacheConfig(textCacheSize, textCacheMemoryMb),
+            useVulkan = textUseVulkan,
+            promptThreads = defaultTextThreads.coerceAtLeast(1),
+            generationThreads = defaultTextGenerationThreads.coerceAtLeast(1),
+            batchSize = defaultTextBatchSize.coerceAtLeast(1),
+            streamBatchSize = defaultTextStreamBatchSize.coerceAtLeast(1),
+            contextSize = defaultTextContextSize,
+            minP = defaultTextMinP,
+            temperature = defaultTextTemperature,
+            useMmap = defaultUseMmap,
+            useMlock = defaultUseMlock,
+            useFlashAttention = defaultUseFlashAttention,
+        )
+
+    val speech: SpeechRuntimeConfig =
+        SpeechRuntimeConfig(
+            cache = RuntimeCacheConfig(speechCacheSize, speechCacheMemoryMb),
+        )
+
+    val image: ImageRuntimeConfig =
+        ImageRuntimeConfig(
+            cache = RuntimeCacheConfig(imageCacheSize, imageCacheMemoryMb),
+            preferPerformanceMode = preferPerformanceMode,
+        )
+}

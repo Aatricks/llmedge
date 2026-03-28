@@ -4,6 +4,7 @@ import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.ConversationMessage
 import io.aatricks.llmedge.text.ConversationRole
 import io.aatricks.llmedge.text.ConversationWindow
+import io.aatricks.llmedge.text.SessionTranscript
 import io.aatricks.llmedge.text.TextClient
 import io.aatricks.llmedge.text.TextModelOptions
 import io.aatricks.llmedge.text.stripThinkBlocks
@@ -27,7 +28,7 @@ class ToolAgent internal constructor(
     private val policy: ToolPolicy,
 ) {
     private val sessionMutex = Mutex()
-    private val history = mutableListOf<ConversationMessage>()
+    private val transcript = SessionTranscript(memory)
     private val toolsByName = tools.associateBy(Tool::name)
     private val toolSystemPrompt by lazy { ToolPromptGenerator.generateSystemPrompt(tools, systemPrompt) }
 
@@ -212,7 +213,7 @@ class ToolAgent internal constructor(
             }
         }
 
-    fun historySnapshot(): List<ConversationMessage> = history.toList()
+    fun historySnapshot(): List<ConversationMessage> = transcript.snapshot()
 
     private suspend fun handleToolInvocation(
         message: String,
@@ -309,22 +310,19 @@ class ToolAgent internal constructor(
     }
 
     private fun seedWorkingTranscript(message: String): MutableList<ToolPromptMessage> =
-        memory
-            .trim(history + ConversationMessage(ConversationRole.USER, message))
+        transcript
+            .previewWithUser(message)
             .map { promptMessage(it.role, it.content) }
             .toMutableList()
 
     private fun persistentConversationPreview(message: String): List<ConversationMessage> =
-        memory.trim(history + ConversationMessage(ConversationRole.USER, message))
+        transcript.previewWithUser(message)
 
     private fun commitTurn(
         message: String,
         response: String?,
     ) {
-        history += ConversationMessage(ConversationRole.USER, message)
-        response
-            ?.takeUnless(String::isBlank)
-            ?.let { history += ConversationMessage(ConversationRole.ASSISTANT, it) }
+        transcript.commitTurn(message, response)
     }
 
     private fun renderWorkingPrompt(messages: List<ToolPromptMessage>): String =

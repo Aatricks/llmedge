@@ -24,9 +24,8 @@ class VisionClient internal constructor(
 ) : AutoCloseable {
     private val defaultModel: ModelSpec = config.models.vision.model
     private val defaultProjector: ModelSpec = config.models.vision.projector
-    private val defaultPromptThreads: Int = config.defaultTextThreads.coerceAtLeast(1)
-    private val defaultGenerationThreads: Int =
-        config.defaultTextGenerationThreads.coerceAtLeast(1)
+    private val defaultPromptThreads: Int = config.text.promptThreads
+    private val defaultGenerationThreads: Int = config.text.generationThreads
     @Volatile
     private var lastRuntimeMemory: VisionRuntimeMemory? = null
 

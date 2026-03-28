@@ -290,8 +290,8 @@ internal fun createDiffusionRuntimePool(
             ModelCacheFactory.create(
                 context = context,
                 scope = scope,
-                maxCacheSize = config.imageCacheSize,
-                maxMemoryMB = config.imageCacheMemoryMb,
+                maxCacheSize = config.image.cache.maxEntries,
+                maxMemoryMB = config.image.cache.maxMemoryMb,
             ),
         keyStrategy = DiffusionRuntimeKeyStrategy(),
         runtimeLoader = DiffusionRuntimeLoader(context, resolver),

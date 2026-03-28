@@ -60,12 +60,12 @@ internal class TextRuntimeKeyStrategy(
     ): String =
         RuntimeCacheKeyBuilder.prefix(
             spec.cacheKey,
-            "ctx=${options.contextSize ?: config.defaultTextContextSize ?: 0L}",
-            "threads=${options.numThreads ?: config.defaultTextThreads}",
-            "genThreads=${options.generationThreads ?: options.numThreads ?: config.defaultTextGenerationThreads}",
-            "mmap=${options.useMmap ?: config.defaultUseMmap}",
-            "mlock=${options.useMlock ?: config.defaultUseMlock}",
-            "flash=${options.useFlashAttention ?: config.defaultUseFlashAttention}",
+            "ctx=${options.contextSize ?: config.text.contextSize ?: 0L}",
+            "threads=${options.numThreads ?: config.text.promptThreads}",
+            "genThreads=${options.generationThreads ?: options.numThreads ?: config.text.generationThreads}",
+            "mmap=${options.useMmap ?: config.text.useMmap}",
+            "mlock=${options.useMlock ?: config.text.useMlock}",
+            "flash=${options.useFlashAttention ?: config.text.useFlashAttention}",
         )
 }
 
@@ -75,7 +75,7 @@ internal class TextBackendPolicy(
     override fun request(options: TextModelOptions) =
         io.aatricks.llmedge.core.runtime.BackendCandidateResolver.Request(
             subsystem = ComputeSubsystem.TEXT,
-            allowGpu = options.useVulkan ?: config.textUseVulkan,
+            allowGpu = options.useVulkan ?: config.text.useVulkan,
             openClAvailable = SmolLM.isOpenClAvailable(),
             vulkanAvailable = SmolLM.isVulkanBackendAvailable(),
         )
@@ -91,7 +91,7 @@ internal class TextRuntimeLoader(
         options: TextModelOptions,
     ): ManagedTextModel {
         val modelFile = resolver.resolve(context, spec)
-        val smol = SmolLM(useVulkan = options.useVulkan ?: config.textUseVulkan)
+        val smol = SmolLM(useVulkan = options.useVulkan ?: config.text.useVulkan)
         smol.load(modelFile.absolutePath, options.toInferenceParams(config))
         return ManagedTextModel(fileSizeBytes = modelFile.length(), model = smol)
     }
@@ -108,8 +108,8 @@ internal fun createTextRuntimePool(
             ModelCacheFactory.create(
                 context = context,
                 scope = scope,
-                maxCacheSize = config.textCacheSize,
-                maxMemoryMB = config.textCacheMemoryMb,
+                maxCacheSize = config.text.cache.maxEntries,
+                maxMemoryMB = config.text.cache.maxMemoryMb,
             ),
         keyStrategy = TextRuntimeKeyStrategy(config),
         runtimeLoader = TextRuntimeLoader(context, config, resolver),

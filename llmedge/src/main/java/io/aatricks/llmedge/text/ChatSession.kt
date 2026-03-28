@@ -15,7 +15,7 @@ class ChatSession internal constructor(
     private val options: TextModelOptions,
 ) {
     private val sessionMutex = Mutex()
-    private val history = mutableListOf<ConversationMessage>()
+    private val transcript = SessionTranscript(memory)
     private var lastStateSnapshot: ByteArray? = null
     private var snapshotWindowSize: Int = 0
 
@@ -30,8 +30,7 @@ class ChatSession internal constructor(
     ): String =
         sessionMutex.withLock {
             val runtime = client.acquire(model, options)
-            history.add(ConversationMessage(ConversationRole.USER, message))
-            val window = memory.trim(history)
+            val window = transcript.previewWithUser(message)
 
             // Incremental path: restore from snapshot when the window grew by exactly
             // one message (the new user message) and no old messages were trimmed.
@@ -60,7 +59,7 @@ class ChatSession internal constructor(
                 )
             }
 
-            history.add(ConversationMessage(ConversationRole.ASSISTANT, reply))
+            transcript.commitTurn(message, reply)
             lastStateSnapshot = newState
             snapshotWindowSize = window.size + 1
             reply
@@ -69,8 +68,7 @@ class ChatSession internal constructor(
     fun stream(message: String, batchSize: Int = 0): Flow<TextStreamEvent> = flow {
         sessionMutex.withLock {
             val runtime = client.acquire(model, options)
-            history.add(ConversationMessage(ConversationRole.USER, message))
-            val window = memory.trim(history)
+            val window = transcript.previewWithUser(message)
             val prompt = PromptRenderer.render(window)
             val fullText = StringBuilder()
             emit(TextStreamEvent.Started(prompt))
@@ -80,7 +78,7 @@ class ChatSession internal constructor(
                 emit(TextStreamEvent.Chunk(chunk))
             }
             val response = fullText.toString()
-            history.add(ConversationMessage(ConversationRole.ASSISTANT, response))
+            transcript.commitTurn(message, response)
             // Invalidate snapshot after streaming since we can't capture state mid-stream
             lastStateSnapshot = null
             snapshotWindowSize = 0
@@ -88,5 +86,5 @@ class ChatSession internal constructor(
         }
     }
 
-    fun historySnapshot(): List<ConversationMessage> = history.toList()
+    fun historySnapshot(): List<ConversationMessage> = transcript.snapshot()
 }

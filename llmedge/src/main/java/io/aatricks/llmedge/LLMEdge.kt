@@ -82,7 +82,7 @@ class LLMEdge private constructor(
             resolver: ModelResolver = DefaultModelResolver(HuggingFaceModelStore()),
         ): LLMEdge {
             val appContext = context.applicationContext
-            val edgeScope = LLMEdgeScope(scope, config.defaultTextThreads.coerceAtLeast(1))
+            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
             return LLMEdge(appContext, edgeScope, config, resolver)
         }
 

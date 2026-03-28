@@ -3,11 +3,10 @@ package io.aatricks.llmedge.vision
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
-import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -29,15 +28,14 @@ internal class VisionPipeline(
         val runtimeMemory: VisionRuntimeMemory,
     )
 
-    private data class RuntimeHandle(
-        val cacheKey: VisionRuntimeCache.CacheKey,
-        val smol: SmolLM,
-        val projector: Projector,
-        val isWarm: Boolean,
-    )
-
-    private val runtimeCache = VisionRuntimeCache(maxEntries = 1)
-    private val runtimeMutex = Mutex()
+    private val runtimePool =
+        createVisionRuntimePool(
+            context = context,
+            resolver = resolver,
+            config = config,
+            smolLmFactory = smolLmFactory,
+            projectorFactory = projectorFactory,
+        )
 
     suspend fun prepare(
         model: ModelSpec,
@@ -47,18 +45,15 @@ internal class VisionPipeline(
         onStatus: ((String) -> Unit)? = null,
     ) {
         withContext(Dispatchers.IO) {
-            val runtime =
-                acquireRuntime(
-                    model = model,
-                    projector = projector,
-                    numThreads = numThreads,
-                    generationThreads = generationThreads,
-                    onStatus = onStatus,
-                    cacheOnCold = true,
-                )
+            acquireRuntime(
+                model = model,
+                projector = projector,
+                numThreads = numThreads,
+                generationThreads = generationThreads,
+            )
             AndroidLogAdapter.d(
                 TAG,
-                "prepare completed for ${runtime.cacheKey.modelPath} (warm=${runtime.isWarm})",
+                "prepare completed for ${model.cacheKey}",
             )
         }
     }
@@ -74,17 +69,11 @@ internal class VisionPipeline(
                     projector = request.projector,
                     numThreads = request.numThreads,
                     generationThreads = request.generationThreads,
-                    onStatus = onStatus,
                 )
-            val smol = runtime.smol
-            val projector = runtime.projector
-            val cacheKey = runtime.cacheKey
-            if (runtime.isWarm) {
-                // Clear KV cache for a fresh vision prompt while keeping the model loaded.
+            runtime.mutex.withLock {
+                val smol = runtime.smol
+                val projector = runtime.projector
                 smol.clearKvCache()
-            }
-
-            try {
                 onStatus?.invoke("Preparing image")
                 val imagePrepStartedNs = System.nanoTime()
                 val scaled =
@@ -114,10 +103,6 @@ internal class VisionPipeline(
                         )
                         logStage("analyze", "generation", generationStartedNs)
 
-                        if (!runtime.isWarm) {
-                            runtimeCache.put(cacheKey, VisionRuntimeCache.CachedRuntime(smol, projector))
-                        }
-
                         VisionPipelineResult(
                             text = response,
                             runtimeMemory = VisionRuntimeMemory(
@@ -135,7 +120,7 @@ internal class VisionPipeline(
                             val decodeOk = smol.decodeEmbeddingsBuffer(embeddings, nBatch = 1)
                             logStage("analyze", "decode_embeddings_buffer", decodeStartedNs)
                             check(decodeOk) {
-                                "Buffer-based embedding decode failed for ${File(cacheKey.projectorPath).name}."
+                                "Buffer-based embedding decode failed for the active vision runtime."
                             }
 
                             val generationStartedNs = System.nanoTime()
@@ -144,10 +129,6 @@ internal class VisionPipeline(
                                 batchSize = SmolLM.DEFAULT_BLOCKING_BATCH_SIZE,
                             )
                             logStage("analyze", "generation", generationStartedNs)
-
-                            if (!runtime.isWarm) {
-                                runtimeCache.put(cacheKey, VisionRuntimeCache.CachedRuntime(smol, projector))
-                            }
 
                             VisionPipelineResult(
                                 text = response,
@@ -183,7 +164,7 @@ internal class VisionPipeline(
                     val encoded = projector.encodeImageToFile(imageFile.absolutePath, embedFile.absolutePath)
                     logStage("analyze", "encode_image_file", embeddingStartedNs)
                     check(encoded && metaFile.exists()) {
-                        "Native projector support is unavailable or failed to produce embeddings for ${File(cacheKey.projectorPath).name}."
+                        "Native projector support is unavailable or failed to produce embeddings."
                     }
 
                     onStatus?.invoke("Running vision analysis")
@@ -196,10 +177,6 @@ internal class VisionPipeline(
                             VisionParams(),
                         )
                     logStage("analyze", "generation", generationStartedNs)
-
-                    if (!runtime.isWarm) {
-                        runtimeCache.put(cacheKey, VisionRuntimeCache.CachedRuntime(smol, projector))
-                    }
 
                     VisionPipelineResult(
                         text = analysis.text,
@@ -214,13 +191,6 @@ internal class VisionPipeline(
                     if (embedFile.exists()) embedFile.delete()
                     if (imageFile.exists()) imageFile.delete()
                 }
-            } catch (e: Exception) {
-                // On failure with a freshly created runtime, clean up to avoid leaks
-                if (!runtime.isWarm) {
-                    try { projector.close() } catch (_: Exception) {}
-                    try { smol.close() } catch (_: Exception) {}
-                }
-                throw e
             }
         }
 
@@ -229,73 +199,19 @@ internal class VisionPipeline(
         projector: ModelSpec,
         numThreads: Int?,
         generationThreads: Int?,
-        onStatus: ((String) -> Unit)?,
-        cacheOnCold: Boolean = false,
-    ): RuntimeHandle =
-        runtimeMutex.withLock {
-            val resolveStartedNs = System.nanoTime()
-            val modelFile = resolver.resolve(context, model)
-            val projectorFile = resolver.resolve(context, projector)
-            logStage("runtime", "resolve", resolveStartedNs)
-
-            val cacheKey =
-                VisionRuntimeCache.CacheKey(
-                    modelPath = modelFile.absolutePath,
-                    projectorPath = projectorFile.absolutePath,
-                )
-            val cached = runtimeCache.get(cacheKey)
-            if (cached != null) {
-                return@withLock RuntimeHandle(
-                    cacheKey = cacheKey,
-                    smol = cached.smolLM,
-                    projector = cached.projector,
-                    isWarm = true,
-                )
-            }
-
-            onStatus?.invoke("Loading vision model")
-            val loadStartedNs = System.nanoTime()
-            val smol = smolLmFactory(config.textUseVulkan)
-            val adapter = SmolLMVisionAdapter(context, smol)
-            adapter.loadVisionModel(
-                modelPath = modelFile.absolutePath,
-                mmprojPath = projectorFile.absolutePath,
-                params =
-                    SmolLM.InferenceParams(
-                        numThreads = (numThreads ?: config.defaultTextThreads).coerceAtLeast(1),
-                        generationThreads =
-                            (generationThreads
-                                ?: numThreads
-                                ?: config.defaultTextGenerationThreads).coerceAtLeast(1),
-                        contextSize = null,
-                        storeChats = false,
-                        temperature = 0.0f,
-                        useFlashAttn = config.defaultUseFlashAttention,
-                        thinkingMode = SmolLM.ThinkingMode.DEFAULT,
-                    ),
+    ): ManagedVisionRuntime {
+        val loadStartedNs = System.nanoTime()
+        val runtime =
+            runtimePool.acquire(
+                VisionRuntimeSpec(model = model, projector = projector),
+                VisionLoadOptions(
+                    numThreads = (numThreads ?: config.text.promptThreads).coerceAtLeast(1),
+                    generationThreads = (generationThreads ?: numThreads ?: config.text.generationThreads).coerceAtLeast(1),
+                ),
             )
-            logStage("runtime", "load_model", loadStartedNs)
-
-            val projectorLoadStartedNs = System.nanoTime()
-            val runtimeProjector = projectorFactory()
-            runtimeProjector.init(projectorFile.absolutePath, smol.getNativeModelPointer())
-            check(runtimeProjector.isReady()) {
-                "Native projector initialization failed for ${projectorFile.name}. Ensure the mmproj file matches the selected model and that projector bindings are available."
-            }
-            logStage("runtime", "init_projector", projectorLoadStartedNs)
-
-            val runtime =
-                RuntimeHandle(
-                    cacheKey = cacheKey,
-                    smol = smol,
-                    projector = runtimeProjector,
-                    isWarm = false,
-                )
-            if (cacheOnCold) {
-                runtimeCache.put(cacheKey, VisionRuntimeCache.CachedRuntime(smol, runtimeProjector))
-            }
-            runtime
-        }
+        logStage("runtime", "acquire", loadStartedNs)
+        return runtime
+    }
 
     private fun logStage(operation: String, stage: String, startedNs: Long) {
         val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000
@@ -303,6 +219,6 @@ internal class VisionPipeline(
     }
 
     override fun close() {
-        runtimeCache.releaseAll()
+        runtimePool.close()
     }
 }
