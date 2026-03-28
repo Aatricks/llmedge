@@ -26,6 +26,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     }
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
     const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+    SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
 
     sd_sample_params_t sample{};
     sd_sample_params_init(&sample);
@@ -35,13 +36,15 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
 
     sd_img_gen_params_t gen{};
     sd_img_gen_params_init(&gen);
-    gen.prompt = prompt;
-    gen.negative_prompt = negative;
+    gen.prompt = resolved.prompt.c_str();
+    gen.negative_prompt = resolved.negativePrompt.c_str();
     gen.width = width;
     gen.height = height;
     gen.sample_params = sample;
     gen.seed = seed;
     gen.batch_count = 1;
+    gen.loras = resolved.loras.empty() ? nullptr : resolved.loras.data();
+    gen.lora_count = static_cast<uint32_t>(resolved.loras.size());
     gen.vae_tiling_params.enabled = jVaeTiling ? true : false;
     apply_easycache_compat(&gen.cache,
                            jEasyCacheEnabled == JNI_TRUE,
@@ -51,7 +54,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
 
     sd_image_t* out = nullptr;
     const auto t0 = std::chrono::steady_clock::now();
-    ALOGI("nativeTxt2Img: generate_image start width=%d height=%d steps=%d promptChars=%zu", width, height, steps, prompt ? strlen(prompt) : 0);
+    ALOGI("nativeTxt2Img: generate_image start width=%d height=%d steps=%d promptChars=%zu loraCount=%u", width, height, steps, resolved.prompt.size(), gen.lora_count);
     try {
         out = generate_image(handle->ctx, &gen);
     } catch (const std::exception& e) {
@@ -110,6 +113,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
     }
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
     const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+    SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
 
     sd_sample_params_t sample{};
     sd_sample_params_init(&sample);
@@ -119,13 +123,15 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
 
     sd_img_gen_params_t gen{};
     sd_img_gen_params_init(&gen);
-    gen.prompt = prompt;
-    gen.negative_prompt = negative;
+    gen.prompt = resolved.prompt.c_str();
+    gen.negative_prompt = resolved.negativePrompt.c_str();
     gen.width = width;
     gen.height = height;
     gen.sample_params = sample;
     gen.seed = seed;
     gen.batch_count = 1;
+    gen.loras = resolved.loras.empty() ? nullptr : resolved.loras.data();
+    gen.lora_count = static_cast<uint32_t>(resolved.loras.size());
     gen.vae_tiling_params.enabled = jVaeTiling ? true : false;
     apply_easycache_compat(&gen.cache,
                            jEasyCacheEnabled == JNI_TRUE,
@@ -135,7 +141,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
 
     sd_image_t* out = nullptr;
     const auto t0 = std::chrono::steady_clock::now();
-    ALOGI("nativeTxt2ImgArgb: generate_image start width=%d height=%d steps=%d promptChars=%zu", width, height, steps, prompt ? strlen(prompt) : 0);
+    ALOGI("nativeTxt2ImgArgb: generate_image start width=%d height=%d steps=%d promptChars=%zu loraCount=%u", width, height, steps, resolved.prompt.size(), gen.lora_count);
     try {
         out = generate_image(handle->ctx, &gen);
     } catch (const std::exception& e) {

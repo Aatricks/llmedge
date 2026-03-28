@@ -66,7 +66,6 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
 
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
     const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
-    (void)negative;
 
     auto releaseStrings = [&]() {
         if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
@@ -77,9 +76,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
 
     if (handlePtr != 0) {
         auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
+        SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
         if (handle->ctx) {
             try {
-                cond = sd_precompute_condition(handle->ctx, prompt, clipSkip, width, height, true);
+                cond = sd_precompute_condition(handle->ctx, resolved.prompt.c_str(), clipSkip, width, height, true);
             } catch (const std::exception& e) {
                 releaseStrings();
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
@@ -95,7 +95,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                 struct ggml_context* work_ctx = ggml_init(params);
 
                 ConditionerParams cparams;
-                cparams.text = prompt;
+                cparams.text = resolved.prompt.c_str();
                 cparams.clip_skip = clipSkip;
                 cparams.width = width;
                 cparams.height = height;
@@ -234,6 +234,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
 
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
     const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+    SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
 
     auto releaseStrings = [&]() {
         if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
@@ -258,13 +259,15 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
 
     sd_img_gen_params_t gen{};
     sd_img_gen_params_init(&gen);
-    gen.prompt = prompt;
-    gen.negative_prompt = negative;
+    gen.prompt = resolved.prompt.c_str();
+    gen.negative_prompt = resolved.negativePrompt.c_str();
     gen.width = width;
     gen.height = height;
     gen.sample_params = sample;
     gen.seed = seed;
     gen.batch_count = 1;
+    gen.loras = resolved.loras.empty() ? nullptr : resolved.loras.data();
+    gen.lora_count = static_cast<uint32_t>(resolved.loras.size());
     apply_easycache_compat(&gen.cache,
                            jEasyCacheEnabled == JNI_TRUE,
                            static_cast<float>(jEasyCacheReuseThreshold),

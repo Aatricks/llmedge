@@ -264,6 +264,8 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
     const char* t5xxlPath = jT5xxlPath ? env->GetStringUTFChars(jT5xxlPath, nullptr) : nullptr;
     const char* taesdPath = jTaesdPath ? env->GetStringUTFChars(jTaesdPath, nullptr) : nullptr;
+    const char* loraModelDir = jLoraModelDir ? env->GetStringUTFChars(jLoraModelDir, nullptr) : nullptr;
+    const std::string loraModelDirValue = loraModelDir ? loraModelDir : "";
 
     sd_set_log_callback(sd_android_log_cb, nullptr);
 
@@ -272,6 +274,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     ALOGI("  vaePath=%s", vaePath ? vaePath : "NULL");
     ALOGI("  t5xxlPath=%s", t5xxlPath ? t5xxlPath : "NULL");
     ALOGI("  taesdPath=%s", taesdPath ? taesdPath : "NULL");
+    ALOGI("  loraModelDir=%s, loraApplyMode=%d", loraModelDirValue.empty() ? "NULL" : loraModelDirValue.c_str(), static_cast<int>(jLoraApplyMode));
     ALOGI("  enableOpenCl=%s, useVulkan=%s, offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
           enableOpenCl ? "true" : "false",
           useVulkan ? "true" : "false",
@@ -314,6 +317,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.vae_path = vaePath ? vaePath : "";
     p.t5xxl_path = t5xxlPath;
     p.taesd_path = taesdPath ? taesdPath : "";
+    p.lora_model_dir = loraModelDirValue.c_str();
     p.free_params_immediately = true;
     p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
     p.offload_params_to_cpu = offloadToCpu;
@@ -321,9 +325,6 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.keep_vae_on_cpu = keepVaeOnCpu;
     p.diffusion_flash_attn = flashAttn;
     p.vae_decode_only = jvaeDecodeOnly;
-    if (jLoraModelDir) {
-        ALOGW("nativeCreate: loraModelDir is ignored by current stable-diffusion.cpp API; pass LoRAs per-generation instead.");
-    }
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
 
     sd_ctx_t* ctx = nullptr;
@@ -343,6 +344,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
                 if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
                 if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
+                if (jLoraModelDir) env->ReleaseStringUTFChars(jLoraModelDir, loraModelDir);
                 return reinterpret_cast<jlong>(t5OnlyHandle);
             }
         }
@@ -352,6 +354,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
         if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
         if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
+        if (jLoraModelDir) env->ReleaseStringUTFChars(jLoraModelDir, loraModelDir);
         return 0;
     }
 
@@ -359,10 +362,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
     if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
     if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
+    if (jLoraModelDir) env->ReleaseStringUTFChars(jLoraModelDir, loraModelDir);
 
     auto* handle = new SdHandle();
     handle->ctx = ctx;
     handle->flowShift = flowShift;
+    handle->loraModelDir = loraModelDirValue;
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);

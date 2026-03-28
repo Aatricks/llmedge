@@ -4,6 +4,11 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
+#include <map>
+#include <regex>
+#include <string>
+#include <vector>
 
 #include "jni_thread_cache.h"
 
@@ -139,4 +144,121 @@ static inline void apply_easycache_compat(
     cache->reuse_threshold = reuse_threshold;
     cache->start_percent = start_percent;
     cache->end_percent = end_percent;
+}
+
+struct SdResolvedPromptLoras {
+    std::string prompt;
+    std::string negativePrompt;
+    std::vector<std::string> ownedPaths;
+    std::vector<sd_lora_t> loras;
+};
+
+static inline void extract_prompt_loras(
+        std::string* text,
+        const std::string& lora_model_dir,
+        std::map<std::string, float>* low_noise_loras,
+        std::map<std::string, float>* high_noise_loras) {
+    if (!text || lora_model_dir.empty() || !low_noise_loras || !high_noise_loras) {
+        return;
+    }
+
+    static const std::regex re(R"(<lora:([^:>]+):([^>]+)>)");
+    static const std::vector<std::string> valid_ext = {".gguf", ".safetensors", ".pt"};
+
+    std::string remaining = *text;
+    std::smatch match;
+
+    while (std::regex_search(remaining, match, re)) {
+        std::string raw_path = match[1].str();
+        float multiplier = 0.0f;
+        try {
+            multiplier = std::stof(match[2].str());
+        } catch (...) {
+            remaining = match.suffix().str();
+            *text = std::regex_replace(*text, re, "", std::regex_constants::format_first_only);
+            continue;
+        }
+
+        bool is_high_noise = false;
+        static const std::string high_noise_prefix = "|high_noise|";
+        if (raw_path.rfind(high_noise_prefix, 0) == 0) {
+            raw_path.erase(0, high_noise_prefix.size());
+            is_high_noise = true;
+        }
+
+        std::filesystem::path resolved =
+                std::filesystem::path(raw_path).is_absolute()
+                        ? std::filesystem::path(raw_path)
+                        : std::filesystem::path(lora_model_dir) / raw_path;
+
+        if (!std::filesystem::exists(resolved)) {
+            bool found_with_extension = false;
+            for (const std::string& extension : valid_ext) {
+                std::filesystem::path candidate = resolved;
+                candidate += extension;
+                if (std::filesystem::exists(candidate)) {
+                    resolved = candidate;
+                    found_with_extension = true;
+                    break;
+                }
+            }
+            if (!found_with_extension) {
+                ALOGW("Unable to resolve LoRA '%s' relative to '%s'", raw_path.c_str(), lora_model_dir.c_str());
+                remaining = match.suffix().str();
+                *text = std::regex_replace(*text, re, "", std::regex_constants::format_first_only);
+                continue;
+            }
+        }
+
+        const std::string normalized = resolved.lexically_normal().string();
+        if (is_high_noise) {
+            (*high_noise_loras)[normalized] += multiplier;
+        } else {
+            (*low_noise_loras)[normalized] += multiplier;
+        }
+
+        *text = std::regex_replace(*text, re, "", std::regex_constants::format_first_only);
+        remaining = match.suffix().str();
+    }
+}
+
+static inline SdResolvedPromptLoras resolve_prompt_loras(
+        const char* raw_prompt,
+        const char* raw_negative_prompt,
+        const std::string& lora_model_dir) {
+    SdResolvedPromptLoras resolved;
+    resolved.prompt = raw_prompt ? raw_prompt : "";
+    resolved.negativePrompt = raw_negative_prompt ? raw_negative_prompt : "";
+
+    if (lora_model_dir.empty()) {
+        return resolved;
+    }
+
+    std::map<std::string, float> low_noise_loras;
+    std::map<std::string, float> high_noise_loras;
+    extract_prompt_loras(&resolved.prompt, lora_model_dir, &low_noise_loras, &high_noise_loras);
+    extract_prompt_loras(&resolved.negativePrompt, lora_model_dir, &low_noise_loras, &high_noise_loras);
+
+    const size_t total_loras = low_noise_loras.size() + high_noise_loras.size();
+    resolved.ownedPaths.reserve(total_loras);
+    resolved.loras.reserve(total_loras);
+
+    for (const auto& entry : low_noise_loras) {
+        resolved.ownedPaths.push_back(entry.first);
+        sd_lora_t item{};
+        item.is_high_noise = false;
+        item.multiplier = entry.second;
+        item.path = resolved.ownedPaths.back().c_str();
+        resolved.loras.push_back(item);
+    }
+    for (const auto& entry : high_noise_loras) {
+        resolved.ownedPaths.push_back(entry.first);
+        sd_lora_t item{};
+        item.is_high_noise = true;
+        item.multiplier = entry.second;
+        item.path = resolved.ownedPaths.back().c_str();
+        resolved.loras.push_back(item);
+    }
+
+    return resolved;
 }
