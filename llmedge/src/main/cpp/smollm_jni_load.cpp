@@ -1,6 +1,7 @@
 #include "smollm_jni_shared.h"
 
 #include <memory>
+#include <cstring>
 
 #include "ggml-backend.h"
 

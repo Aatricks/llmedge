@@ -10,9 +10,9 @@ internal object SmolLMVisionInterop {
         metaPath: String,
         nBatch: Int,
     ): Boolean {
-        val nativePtr = instance.supportRequireHandle()
+        val nativePtr = instance.requireLoadedHandle()
         return try {
-            instance.supportNativeBridge.nativeDecodePreparedEmbeddings(
+            instance.bridge.nativeDecodePreparedEmbeddings(
                 instance,
                 nativePtr,
                 embdPath,
@@ -29,9 +29,9 @@ internal object SmolLMVisionInterop {
         embeddings: VisionEmbeddings,
         nBatch: Int,
     ): Boolean {
-        val nativePtr = instance.supportRequireHandle()
+        val nativePtr = instance.requireLoadedHandle()
         return try {
-            instance.supportNativeBridge.nativeDecodeEmbeddingsBuffer(
+            instance.bridge.nativeDecodeEmbeddingsBuffer(
                 instance,
                 nativePtr,
                 embeddings.data,
@@ -54,9 +54,9 @@ internal object SmolLMVisionInterop {
         imageData: ByteArray,
         nBatch: Int,
     ): Boolean {
-        val nativePtr = instance.supportRequireHandle()
+        val nativePtr = instance.requireLoadedHandle()
         return try {
-            instance.supportNativeBridge.nativePrimeImageBuffer(
+            instance.bridge.nativePrimeImageBuffer(
                 instance,
                 nativePtr,
                 projectorNativePtr,

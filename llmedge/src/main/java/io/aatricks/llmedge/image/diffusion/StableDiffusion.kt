@@ -30,31 +30,15 @@ import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionExecutor
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionLoader
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class StableDiffusion internal constructor(private val handle: Long) : AutoCloseable {
-    // Serialize concurrent generation calls - native library is not guaranteed to be reentrant.
-    private val generationMutex = Mutex()
-    private var modelMetadata: VideoModelMetadata? = null
-    private var easyCacheSupported: Boolean? = null
-    private val cancellationRequested = AtomicBoolean(false)
-    private val rgbBytesThreadLocal = ThreadLocal<ByteArray>()
-    // Reusable pixel buffer for txt2img RGB→ARGB conversion
-    private var txt2imgPixelBuffer: IntArray? = null
-
-    private var vulkanEnabledForMetrics: Boolean = false
-
-    @Volatile private var cachedProgressCallback: VideoProgressCallback? = null
-
-    @Volatile private var lastGenerationMetrics: GenerationMetrics? = null
+    private val runtimeState = StableDiffusionState(handle)
     private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider.create(this)
 
     internal interface NativeBridge {
@@ -1042,12 +1026,12 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
             }
 
             val instance = StableDiffusion(handle)
-            instance.vulkanEnabledForMetrics = requestedVulkan
+            instance.state.vulkanEnabledForMetrics = requestedVulkan
             instance.updateModelMetadata(resolved.metadata)
 
-            if (instance.modelMetadata?.mobileSupported == false) {
+            if (instance.state.modelMetadata?.mobileSupported == false) {
                 instance.close()
-                val paramCount = instance.modelMetadata?.parameterCount ?: "14B"
+                val paramCount = instance.state.modelMetadata?.parameterCount ?: "14B"
                 throw UnsupportedModelException(
                     "$paramCount models are not supported on mobile devices. " +
                         "Please use 1.3B or 5B model variants instead. " +
@@ -1230,8 +1214,8 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
     val LCM = SampleMethod.LCM
 
     internal fun updateModelMetadata(metadata: VideoModelMetadata?) {
-        modelMetadata = metadata
-        easyCacheSupported =
+        runtimeState.modelMetadata = metadata
+        runtimeState.easyCacheSupported =
             if (!Companion.isNativeLibraryAvailable || Companion.nativeBridgeOverriddenForTests) {
                 metadata?.let(StableDiffusionMetadataSupport::supportsEasyCache)
             } else {
@@ -1240,7 +1224,7 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
     }
 
     fun isVideoModel(): Boolean {
-        val metadata = modelMetadata ?: return false
+        val metadata = runtimeState.modelMetadata ?: return false
         return StableDiffusionMetadataSupport.isVideoModel(metadata)
     }
 
@@ -1257,68 +1241,33 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
         StableDiffusionExecutor.cancelGeneration(this)
     }
 
-    fun getLastGenerationMetrics(): GenerationMetrics? = lastGenerationMetrics
+    fun getLastGenerationMetrics(): GenerationMetrics? = runtimeState.lastGenerationMetrics
 
-    internal val supportHandle: Long
-        get() = handle
-
-    internal val supportNativeBridge: NativeBridge
+    internal val bridge: NativeBridge
         get() = nativeBridge
 
-    internal val supportGenerationMutex: Mutex
-        get() = generationMutex
+    internal val state: StableDiffusionState
+        get() = runtimeState
 
-    internal val supportCancellationRequested: AtomicBoolean
-        get() = cancellationRequested
-
-    internal val supportModelMetadata: VideoModelMetadata?
-        get() = modelMetadata
-
-    internal var supportEasyCacheSupported: Boolean?
-        get() = easyCacheSupported
-        set(value) {
-            easyCacheSupported = value
-        }
-
-    internal var supportCachedProgressCallback: VideoProgressCallback?
-        get() = cachedProgressCallback
-        set(value) {
-            cachedProgressCallback = value
-        }
-
-    internal var supportLastGenerationMetrics: GenerationMetrics?
-        get() = lastGenerationMetrics
-        set(value) {
-            lastGenerationMetrics = value
-        }
-
-    internal var supportTxt2imgPixelBuffer: IntArray?
-        get() = txt2imgPixelBuffer
-        set(value) {
-            txt2imgPixelBuffer = value
-        }
-
-    internal val supportVulkanEnabledForMetrics: Boolean
-        get() = vulkanEnabledForMetrics
-
-    internal fun supportBitmapToRgbBytes(bitmap: Bitmap): Triple<ByteArray, Int, Int> =
+    internal fun bitmapToRgbBytesForExecution(bitmap: Bitmap): Triple<ByteArray, Int, Int> =
         bitmapToRgbBytes(bitmap)
 
-    internal fun supportConvertFramesToBitmaps(
+    internal fun convertFramesToBitmapsForExecution(
         frameBytesRgb24: Array<ByteArray>,
         width: Int,
         height: Int,
     ): List<Bitmap> = convertFramesToBitmaps(frameBytesRgb24, width, height)
 
-    internal fun supportWarnIfLowMemory(estimatedAdditionalBytes: Long) =
+    internal fun warnIfLowMemoryForExecution(estimatedAdditionalBytes: Long) =
         warnIfLowMemory(estimatedAdditionalBytes)
 
-    internal fun supportEstimateFrameFootprintBytes(width: Int, height: Int, frameCount: Int): Long =
+    internal fun estimateFrameFootprintBytesForExecution(width: Int, height: Int, frameCount: Int): Long =
         estimateFrameFootprintBytes(width, height, frameCount)
 
-    internal fun supportReadNativeMemoryMb(): Long = readNativeMemoryMb()
+    internal fun readNativeMemoryMbForExecution(): Long = readNativeMemoryMb()
 
-    internal fun supportNativeIsEasyCacheSupported(): Boolean = nativeIsEasyCacheSupported(handle)
+    internal fun nativeIsEasyCacheSupportedForExecution(): Boolean =
+        nativeIsEasyCacheSupported(handle)
 
     suspend fun txt2img(params: GenerateParams): Bitmap =
             StableDiffusionExecutor.txt2img(this, params)
@@ -1329,8 +1278,8 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
 
     override fun close() {
         // T096: Proper cleanup - cancel any ongoing generation, destroy native context, reset state
-        if (cancellationRequested.get()) {
-            cancellationRequested.set(false)
+        if (runtimeState.cancellationRequested.get()) {
+            runtimeState.cancellationRequested.set(false)
         }
         // If tests have overridden the native bridge, the JNI library may not be loaded
         // so avoid calling nativeDestroy to prevent UnsatisfiedLinkError. See override
@@ -1338,8 +1287,11 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
         if (!Companion.nativeBridgeOverriddenForTests && isNativeLibraryAvailable) {
             nativeDestroy(handle)
         }
-        modelMetadata = null
-        easyCacheSupported = null
+        runtimeState.modelMetadata = null
+        runtimeState.easyCacheSupported = null
+        runtimeState.lastGenerationMetrics = null
+        runtimeState.cachedProgressCallback = null
+        runtimeState.txt2imgPixelBuffer = null
     }
 
     private external fun nativeDestroy(handle: Long)
@@ -1460,7 +1412,7 @@ class StableDiffusion internal constructor(private val handle: Long) : AutoClose
     private external fun nativeIsEasyCacheSupported(handle: Long): Boolean
 
     private fun bitmapToRgbBytes(bitmap: Bitmap): Triple<ByteArray, Int, Int> {
-        return StableDiffusionOutputSupport.bitmapToRgbBytes(bitmap, rgbBytesThreadLocal)
+        return StableDiffusionOutputSupport.bitmapToRgbBytes(bitmap, runtimeState.rgbBytesThreadLocal)
     }
 
     private fun convertFramesToBitmaps(

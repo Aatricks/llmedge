@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LLMInference.h"
+#include "jni_utils.h"
 #include "llmedge_llama_compat.h"
 
 #include <jni.h>
@@ -11,14 +12,7 @@
 #include <vector>
 
 inline void throwJavaException(JNIEnv* env, const char* className, const char* message) {
-    if (!env) {
-        return;
-    }
-    jclass exClass = env->FindClass(className);
-    if (!exClass) {
-        return;
-    }
-    env->ThrowNew(exClass, message);
+    llmedge_throw_java_exception(env, className, message);
 }
 
 inline void throwInvalidHandle(JNIEnv* env, const char* owner) {

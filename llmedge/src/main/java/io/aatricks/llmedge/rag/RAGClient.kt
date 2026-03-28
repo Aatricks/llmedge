@@ -8,11 +8,12 @@ import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.TextModelOptions
-import io.aatricks.llmedge.text.toInferenceParams
+import io.aatricks.llmedge.text.ManagedTextModel
+import io.aatricks.llmedge.text.createTextRuntimePool
 
 class RAGSession internal constructor(
     val engine: RAGEngine,
-    private val model: SmolLM,
+    private val runtime: ManagedTextModel,
 ) : AutoCloseable {
     suspend fun init() {
         engine.init()
@@ -29,10 +30,10 @@ class RAGSession internal constructor(
     suspend fun retrievalPreview(question: String, topK: Int = 5): String =
         engine.retrievalPreview(question, topK)
 
-    fun getLastGenerationMetrics(): SmolLM.GenerationMetrics = model.getLastGenerationMetrics()
+    fun getLastGenerationMetrics(): SmolLM.GenerationMetrics = runtime.model.getLastGenerationMetrics()
 
     override fun close() {
-        model.close()
+        runtime.close()
     }
 }
 
@@ -42,6 +43,8 @@ class RAGClient internal constructor(
     private val config: LLMEdgeConfig,
     private val resolver: ModelResolver,
 ) : AutoCloseable {
+    private val runtimePool = createTextRuntimePool(context, scope, config, resolver)
+
     /**
      * Create a new retrieval-augmented generation session backed by a dedicated [SmolLM] instance.
      *
@@ -55,16 +58,16 @@ class RAGClient internal constructor(
         splitter: TextSplitter = TextSplitter(),
         options: TextModelOptions = TextModelOptions(),
     ): RAGSession {
-        val file = resolver.resolve(context, model)
-        val smol = SmolLM(useVulkan = options.useVulkan ?: config.textUseVulkan)
-        smol.load(file.absolutePath, options.toInferenceParams(config))
+        val runtime = runtimePool.loadDetached(model, options)
         val session =
             RAGSession(
-                engine = RAGEngine(context, smol, splitter = splitter, embeddingConfig = embeddingConfig),
-                model = smol,
+                engine = RAGEngine(context, runtime.model, splitter = splitter, embeddingConfig = embeddingConfig),
+                runtime = runtime,
             )
         return scope.resources.register(session)
     }
 
-    override fun close() = Unit
+    override fun close() {
+        runtimePool.close()
+    }
 }

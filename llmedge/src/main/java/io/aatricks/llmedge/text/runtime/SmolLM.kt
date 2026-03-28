@@ -394,62 +394,54 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         private external fun nativeIsVulkanAvailable(): Boolean
 
         internal fun createLoadedForTests(
-                nativePtr: Long,
-                useVulkan: Boolean = false,
-                loadedParams: InferenceParams = InferenceParams(),
+            nativePtr: Long,
+            useVulkan: Boolean = false,
+            loadedParams: InferenceParams = InferenceParams(),
         ): SmolLM {
             val s = SmolLM(useVulkan)
-            s.nativePtr = nativePtr
-            s.loadedInferenceParams = loadedParams
-            s.selectedBackend = if (useVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
+            s.state.nativePtr = nativePtr
+            s.state.loadedInferenceParams = loadedParams
+            s.state.selectedBackend = if (useVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
             return s
         }
 
-        internal fun supportLogD(message: String) = logD(LOG_TAG, message)
+        internal fun logDebug(message: String) = logD(LOG_TAG, message)
 
-        internal fun supportLogW(message: String) = logW(LOG_TAG, message)
+        internal fun logWarning(message: String) = logW(LOG_TAG, message)
 
-        internal fun supportIsOpenClAvailable(): Boolean = isOpenClAvailable()
+        internal fun isOpenClBackendAvailable(): Boolean = isOpenClAvailable()
 
-        internal fun supportIsVulkanBackendAvailable(): Boolean = isVulkanBackendAvailable()
+        internal fun isVulkanBackendRuntimeAvailable(): Boolean = isVulkanBackendAvailable()
     }
 
-    private var nativePtr = 0L
+    private val runtimeState = SmolLMState(useVulkan, DEFAULT_REASONING_BUDGET)
     private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider.create(this)
-    private var useVulkanGPU = true
-    private var requestedLoadBackend: ComputeBackend? = null
-    private var selectedBackend: ComputeBackend = ComputeBackend.CPU
-    private var currentThinkingMode = ThinkingMode.DEFAULT
-    private var currentReasoningBudget = DEFAULT_REASONING_BUDGET
-    internal var loadedInferenceParams: InferenceParams? = null
-        private set
-
-    init {
-        this.useVulkanGPU = useVulkan
-        this.selectedBackend = if (useVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
-    }
+    internal val loadedInferenceParams: InferenceParams?
+        get() = runtimeState.loadedInferenceParams
 
     /** Returns true if this SmolLM instance will try to use Vulkan-backed GPU layers. */
     fun isVulkanEnabled(): Boolean =
-        if (nativePtr != 0L) {
-            selectedBackend == ComputeBackend.VULKAN
+        if (runtimeState.nativePtr != 0L) {
+            runtimeState.selectedBackend == ComputeBackend.VULKAN
         } else {
-            useVulkanGPU
+            runtimeState.useVulkanGpu
         }
 
     internal fun getActiveBackend(): ComputeBackend =
-        if (nativePtr != 0L) {
-            selectedBackend
+        if (runtimeState.nativePtr != 0L) {
+            runtimeState.selectedBackend
         } else {
-            requestedLoadBackend ?: if (useVulkanGPU) ComputeBackend.VULKAN else ComputeBackend.CPU
+            runtimeState.requestedLoadBackend
+                ?: if (runtimeState.useVulkanGpu) ComputeBackend.VULKAN else ComputeBackend.CPU
         }
 
     internal fun setPreferredBackendForLoad(backend: ComputeBackend?) {
-        requestedLoadBackend = backend
+        runtimeState.requestedLoadBackend = backend
     }
 
     internal fun resolveRequestedBackendForLoad(legacyUseVulkan: Boolean): ComputeBackend =
-        requestedLoadBackend ?: if (legacyUseVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
+        runtimeState.requestedLoadBackend
+            ?: if (legacyUseVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
 
     /**
      * Provides default values for inference parameters. These values are used when the
@@ -665,14 +657,14 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * @throws IllegalStateException if the model is not loaded.
      */
     fun addUserMessage(message: String) {
-        verifyHandle()
-        nativeBridge.addChatMessage(this, nativePtr, message, "user")
+        val nativePtr = requireLoadedHandle()
+        bridge.addChatMessage(this, nativePtr, message, "user")
     }
 
     /** Adds the system prompt for the LLM */
     fun addSystemPrompt(prompt: String) {
-        verifyHandle()
-        nativeBridge.addChatMessage(this, nativePtr, prompt, "system")
+        val nativePtr = requireLoadedHandle()
+        bridge.addChatMessage(this, nativePtr, prompt, "system")
     }
 
     /**
@@ -680,18 +672,18 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * the LLM for a previous query in the conversation
      */
     fun addAssistantMessage(message: String) {
-        verifyHandle()
-        nativeBridge.addChatMessage(this, nativePtr, message, "assistant")
+        val nativePtr = requireLoadedHandle()
+        bridge.addChatMessage(this, nativePtr, message, "assistant")
     }
 
-    fun getThinkingMode(): ThinkingMode = currentThinkingMode
+    fun getThinkingMode(): ThinkingMode = runtimeState.currentThinkingMode
 
-    fun getReasoningBudget(): Int = currentReasoningBudget
+    fun getReasoningBudget(): Int = runtimeState.currentReasoningBudget
 
-    fun isThinkingEnabled(): Boolean = currentReasoningBudget != 0
+    fun isThinkingEnabled(): Boolean = runtimeState.currentReasoningBudget != 0
 
     fun setThinkingMode(mode: ThinkingMode) {
-        verifyHandle()
+        requireLoadedHandle()
         val targetBudget = if (mode.disableReasoning) 0 else DEFAULT_REASONING_BUDGET
         applyReasoningState(mode, targetBudget)
     }
@@ -701,7 +693,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
     }
 
     fun setReasoningBudget(budget: Int) {
-        verifyHandle()
+        requireLoadedHandle()
         val mode = if (budget == 0) ThinkingMode.DISABLED else ThinkingMode.DEFAULT
         applyReasoningState(mode, budget)
     }
@@ -711,8 +703,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * `getResponse()`
      */
     fun getResponseGenerationSpeed(): Float {
-        verifyHandle()
-        return nativeBridge.getResponseGenerationSpeed(this, nativePtr)
+        val nativePtr = requireLoadedHandle()
+        return bridge.getResponseGenerationSpeed(this, nativePtr)
     }
 
     /**
@@ -720,18 +712,18 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * next call to [getResponse] or [getResponseAsFlow].
      */
     fun getLastGenerationMetrics(): GenerationMetrics {
-        verifyHandle()
-        return nativeBridge.getLastGenerationMetrics(this, nativePtr)
+        val nativePtr = requireLoadedHandle()
+        return bridge.getLastGenerationMetrics(this, nativePtr)
     }
 
     fun getEstimatedNativeMemoryBytes(): Long {
-        verifyHandle()
-        return nativeBridge.getEstimatedNativeMemoryBytes(this, nativePtr)
+        val nativePtr = requireLoadedHandle()
+        return bridge.getEstimatedNativeMemoryBytes(this, nativePtr)
     }
 
     fun getEstimatedStateMemoryBytes(): Long {
-        verifyHandle()
-        return nativeBridge.getEstimatedStateMemoryBytes(this, nativePtr)
+        val nativePtr = requireLoadedHandle()
+        return bridge.getEstimatedStateMemoryBytes(this, nativePtr)
     }
 
     /**
@@ -739,8 +731,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * roughly the output of, tokenize(apply_chat_template(messages_in_conversation))
      */
     fun getContextLengthUsed(): Int {
-        verifyHandle()
-        return nativeBridge.getContextSizeUsed(this, nativePtr)
+        val nativePtr = requireLoadedHandle()
+        return bridge.getContextSizeUsed(this, nativePtr)
     }
 
     /**
@@ -795,78 +787,50 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * instance is no longer needed to prevent memory leaks.
      */
     override fun close() {
+        val nativePtr = runtimeState.nativePtr
         if (nativePtr != 0L) {
-            nativeBridge.close(this, nativePtr)
-            nativePtr = 0L
+            bridge.close(this, nativePtr)
         }
-        requestedLoadBackend = null
-        selectedBackend = if (useVulkanGPU) ComputeBackend.VULKAN else ComputeBackend.CPU
-        currentThinkingMode = ThinkingMode.DEFAULT
-        currentReasoningBudget = DEFAULT_REASONING_BUDGET
-        loadedInferenceParams = null
+        runtimeState.reset(DEFAULT_REASONING_BUDGET)
     }
 
     private fun verifyHandle() {
-        if (nativePtr == 0L) {
+        if (runtimeState.nativePtr == 0L) {
             throw InvalidModelStateException("Model is not loaded. Use SmolLM.load to load the model first.")
         }
     }
 
-    internal fun supportRequireHandle(): Long {
+    internal fun requireLoadedHandle(): Long {
         verifyHandle()
-        return nativePtr
+        return runtimeState.nativePtr
     }
 
-    internal val supportNativeBridge: NativeBridge
+    internal val bridge: NativeBridge
         get() = nativeBridge
 
-    internal var supportNativePtr: Long
-        get() = nativePtr
-        set(value) {
-            nativePtr = value
-        }
+    internal val state: SmolLMState
+        get() = runtimeState
 
-    internal var supportRequestedLoadBackend: ComputeBackend?
-        get() = requestedLoadBackend
-        set(value) {
-            requestedLoadBackend = value
-        }
-
-    internal var supportSelectedBackend: ComputeBackend
-        get() = selectedBackend
-        set(value) {
-            selectedBackend = value
-        }
-
-    internal val supportUseVulkanGpu: Boolean
-        get() = useVulkanGPU
-
-    internal var supportLoadedInferenceParams: InferenceParams?
-        get() = loadedInferenceParams
-        set(value) {
-            loadedInferenceParams = value
-        }
-
-    internal fun supportResolveContextSize(requested: Long?, modelContextSize: Long): Long =
+    internal fun resolveContextSizeForLoad(requested: Long?, modelContextSize: Long): Long =
         resolveContextSize(requested, modelContextSize)
 
-    internal fun supportResolveChatTemplate(explicit: String?, ggufReader: GGUFReader): String =
+    internal fun resolveChatTemplateForLoad(explicit: String?, ggufReader: GGUFReader): String =
         resolveChatTemplate(explicit, ggufReader)
 
-    internal fun supportPreflightBackendCompatibility(
+    internal fun preflightBackendCompatibilityForLoad(
         modelPath: String,
         params: InferenceParams,
         fileType: Int?,
         dominantTensorType: Int?,
     ) = preflightBackendCompatibility(modelPath, params, fileType, dominantTensorType)
 
-    internal fun supportApplyReasoningState(mode: ThinkingMode, budget: Int) =
+    internal fun applyReasoningStateForLoad(mode: ThinkingMode, budget: Int) =
         applyReasoningState(mode, budget)
 
-    internal fun supportResolvedReasoningBudget(mode: ThinkingMode, override: Int?): Int =
+    internal fun resolvedReasoningBudgetForLoad(mode: ThinkingMode, override: Int?): Int =
         resolvedReasoningBudget(mode, override)
 
-    internal fun supportSetThreadAffinity(modelPtr: Long, coreMask: Long) =
+    internal fun setThreadAffinityForLoad(modelPtr: Long, coreMask: Long) =
         setThreadAffinity(modelPtr, coreMask)
 
     private fun preflightBackendCompatibility(
@@ -875,7 +839,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         fileType: Int?,
         dominantTensorType: Int?,
     ) {
-        if (!useVulkanGPU || nativeBridge.hasVulkanBackendSupport(this)) {
+        if (!runtimeState.useVulkanGpu || bridge.hasVulkanBackendSupport(this)) {
             return
         }
         val detail =
@@ -960,8 +924,8 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
      * native model directly.
      */
     fun getNativeModelPointer(): Long {
-        verifyHandle()
-        return nativeBridge.getNativeModelPtr(this, nativePtr)
+        val nativePtr = requireLoadedHandle()
+        return bridge.getNativeModelPtr(this, nativePtr)
     }
 
     // Decode embeddings prepared by the projector (raw floats) without loading mmproj
@@ -1082,10 +1046,11 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
 
     private fun applyReasoningState(mode: ThinkingMode, budget: Int) {
         val effectiveMode = if (budget == 0) ThinkingMode.DISABLED else mode
-        currentThinkingMode = effectiveMode
-        currentReasoningBudget = budget
+        runtimeState.currentThinkingMode = effectiveMode
+        runtimeState.currentReasoningBudget = budget
+        val nativePtr = runtimeState.nativePtr
         if (nativePtr != 0L) {
-            nativeBridge.setReasoningOptions(
+            bridge.setReasoningOptions(
                     this,
                     nativePtr,
                     effectiveMode.disableReasoning || budget == 0,

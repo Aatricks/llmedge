@@ -21,8 +21,8 @@ internal object StableDiffusionExecutor {
         onProgress: VideoProgressCallback?,
     ): List<Bitmap> =
         executeVideoGeneration(instance, params, onProgress) { initBytes, initWidth, initHeight ->
-            instance.supportNativeBridge.txt2vid(
-                instance.supportHandle,
+            instance.bridge.txt2vid(
+                instance.state.handle,
                 params.prompt,
                 params.negative,
                 params.width,
@@ -46,28 +46,28 @@ internal object StableDiffusionExecutor {
         }
 
     fun setProgressCallback(instance: StableDiffusion, callback: VideoProgressCallback?) {
-        instance.supportCachedProgressCallback = callback
+        instance.state.cachedProgressCallback = callback
         if (!StableDiffusion.supportIsNativeLibraryAvailable()) {
             return
         }
-        instance.supportNativeBridge.setProgressCallback(instance.supportHandle, callback)
+        instance.bridge.setProgressCallback(instance.state.handle, callback)
     }
 
     fun cancelGeneration(instance: StableDiffusion) {
-        instance.supportCancellationRequested.set(true)
+        instance.state.cancellationRequested.set(true)
         if (!StableDiffusion.supportIsNativeLibraryAvailable()) {
             return
         }
-        instance.supportNativeBridge.cancelGeneration(instance.supportHandle)
+        instance.bridge.cancelGeneration(instance.state.handle)
     }
 
     suspend fun txt2img(instance: StableDiffusion, params: GenerateParams): Bitmap =
         withContext(StableDiffusion.diffusionDispatcher) {
             val argbPixels =
                 try {
-                    instance.supportGenerationMutex.withLock {
-                        instance.supportNativeBridge.txt2imgArgb(
-                            instance.supportHandle,
+                    instance.state.generationMutex.withLock {
+                        instance.bridge.txt2imgArgb(
+                            instance.state.handle,
                             params.prompt,
                             params.negative,
                             params.width,
@@ -98,9 +98,9 @@ internal object StableDiffusionExecutor {
             }
 
             val bytes =
-                instance.supportGenerationMutex.withLock {
-                    instance.supportNativeBridge.txt2img(
-                        instance.supportHandle,
+                instance.state.generationMutex.withLock {
+                    instance.bridge.txt2img(
+                        instance.state.handle,
                         params.prompt,
                         params.negative,
                         params.width,
@@ -127,11 +127,11 @@ internal object StableDiffusionExecutor {
             }
             val pixelCount = params.width * params.height
             val pixels =
-                instance.supportTxt2imgPixelBuffer.let { buf ->
+                instance.state.txt2imgPixelBuffer.let { buf ->
                     if (buf != null && buf.size >= pixelCount) {
                         buf
                     } else {
-                        IntArray(pixelCount).also { instance.supportTxt2imgPixelBuffer = it }
+                        IntArray(pixelCount).also { instance.state.txt2imgPixelBuffer = it }
                     }
                 }
             io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(
@@ -143,24 +143,24 @@ internal object StableDiffusionExecutor {
         }
 
     fun isEasyCacheSupported(instance: StableDiffusion): Boolean {
-        instance.supportEasyCacheSupported?.let { return it }
+        instance.state.easyCacheSupported?.let { return it }
 
         val supported =
             if (!StableDiffusion.supportIsNativeLibraryAvailable() ||
                 StableDiffusion.supportNativeBridgeOverriddenForTests()
             ) {
-                instance.supportModelMetadata?.let(StableDiffusionMetadataSupport::supportsEasyCache)
+                instance.state.modelMetadata?.let(StableDiffusionMetadataSupport::supportsEasyCache)
                     ?: false
             } else {
                 try {
-                    instance.supportNativeIsEasyCacheSupported()
+                    instance.nativeIsEasyCacheSupportedForExecution()
                 } catch (_: Throwable) {
-                    instance.supportModelMetadata?.let(StableDiffusionMetadataSupport::supportsEasyCache)
+                    instance.state.modelMetadata?.let(StableDiffusionMetadataSupport::supportsEasyCache)
                         ?: false
                 }
             }
 
-        instance.supportEasyCacheSupported = supported
+        instance.state.easyCacheSupported = supported
         return supported
     }
 
@@ -173,8 +173,8 @@ internal object StableDiffusionExecutor {
         clipSkip: Int,
     ): PrecomputedCondition? =
         withContext(StableDiffusion.diffusionDispatcher) {
-            instance.supportNativeBridge.precomputeCondition(
-                instance.supportHandle,
+            instance.bridge.precomputeCondition(
+                instance.state.handle,
                 prompt,
                 negative,
                 width,
@@ -191,8 +191,8 @@ internal object StableDiffusionExecutor {
         onProgress: VideoProgressCallback?,
     ): List<Bitmap> =
         executeVideoGeneration(instance, params, onProgress) { initBytes, initWidth, initHeight ->
-            instance.supportNativeBridge.txt2vidWithPrecomputedCondition(
-                instance.supportHandle,
+            instance.bridge.txt2vidWithPrecomputedCondition(
+                instance.state.handle,
                 params.prompt,
                 params.negative,
                 params.width,
@@ -231,37 +231,37 @@ internal object StableDiffusionExecutor {
             check(instance.isVideoModel()) { "Loaded model is not a video model (use txt2img instead)" }
 
             val maxFrames =
-                when (instance.supportModelMetadata?.parameterCount) {
+                when (instance.state.modelMetadata?.parameterCount) {
                     "5B" -> 32
                     else -> 64
                 }
             require(params.videoFrames <= maxFrames) {
-                "Model ${instance.supportModelMetadata?.parameterCount ?: "unknown"} supports maximum $maxFrames frames. " +
+                "Model ${instance.state.modelMetadata?.parameterCount ?: "unknown"} supports maximum $maxFrames frames. " +
                     "Requested ${params.videoFrames} frames. Use a smaller model or reduce frame count."
             }
 
             val estimatedBytes =
-                instance.supportEstimateFrameFootprintBytes(
+                instance.estimateFrameFootprintBytesForExecution(
                     width = params.width,
                     height = params.height,
                     frameCount = params.videoFrames,
                 )
-            instance.supportWarnIfLowMemory(estimatedBytes)
+            instance.warnIfLowMemoryForExecution(estimatedBytes)
 
             val (initBytes, initWidth, initHeight) =
-                params.initImage?.let { instance.supportBitmapToRgbBytes(it) } ?: Triple(null, 0, 0)
+                params.initImage?.let { instance.bitmapToRgbBytesForExecution(it) } ?: Triple(null, 0, 0)
 
             if (onProgress != null) {
-                instance.supportNativeBridge.setProgressCallback(instance.supportHandle, onProgress)
+                instance.bridge.setProgressCallback(instance.state.handle, onProgress)
             }
 
             try {
                 val startNanos = System.nanoTime()
-                val memoryBefore = instance.supportReadNativeMemoryMb()
+                val memoryBefore = instance.readNativeMemoryMbForExecution()
                 val frameBytes =
                     try {
-                        instance.supportGenerationMutex.withLock {
-                            instance.supportCancellationRequested.set(false)
+                        instance.state.generationMutex.withLock {
+                            instance.state.cancellationRequested.set(false)
                             generateFrames(initBytes, initWidth, initHeight)
                                 ?: throw InferenceFailedException(
                                     operation = "Stable Diffusion video generation",
@@ -269,13 +269,13 @@ internal object StableDiffusionExecutor {
                                 )
                         }
                     } catch (t: Throwable) {
-                        if (instance.supportCancellationRequested.get()) {
-                            instance.supportCancellationRequested.set(false)
+                        if (instance.state.cancellationRequested.get()) {
+                            instance.state.cancellationRequested.set(false)
                             throw CancellationException("Video generation cancelled", t)
                         }
                         throw t
                     } finally {
-                        instance.supportCancellationRequested.set(false)
+                        instance.state.cancellationRequested.set(false)
                     }
 
                 if (frameBytes.isEmpty()) {
@@ -304,32 +304,32 @@ internal object StableDiffusionExecutor {
 
                 val conversionStart = System.nanoTime()
                 val bitmaps =
-                    instance.supportConvertFramesToBitmaps(
+                    instance.convertFramesToBitmapsForExecution(
                         frameBytesRgb24,
                         params.width,
                         params.height,
                     )
                 val conversionSeconds = (System.nanoTime() - conversionStart) / 1_000_000_000f
                 val totalSeconds = (System.nanoTime() - startNanos) / 1_000_000_000f
-                val memoryAfter = instance.supportReadNativeMemoryMb()
+                val memoryAfter = instance.readNativeMemoryMbForExecution()
 
-                instance.supportLastGenerationMetrics =
+                instance.state.lastGenerationMetrics =
                     GenerationMetrics(
                         totalTimeSeconds = totalSeconds,
                         framesPerSecond = if (totalSeconds > 0f) bitmaps.size / totalSeconds else 0f,
                         timePerStep = if (params.steps > 0) totalSeconds / params.steps else 0f,
                         peakMemoryUsageMb = maxOf(memoryBefore, memoryAfter),
-                        vulkanEnabled = instance.supportVulkanEnabledForMetrics,
+                        vulkanEnabled = instance.state.vulkanEnabledForMetrics,
                         frameConversionTimeSeconds = conversionSeconds,
                     )
 
-                instance.supportWarnIfLowMemory(estimatedBytes)
+                instance.warnIfLowMemoryForExecution(estimatedBytes)
                 bitmaps
             } finally {
                 if (onProgress != null) {
-                    instance.supportNativeBridge.setProgressCallback(
-                        instance.supportHandle,
-                        instance.supportCachedProgressCallback,
+                    instance.bridge.setProgressCallback(
+                        instance.state.handle,
+                        instance.state.cachedProgressCallback,
                     )
                 }
             }

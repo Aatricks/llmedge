@@ -2,29 +2,25 @@ package io.aatricks.llmedge.image
 
 import android.content.Context
 import android.graphics.Bitmap
-import io.aatricks.llmedge.runtime.CpuTopology
-import io.aatricks.llmedge.runtime.FlashAttentionHelper
-import io.aatricks.llmedge.runtime.BackendRuntimePolicy
-import io.aatricks.llmedge.runtime.ComputeBackend
-import io.aatricks.llmedge.runtime.ComputeSubsystem
-import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.ProgressEvent
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerateParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.LoraApplyMode
-import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
 import io.aatricks.llmedge.image.diffusion.SampleMethod
 import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
-import io.aatricks.llmedge.core.AndroidLogAdapter
-import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.core.ProgressEvent
-import io.aatricks.llmedge.core.runtime.BackendExecutionRunner
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.runtime.BackendRuntimePolicy
+import io.aatricks.llmedge.runtime.ComputeSubsystem
+import io.aatricks.llmedge.runtime.CpuTopology
+import io.aatricks.llmedge.runtime.FlashAttentionHelper
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -92,10 +88,16 @@ class ImageClient internal constructor(
     @Volatile
     private var lastGenerationMetrics: GenerationMetrics? = null
 
+    private val runtimePool = createDiffusionRuntimePool(context, scope, config, resolver)
     private val generationMutex = Mutex()
 
     @Volatile
     private var activeModel: StableDiffusion? = null
+
+    private data class RuntimeRequest(
+        val spec: DiffusionRuntimeSpec,
+        val options: DiffusionLoadOptions,
+    )
 
     /**
      * Generate a single bitmap from text.
@@ -111,55 +113,29 @@ class ImageClient internal constructor(
     ): Bitmap =
         generationMutex.withLock {
             lastGenerationMetrics = null
-            val modelPath = resolver.resolve(context, params.model ?: config.models.image)
-            val flashAttn =
-                FlashAttentionHelper.shouldUseFlashAttention(
-                    width = params.width,
-                    height = params.height,
-                    forceEnable = if (params.flashAttention) null else false,
-                )
-            return@withLock runAcrossBackends(
-                candidates = imageBackendCandidates(),
-                subsystem = ComputeSubsystem.IMAGE,
-                failureReason = "image generation failure",
-                retryMessage = "Retrying image generation on the next backend after failure on",
-                finalFailureMessage = "Image generation failed without a reported cause",
-            ) { backend ->
-                var model: StableDiffusion? = null
-                try {
-                    model =
-                        StableDiffusion.loadWithRuntimeBackend(
-                            context = context,
-                            modelPath = modelPath.absolutePath,
-                            nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                            offloadToCpu = !config.preferPerformanceMode,
-                            sequentialLoad = if (params.forceSequentialLoad) true else null,
-                            preferPerformanceMode = config.preferPerformanceMode,
-                            flashAttn = flashAttn,
-                            vaeDecodeOnly = true,
-                            loraModelDir = params.loraModelDir,
-                            loraApplyMode = params.loraApplyMode,
-                            preferredBackend = backend,
-                        )
-                    activeModel = model
-                    val easyCache = resolveEasyCache(model, params.easyCache)
-                    model.txt2img(
-                        GenerateParams(
-                            prompt = params.prompt,
-                            negative = params.negative,
-                            width = params.width,
-                            height = params.height,
-                            steps = params.steps,
-                            cfgScale = params.cfgScale,
-                            seed = params.seed,
-                            easyCacheParams = easyCache,
-                        ),
-                    ).also {
-                        lastGenerationMetrics = model.getLastGenerationMetrics()
+            val request = imageRuntimeRequest(params)
+            executeWithRuntimeRetry(
+                request = request,
+                retryMessage = "Retrying image generation on the next backend after a backend-specific failure for",
+            ) { runtime ->
+                runtime.mutex.withLock {
+                    withActiveModel(runtime.model) { model ->
+                        val easyCache = resolveEasyCache(model, params.easyCache)
+                        model.txt2img(
+                            GenerateParams(
+                                prompt = params.prompt,
+                                negative = params.negative,
+                                width = params.width,
+                                height = params.height,
+                                steps = params.steps,
+                                cfgScale = params.cfgScale,
+                                seed = params.seed,
+                                easyCacheParams = easyCache,
+                            ),
+                        ).also {
+                            lastGenerationMetrics = model.getLastGenerationMetrics()
+                        }
                     }
-                } finally {
-                    activeModel = null
-                    model?.close()
                 }
             }
         }
@@ -223,103 +199,45 @@ class ImageClient internal constructor(
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): List<Bitmap> {
         lastGenerationMetrics = null
-        val modelPath = resolver.resolve(context, params.model ?: config.models.video.diffusion)
-        val taesdPath = params.taehv?.let { resolver.resolve(context, it).absolutePath }
-        val vaePath = if (taesdPath == null) resolveVideoVae(params)?.absolutePath else null
-        val textEncoderPath = resolveVideoTextEncoder(params)?.absolutePath
-        val usingCustomTae = taesdPath != null
-        return runAcrossBackends(
-            candidates = videoBackendCandidates(usingCustomTae),
-            subsystem = ComputeSubsystem.VIDEO,
-            failureReason = "video generation failure",
-            retryMessage = "Retrying video generation on the next backend after failure on",
-            finalFailureMessage = "Video generation failed without a reported cause",
-        ) { backend ->
-            var model: StableDiffusion? = null
-            try {
-                model =
-                    StableDiffusion.loadWithRuntimeBackend(
-                        context = context,
-                        modelPath = modelPath.absolutePath,
-                        vaePath = vaePath,
-                        t5xxlPath = textEncoderPath,
-                        taesdPath = taesdPath,
-                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                        offloadToCpu = params.forceSequentialLoad || usingCustomTae || !config.preferPerformanceMode,
-                        keepClipOnCpu = usingCustomTae || !config.preferPerformanceMode,
-                        keepVaeOnCpu = usingCustomTae || !config.preferPerformanceMode,
-                        flashAttn = params.flashAttention,
-                        vaeDecodeOnly = params.initImage == null,
-                        sequentialLoad = if (params.forceSequentialLoad) true else null,
-                        preferPerformanceMode = config.preferPerformanceMode,
-                        flowShift = params.flowShift,
-                        loraModelDir = params.loraModelDir,
-                        loraApplyMode = params.loraApplyMode,
-                        preferredBackend = backend,
-                    )
-                activeModel = model
-                val easyCache = resolveEasyCache(model, params.easyCache)
-                model.txt2vid(
-                    params =
-                        VideoGenerateParams(
-                            prompt = params.prompt,
-                            negative = params.negative,
-                            width = params.width,
-                            height = params.height,
-                            videoFrames = params.videoFrames,
-                            steps = params.steps,
-                            cfgScale = params.cfgScale,
-                            seed = params.seed,
-                            initImage = params.initImage,
-                            strength = params.strength,
-                            sampleMethod = params.sampleMethod,
-                            scheduler = params.scheduler,
-                            easyCacheParams = easyCache,
-                        ),
-                    onProgress =
-                        VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
-                            onProgress?.invoke(
-                                "Generating frame $currentFrame/$totalFrames",
-                                step,
-                                totalSteps,
-                            )
-                        },
-                ).also {
-                    lastGenerationMetrics = model.getLastGenerationMetrics()
+        val request = directVideoRuntimeRequest(params)
+        return executeWithRuntimeRetry(
+            request = request,
+            retryMessage = "Retrying video generation on the next backend after a backend-specific failure for",
+        ) { runtime ->
+            runtime.mutex.withLock {
+                withActiveModel(runtime.model) { model ->
+                    val easyCache = resolveEasyCache(model, params.easyCache)
+                    model.txt2vid(
+                        params =
+                            VideoGenerateParams(
+                                prompt = params.prompt,
+                                negative = params.negative,
+                                width = params.width,
+                                height = params.height,
+                                videoFrames = params.videoFrames,
+                                steps = params.steps,
+                                cfgScale = params.cfgScale,
+                                seed = params.seed,
+                                initImage = params.initImage,
+                                strength = params.strength,
+                                sampleMethod = params.sampleMethod,
+                                scheduler = params.scheduler,
+                                easyCacheParams = easyCache,
+                            ),
+                        onProgress =
+                            VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
+                                onProgress?.invoke(
+                                    "Generating frame $currentFrame/$totalFrames",
+                                    step,
+                                    totalSteps,
+                                )
+                            },
+                    ).also {
+                        lastGenerationMetrics = model.getLastGenerationMetrics()
+                    }
                 }
-            } finally {
-                activeModel = null
-                model?.close()
             }
         }
-    }
-
-    private fun imageBackendCandidates(): List<ComputeBackend> =
-        BackendRuntimePolicy.candidates(
-            subsystem = ComputeSubsystem.IMAGE,
-            allowGpu = config.preferPerformanceMode,
-            openClAvailable = LLMEdge.isOpenClAvailable(),
-            vulkanAvailable = LLMEdge.isVulkanAvailable(),
-        )
-
-    private fun videoBackendCandidates(usingCustomTae: Boolean): List<ComputeBackend> =
-        BackendRuntimePolicy.candidates(
-            subsystem = ComputeSubsystem.VIDEO,
-            allowGpu = config.preferPerformanceMode && !usingCustomTae,
-            openClAvailable = LLMEdge.isOpenClAvailable(),
-            vulkanAvailable = !usingCustomTae && LLMEdge.isVulkanAvailable(),
-        )
-
-    private fun blacklistBackend(
-        subsystem: ComputeSubsystem,
-        backend: ComputeBackend,
-        reason: String,
-    ) {
-        BackendRuntimePolicy.blacklist(subsystem, backend)
-        AndroidLogAdapter.w(
-            LOG_TAG,
-            "Blacklisting $backend for $subsystem after $reason",
-        )
     }
 
     private suspend fun generateVideoSequentially(
@@ -327,138 +245,80 @@ class ImageClient internal constructor(
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): List<Bitmap> {
         lastGenerationMetrics = null
-        val modelPath = resolver.resolve(context, params.model ?: config.models.video.diffusion)
-        val taesdPath = params.taehv?.let { resolver.resolve(context, it).absolutePath }
-        val usingCustomTae = taesdPath != null
-        val vaePath = if (taesdPath == null) resolveRequiredVideoVae(params).absolutePath else null
-        val textEncoderPath = resolveRequiredVideoTextEncoder(params).absolutePath
-        return runAcrossBackends(
-            candidates = videoBackendCandidates(usingCustomTae),
-            subsystem = ComputeSubsystem.VIDEO,
-            failureReason = "sequential video generation failure",
-            retryMessage = "Retrying sequential video generation on the next backend after failure on",
-            finalFailureMessage = "Sequential video generation failed without a reported cause",
-        ) { backend ->
-            var t5Model: StableDiffusion? = null
-            var diffusionModel: StableDiffusion? = null
-            try {
-                onProgress?.invoke("Loading text encoder", 0, params.steps)
-                t5Model =
-                    StableDiffusion.loadWithRuntimeBackend(
-                        context = context,
-                        modelPath = textEncoderPath,
-                        vaePath = null,
-                        t5xxlPath = null,
-                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
-                        offloadToCpu = true,
-                        keepClipOnCpu = true,
-                        keepVaeOnCpu = true,
-                        preferPerformanceMode = config.preferPerformanceMode,
-                        flashAttn = params.flashAttention,
-                        preferredBackend = backend,
-                    )
-
-                onProgress?.invoke("Precomputing prompt conditioning", 0, params.steps)
-                val cond =
-                    t5Model.precomputeCondition(
-                        prompt = params.prompt,
-                        negative = params.negative,
-                        width = params.width,
-                        height = params.height,
-                    )
-                val uncond =
-                    if (params.cfgScale != 1.0f) {
-                        t5Model.precomputeCondition(
-                            prompt = params.negative,
-                            negative = "",
-                            width = params.width,
-                            height = params.height,
-                        )
-                    } else {
-                        null
-                    }
-                t5Model.close()
-                t5Model = null
-
-                onProgress?.invoke("Loading diffusion model", 0, params.steps)
-                diffusionModel =
-                    StableDiffusion.loadWithRuntimeBackend(
-                        context = context,
-                        modelPath = modelPath.absolutePath,
-                        vaePath = vaePath,
-                        t5xxlPath = null,
-                        taesdPath = taesdPath,
-                        nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                        offloadToCpu = true,
-                        keepClipOnCpu = true,
-                        keepVaeOnCpu = true,
-                        preferPerformanceMode = config.preferPerformanceMode,
-                        flashAttn = params.flashAttention,
-                        vaeDecodeOnly = params.initImage == null,
-                        flowShift = params.flowShift,
-                        loraModelDir = params.loraModelDir,
-                        loraApplyMode = params.loraApplyMode,
-                        preferredBackend = backend,
-                    )
-                activeModel = diffusionModel
-                val easyCache = resolveEasyCache(diffusionModel, params.easyCache)
-                diffusionModel.txt2VidWithPrecomputedCondition(
-                    params =
-                        VideoGenerateParams(
-                            prompt = params.prompt,
-                            negative = params.negative,
-                            width = params.width,
-                            height = params.height,
-                            videoFrames = params.videoFrames,
-                            steps = params.steps,
-                            cfgScale = params.cfgScale,
-                            seed = params.seed,
-                            initImage = params.initImage,
-                            strength = params.strength,
-                            sampleMethod = params.sampleMethod,
-                            scheduler = params.scheduler,
-                            easyCacheParams = easyCache,
-                        ),
-                    cond = cond,
-                    uncond = uncond,
-                    onProgress =
-                        VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
-                            onProgress?.invoke(
-                                "Generating frame $currentFrame/$totalFrames",
-                                step,
-                                totalSteps,
+        val conditioningRequest = sequentialVideoConditioningRequest(params)
+        val conditioning =
+            executeWithRuntimeRetry(
+                request = conditioningRequest,
+                retryMessage = "Retrying sequential video text conditioning on the next backend after a backend-specific failure for",
+            ) { runtime ->
+                runtime.mutex.withLock {
+                    withActiveModel(runtime.model) { model ->
+                        onProgress?.invoke("Loading text encoder", 0, params.steps)
+                        onProgress?.invoke("Precomputing prompt conditioning", 0, params.steps)
+                        val cond =
+                            model.precomputeCondition(
+                                prompt = params.prompt,
+                                negative = params.negative,
+                                width = params.width,
+                                height = params.height,
                             )
-                        },
-                ).also {
-                    lastGenerationMetrics = diffusionModel.getLastGenerationMetrics()
+                        val uncond =
+                            if (params.cfgScale != 1.0f) {
+                                model.precomputeCondition(
+                                    prompt = params.negative,
+                                    negative = "",
+                                    width = params.width,
+                                    height = params.height,
+                                )
+                            } else {
+                                null
+                            }
+                        cond to uncond
+                    }
                 }
-            } finally {
-                activeModel = null
-                diffusionModel?.close()
-                t5Model?.close()
             }
-        }
-    }
 
-    private suspend fun resolveVideoVae(params: VideoGenerationRequest): java.io.File? {
-        val spec = params.vae ?: config.models.video.vae
-        return spec.let { resolver.resolve(context, it) }
-    }
-
-    private suspend fun resolveRequiredVideoVae(params: VideoGenerationRequest): java.io.File {
-        return requireNotNull(resolveVideoVae(params)) {
-            "Video generation requires either a VAE model or a TAEHV/TAESD override."
-        }
-    }
-
-    private suspend fun resolveVideoTextEncoder(params: VideoGenerationRequest): java.io.File? {
-        val spec = params.textEncoder ?: config.models.video.textEncoder
-        return spec.let { resolver.resolve(context, it) }
-    }
-
-    private suspend fun resolveRequiredVideoTextEncoder(params: VideoGenerationRequest): java.io.File {
-        return requireNotNull(resolveVideoTextEncoder(params)) {
-            "Sequential video generation requires a text encoder model."
+        val diffusionRequest = sequentialVideoDiffusionRequest(params)
+        return executeWithRuntimeRetry(
+            request = diffusionRequest,
+            retryMessage = "Retrying sequential video diffusion on the next backend after a backend-specific failure for",
+        ) { runtime ->
+            runtime.mutex.withLock {
+                withActiveModel(runtime.model) { model ->
+                    onProgress?.invoke("Loading diffusion model", 0, params.steps)
+                    val easyCache = resolveEasyCache(model, params.easyCache)
+                    model.txt2VidWithPrecomputedCondition(
+                        params =
+                            VideoGenerateParams(
+                                prompt = params.prompt,
+                                negative = params.negative,
+                                width = params.width,
+                                height = params.height,
+                                videoFrames = params.videoFrames,
+                                steps = params.steps,
+                                cfgScale = params.cfgScale,
+                                seed = params.seed,
+                                initImage = params.initImage,
+                                strength = params.strength,
+                                sampleMethod = params.sampleMethod,
+                                scheduler = params.scheduler,
+                                easyCacheParams = easyCache,
+                            ),
+                        cond = conditioning.first,
+                        uncond = conditioning.second,
+                        onProgress =
+                            VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
+                                onProgress?.invoke(
+                                    "Generating frame $currentFrame/$totalFrames",
+                                    step,
+                                    totalSteps,
+                                )
+                            },
+                    ).also {
+                        lastGenerationMetrics = model.getLastGenerationMetrics()
+                    }
+                }
+            }
         }
     }
 
@@ -475,23 +335,155 @@ class ImageClient internal constructor(
     override fun close() {
         cancelGeneration()
         activeModel = null
+        runtimePool.close()
     }
 
-    private suspend fun <T> runAcrossBackends(
-        candidates: List<ComputeBackend>,
-        subsystem: ComputeSubsystem,
-        failureReason: String,
-        retryMessage: String,
-        finalFailureMessage: String,
-        execute: suspend (ComputeBackend) -> T,
-    ): T =
-        BackendExecutionRunner.run(
-            candidates = candidates,
-            failureMessage = finalFailureMessage,
-            onBackendFailure = { backend, _ ->
-                blacklistBackend(subsystem, backend, failureReason)
-                AndroidLogAdapter.w(LOG_TAG, "$retryMessage $backend")
-            },
-            execute = execute,
+    private fun imageRuntimeRequest(params: ImageGenerationRequest): RuntimeRequest {
+        val flashAttn =
+            FlashAttentionHelper.shouldUseFlashAttention(
+                width = params.width,
+                height = params.height,
+                forceEnable = if (params.flashAttention) null else false,
+            )
+        return RuntimeRequest(
+            spec =
+                DiffusionRuntimeSpec(
+                    role = DiffusionRuntimeRole.IMAGE,
+                    model = params.model ?: config.models.image,
+                ),
+            options =
+                DiffusionLoadOptions(
+                    subsystem = ComputeSubsystem.IMAGE,
+                    allowGpu = config.preferPerformanceMode,
+                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                    offloadToCpu = !config.preferPerformanceMode,
+                    keepClipOnCpu = false,
+                    keepVaeOnCpu = false,
+                    flashAttn = flashAttn,
+                    vaeDecodeOnly = true,
+                    sequentialLoad = if (params.forceSequentialLoad) true else null,
+                    preferPerformanceMode = config.preferPerformanceMode,
+                    loraModelDir = params.loraModelDir,
+                    loraApplyMode = params.loraApplyMode,
+                ),
         )
+    }
+
+    private fun directVideoRuntimeRequest(params: VideoGenerationRequest): RuntimeRequest {
+        val usingCustomTae = params.taehv != null
+        return RuntimeRequest(
+            spec =
+                DiffusionRuntimeSpec(
+                    role = DiffusionRuntimeRole.VIDEO,
+                    model = params.model ?: config.models.video.diffusion,
+                    vae = if (usingCustomTae) null else (params.vae ?: config.models.video.vae),
+                    textEncoder = params.textEncoder ?: config.models.video.textEncoder,
+                    taehv = params.taehv,
+                ),
+            options =
+                DiffusionLoadOptions(
+                    subsystem = ComputeSubsystem.VIDEO,
+                    allowGpu = config.preferPerformanceMode && !usingCustomTae,
+                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                    offloadToCpu = usingCustomTae || !config.preferPerformanceMode,
+                    keepClipOnCpu = usingCustomTae || !config.preferPerformanceMode,
+                    keepVaeOnCpu = usingCustomTae || !config.preferPerformanceMode,
+                    flashAttn = params.flashAttention,
+                    vaeDecodeOnly = params.initImage == null,
+                    preferPerformanceMode = config.preferPerformanceMode,
+                    flowShift = params.flowShift,
+                    loraModelDir = params.loraModelDir,
+                    loraApplyMode = params.loraApplyMode,
+                ),
+        )
+    }
+
+    private fun sequentialVideoConditioningRequest(params: VideoGenerationRequest): RuntimeRequest {
+        val usingCustomTae = params.taehv != null
+        return RuntimeRequest(
+            spec =
+                DiffusionRuntimeSpec(
+                    role = DiffusionRuntimeRole.VIDEO_TEXT_ENCODER,
+                    model = params.textEncoder ?: config.models.video.textEncoder,
+                ),
+            options =
+                DiffusionLoadOptions(
+                    subsystem = ComputeSubsystem.VIDEO,
+                    allowGpu = config.preferPerformanceMode && !usingCustomTae,
+                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
+                    offloadToCpu = true,
+                    keepClipOnCpu = true,
+                    keepVaeOnCpu = true,
+                    flashAttn = params.flashAttention,
+                    preferPerformanceMode = config.preferPerformanceMode,
+                ),
+        )
+    }
+
+    private fun sequentialVideoDiffusionRequest(params: VideoGenerationRequest): RuntimeRequest {
+        val usingCustomTae = params.taehv != null
+        return RuntimeRequest(
+            spec =
+                DiffusionRuntimeSpec(
+                    role = DiffusionRuntimeRole.VIDEO,
+                    model = params.model ?: config.models.video.diffusion,
+                    vae = if (usingCustomTae) null else (params.vae ?: config.models.video.vae),
+                    taehv = params.taehv,
+                ),
+            options =
+                DiffusionLoadOptions(
+                    subsystem = ComputeSubsystem.VIDEO,
+                    allowGpu = config.preferPerformanceMode && !usingCustomTae,
+                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                    offloadToCpu = true,
+                    keepClipOnCpu = true,
+                    keepVaeOnCpu = true,
+                    flashAttn = params.flashAttention,
+                    vaeDecodeOnly = params.initImage == null,
+                    preferPerformanceMode = config.preferPerformanceMode,
+                    flowShift = params.flowShift,
+                    loraModelDir = params.loraModelDir,
+                    loraApplyMode = params.loraApplyMode,
+                ),
+        )
+    }
+
+    private suspend fun <T> executeWithRuntimeRetry(
+        request: RuntimeRequest,
+        retryMessage: String,
+        execute: suspend (ManagedDiffusionModel) -> T,
+    ): T {
+        while (true) {
+            val runtime = runtimePool.acquire(request.spec, request.options)
+            try {
+                return execute(runtime)
+            } catch (error: Throwable) {
+                val blacklisted =
+                    runtimePool.recordBackendFailureIfNeeded(
+                        request.spec,
+                        request.options,
+                        runtime,
+                        error,
+                    )
+                if (!blacklisted) {
+                    throw error
+                }
+                AndroidLogAdapter.w(LOG_TAG, "$retryMessage '${request.spec.model.cacheKey}'")
+            }
+        }
+    }
+
+    private suspend fun <T> withActiveModel(
+        model: StableDiffusion,
+        execute: suspend (StableDiffusion) -> T,
+    ): T {
+        activeModel = model
+        return try {
+            execute(model)
+        } finally {
+            if (activeModel === model) {
+                activeModel = null
+            }
+        }
+    }
 }

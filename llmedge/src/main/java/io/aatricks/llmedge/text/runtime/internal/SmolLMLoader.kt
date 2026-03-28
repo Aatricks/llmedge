@@ -20,7 +20,7 @@ internal object SmolLMLoader {
         params: SmolLM.InferenceParams,
     ) = withContext(Dispatchers.IO) {
         val validatedModel = ModelFileValidator.requireGgufFile(modelPath, "SmolLM model")
-        if (instance.supportNativePtr != 0L) {
+        if (instance.state.nativePtr != 0L) {
             instance.close()
         }
 
@@ -34,16 +34,16 @@ internal object SmolLMLoader {
             val modelContextSize =
                 ggufReader.getContextSize() ?: SmolLM.DefaultInferenceParams.contextSize
             resolvedContextSize =
-                instance.supportResolveContextSize(params.contextSize, modelContextSize)
+                instance.resolveContextSizeForLoad(params.contextSize, modelContextSize)
             resolvedChatTemplate =
-                instance.supportResolveChatTemplate(params.chatTemplate, ggufReader)
+                instance.resolveChatTemplateForLoad(params.chatTemplate, ggufReader)
             fileType = ggufReader.getFileType()
             dominantTensorType = ggufReader.getDominantTensorType()
         } finally {
             ggufReader.close()
         }
 
-        instance.supportPreflightBackendCompatibility(
+        instance.preflightBackendCompatibilityForLoad(
             modelPath = validatedModel.absolutePath,
             params = params,
             fileType = fileType,
@@ -54,22 +54,22 @@ internal object SmolLMLoader {
         val storeChats = params.storeChats
         val promptThreads = params.numThreads.coerceAtLeast(1)
         val backendCandidates =
-            instance.supportRequestedLoadBackend?.let(::listOf)
+            instance.state.requestedLoadBackend?.let(::listOf)
                 ?: BackendRuntimePolicy.candidates(
                     subsystem = ComputeSubsystem.TEXT,
-                    allowGpu = instance.supportUseVulkanGpu,
-                    openClAvailable = SmolLM.supportIsOpenClAvailable(),
-                    vulkanAvailable = SmolLM.supportIsVulkanBackendAvailable(),
+                    allowGpu = instance.state.useVulkanGpu,
+                    openClAvailable = SmolLM.isOpenClBackendAvailable(),
+                    vulkanAvailable = SmolLM.isVulkanBackendRuntimeAvailable(),
                 )
 
         var lastLoadError: Throwable? = null
-        instance.supportNativePtr = 0L
+        instance.state.nativePtr = 0L
         for (backend in backendCandidates) {
-            instance.supportRequestedLoadBackend = backend
+            instance.state.requestedLoadBackend = backend
             try {
                 val candidateHandle =
                     NativeCall.binding("smollm", "SmolLM JNI bindings are unavailable.") {
-                        instance.supportNativeBridge.loadModel(
+                        instance.bridge.loadModel(
                             instance,
                             validatedModel.absolutePath,
                             params.minP,
@@ -87,16 +87,16 @@ internal object SmolLMLoader {
                             params.nGpuLayers,
                         )
                     }
-                instance.supportNativePtr =
+                instance.state.nativePtr =
                     NativeCall.requireHandle(
                         candidateHandle,
                         validatedModel.absolutePath,
                         "The native SmolLM loader returned an invalid handle.",
                     )
-                instance.supportSelectedBackend = backend
+                instance.state.selectedBackend = backend
                 break
             } catch (e: NativeBindingException) {
-                instance.supportRequestedLoadBackend = null
+                instance.state.requestedLoadBackend = null
                 throw e
             } catch (e: IllegalStateException) {
                 lastLoadError =
@@ -111,13 +111,13 @@ internal object SmolLMLoader {
 
             if (backend != ComputeBackend.CPU) {
                 BackendRuntimePolicy.blacklist(ComputeSubsystem.TEXT, backend)
-                SmolLM.supportLogW(
+                SmolLM.logWarning(
                     "Failed to load SmolLM on $backend; retrying with the next backend",
                 )
             }
         }
-        instance.supportRequestedLoadBackend = null
-        if (instance.supportNativePtr == 0L) {
+        instance.state.requestedLoadBackend = null
+        if (instance.state.nativePtr == 0L) {
             throw (
                 lastLoadError
                     ?: ModelLoadException(
@@ -128,21 +128,21 @@ internal object SmolLMLoader {
         }
 
         val generationThreads = (params.generationThreads ?: promptThreads).coerceAtLeast(1)
-        instance.supportNativeBridge.configureThreading(
+        instance.bridge.configureThreading(
             instance,
-            instance.supportNativePtr,
+            instance.state.nativePtr,
             generationThreads,
             promptThreads,
         )
         val reasoningBudget =
-            instance.supportResolvedReasoningBudget(params.thinkingMode, params.reasoningBudget)
-        instance.supportApplyReasoningState(params.thinkingMode, reasoningBudget)
+            instance.resolvedReasoningBudgetForLoad(params.thinkingMode, params.reasoningBudget)
+        instance.applyReasoningStateForLoad(params.thinkingMode, reasoningBudget)
 
         val pCoreMask = CpuTopology.getPerformanceCoreMask()
         if (pCoreMask != 0L) {
-            instance.supportSetThreadAffinity(instance.supportNativePtr, pCoreMask)
+            instance.setThreadAffinityForLoad(instance.state.nativePtr, pCoreMask)
         }
-        instance.supportLoadedInferenceParams =
+        instance.state.loadedInferenceParams =
             params.copy(
                 contextSize = resolvedContextSize,
                 chatTemplate = resolvedChatTemplate,

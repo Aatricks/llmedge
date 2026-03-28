@@ -5,9 +5,14 @@ internal object BackendFailureClassifier {
         if (error == null) {
             return false
         }
-        return error.message?.contains("backend", ignoreCase = true) == true ||
-            error.cause?.message?.contains("backend", ignoreCase = true) == true ||
-            error.message?.contains("device lost", ignoreCase = true) == true ||
-            error.cause?.message?.contains("device lost", ignoreCase = true) == true
+        return matches(error.message) || matches(error.cause?.message)
+    }
+
+    private fun matches(message: String?): Boolean {
+        if (message.isNullOrBlank()) {
+            return false
+        }
+        val normalized = message.lowercase().filter(Char::isLetter)
+        return "backend" in message.lowercase() || "devicelost" in normalized
     }
 }

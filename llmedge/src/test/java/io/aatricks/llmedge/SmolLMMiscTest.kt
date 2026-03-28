@@ -7,6 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
+import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.text.runtime.SmolLM
 
 class SmolLMMiscTest {
@@ -92,6 +93,21 @@ class SmolLMMiscTest {
         assertTrue(bridge.closeCalled)
         assertEquals(SmolLM.ThinkingMode.DEFAULT, smol.getThinkingMode())
         assertEquals(-1, smol.getReasoningBudget())
+    }
+
+    @Test
+    fun `backend load preference is reset on close`() {
+        val smol = SmolLM(useVulkan = false)
+
+        assertEquals(ComputeBackend.CPU, smol.getActiveBackend())
+
+        smol.setPreferredBackendForLoad(ComputeBackend.VULKAN)
+        assertEquals(ComputeBackend.VULKAN, smol.getActiveBackend())
+
+        smol.close()
+
+        assertEquals(ComputeBackend.CPU, smol.getActiveBackend())
+        assertEquals(null, smol.loadedInferenceParams)
     }
 
     @Test

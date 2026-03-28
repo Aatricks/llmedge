@@ -17,6 +17,7 @@ import io.aatricks.llmedge.model.DefaultModelResolver
 import io.aatricks.llmedge.model.ModelSpec
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockkObject
 import kotlinx.coroutines.flow.collect
@@ -643,6 +644,104 @@ class ImageClientTest {
             assertEquals(64, bitmap.width)
             assertEquals(64, bitmap.height)
             assertEquals(listOf(true), easyCacheFlags)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `image generation reuses cached runtime across requests`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile = java.io.File.createTempFile("cached-image-model", ".gguf", context.filesDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray = ByteArray(width * height * 3) { 0x33 }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = null
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+            )
+        } coAnswers {
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelResolver(),
+            )
+
+        try {
+            repeat(2) {
+                val bitmap =
+                    client.generate(
+                        ImageGenerationRequest(
+                            prompt = "cached prompt",
+                            width = 64,
+                            height = 64,
+                            model = ModelSpec.localFile(modelFile),
+                        ),
+                    )
+                assertEquals(64, bitmap.width)
+                assertEquals(64, bitmap.height)
+            }
+
+            coVerify(exactly = 1) {
+                StableDiffusion.loadWithRuntimeBackend(
+                    any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                )
+            }
         } finally {
             client.close()
             edgeScope.close()

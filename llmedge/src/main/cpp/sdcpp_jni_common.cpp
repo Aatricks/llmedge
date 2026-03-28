@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <stdexcept>
 
+#include "jni_utils.h"
 #include "jni_thread_cache.h"
 
 void free_sd_generated_frames(sd_image_t* frames, int numFrames) {
@@ -106,24 +107,14 @@ jobjectArray convert_sd_frames_to_java(JNIEnv* env, sd_image_t* frames, int numF
 }
 
 void throwJavaException(JNIEnv* env, const char* className, const char* message) {
-    if (!env) {
-        return;
-    }
-    jclass exClass = env->FindClass(className);
-    if (!exClass) {
-        return;
-    }
-    env->ThrowNew(exClass, message);
+    llmedge_throw_java_exception(env, className, message);
 }
 
 void clearProgressCallback(JNIEnv* env, SdHandle* handle) {
     if (!handle) {
         return;
     }
-    if (handle->progressCallbackGlobalRef && env) {
-        env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
-    }
-    handle->progressCallbackGlobalRef = nullptr;
+    llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
     handle->progressMethodID = nullptr;
     handle->currentFrame = 0;
     handle->totalFrames = 0;

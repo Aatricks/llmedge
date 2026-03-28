@@ -11,6 +11,7 @@
 #include "jni_thread_cache.h"
 
 #define GGML_MAX_NAME 128
+#include "ggml_backend_probe.h"
 #include "sdcpp_jni_shared.h"
 #if defined(SD_USE_VULKAN)
 #include "ggml-vulkan.h"
@@ -128,11 +129,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeIsOpenClAvailable
     (void)env;
     (void)clazz;
 #ifdef SD_USE_OPENCL
-    ggml_backend_reg_t reg = ggml_backend_reg_by_name("OpenCL");
-    if (!reg) {
-        return JNI_FALSE;
-    }
-    return ggml_backend_reg_dev_count(reg) > 0 ? JNI_TRUE : JNI_FALSE;
+    return llmedge_backend_has_devices("OpenCL", false) ? JNI_TRUE : JNI_FALSE;
 #else
     return JNI_FALSE;
 #endif

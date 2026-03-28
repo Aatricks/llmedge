@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "jni_utils.h"
+
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
         JNIEnv* env, jobject thiz, jlong handlePtr,
@@ -163,20 +165,23 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeSetProgressCallba
 
     clearProgressCallback(env, handle);
 
-    jclass callbackClass = env->GetObjectClass(progressCallback);
-    if (!callbackClass) {
-        throwJavaException(env, "java/lang/IllegalArgumentException", "Invalid progress callback instance");
-        return;
-    }
-    jmethodID methodId = env->GetMethodID(callbackClass, "onProgress", "(IIIIF)V");
-    env->DeleteLocalRef(callbackClass);
+    jmethodID methodId =
+            llmedge_get_callback_method(
+                    env,
+                    progressCallback,
+                    "onProgress",
+                    "(IIIIF)V",
+                    "java/lang/NoSuchMethodError",
+                    "onProgress method not found");
     if (!methodId) {
-        throwJavaException(env, "java/lang/NoSuchMethodError", "onProgress method not found");
         return;
     }
-    jobject globalRef = env->NewGlobalRef(progressCallback);
+    jobject globalRef =
+            llmedge_new_global_ref_or_throw(
+                    env,
+                    progressCallback,
+                    "Unable to hold progress callback reference");
     if (!globalRef) {
-        throwJavaException(env, "java/lang/OutOfMemoryError", "Unable to hold progress callback reference");
         return;
     }
 

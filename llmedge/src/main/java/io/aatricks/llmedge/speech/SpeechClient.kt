@@ -7,10 +7,13 @@ import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.runtime.BackendPolicy
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.ManagedRuntime
+import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
+import io.aatricks.llmedge.core.runtime.RuntimeLoader
+import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
-import io.aatricks.llmedge.core.runtime.RuntimeCoordinator
 import io.aatricks.llmedge.model.ModelResolver
 import io.aatricks.llmedge.model.ModelSpec
 import kotlinx.coroutines.channels.awaitClose
@@ -98,32 +101,74 @@ class SpeechClient internal constructor(
             maxCacheSize = config.speechCacheSize,
             maxMemoryMB = config.speechCacheMemoryMb,
         )
-    private val whisperLoadMutex = Mutex()
-    private val barkLoadMutex = Mutex()
-    private val whisperCoordinator =
-        RuntimeCoordinator<ModelSpec, WhisperLoadOptions, ManagedWhisperModel>(
+    private val whisperPool =
+        RuntimePool<ModelSpec, WhisperLoadOptions, ManagedWhisperModel>(
             cache = whisperCache,
-            cacheKeyPrefix = ::buildWhisperCacheKeyPrefix,
-            loadRuntime = ::loadWhisperRuntime,
+            keyStrategy =
+                RuntimeKeyStrategy { model, options ->
+                    RuntimeCacheKeyBuilder.prefix(
+                        model.cacheKey,
+                        options.useGpu,
+                        options.flashAttention,
+                        options.gpuDevice,
+                    )
+                },
+            runtimeLoader =
+                RuntimeLoader { model, options ->
+                    val file = resolver.resolve(context, model)
+                    ManagedWhisperModel(
+                        fileSizeBytes = file.length(),
+                        whisper = Whisper.load(file.absolutePath, options.useGpu, options.flashAttention, options.gpuDevice),
+                    )
+                },
             activeBackend = { it.whisper.activeBackend },
-            candidateRequest = ::whisperCandidateRequest,
-            loadMutex = whisperLoadMutex,
+            backendPolicy =
+                BackendPolicy { options ->
+                    BackendCandidateResolver.Request(
+                        subsystem = ComputeSubsystem.WHISPER,
+                        allowGpu = options.useGpu,
+                        openClAvailable = Whisper.isOpenClAvailable(),
+                        vulkanAvailable = Whisper.isVulkanBackendAvailable(),
+                    )
+                },
         )
-    private val barkCoordinator =
-        RuntimeCoordinator<ModelSpec, BarkLoadOptions, ManagedBarkModel>(
+    private val barkPool =
+        RuntimePool<ModelSpec, BarkLoadOptions, ManagedBarkModel>(
             cache = barkCache,
-            cacheKeyPrefix = ::buildBarkCacheKeyPrefix,
-            loadRuntime = ::loadBarkRuntime,
+            keyStrategy =
+                RuntimeKeyStrategy { model, options ->
+                    RuntimeCacheKeyBuilder.prefix(
+                        model.cacheKey,
+                        options.seed,
+                        options.temperature,
+                        options.fineTemperature,
+                        options.verbosity,
+                    )
+                },
+            runtimeLoader =
+                RuntimeLoader { model, options ->
+                    val file = resolver.resolve(context, model)
+                    ManagedBarkModel(
+                        fileSizeBytes = file.length(),
+                        bark = BarkTTS.load(
+                            modelPath = file.absolutePath,
+                            seed = options.seed,
+                            temperature = options.temperature,
+                            fineTemperature = options.fineTemperature,
+                            verbosity = options.verbosity,
+                        ),
+                    )
+                },
             activeBackend = { io.aatricks.llmedge.runtime.ComputeBackend.CPU },
-            candidateRequest = {
-                BackendCandidateResolver.Request(
-                    subsystem = null,
-                    allowGpu = false,
-                    openClAvailable = false,
-                    vulkanAvailable = false,
-                )
-            },
-            loadMutex = barkLoadMutex,
+            backendPolicy =
+                BackendPolicy {
+                    BackendCandidateResolver.Request(
+                        subsystem = null,
+                        allowGpu = false,
+                        openClAvailable = false,
+                        vulkanAvailable = false,
+                    )
+                },
         )
 
     /**
@@ -134,7 +179,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.speechToText,
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
     ) {
-        whisperCoordinator.acquire(model, loadOptions)
+        whisperPool.acquire(model, loadOptions)
     }
 
     /**
@@ -145,7 +190,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.textToSpeech,
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
     ) {
-        barkCoordinator.acquire(model, loadOptions)
+        barkPool.acquire(model, loadOptions)
     }
 
     /**
@@ -286,11 +331,8 @@ class SpeechClient internal constructor(
         model: ModelSpec,
         options: WhisperLoadOptions,
     ): ManagedWhisperModel {
-        return whisperCoordinator.acquire(model, options)
+        return whisperPool.acquire(model, options)
     }
-
-    private fun buildWhisperCacheKeyPrefix(model: ModelSpec, options: WhisperLoadOptions): String =
-        RuntimeCacheKeyBuilder.prefix(model.cacheKey, options.useGpu, options.flashAttention, options.gpuDevice)
 
     private fun recordWhisperBackendFailureIfNeeded(
         model: ModelSpec,
@@ -298,7 +340,7 @@ class SpeechClient internal constructor(
         runtime: ManagedWhisperModel,
         error: io.aatricks.llmedge.core.InferenceFailedException,
     ): Boolean {
-        val blacklisted = whisperCoordinator.recordBackendFailureIfNeeded(model, options, runtime, error)
+        val blacklisted = whisperPool.recordBackendFailureIfNeeded(model, options, runtime, error)
         if (!blacklisted) {
             return false
         }
@@ -309,56 +351,11 @@ class SpeechClient internal constructor(
         model: ModelSpec,
         options: BarkLoadOptions,
     ): ManagedBarkModel {
-        return barkCoordinator.acquire(model, options)
+        return barkPool.acquire(model, options)
     }
 
     override fun close() {
-        barkCache.clear()
-        whisperCache.clear()
-    }
-
-    private fun whisperCandidateRequest(options: WhisperLoadOptions): BackendCandidateResolver.Request =
-        BackendCandidateResolver.Request(
-            subsystem = ComputeSubsystem.WHISPER,
-            allowGpu = options.useGpu,
-            openClAvailable = Whisper.isOpenClAvailable(),
-            vulkanAvailable = Whisper.isVulkanBackendAvailable(),
-        )
-
-    private suspend fun loadWhisperRuntime(
-        model: ModelSpec,
-        options: WhisperLoadOptions,
-    ): ManagedWhisperModel {
-        val file = resolver.resolve(context, model)
-        return ManagedWhisperModel(
-            fileSizeBytes = file.length(),
-            whisper = Whisper.load(file.absolutePath, options.useGpu, options.flashAttention, options.gpuDevice),
-        )
-    }
-
-    private fun buildBarkCacheKeyPrefix(model: ModelSpec, options: BarkLoadOptions): String =
-        RuntimeCacheKeyBuilder.prefix(
-            model.cacheKey,
-            options.seed,
-            options.temperature,
-            options.fineTemperature,
-            options.verbosity,
-        )
-
-    private suspend fun loadBarkRuntime(
-        model: ModelSpec,
-        options: BarkLoadOptions,
-    ): ManagedBarkModel {
-        val file = resolver.resolve(context, model)
-        return ManagedBarkModel(
-            fileSizeBytes = file.length(),
-            bark = BarkTTS.load(
-                modelPath = file.absolutePath,
-                seed = options.seed,
-                temperature = options.temperature,
-                fineTemperature = options.fineTemperature,
-                verbosity = options.verbosity,
-            ),
-        )
+        barkPool.close()
+        whisperPool.close()
     }
 }

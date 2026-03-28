@@ -15,6 +15,7 @@
 #include <cstring>
 #include <cstdlib>
 
+#include "jni_utils.h"
 #include "jni_thread_cache.h"
 
 #if __has_include(<android/log.h>)
@@ -39,6 +40,7 @@ inline int __android_log_print(int level, const char* tag, const char* format, .
 #endif
 
 #include "whisper.h"
+#include "ggml_backend_probe.h"
 #include "ggml-backend.h"
 
 #define LOG_TAG "WhisperJNI"
@@ -60,16 +62,13 @@ struct WhisperHandle {
 static std::mutex g_whisper_backend_preference_mutex;
 
 static void throwJavaException(JNIEnv* env, const char* className, const char* message) {
-    if (!env) return;
-    jclass exClass = env->FindClass(className);
-    if (!exClass) return;
-    env->ThrowNew(exClass, message);
+    llmedge_throw_java_exception(env, className, message);
 }
 
 static WhisperHandle* requireWhisperHandle(JNIEnv* env, jlong handlePtr, const char* message) {
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle || !handle->ctx) {
-        throwJavaException(env, "java/lang/IllegalStateException", message);
+        llmedge_throw_java_exception(env, "java/lang/IllegalStateException", message);
         return nullptr;
     }
     return handle;
@@ -249,9 +248,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeIsOpenClAvailable(JNIEnv* env,
     (void)env;
     (void)clazz;
 #ifdef GGML_USE_OPENCL
-    ggml_backend_load_all();
-    ggml_backend_reg_t reg = ggml_backend_reg_by_name("OpenCL");
-    return (reg && ggml_backend_reg_dev_count(reg) > 0) ? JNI_TRUE : JNI_FALSE;
+    return llmedge_backend_has_devices("OpenCL") ? JNI_TRUE : JNI_FALSE;
 #else
     return JNI_FALSE;
 #endif
@@ -262,9 +259,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeIsVulkanAvailable(JNIEnv* env,
     (void)env;
     (void)clazz;
 #ifdef GGML_USE_VULKAN
-    ggml_backend_load_all();
-    ggml_backend_reg_t reg = ggml_backend_reg_by_name("Vulkan");
-    return (reg && ggml_backend_reg_dev_count(reg) > 0) ? JNI_TRUE : JNI_FALSE;
+    return llmedge_backend_has_devices("Vulkan") ? JNI_TRUE : JNI_FALSE;
 #else
     return JNI_FALSE;
 #endif
@@ -277,12 +272,8 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeDestroy(JNIEnv* env, jclass, j
 
     std::lock_guard<std::mutex> lock(handle->mutex);
 
-    if (handle->progressCallbackGlobalRef && env) {
-        env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
-    }
-    if (handle->segmentCallbackGlobalRef && env) {
-        env->DeleteGlobalRef(handle->segmentCallbackGlobalRef);
-    }
+    llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
+    llmedge_clear_global_ref(env, handle->segmentCallbackGlobalRef);
 
     if (handle->ctx) {
         whisper_free(handle->ctx);
@@ -341,19 +332,26 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetProgressCallback(JNIEnv* en
 
     // Clear existing callback
     if (handle->progressCallbackGlobalRef) {
-        env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
-        handle->progressCallbackGlobalRef = nullptr;
+        llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
         handle->progressMethodID = nullptr;
     }
 
     if (callback) {
-        handle->progressCallbackGlobalRef = env->NewGlobalRef(callback);
-        jclass callbackClass = env->GetObjectClass(callback);
-        handle->progressMethodID = env->GetMethodID(callbackClass, "onProgress", "(I)V");
-        env->DeleteLocalRef(callbackClass);
+        handle->progressCallbackGlobalRef =
+                llmedge_new_global_ref_or_throw(
+                        env,
+                        callback,
+                        "Unable to hold Whisper progress callback reference");
+        handle->progressMethodID =
+                llmedge_get_callback_method(
+                        env,
+                        callback,
+                        "onProgress",
+                        "(I)V",
+                        "java/lang/NoSuchMethodError",
+                        "onProgress(I)V method not found");
         if (!handle->progressMethodID) {
-            env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
-            handle->progressCallbackGlobalRef = nullptr;
+            llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
             ALOGE("Failed to find onProgress(I)V method on Whisper progress callback");
         }
     }
@@ -370,19 +368,26 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetSegmentCallback(JNIEnv* env
 
     // Clear existing callback
     if (handle->segmentCallbackGlobalRef) {
-        env->DeleteGlobalRef(handle->segmentCallbackGlobalRef);
-        handle->segmentCallbackGlobalRef = nullptr;
+        llmedge_clear_global_ref(env, handle->segmentCallbackGlobalRef);
         handle->segmentMethodID = nullptr;
     }
 
     if (callback) {
-        handle->segmentCallbackGlobalRef = env->NewGlobalRef(callback);
-        jclass callbackClass = env->GetObjectClass(callback);
-        handle->segmentMethodID = env->GetMethodID(callbackClass, "onNewSegment", "(IJJLjava/lang/String;)V");
-        env->DeleteLocalRef(callbackClass);
+        handle->segmentCallbackGlobalRef =
+                llmedge_new_global_ref_or_throw(
+                        env,
+                        callback,
+                        "Unable to hold Whisper segment callback reference");
+        handle->segmentMethodID =
+                llmedge_get_callback_method(
+                        env,
+                        callback,
+                        "onNewSegment",
+                        "(IJJLjava/lang/String;)V",
+                        "java/lang/NoSuchMethodError",
+                        "onNewSegment(IJJLjava/lang/String;)V method not found");
         if (!handle->segmentMethodID) {
-            env->DeleteGlobalRef(handle->segmentCallbackGlobalRef);
-            handle->segmentCallbackGlobalRef = nullptr;
+            llmedge_clear_global_ref(env, handle->segmentCallbackGlobalRef);
             ALOGE("Failed to find onNewSegment method on Whisper segment callback");
         }
     }
