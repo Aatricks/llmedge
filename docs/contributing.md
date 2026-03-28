@@ -29,15 +29,14 @@ Thanks for your interest in contributing to `llmedge`! This project contains nat
    ```fish
    ./gradlew :llmedge:assembleDebug
    ./gradlew :llmedge:assembleRelease
-   cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
    cd llmedge-examples && ./gradlew :app:assembleDebug
    ```
 
 5. **Run examples on a device or emulator** to verify setup
 
-The root Gradle build only includes `:llmedge`. The example app is a separate Gradle build that consumes the generated AAR, so validate it separately after library changes. For a one-command check from the repository root, run `bash scripts/validate_examples.sh`.
+The root Gradle build only includes `:llmedge`. The example app is a separate Gradle build wired in through a composite build, so validate it separately after library changes. For a one-command check from the repository root, run `bash scripts/validate_examples.sh`.
 
-If you have already built `llmedge/build/outputs/aar/llmedge-release.aar` and only want to re-check the example app against that artifact, reuse it with:
+If you have already built `:llmedge` and only want to re-check the example app without rebuilding the library first, reuse the existing outputs with:
 
 ```fish
 LLMEDGE_SKIP_LIBRARY_BUILD=true bash scripts/validate_examples.sh

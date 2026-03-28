@@ -224,8 +224,8 @@ LLMEDGE_EXAMPLES_GRADLE_TASKS=':app:assembleDebug :app:assembleRelease' \
   - Ensure system downloader is used for large files, and prefer the managed device flow to keep memory usage predictable
 
 - Example validation nuances:
-  - `scripts/validate_examples.sh` copies the freshly built release AAR into `llmedge-examples/app/libs/`
-  - If you are working in the `llmedge-examples` submodule directly, revert `app/libs/llmedge-release.aar` after validation if you do not want a binary diff in your workspace
+  - `scripts/validate_examples.sh` builds `:llmedge` first, then builds `llmedge-examples` through its composite-build substitution
+  - If you are working in the `llmedge-examples` submodule directly, keep its `settings.gradle.kts` pointed at the parent checkout so the local `:llmedge` project is substituted correctly
 
 - Native JNI is skipped in most tests:
   - Test harness sets `llmedge.disableNativeLoad=true` automatically for non‑E2E tests

@@ -471,11 +471,10 @@ See `llmedge-examples` for a complete UI implementation.
 
 
 Running the example app:
-1. Build the library AAR and copy it into the example app (from the repo root):
+1. Build the library (from the repo root):
 
 ```bash
 ./gradlew :llmedge:assembleRelease
-cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
 ```
 
 2. Build and install the example app:
