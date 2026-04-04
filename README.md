@@ -116,7 +116,7 @@ Log.d("llmedge", "Cached ${modelFile.name} at ${modelFile.parent}")
 
 #### Key points:
 
-- `ModelManager.prefetch()` downloads (if needed) without coupling the file to one inference class.
+- `edge.models.prefetch(...)` and `BoundModelRepository.resolve(...)` keep model acquisition separate from any one inference client.
 
 - Supports progress callbacks and private repositories via token through `ModelSpec.huggingFace(...)`.
 
@@ -225,11 +225,13 @@ val edge = LLMEdge.create(
     context = context,
     scope = viewModelScope,
     config = LLMEdgeConfig(
-        defaultTextThreads = 6,            // prompt/batch phase
-        defaultTextGenerationThreads = 2,  // token-by-token phase
-        defaultTextBatchSize = 8,
-        defaultTextStreamBatchSize = 4,
-        textCacheMemoryMb = 1536,
+        text = TextRuntimeConfig(
+            promptThreads = 6,            // prompt/batch phase
+            generationThreads = 2,       // token-by-token phase
+            batchSize = 8,
+            streamBatchSize = 4,
+            cache = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 1536),
+        ),
     ),
 )
 
@@ -242,11 +244,11 @@ val reply = edge.text.generate(
 
 Practical defaults:
 
-- `defaultTextThreads`: prompt/batch decode threads
-- `defaultTextGenerationThreads`: single-token generation threads
-- `defaultTextBatchSize`: blocking text batch size (default `8`)
-- `defaultTextStreamBatchSize`: streaming batch size (default `4`)
-- `textCacheMemoryMb`: upper bound for text-model cache accounting; the cache now refreshes against
+- `text.promptThreads`: prompt/batch decode threads
+- `text.generationThreads`: single-token generation threads
+- `text.batchSize`: blocking text batch size (default `8`)
+- `text.streamBatchSize`: streaming batch size (default `4`)
+- `text.cache.maxMemoryMb`: upper bound for text-model cache accounting; the cache now refreshes against
   native model/state footprint instead of only the GGUF file size
 
 Batch-size guidance:
@@ -593,7 +595,7 @@ Runtime verification
 adb logcat -s SmolSD:* | sed -n '1,200p'
 ```
 
-    Look for messages indicating OpenCL or Vulkan initialization. The public text flags keep their legacy names for compatibility, so `SmolLM(useVulkan = true)` and `LLMEdgeConfig.textUseVulkan = true` now mean "allow a supported GPU backend", not "force Vulkan".
+    Look for messages indicating OpenCL or Vulkan initialization. `SmolLM(useVulkan = true)` and `LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = true))` mean "allow a supported GPU backend", not "force Vulkan".
 
 Troubleshooting
 - If you see "Vulkan 1.2 required" or linker errors for Vulkan symbols, confirm `minSdk` is set to 30 or higher in `llmedge/build.gradle.kts` and that your NDK provides the expected Vulkan headers.
@@ -609,13 +611,19 @@ Troubleshooting
 
 ## Architecture
 
-1. llama.cpp (C/C++) provides the core inference engine, built via the Android NDK.
-2. Stable Diffusion (C/C++) provides the image generation backend, built via the Android NDK.
-3. whisper.cpp (C/C++) provides speech-to-text transcription, built via the Android NDK.
-4. bark.cpp (C/C++) provides text-to-speech synthesis, built via the Android NDK.
-5. `LLMInference.cpp` wraps the llama.cpp C API.
-6. `smollm.cpp`, `whisper_jni.cpp`, `bark_jni.cpp` expose JNI bindings for Kotlin.
-7. The `SmolLM`, `Whisper`, and `BarkTTS` Kotlin classes provide high-level APIs.
+The Kotlin side is now organized around a few explicit layers instead of one eager facade:
+
+1. `LLMEdge` is a thin convenience shell that lazy-creates domain clients (`text`, `speech`, `image`, `vision`, `rag`) on first access.
+2. `ModelRepository` owns model acquisition and validation for local files and Hugging Face downloads.
+3. `RuntimePool` and `RuntimeCoordinator` provide shared runtime caching, backend selection, and failure blacklisting.
+4. `CachedRuntimeDescriptor` lets each domain describe cache sizing, keying, loading, and backend policy without duplicating pool boilerplate.
+5. `TextClient`, `SpeechClient`, `ImageClient`, `VisionClient`, and `RAGClient` are independently constructible entry points; they do not have to be reached through `LLMEdge`.
+6. `ConversationSessionSupport` centralizes transcript state and runtime access for chat sessions and tool agents.
+7. `VisionInputPreparer` and `VisionRuntimeExecutor` split image preprocessing/embedding from generation execution.
+8. `RAGIndexer`, `RAGRetriever`, and `RAGAnswerer` separate document ingestion, retrieval, and answer generation.
+9. Native libraries remain in the same Android module, but native loading is now explicit and overridable for JVM tests instead of relying on static side effects.
+
+On the native side, the project still builds llama.cpp, stable-diffusion.cpp, whisper.cpp, bark.cpp, and the JNI bridge sources through the Android NDK.
 
 ## Technologies
 
