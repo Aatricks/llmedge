@@ -11,6 +11,7 @@ class LLMEdgeConfigTest {
     fun `nested config is the single source of truth`() {
         val config =
             LLMEdgeConfig(
+                execution = ExecutionConfig(inferenceThreads = 7),
                 text =
                     TextRuntimeConfig(
                         cache = RuntimeCacheConfig(maxEntries = 3, maxMemoryMb = 768),
@@ -28,6 +29,7 @@ class LLMEdgeConfigTest {
                     ),
             )
 
+        assertEquals(7, config.execution.inferenceThreads)
         assertEquals(3, config.text.cache.maxEntries)
         assertEquals(768L, config.text.cache.maxMemoryMb)
         assertFalse(config.text.useVulkan)
@@ -51,6 +53,12 @@ class LLMEdgeConfigTest {
         try {
             RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 0)
             fail("Expected RuntimeCacheConfig to reject zero memory budget")
+        } catch (_: IllegalArgumentException) {
+        }
+
+        try {
+            ExecutionConfig(inferenceThreads = 0)
+            fail("Expected ExecutionConfig to reject zero inference threads")
         } catch (_: IllegalArgumentException) {
         }
     }

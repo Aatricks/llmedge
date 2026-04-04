@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
-class CachedRuntimeDescriptorTest {
+class RuntimePoolFactoryTest {
     private class FakeRuntime : ManagedRuntime {
         override val mutex = Mutex()
         var closed = false
@@ -42,30 +42,26 @@ class CachedRuntimeDescriptorTest {
                 createCachedRuntimePool(
                     context = context,
                     scope = edgeScope,
-                    descriptor =
-                        CachedRuntimeDescriptor(
-                            cache = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 256),
-                            keyStrategy = RuntimeKeyStrategy { spec: String, options: Int -> "$spec:$options" },
-                            runtimeLoader =
-                                RuntimeLoader { spec, options, _ ->
-                                    loads += spec to options
-                                    FakeRuntime()
-                                },
-                            activeBackend = { ComputeBackend.CPU },
-                            backendPolicy = {
-                                BackendCandidateResolver.Request(
-                                    subsystem = null,
-                                    allowGpu = false,
-                                    openClAvailable = false,
-                                    vulkanAvailable = false,
-                                )
-                            },
-                        ),
+                    cacheConfig = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 256),
+                    cacheKeyPrefix = { spec: String, options: Int -> "$spec:$options" },
+                    loadRuntime = { spec, options, _ ->
+                        loads += spec to options
+                        FakeRuntime()
+                    },
+                    activeBackend = { ComputeBackend.CPU },
+                    candidateRequest = {
+                        BackendCandidateResolver.Request(
+                            subsystem = null,
+                            allowGpu = false,
+                            openClAvailable = false,
+                            vulkanAvailable = false,
+                        )
+                    },
                 )
 
-            val first = pool.acquire("model", 1) as FakeRuntime
-            val reused = pool.acquire("model", 1) as FakeRuntime
-            val second = pool.acquire("model", 2) as FakeRuntime
+            val first = pool.acquire("model", 1)
+            val reused = pool.acquire("model", 1)
+            val second = pool.acquire("model", 2)
 
             assertSame(first, reused)
             assertNotSame(first, second)

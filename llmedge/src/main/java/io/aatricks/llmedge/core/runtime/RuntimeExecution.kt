@@ -1,9 +1,30 @@
 package io.aatricks.llmedge.core.runtime
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
 internal data class RuntimeExecutionContext<TRuntime : ManagedRuntime>(
     val runtime: TRuntime,
     val acquire: RuntimeAcquireResult<TRuntime>,
 )
+
+internal suspend inline fun <TRuntime : ManagedRuntime, TResult> TRuntime.runExclusive(
+    dispatcher: CoroutineDispatcher,
+    crossinline execute: suspend (TRuntime) -> TResult,
+): TResult =
+    mutex.withLock {
+        withContext(dispatcher) {
+            execute(this@runExclusive)
+        }
+    }
+
+internal suspend inline fun <TRuntime : ManagedRuntime, TResult> TRuntime.runExclusive(
+    crossinline execute: suspend (TRuntime) -> TResult,
+): TResult =
+    mutex.withLock {
+        execute(this@runExclusive)
+    }
 
 internal suspend fun <TSpec, TOptions, TRuntime : ManagedRuntime, TResult> RuntimePool<TSpec, TOptions, TRuntime>.executeWithRuntimeRetry(
     spec: TSpec,

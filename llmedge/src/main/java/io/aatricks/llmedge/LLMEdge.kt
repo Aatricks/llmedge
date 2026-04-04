@@ -117,7 +117,7 @@ class LLMEdge private constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): LLMEdge =
-            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+            ClientBootstrap.createOwned(context, scope, config.execution.inferenceThreads) { bootstrap ->
                 LLMEdge(
                     appContext = bootstrap.appContext,
                     edgeScope = bootstrap.edgeScope,

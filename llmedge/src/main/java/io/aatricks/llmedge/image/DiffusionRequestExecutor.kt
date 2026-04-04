@@ -3,6 +3,7 @@ package io.aatricks.llmedge.image
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.executeWithRuntimeRetry
+import io.aatricks.llmedge.core.runtime.runExclusive
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 
 internal class DiffusionRequestExecutor(
@@ -26,6 +27,28 @@ internal class DiffusionRequestExecutor(
                 "Runtime acquire completed: role=${spec.role} backend=${execution.acquire.backend} cacheHit=${execution.acquire.cacheHit} loadMs=${execution.acquire.modelLoadTimeMs}",
             )
             execute(AcquiredDiffusionRuntime(execution.runtime, execution.acquire))
+        }
+
+    suspend fun <T> withRuntimeModel(
+        spec: DiffusionRuntimeSpec,
+        options: DiffusionLoadOptions,
+        retryMessage: String,
+        execute: suspend (
+            model: StableDiffusion,
+            runtime: ManagedDiffusionModel,
+            acquire: io.aatricks.llmedge.core.runtime.RuntimeAcquireResult<ManagedDiffusionModel>,
+        ) -> T,
+    ): T =
+        executeWithRuntimeRetry(
+            spec = spec,
+            options = options,
+            retryMessage = retryMessage,
+        ) { acquired ->
+            acquired.runtime.runExclusive { runtime ->
+                withActiveModel(runtime.model) { model ->
+                    execute(model, runtime, acquired.acquire)
+                }
+            }
         }
 
     suspend fun <T> withActiveModel(

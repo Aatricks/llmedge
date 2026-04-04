@@ -11,11 +11,11 @@ internal class ClientBootstrapContext private constructor(
         fun create(
             context: Context,
             scope: CoroutineScope,
-            promptThreads: Int,
+            inferenceThreads: Int,
         ): ClientBootstrapContext =
             ClientBootstrapContext(
                 appContext = context.applicationContext,
-                edgeScope = LLMEdgeScope(scope, promptThreads),
+                edgeScope = LLMEdgeScope(scope, inferenceThreads),
             )
     }
 
@@ -28,17 +28,22 @@ internal object ClientBootstrap {
     fun create(
         context: Context,
         scope: CoroutineScope,
-        promptThreads: Int,
-    ): ClientBootstrapContext = ClientBootstrapContext.create(context, scope, promptThreads)
+        inferenceThreads: Int,
+    ): ClientBootstrapContext = ClientBootstrapContext.create(context, scope, inferenceThreads)
 
     inline fun <T> createOwned(
         context: Context,
         scope: CoroutineScope,
-        promptThreads: Int,
+        inferenceThreads: Int,
         build: (ClientBootstrapContext) -> T,
     ): T {
-        val bootstrap = create(context, scope, promptThreads)
-        return build(bootstrap)
+        val bootstrap = create(context, scope, inferenceThreads)
+        return try {
+            build(bootstrap)
+        } catch (error: Throwable) {
+            runCatching { bootstrap.close() }.onFailure(error::addSuppressed)
+            throw error
+        }
     }
 
     fun close(owner: ClientBootstrapContext?) {

@@ -20,7 +20,7 @@ internal object SmolLMNativeBridgeSupport {
                 kvCacheTypeV: Int,
                 nGpuLayers: Int,
             ): Long =
-                instance.bridgeLoadModel(
+                instance.loadModel(
                     modelPath,
                     minP,
                     temperature,
@@ -42,35 +42,35 @@ internal object SmolLMNativeBridgeSupport {
                 modelPtr: Long,
                 disableThinking: Boolean,
                 reasoningBudget: Int,
-            ) = instance.bridgeSetReasoningOptions(modelPtr, disableThinking, reasoningBudget)
+            ) = instance.setReasoningOptions(modelPtr, disableThinking, reasoningBudget)
 
             override fun addChatMessage(
                 instance: SmolLM,
                 modelPtr: Long,
                 message: String,
                 role: String,
-            ) = instance.bridgeAddChatMessage(modelPtr, message, role)
+            ) = instance.addChatMessage(modelPtr, message, role)
 
             override fun getResponseGenerationSpeed(
                 instance: SmolLM,
                 modelPtr: Long,
-            ): Float = instance.bridgeGetResponseGenerationSpeed(modelPtr)
+            ): Float = instance.getResponseGenerationSpeed(modelPtr)
 
             override fun getResponseGeneratedTokenCount(
                 instance: SmolLM,
                 modelPtr: Long,
-            ): Long = instance.bridgeGetResponseGeneratedTokenCount(modelPtr)
+            ): Long = instance.getResponseGeneratedTokenCount(modelPtr)
 
             override fun getResponseGenerationDurationMicros(
                 instance: SmolLM,
                 modelPtr: Long,
-            ): Long = instance.bridgeGetResponseGenerationDurationMicros(modelPtr)
+            ): Long = instance.getResponseGenerationDurationMicros(modelPtr)
 
             override fun getLastGenerationMetrics(
                 instance: SmolLM,
                 modelPtr: Long,
             ): SmolLM.GenerationMetrics {
-                val packed = instance.bridgeGetLastGenerationMetricsPacked(modelPtr)
+                val packed = instance.nativeGetLastGenerationMetrics(modelPtr)
                 if (packed == null || packed.size < 3) {
                     return super<SmolLM.NativeBridge>.getLastGenerationMetrics(instance, modelPtr)
                 }
@@ -94,32 +94,32 @@ internal object SmolLMNativeBridgeSupport {
                 modelPtr: Long,
                 generationThreads: Int,
                 promptThreads: Int,
-            ) = instance.bridgeConfigureThreading(modelPtr, generationThreads, promptThreads)
+            ) = instance.nativeConfigureThreading(modelPtr, generationThreads, promptThreads)
 
             override fun getEstimatedNativeMemoryBytes(
                 instance: SmolLM,
                 modelPtr: Long,
-            ): Long = instance.bridgeGetEstimatedNativeMemoryBytes(modelPtr)
+            ): Long = instance.nativeGetEstimatedMemoryBytes(modelPtr)
 
             override fun getEstimatedStateMemoryBytes(
                 instance: SmolLM,
                 modelPtr: Long,
-            ): Long = instance.bridgeGetEstimatedStateMemoryBytes(modelPtr)
+            ): Long = instance.nativeGetEstimatedStateMemoryBytes(modelPtr)
 
             override fun clearMessages(
                 instance: SmolLM,
                 modelPtr: Long,
-            ) = instance.bridgeClearMessages(modelPtr)
+            ) = instance.nativeClearMessages(modelPtr)
 
             override fun getContextSizeUsed(
                 instance: SmolLM,
                 modelPtr: Long,
-            ): Int = instance.bridgeGetContextSizeUsed(modelPtr)
+            ): Int = instance.getContextSizeUsed(modelPtr)
 
             override fun getNativeModelPtr(
                 instance: SmolLM,
                 modelPtr: Long,
-            ): Long = instance.bridgeGetNativeModelPtr(modelPtr)
+            ): Long = instance.getNativeModelPtr(modelPtr)
 
             override fun nativeDecodePreparedEmbeddings(
                 instance: SmolLM,
@@ -127,7 +127,7 @@ internal object SmolLMNativeBridgeSupport {
                 embdPath: String,
                 metaPath: String,
                 nBatch: Int,
-            ): Boolean = instance.bridgeDecodePreparedEmbeddings(modelPtr, embdPath, metaPath, nBatch)
+            ): Boolean = instance.nativeDecodePreparedEmbeddings(modelPtr, embdPath, metaPath, nBatch)
 
             override fun nativeDecodeEmbeddingsBuffer(
                 instance: SmolLM,
@@ -141,7 +141,7 @@ internal object SmolLMNativeBridgeSupport {
                 useNonCausal: Boolean,
                 nBatch: Int,
             ): Boolean =
-                instance.bridgeDecodeEmbeddingsBuffer(
+                instance.nativeDecodeEmbeddingsBuffer(
                     modelPtr,
                     embeddings,
                     nTokens,
@@ -159,72 +159,72 @@ internal object SmolLMNativeBridgeSupport {
                 projectorNativePtr: Long,
                 imageData: ByteArray,
                 nBatch: Int,
-            ): Boolean = instance.bridgePrimeImageBuffer(modelPtr, projectorNativePtr, imageData, nBatch)
+            ): Boolean = instance.nativePrimeImageBuffer(modelPtr, projectorNativePtr, imageData, nBatch)
 
             override fun getStateBytes(
                 instance: SmolLM,
                 modelPtr: Long,
-            ): ByteArray? = instance.bridgeGetStateBytes(modelPtr)
+            ): ByteArray? = instance.nativeGetStateBytes(modelPtr)
 
             override fun setStateBytes(
                 instance: SmolLM,
                 modelPtr: Long,
                 state: ByteArray,
-            ): Boolean = instance.bridgeSetStateBytes(modelPtr, state)
+            ): Boolean = instance.nativeSetStateBytes(modelPtr, state)
 
             override fun getSequenceStateBytes(
                 instance: SmolLM,
                 modelPtr: Long,
                 seqId: Int,
-            ): ByteArray? = instance.bridgeGetSequenceStateBytes(modelPtr, seqId)
+            ): ByteArray? = instance.nativeGetSequenceStateBytes(modelPtr, seqId)
 
             override fun setSequenceStateBytes(
                 instance: SmolLM,
                 modelPtr: Long,
                 seqId: Int,
                 state: ByteArray,
-            ): Boolean = instance.bridgeSetSequenceStateBytes(modelPtr, seqId, state)
+            ): Boolean = instance.nativeSetSequenceStateBytes(modelPtr, seqId, state)
 
             override fun startCompletion(
                 instance: SmolLM,
                 modelPtr: Long,
                 prompt: String,
-            ) = instance.bridgeStartCompletion(modelPtr, prompt)
+            ) = instance.startCompletion(modelPtr, prompt)
 
             override fun completionLoop(
                 instance: SmolLM,
                 modelPtr: Long,
-            ): String = instance.bridgeCompletionLoop(modelPtr)
+            ): String = instance.completionLoop(modelPtr)
 
             override fun completionLoopBatch(
                 instance: SmolLM,
                 modelPtr: Long,
                 maxTokens: Int,
-            ): String = instance.bridgeCompletionLoopBatch(modelPtr, maxTokens)
+            ): String = instance.completionLoopBatch(modelPtr, maxTokens)
 
             override fun completionLoopBatchBytes(
                 instance: SmolLM,
                 modelPtr: Long,
                 maxTokens: Int,
-            ): ByteArray? = instance.bridgeCompletionLoopBatchBytes(modelPtr, maxTokens)
+            ): ByteArray? = instance.completionLoopBatchBytes(modelPtr, maxTokens)
 
             override fun stopCompletion(
                 instance: SmolLM,
                 modelPtr: Long,
-            ) = instance.bridgeStopCompletion(modelPtr)
+            ) = instance.stopCompletion(modelPtr)
 
             override fun clearKvCache(
                 instance: SmolLM,
                 modelPtr: Long,
-            ) = instance.bridgeClearKvCache(modelPtr)
+            ) = instance.nativeClearKvCache(modelPtr)
 
             override fun close(
                 instance: SmolLM,
                 modelPtr: Long,
-            ) = instance.bridgeClose(modelPtr)
+            ) = instance.close(modelPtr)
 
             override fun hasVulkanBackendSupport(instance: SmolLM): Boolean =
-                instance.bridgeHasVulkanBackendSupport()
+                instance.nativeHasVulkanBackendSupport()
         }
     }
 }

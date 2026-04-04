@@ -14,6 +14,15 @@ data class RuntimeCacheConfig(
     }
 }
 
+data class ExecutionConfig(
+    val inferenceThreads: Int =
+        CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
+) {
+    init {
+        require(inferenceThreads > 0) { "Shared inference thread count must be positive." }
+    }
+}
+
 data class TextRuntimeConfig(
     val cache: RuntimeCacheConfig = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 2048),
     val useVulkan: Boolean = true,
@@ -46,6 +55,7 @@ data class ImageRuntimeConfig(
 )
 
 data class LLMEdgeConfig(
+    val execution: ExecutionConfig = ExecutionConfig(),
     val models: ModelRegistry = ModelRegistry(),
     val text: TextRuntimeConfig = TextRuntimeConfig(),
     val speech: SpeechRuntimeConfig = SpeechRuntimeConfig(),

@@ -6,12 +6,8 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
-import io.aatricks.llmedge.core.runtime.BackendPolicy
-import io.aatricks.llmedge.core.runtime.CachedRuntimeDescriptor
 import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
-import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
-import io.aatricks.llmedge.core.runtime.RuntimeLoader
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
 import io.aatricks.llmedge.image.diffusion.LoraApplyMode
@@ -65,51 +61,15 @@ internal class ManagedDiffusionModel(
     }
 }
 
-internal class DiffusionRuntimeKeyStrategy : RuntimeKeyStrategy<DiffusionRuntimeSpec, DiffusionLoadOptions> {
-    override fun prefix(
-        spec: DiffusionRuntimeSpec,
-        options: DiffusionLoadOptions,
-    ): String =
-        RuntimeCacheKeyBuilder.prefix(
-            "role=${spec.role.name}",
-            spec.model.cacheKey,
-            spec.vae?.cacheKey,
-            spec.textEncoder?.cacheKey,
-            spec.taehv?.cacheKey,
-            "threads=${options.nThreads}",
-            "gpu=${options.allowGpu}",
-            "offload=${options.offloadToCpu}",
-            "clipCpu=${options.keepClipOnCpu}",
-            "vaeCpu=${options.keepVaeOnCpu}",
-            "flash=${options.flashAttn}",
-            "vaeDecodeOnly=${options.vaeDecodeOnly}",
-            "sequential=${options.sequentialLoad}",
-            "perf=${options.preferPerformanceMode}",
-            "flowShift=${options.flowShift}",
-            "loraDir=${options.loraModelDir}",
-            "loraMode=${options.loraApplyMode.id}",
-        )
-}
-
-internal class DiffusionBackendPolicy : BackendPolicy<DiffusionLoadOptions> {
-    override fun request(options: DiffusionLoadOptions) =
-        BackendCandidateResolver.Request(
-            subsystem = options.subsystem,
-            allowGpu = options.allowGpu,
-            openClAvailable = StableDiffusion.isOpenClAvailable(),
-            vulkanAvailable = LLMEdge.isVulkanAvailable(),
-        )
-}
-
 internal class DiffusionRuntimeLoader(
     private val context: Context,
     private val resolver: ModelRepository,
-) : RuntimeLoader<DiffusionRuntimeSpec, DiffusionLoadOptions, ManagedDiffusionModel> {
+) {
     companion object {
         private const val LOG_TAG = "DiffusionRuntimeLoader"
     }
 
-    override suspend fun load(
+    suspend fun load(
         spec: DiffusionRuntimeSpec,
         options: DiffusionLoadOptions,
         backend: ComputeBackend,
@@ -250,12 +210,36 @@ internal fun createDiffusionRuntimePool(
     createCachedRuntimePool(
         context = context,
         scope = scope,
-        descriptor =
-            CachedRuntimeDescriptor(
-                cache = config.image.cache,
-                keyStrategy = DiffusionRuntimeKeyStrategy(),
-                runtimeLoader = DiffusionRuntimeLoader(context, resolver),
-                activeBackend = { it.backend },
-                backendPolicy = DiffusionBackendPolicy(),
-            ),
+        cacheConfig = config.image.cache,
+        cacheKeyPrefix = { spec, options ->
+            RuntimeCacheKeyBuilder.prefix(
+                "role=${spec.role.name}",
+                spec.model.cacheKey,
+                spec.vae?.cacheKey,
+                spec.textEncoder?.cacheKey,
+                spec.taehv?.cacheKey,
+                "threads=${options.nThreads}",
+                "gpu=${options.allowGpu}",
+                "offload=${options.offloadToCpu}",
+                "clipCpu=${options.keepClipOnCpu}",
+                "vaeCpu=${options.keepVaeOnCpu}",
+                "flash=${options.flashAttn}",
+                "vaeDecodeOnly=${options.vaeDecodeOnly}",
+                "sequential=${options.sequentialLoad}",
+                "perf=${options.preferPerformanceMode}",
+                "flowShift=${options.flowShift}",
+                "loraDir=${options.loraModelDir}",
+                "loraMode=${options.loraApplyMode.id}",
+            )
+        },
+        loadRuntime = DiffusionRuntimeLoader(context, resolver)::load,
+        activeBackend = { it.backend },
+        candidateRequest = { options ->
+            BackendCandidateResolver.Request(
+                subsystem = options.subsystem,
+                allowGpu = options.allowGpu,
+                openClAvailable = StableDiffusion.isOpenClAvailable(),
+                vulkanAvailable = LLMEdge.isVulkanAvailable(),
+            )
+        },
     )

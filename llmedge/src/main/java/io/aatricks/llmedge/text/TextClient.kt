@@ -76,7 +76,7 @@ class TextClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): TextClient =
-            createOwnedClient(context, scope, config.text.promptThreads) { bootstrap ->
+            createOwnedClient(context, scope, config) { bootstrap ->
                 TextClient(
                     context = bootstrap.appContext,
                     scope = bootstrap.edgeScope,

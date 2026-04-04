@@ -1,5 +1,9 @@
 package io.aatricks.llmedge.core.runtime
 
+import android.content.Context
+import io.aatricks.llmedge.RuntimeCacheConfig
+import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ModelCache
 import kotlinx.coroutines.sync.Mutex
@@ -8,19 +12,19 @@ internal typealias RuntimeAcquireResult<TRuntime> = RuntimeCoordinator.AcquireRe
 
 internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
     private val cache: ModelCache<TRuntime>,
-    private val keyStrategy: RuntimeKeyStrategy<TSpec, TOptions>,
-    private val runtimeLoader: RuntimeLoader<TSpec, TOptions, TRuntime>,
+    private val cacheKeyPrefix: (TSpec, TOptions) -> String,
+    private val loadRuntime: suspend (TSpec, TOptions, ComputeBackend) -> TRuntime,
     private val activeBackend: (TRuntime) -> ComputeBackend,
-    private val backendPolicy: BackendPolicy<TOptions>,
+    private val candidateRequest: (TOptions) -> BackendCandidateResolver.Request,
     loadMutex: Mutex = Mutex(),
 ) : AutoCloseable {
     private val coordinator =
         RuntimeCoordinator(
             cache = cache,
-            cacheKeyPrefix = keyStrategy::prefix,
-            loadRuntime = runtimeLoader::load,
+            cacheKeyPrefix = cacheKeyPrefix,
+            loadRuntime = loadRuntime,
             activeBackend = activeBackend,
-            candidateRequest = backendPolicy::request,
+            candidateRequest = candidateRequest,
             loadMutex = loadMutex,
         )
 
@@ -57,3 +61,26 @@ internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
         cache.clear()
     }
 }
+
+internal fun <TSpec, TOptions, TRuntime : ManagedRuntime> createCachedRuntimePool(
+    context: Context,
+    scope: LLMEdgeScope,
+    cacheConfig: RuntimeCacheConfig,
+    cacheKeyPrefix: (TSpec, TOptions) -> String,
+    loadRuntime: suspend (TSpec, TOptions, ComputeBackend) -> TRuntime,
+    activeBackend: (TRuntime) -> ComputeBackend,
+    candidateRequest: (TOptions) -> BackendCandidateResolver.Request,
+): RuntimePool<TSpec, TOptions, TRuntime> =
+    RuntimePool(
+        cache =
+            ModelCacheFactory.create(
+                context = context,
+                scope = scope,
+                maxCacheSize = cacheConfig.maxEntries,
+                maxMemoryMB = cacheConfig.maxMemoryMb,
+            ),
+        cacheKeyPrefix = cacheKeyPrefix,
+        loadRuntime = loadRuntime,
+        activeBackend = activeBackend,
+        candidateRequest = candidateRequest,
+    )

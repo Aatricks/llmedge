@@ -114,20 +114,18 @@ class RuntimePoolTest {
     ): RuntimePool<String, FakeOptions, FakeRuntime> =
         RuntimePool(
             cache = ModelCache(maxCacheSize = 2, maxMemoryMB = 16),
-            keyStrategy =
-                RuntimeKeyStrategy { spec, options ->
-                    RuntimeCacheKeyBuilder.prefix(spec, options.allowGpu, options.openClAvailable, options.vulkanAvailable)
-                },
-            runtimeLoader = RuntimeLoader(loader),
+            cacheKeyPrefix = { spec, options ->
+                RuntimeCacheKeyBuilder.prefix(spec, options.allowGpu, options.openClAvailable, options.vulkanAvailable)
+            },
+            loadRuntime = loader,
             activeBackend = { it.backend },
-            backendPolicy =
-                BackendPolicy { options ->
-                    BackendCandidateResolver.Request(
-                        subsystem = ComputeSubsystem.TEXT,
-                        allowGpu = options.allowGpu,
-                        openClAvailable = options.openClAvailable,
-                        vulkanAvailable = options.vulkanAvailable,
-                    )
-                },
+            candidateRequest = { options ->
+                BackendCandidateResolver.Request(
+                    subsystem = ComputeSubsystem.TEXT,
+                    allowGpu = options.allowGpu,
+                    openClAvailable = options.openClAvailable,
+                    vulkanAvailable = options.vulkanAvailable,
+                )
+            },
         )
 }

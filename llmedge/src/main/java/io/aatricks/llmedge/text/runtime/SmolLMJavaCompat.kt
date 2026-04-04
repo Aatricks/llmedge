@@ -102,7 +102,6 @@ object SmolLMJavaCompat {
         fun setThinkingMode(v: SmolLM.ThinkingMode) = apply { thinkingMode = v }
         fun setReasoningBudget(v: Int?) = apply { reasoningBudget = v }
 
-        @JvmOverloads
         fun build(): SmolLM.InferenceParams = SmolLM.InferenceParams(
             minP = minP,
             temperature = temperature,

@@ -761,14 +761,6 @@ class StableDiffusion internal constructor(
 
     }
 
-    // Legacy alias for backward compatibility
-    @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
-    val EULER_A = SampleMethod.EULER_A
-    @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
-    val DDIM = SampleMethod.DDIM_TRAILING
-    @Deprecated("Use SampleMethod enum instead", ReplaceWith("SampleMethod"))
-    val LCM = SampleMethod.LCM
-
     internal fun updateModelMetadata(metadata: VideoModelMetadata?) {
         runtimeState.modelMetadata = metadata
         runtimeState.easyCacheSupported =
@@ -905,42 +897,9 @@ class StableDiffusion internal constructor(
         runtimeState.clearImageTraceState()
     }
 
-    internal fun bridgeDestroy(handle: Long) = nativeDestroy(handle)
-
     private external fun nativeDestroy(handle: Long)
 
-    internal fun bridgeTxt2Img(
-        handle: Long,
-        prompt: String,
-        negative: String,
-        width: Int,
-        height: Int,
-        steps: Int,
-        cfg: Float,
-        seed: Long,
-        vaeTiling: Boolean,
-        easyCacheEnabled: Boolean = false,
-        easyCacheReuseThreshold: Float = 0.2f,
-        easyCacheStartPercent: Float = 0.15f,
-        easyCacheEndPercent: Float = 0.95f,
-    ): ByteArray? =
-        nativeTxt2Img(
-            handle,
-            prompt,
-            negative,
-            width,
-            height,
-            steps,
-            cfg,
-            seed,
-            vaeTiling,
-            easyCacheEnabled,
-            easyCacheReuseThreshold,
-            easyCacheStartPercent,
-            easyCacheEndPercent,
-        )
-
-    private external fun nativeTxt2Img(
+    internal external fun nativeTxt2Img(
             handle: Long,
             prompt: String,
             negative: String,
@@ -956,38 +915,7 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f,
     ): ByteArray?
 
-    internal fun bridgeTxt2ImgArgb(
-        handle: Long,
-        prompt: String,
-        negative: String,
-        width: Int,
-        height: Int,
-        steps: Int,
-        cfg: Float,
-        seed: Long,
-        vaeTiling: Boolean,
-        easyCacheEnabled: Boolean = false,
-        easyCacheReuseThreshold: Float = 0.2f,
-        easyCacheStartPercent: Float = 0.15f,
-        easyCacheEndPercent: Float = 0.95f,
-    ): IntArray? =
-        nativeTxt2ImgArgb(
-            handle,
-            prompt,
-            negative,
-            width,
-            height,
-            steps,
-            cfg,
-            seed,
-            vaeTiling,
-            easyCacheEnabled,
-            easyCacheReuseThreshold,
-            easyCacheStartPercent,
-            easyCacheEndPercent,
-        )
-
-    private external fun nativeTxt2ImgArgb(
+    internal external fun nativeTxt2ImgArgb(
             handle: Long,
             prompt: String,
             negative: String,
@@ -1003,52 +931,7 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f,
     ): IntArray?
 
-    internal fun bridgeTxt2Vid(
-        handle: Long,
-        prompt: String,
-        negative: String,
-        width: Int,
-        height: Int,
-        videoFrames: Int,
-        steps: Int,
-        cfg: Float,
-        seed: Long,
-        sampleMethod: Int,
-        scheduler: Int,
-        strength: Float,
-        initImage: ByteArray?,
-        initWidth: Int,
-        initHeight: Int,
-        vaceStrength: Float,
-        easyCacheEnabled: Boolean = false,
-        easyCacheReuseThreshold: Float = 0.2f,
-        easyCacheStartPercent: Float = 0.15f,
-        easyCacheEndPercent: Float = 0.95f,
-    ): Array<ByteArray>? =
-        nativeTxt2Vid(
-            handle,
-            prompt,
-            negative,
-            width,
-            height,
-            videoFrames,
-            steps,
-            cfg,
-            seed,
-            sampleMethod,
-            scheduler,
-            strength,
-            initImage,
-            initWidth,
-            initHeight,
-            vaceStrength,
-            easyCacheEnabled,
-            easyCacheReuseThreshold,
-            easyCacheStartPercent,
-            easyCacheEndPercent,
-        )
-
-    private external fun nativeTxt2Vid(
+    internal external fun nativeTxt2Vid(
             handle: Long,
             prompt: String,
             negative: String,
@@ -1071,31 +954,14 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f,
     ): Array<ByteArray>?
 
-    internal fun bridgeSetProgressCallback(
-        handle: Long,
-        callback: VideoProgressCallback?,
-    ) = nativeSetProgressCallback(handle, callback)
-
-    private external fun nativeSetProgressCallback(
+    internal external fun nativeSetProgressCallback(
             handle: Long,
             callback: VideoProgressCallback?,
     )
 
-    internal fun bridgeCancelGeneration(handle: Long) = nativeCancelGeneration(handle)
+    internal external fun nativeCancelGeneration(handle: Long)
 
-    private external fun nativeCancelGeneration(handle: Long)
-
-    internal fun bridgePrecomputeCondition(
-        handle: Long,
-        prompt: String,
-        negative: String,
-        width: Int,
-        height: Int,
-        clipSkip: Int,
-    ): Array<Any?>? =
-        nativePrecomputeCondition(handle, prompt, negative, width, height, clipSkip)
-
-    private external fun nativePrecomputeCondition(
+    internal external fun nativePrecomputeCondition(
             handle: Long,
             prompt: String,
             negative: String,
@@ -1104,56 +970,7 @@ class StableDiffusion internal constructor(
             clipSkip: Int,
     ): Array<Any?>?
 
-    internal fun bridgeTxt2VidWithPrecomputedCondition(
-        handle: Long,
-        prompt: String,
-        negative: String?,
-        width: Int,
-        height: Int,
-        videoFrames: Int,
-        steps: Int,
-        cfg: Float,
-        seed: Long,
-        sampleMethod: Int,
-        scheduler: Int,
-        strength: Float,
-        initImage: ByteArray?,
-        initWidth: Int,
-        initHeight: Int,
-        cond: Array<Any?>?,
-        uncond: Array<Any?>?,
-        vaceStrength: Float,
-        easyCacheEnabled: Boolean = false,
-        easyCacheReuseThreshold: Float = 0.2f,
-        easyCacheStartPercent: Float = 0.15f,
-        easyCacheEndPercent: Float = 0.95f,
-    ): Array<ByteArray>? =
-        nativeTxt2VidWithPrecomputedCondition(
-            handle,
-            prompt,
-            negative,
-            width,
-            height,
-            videoFrames,
-            steps,
-            cfg,
-            seed,
-            sampleMethod,
-            scheduler,
-            strength,
-            initImage,
-            initWidth,
-            initHeight,
-            cond,
-            uncond,
-            vaceStrength,
-            easyCacheEnabled,
-            easyCacheReuseThreshold,
-            easyCacheStartPercent,
-            easyCacheEndPercent,
-        )
-
-    private external fun nativeTxt2VidWithPrecomputedCondition(
+    internal external fun nativeTxt2VidWithPrecomputedCondition(
             handle: Long,
             prompt: String,
             negative: String?,
@@ -1178,40 +995,7 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f,
     ): Array<ByteArray>?
 
-    internal fun bridgeTxt2ImgWithPrecomputedCondition(
-        handle: Long,
-        prompt: String,
-        negative: String,
-        width: Int,
-        height: Int,
-        steps: Int,
-        cfg: Float,
-        seed: Long,
-        cond: Array<Any?>?,
-        uncond: Array<Any?>?,
-        easyCacheEnabled: Boolean = false,
-        easyCacheReuseThreshold: Float = 0.2f,
-        easyCacheStartPercent: Float = 0.15f,
-        easyCacheEndPercent: Float = 0.95f,
-    ): ByteArray? =
-        nativeTxt2ImgWithPrecomputedCondition(
-            handle,
-            prompt,
-            negative,
-            width,
-            height,
-            steps,
-            cfg,
-            seed,
-            cond,
-            uncond,
-            easyCacheEnabled,
-            easyCacheReuseThreshold,
-            easyCacheStartPercent,
-            easyCacheEndPercent,
-        )
-
-    private external fun nativeTxt2ImgWithPrecomputedCondition(
+    internal external fun nativeTxt2ImgWithPrecomputedCondition(
             handle: Long,
             prompt: String,
             negative: String,
@@ -1228,10 +1012,7 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f
     ): ByteArray?
 
-    internal fun bridgeIsEasyCacheSupported(handle: Long): Boolean =
-        nativeIsEasyCacheSupported(handle)
-
-    private external fun nativeIsEasyCacheSupported(handle: Long): Boolean
+    internal external fun nativeIsEasyCacheSupported(handle: Long): Boolean
 
     private fun bitmapToRgbBytes(bitmap: Bitmap): Triple<ByteArray, Int, Int> {
         return StableDiffusionOutputSupport.bitmapToRgbBytes(bitmap, runtimeState.rgbBytesThreadLocal)

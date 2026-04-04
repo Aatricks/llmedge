@@ -1,5 +1,20 @@
 #!/usr/bin/env bash
 
+LLMEDGE_NATIVE_TARGETS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LLMEDGE_TARGETS_CMAKE_FILE="$LLMEDGE_NATIVE_TARGETS_SCRIPT_DIR/../llmedge/src/main/cpp/cmake/llmedge-targets.cmake"
+
+llmedge_read_cmake_target_var() {
+    local var_name="$1"
+    sed -nE "s/^set\\(${var_name} \"([^\"]+)\"\\)$/\\1/p" "$LLMEDGE_TARGETS_CMAKE_FILE" | head -n 1
+}
+
+readonly LLMEDGE_TARGET_SMOLLM="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_SMOLLM)"
+readonly LLMEDGE_TARGET_SMOLLM_V7A="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_SMOLLM_V7A)"
+readonly LLMEDGE_TARGET_SMOLLM_V8="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_SMOLLM_V8)"
+readonly LLMEDGE_TARGET_SDCPP="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_SDCPP)"
+readonly LLMEDGE_TARGET_WHISPER_JNI="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_WHISPER_JNI)"
+readonly LLMEDGE_TARGET_BARK_JNI="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_BARK_JNI)"
+
 readonly -a LLMEDGE_DESKTOP_TARGETS=(smollm whisper sdcpp bark)
 readonly -a LLMEDGE_CI_TARGETS=(whisper sdcpp smollm)
 
@@ -16,10 +31,10 @@ llmedge_native_build_dir_name() {
 
 llmedge_native_cmake_target() {
     case "$1" in
-        smollm) printf 'smollm\n' ;;
-        whisper) printf 'whisper_jni\n' ;;
-        sdcpp) printf 'sdcpp\n' ;;
-        bark) printf 'bark_jni\n' ;;
+        smollm) printf '%s\n' "$LLMEDGE_TARGET_SMOLLM" ;;
+        whisper) printf '%s\n' "$LLMEDGE_TARGET_WHISPER_JNI" ;;
+        sdcpp) printf '%s\n' "$LLMEDGE_TARGET_SDCPP" ;;
+        bark) printf '%s\n' "$LLMEDGE_TARGET_BARK_JNI" ;;
         *)
             echo "Unknown native target: $1" >&2
             return 1
@@ -28,23 +43,14 @@ llmedge_native_cmake_target() {
 }
 
 llmedge_native_output_name() {
-    case "$1" in
-        smollm) printf 'libsmollm.so\n' ;;
-        whisper) printf 'libwhisper_jni.so\n' ;;
-        sdcpp) printf 'libsdcpp.so\n' ;;
-        bark) printf 'libbark_jni.so\n' ;;
-        *)
-            echo "Unknown native target: $1" >&2
-            return 1
-            ;;
-    esac
+    printf 'lib%s.so\n' "$(llmedge_native_cmake_target "$1")"
 }
 
 llmedge_native_alias_outputs() {
     case "$1" in
         smollm)
-            printf 'libsmollm_v7a.so\n'
-            printf 'libsmollm_v8.so\n'
+            printf 'lib%s.so\n' "$LLMEDGE_TARGET_SMOLLM_V7A"
+            printf 'lib%s.so\n' "$LLMEDGE_TARGET_SMOLLM_V8"
             ;;
     esac
 }

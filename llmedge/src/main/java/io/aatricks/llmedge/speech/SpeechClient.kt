@@ -61,7 +61,7 @@ class SpeechClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): SpeechClient =
-            createOwnedClient(context, scope, config.text.promptThreads) { bootstrap ->
+            createOwnedClient(context, scope, config) { bootstrap ->
                 SpeechClient(
                     context = bootstrap.appContext,
                     scope = bootstrap.edgeScope,

@@ -39,7 +39,7 @@ class VisionClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): VisionClient =
-            createOwnedClient(context, scope, config.text.promptThreads) { bootstrap ->
+            createOwnedClient(context, scope, config) { bootstrap ->
                 VisionClient(
                     context = bootstrap.appContext,
                     pipeline = VisionPipeline(bootstrap.appContext, bootstrap.edgeScope, modelRepository, config),

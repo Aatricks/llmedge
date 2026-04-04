@@ -98,7 +98,11 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
             val score = cosine(query, qnorm, entries[i].embedding, cachedNorms[i])
             if (heap.size < k) {
                 heap.add(i to score)
-            } else if (score > heap.peek().second) {
+            } else {
+                val currentMin = heap.peek() ?: continue
+                if (score <= currentMin.second) {
+                    continue
+                }
                 heap.poll()
                 heap.add(i to score)
             }
@@ -123,7 +127,11 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
             val score = cosine(query, qnorm, entries[idx].embedding, cachedNorms[idx])
             if (heap.size < k) {
                 heap.add(idx to score)
-            } else if (score > heap.peek().second) {
+            } else {
+                val currentMin = heap.peek() ?: continue
+                if (score <= currentMin.second) {
+                    continue
+                }
                 heap.poll()
                 heap.add(idx to score)
             }

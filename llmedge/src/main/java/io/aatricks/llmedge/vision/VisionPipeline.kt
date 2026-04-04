@@ -4,11 +4,11 @@ import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.runtime.runExclusive
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 internal class VisionPipeline(
@@ -69,7 +69,7 @@ internal class VisionPipeline(
                     numThreads = request.numThreads,
                     generationThreads = request.generationThreads,
                 )
-            runtime.mutex.withLock {
+            runtime.runExclusive {
                 val preparedInput =
                     inputPreparer.prepare(
                         request = request,

@@ -83,7 +83,7 @@ class ImageClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): ImageClient =
-            createOwnedClient(context, scope, config.text.promptThreads) { bootstrap ->
+            createOwnedClient(context, scope, config) { bootstrap ->
                 ImageClient(
                     context = bootstrap.appContext,
                     scope = bootstrap.edgeScope,

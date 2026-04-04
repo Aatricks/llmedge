@@ -18,7 +18,7 @@ internal object StableDiffusionNativeBridgeSupport {
                 easyCacheStartPercent: Float,
                 easyCacheEndPercent: Float,
             ): ByteArray? =
-                instance.bridgeTxt2Img(
+                instance.nativeTxt2Img(
                     handle,
                     prompt,
                     negative,
@@ -49,7 +49,7 @@ internal object StableDiffusionNativeBridgeSupport {
                 easyCacheStartPercent: Float,
                 easyCacheEndPercent: Float,
             ): IntArray? =
-                instance.bridgeTxt2ImgArgb(
+                instance.nativeTxt2ImgArgb(
                     handle,
                     prompt,
                     negative,
@@ -87,7 +87,7 @@ internal object StableDiffusionNativeBridgeSupport {
                 easyCacheStartPercent: Float,
                 easyCacheEndPercent: Float,
             ): Array<ByteArray>? =
-                instance.bridgeTxt2Vid(
+                instance.nativeTxt2Vid(
                     handle,
                     prompt,
                     negative,
@@ -118,7 +118,7 @@ internal object StableDiffusionNativeBridgeSupport {
                 height: Int,
                 clipSkip: Int,
             ): PrecomputedCondition? =
-                instance.bridgePrecomputeCondition(handle, prompt, negative, width, height, clipSkip)
+                instance.nativePrecomputeCondition(handle, prompt, negative, width, height, clipSkip)
                     ?.let(StableDiffusionConditionInterop::fromNativeRaw)
 
             override fun txt2vidWithPrecomputedCondition(
@@ -145,7 +145,7 @@ internal object StableDiffusionNativeBridgeSupport {
                 easyCacheStartPercent: Float,
                 easyCacheEndPercent: Float,
             ): Array<ByteArray>? =
-                instance.bridgeTxt2VidWithPrecomputedCondition(
+                instance.nativeTxt2VidWithPrecomputedCondition(
                     handle,
                     prompt,
                     negative,
@@ -174,11 +174,11 @@ internal object StableDiffusionNativeBridgeSupport {
                 handle: Long,
                 callback: VideoProgressCallback?,
             ) {
-                instance.bridgeSetProgressCallback(handle, callback)
+                instance.nativeSetProgressCallback(handle, callback)
             }
 
             override fun cancelGeneration(handle: Long) {
-                instance.bridgeCancelGeneration(handle)
+                instance.nativeCancelGeneration(handle)
             }
 
             override fun txt2ImgWithPrecomputedCondition(
@@ -197,7 +197,7 @@ internal object StableDiffusionNativeBridgeSupport {
                 easyCacheStartPercent: Float,
                 easyCacheEndPercent: Float,
             ): ByteArray? =
-                instance.bridgeTxt2ImgWithPrecomputedCondition(
+                instance.nativeTxt2ImgWithPrecomputedCondition(
                     handle,
                     prompt,
                     negative,

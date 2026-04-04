@@ -58,7 +58,7 @@ class RAGClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): RAGClient =
-            createOwnedClient(context, scope, config.text.promptThreads) { bootstrap ->
+            createOwnedClient(context, scope, config) { bootstrap ->
                 RAGClient(
                     context = bootstrap.appContext,
                     scope = bootstrap.edgeScope,

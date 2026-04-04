@@ -3,6 +3,7 @@ package io.aatricks.llmedge.speech
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.executeWithRuntimeRetry
+import io.aatricks.llmedge.core.runtime.runExclusive
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.speech.tts.BarkTTS
@@ -10,8 +11,6 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 internal class SpeechRequestExecutor(
     private val scope: LLMEdgeScope,
@@ -84,12 +83,12 @@ internal class SpeechRequestExecutor(
         trySend(AudioStreamEvent.Started)
         val job =
             scope.coroutineScope.launch {
-                runtime.mutex.withLock {
+                runtime.runExclusive(scope.inferenceDispatcher) {
                     runtime.bark.setProgressCallback { step, progress ->
                         trySend(AudioStreamEvent.Progress(step, progress))
                     }
                     try {
-                        val result = withContext(scope.inferenceDispatcher) { runtime.bark.generate(text, params) }
+                        val result = runtime.bark.generate(text, params)
                         trySend(AudioStreamEvent.Result(result))
                         trySend(AudioStreamEvent.Completed)
                         close()
@@ -123,11 +122,7 @@ internal class SpeechRequestExecutor(
             spec = model,
             options = options,
         ) { execution ->
-            execution.runtime.mutex.withLock {
-                withContext(scope.inferenceDispatcher) {
-                    block(execution.runtime)
-                }
-            }
+            execution.runtime.runExclusive(scope.inferenceDispatcher, block)
         }
 
     private suspend fun <T> withBarkRuntime(
@@ -136,10 +131,6 @@ internal class SpeechRequestExecutor(
         block: suspend (ManagedBarkModel) -> T,
     ): T {
         val runtime = barkPool.acquire(model, options)
-        return runtime.mutex.withLock {
-            withContext(scope.inferenceDispatcher) {
-                block(runtime)
-            }
-        }
+        return runtime.runExclusive(scope.inferenceDispatcher, block)
     }
 }
