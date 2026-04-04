@@ -1,5 +1,6 @@
 package io.aatricks.llmedge.tools
 
+import io.aatricks.llmedge.text.ConversationMessage
 import io.aatricks.llmedge.text.ConversationRole
 import io.aatricks.llmedge.text.stripThinkBlocks
 import kotlinx.serialization.json.Json
@@ -8,9 +9,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 internal class ToolAgentTurnLoop(
-    private val seedWorkingTranscript: (String) -> MutableList<ToolPromptMessage>,
-    private val renderWorkingPrompt: (List<ToolPromptMessage>) -> String,
-    private val emptyFinalAnswerReminder: () -> ToolPromptMessage,
+    private val seedWorkingTranscript: (String) -> MutableList<ConversationMessage>,
+    private val renderWorkingPrompt: (List<ConversationMessage>) -> String,
+    private val emptyFinalAnswerReminder: () -> ConversationMessage,
     private val commitTurn: (String, String?) -> Unit,
     private val produceResponse: suspend (prompt: String, maxTokens: Int, batchSize: Int) -> String,
     private val handleToolInvocation: suspend (
@@ -18,7 +19,7 @@ internal class ToolAgentTurnLoop(
         step: Int,
         rawModelOutput: String,
         call: ToolCall,
-        working: MutableList<ToolPromptMessage>,
+        working: MutableList<ConversationMessage>,
         callbacks: ToolAgentTurnCallbacks,
     ) -> ToolStepResult,
 ) {
@@ -64,8 +65,8 @@ internal class ToolAgentTurnLoop(
                             rawModelOutput = response,
                             toolResult = result,
                         )
-                    working += ToolPromptMessage(ToolPromptRole.ASSISTANT, response)
-                    working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage("invalid_tool_call", result))
+                    working += ConversationMessage(ConversationRole.ASSISTANT, response)
+                    working += ConversationMessage(ConversationRole.TOOL, formatToolResultMessage("invalid_tool_call", result))
                     callbacks.onToolResultReceived(ToolCall("invalid_tool_call"), result)
                 }
 
@@ -109,37 +110,6 @@ internal data class ToolAgentTurnCallbacks(
 internal data class ToolStepResult(
     val trace: ToolAgentTraceStep,
 )
-
-internal enum class ToolPromptRole {
-    SYSTEM,
-    USER,
-    ASSISTANT,
-    TOOL,
-}
-
-internal data class ToolPromptMessage(
-    val role: ToolPromptRole,
-    val content: String,
-)
-
-internal val ToolPromptRole.label: String
-    get() =
-        when (this) {
-            ToolPromptRole.SYSTEM -> "System"
-            ToolPromptRole.USER -> "User"
-            ToolPromptRole.ASSISTANT -> "Assistant"
-            ToolPromptRole.TOOL -> "Tool"
-        }
-
-internal fun promptMessage(
-    role: ConversationRole,
-    content: String,
-): ToolPromptMessage =
-    when (role) {
-        ConversationRole.SYSTEM -> ToolPromptMessage(ToolPromptRole.SYSTEM, content)
-        ConversationRole.USER -> ToolPromptMessage(ToolPromptRole.USER, content)
-        ConversationRole.ASSISTANT -> ToolPromptMessage(ToolPromptRole.ASSISTANT, content)
-    }
 
 internal fun formatToolResultMessage(
     toolName: String,

@@ -1,6 +1,7 @@
 package io.aatricks.llmedge.tools
 
 import io.aatricks.llmedge.text.ConversationMessage
+import io.aatricks.llmedge.text.ConversationRole
 
 internal class ToolInvocationExecutor(
     tools: List<Tool>,
@@ -14,10 +15,10 @@ internal class ToolInvocationExecutor(
         step: Int,
         rawModelOutput: String,
         call: ToolCall,
-        working: MutableList<ToolPromptMessage>,
+        working: MutableList<ConversationMessage>,
         callbacks: ToolAgentTurnCallbacks = ToolAgentTurnCallbacks(),
     ): ToolStepResult {
-        working += ToolPromptMessage(ToolPromptRole.ASSISTANT, rawModelOutput)
+        working += ConversationMessage(ConversationRole.ASSISTANT, rawModelOutput)
         val tool = toolsByName[call.tool]
 
         if (tool == null) {
@@ -26,7 +27,7 @@ internal class ToolInvocationExecutor(
                     "Tool '${call.tool}' is not registered.",
                     toolErrorData("unknown_tool", "Tool '${call.tool}' is not registered."),
                 )
-            working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
+            working += ConversationMessage(ConversationRole.TOOL, formatToolResultMessage(call.tool, result))
             callbacks.onToolResultReceived(call, result)
             return ToolStepResult(
                 ToolAgentTraceStep(
@@ -45,7 +46,7 @@ internal class ToolInvocationExecutor(
                     validationErrors.joinToString(" "),
                     toolErrorData("invalid_arguments", validationErrors.joinToString(" ")),
                 )
-            working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
+            working += ConversationMessage(ConversationRole.TOOL, formatToolResultMessage(call.tool, result))
             callbacks.onToolResultReceived(call, result)
             return ToolStepResult(
                 ToolAgentTraceStep(
@@ -76,7 +77,7 @@ internal class ToolInvocationExecutor(
                             decision.reason,
                             toolErrorData("action_denied", decision.reason),
                         )
-                    working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
+                    working += ConversationMessage(ConversationRole.TOOL, formatToolResultMessage(call.tool, result))
                     callbacks.onToolDenied(call, decision.reason)
                     callbacks.onToolResultReceived(call, result)
                     return ToolStepResult(
@@ -102,7 +103,7 @@ internal class ToolInvocationExecutor(
                     )
                 }
 
-        working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
+        working += ConversationMessage(ConversationRole.TOOL, formatToolResultMessage(call.tool, result))
         callbacks.onToolResultReceived(call, result)
         return ToolStepResult(
             ToolAgentTraceStep(

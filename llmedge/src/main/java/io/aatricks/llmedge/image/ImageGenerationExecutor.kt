@@ -62,7 +62,13 @@ internal class ImageGenerationExecutor(
                             "cacheHit=${acquired.acquire.cacheHit} acquireMs=${acquired.acquire.acquireTimeMs} loadMs=${acquired.acquire.modelLoadTimeMs} backend=${acquired.acquire.backend.name}",
                         )
                         try {
-                            val easyCache = resolveEasyCache(model, params.easyCache)
+                            val easyCache =
+                                model.resolveEasyCacheParams(params.easyCache) {
+                                    AndroidLogAdapter.w(
+                                        logTag,
+                                        "EasyCache requested but unsupported for the current model; disabling it for this request",
+                                    )
+                                }
                             model.traceImagePhase(
                                 ImageGenerationPhase.MODEL_READY,
                                 "flash=${runtime.flashAttnEnabled} easyCache=${easyCache.enabled}",
@@ -137,24 +143,6 @@ internal class ImageGenerationExecutor(
                 }
             }
         }
-
-    private fun resolveEasyCache(
-        model: StableDiffusion,
-        requested: EasyCacheParams,
-    ): EasyCacheParams {
-        if (!requested.enabled) {
-            return requested.copy(enabled = false)
-        }
-        return if (model.isEasyCacheSupported()) {
-            requested
-        } else {
-            AndroidLogAdapter.w(
-                logTag,
-                "EasyCache requested but unsupported for the current model; disabling it for this request",
-            )
-            requested.copy(enabled = false)
-        }
-    }
 
     private fun fallbackImageMetrics(
         runtime: ManagedDiffusionModel,

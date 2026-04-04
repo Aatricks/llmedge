@@ -6,10 +6,10 @@ set -euo pipefail
 # Robolectric DebugUnit test that uses the native library and a GGUF model.
 
 ROOT_DIR="$(dirname "$(realpath "$0")")/.."
-LLMEDGE_NATIVE_DIR="$ROOT_DIR/llmedge/build/native/linux-x86_64"
-NATIVE_LIB_NAME="libsdcpp.so"
-DEP_LIB_NAME="libstable-diffusion.so"
-PREBUILT_BIN_DIR="$ROOT_DIR/scripts/jni-desktop/build/bin"
+source "$ROOT_DIR/scripts/native_test_support.sh"
+LLMEDGE_NATIVE_DIR="$(llmedge_host_native_dir "$ROOT_DIR")"
+NATIVE_LIB_NAME="$(llmedge_native_output_name sdcpp)"
+PREBUILT_BIN_DIR="$(llmedge_prebuilt_bin_dir "$ROOT_DIR")"
 
 if [[ -z "${LLMEDGE_TEST_MODEL_PATH:-}" && -z "${LLMEDGE_TEST_MODEL_ID:-}" ]]; then
   # Check for local models in models/ directory
@@ -27,31 +27,7 @@ if [[ -z "${LLMEDGE_TEST_MODEL_PATH:-}" && -z "${LLMEDGE_TEST_MODEL_ID:-}" ]]; t
 fi
 
 mkdir -p "$LLMEDGE_NATIVE_DIR"
-
-# If the native lib already exists in the target folder, use it.
-if [[ -f "$LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME" ]]; then
-  echo "Found native library at $LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME"
-else
-  # Try to copy from prebuilt jni-desktop build outputs
-  if [[ -d "$PREBUILT_BIN_DIR" && -f "$PREBUILT_BIN_DIR/$NATIVE_LIB_NAME" ]]; then
-    echo "Copying prebuilt $NATIVE_LIB_NAME from $PREBUILT_BIN_DIR"
-    cp "$PREBUILT_BIN_DIR/$NATIVE_LIB_NAME" "$LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME"
-    # If jni-desktop also produced libstable-diffusion, copy it next to the native lib so the dynamic
-    # loader can resolve transitive dependencies when System.load is called from the JVM.
-    if [[ -f "$PREBUILT_BIN_DIR/$DEP_LIB_NAME" ]]; then
-      echo "Copying dependent $DEP_LIB_NAME from $PREBUILT_BIN_DIR to $LLMEDGE_NATIVE_DIR"
-      cp "$PREBUILT_BIN_DIR/$DEP_LIB_NAME" "$LLMEDGE_NATIVE_DIR/$DEP_LIB_NAME"
-    fi
-  else
-    echo "Prebuilt libs not found. Attempting to build with scripts/build_native_linux.sh sdcpp"
-    if [[ -f "$ROOT_DIR/scripts/build_native_linux.sh" ]]; then
-      "$ROOT_DIR/scripts/build_native_linux.sh" sdcpp
-    else
-      echo "No build script found; please build libsdcpp for host and place it in $LLMEDGE_NATIVE_DIR"
-      exit 1
-    fi
-  fi
-fi
+llmedge_ensure_host_native_artifact "$ROOT_DIR" sdcpp "$LLMEDGE_NATIVE_DIR"
 
 echo "Running unit test: VideoGenerationLinuxE2ETest"
 echo "LLMEDGE_TEST_MODEL_ID=${LLMEDGE_TEST_MODEL_ID:-}"

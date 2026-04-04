@@ -141,7 +141,7 @@ internal class TextRequestExecutor(
         val effectiveUsesVulkan = request.options.useVulkan ?: config.text.useVulkan
         val effectiveUsesFlashAttention =
             request.options.useFlashAttention ?: config.text.useFlashAttention
-        val effectiveBatchSize = resolveBatchSize(request.batchSize, request.maxTokens)
+        val effectiveBatchSize = resolveBlockingBatchSize(config.text, request.batchSize, request.maxTokens)
 
         if (!effectiveUsesVulkan && !effectiveUsesFlashAttention && effectiveBatchSize == 1) {
             return null
@@ -151,24 +151,6 @@ internal class TextRequestExecutor(
             options = request.options.copy(useVulkan = false, useFlashAttention = false),
             batchSize = 1,
         )
-    }
-
-    private fun resolveBatchSize(
-        requestedBatchSize: Int,
-        maxTokens: Int,
-    ): Int {
-        val configuredBatchSize = config.text.batchSize
-        val preferredBatchSize =
-            when {
-                requestedBatchSize == 0 -> configuredBatchSize
-                requestedBatchSize > 0 -> requestedBatchSize
-                else -> 1
-            }
-        return if (maxTokens > 0) {
-            minOf(preferredBatchSize, maxTokens.coerceAtLeast(1))
-        } else {
-            preferredBatchSize
-        }
     }
 
     private fun isDecodeFailure(error: InferenceFailedException): Boolean =

@@ -28,7 +28,7 @@ internal class TextRuntimeSession(
                 runtime.ensureOpen()
                 prepareModel(runtime.model, systemPrompt, options)
                 try {
-                    val effectiveBatchSize = resolveBatchSize(batchSize, maxTokens)
+                    val effectiveBatchSize = resolveBlockingBatchSize(config.text, batchSize, maxTokens)
                     runtime.model.getResponse(prompt, maxTokens, effectiveBatchSize).also {
                         updateMetrics(runtime.model.getLastGenerationMetrics())
                     }
@@ -58,7 +58,7 @@ internal class TextRuntimeSession(
                 } else {
                     prepareModel(runtime.model, systemPrompt, options)
                 }
-                val effectiveBatchSize = resolveBatchSize(batchSize, maxTokens)
+                val effectiveBatchSize = resolveBlockingBatchSize(config.text, batchSize, maxTokens)
                 val response = runtime.model.getResponse(prompt, maxTokens, effectiveBatchSize)
                 updateMetrics(runtime.model.getLastGenerationMetrics())
                 val stateBytes = runtime.model.getStateBytes()?.takeIf { it.size <= maxStateBytes }
@@ -81,7 +81,7 @@ internal class TextRuntimeSession(
                     prepareModel(runtime.model, systemPrompt, options)
                 }
                 try {
-                    val effectiveBatchSize = resolveStreamBatchSize(batchSize)
+                    val effectiveBatchSize = resolveStreamBatchSize(config.text, batchSize)
                     runtime.model
                         .getResponseAsFlow(prompt, scope.inferenceDispatcher, effectiveBatchSize)
                         .buffer(64)
@@ -107,29 +107,5 @@ internal class TextRuntimeSession(
         systemPrompt?.takeUnless(String::isBlank)?.let(model::addSystemPrompt)
         model.setThinkingMode(options.thinkingMode)
         options.reasoningBudget?.let(model::setReasoningBudget)
-    }
-
-    private fun resolveStreamBatchSize(requestedBatchSize: Int): Int {
-        val configuredBatchSize = config.text.streamBatchSize
-        return when {
-            requestedBatchSize == 0 -> configuredBatchSize
-            requestedBatchSize > 0 -> requestedBatchSize
-            else -> 1
-        }
-    }
-
-    private fun resolveBatchSize(requestedBatchSize: Int, maxTokens: Int): Int {
-        val configuredBatchSize = config.text.batchSize
-        val preferredBatchSize =
-            when {
-                requestedBatchSize == 0 -> configuredBatchSize
-                requestedBatchSize > 0 -> requestedBatchSize
-                else -> 1
-            }
-        return if (maxTokens > 0) {
-            minOf(preferredBatchSize, maxTokens.coerceAtLeast(1))
-        } else {
-            preferredBatchSize
-        }
     }
 }

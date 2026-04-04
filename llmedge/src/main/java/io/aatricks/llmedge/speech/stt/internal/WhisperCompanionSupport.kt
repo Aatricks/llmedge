@@ -4,9 +4,10 @@ import android.content.Context
 import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeCall
+import io.aatricks.llmedge.core.NativeLibraryCatalog
+import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.model.ModelFileValidator
-import io.aatricks.llmedge.runtime.BackendRuntimePolicy
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.speech.stt.Whisper
@@ -99,11 +100,13 @@ internal object WhisperCompanionSupport {
     ): Whisper {
         val validatedModel = ModelFileValidator.requireReadableFile(modelPath, "Whisper model")
         val candidates =
-            BackendRuntimePolicy.candidates(
-                subsystem = ComputeSubsystem.WHISPER,
-                allowGpu = useGpu,
-                openClAvailable = isOpenClAvailable(staticInvoker, openClAvailabilityOverride),
-                vulkanAvailable = isVulkanBackendAvailable(staticInvoker, vulkanAvailabilityOverride),
+            BackendCandidateResolver.candidates(
+                BackendCandidateResolver.Request(
+                    subsystem = ComputeSubsystem.WHISPER,
+                    allowGpu = useGpu,
+                    openClAvailable = isOpenClAvailable(staticInvoker, openClAvailabilityOverride),
+                    vulkanAvailable = isVulkanBackendAvailable(staticInvoker, vulkanAvailabilityOverride),
+                ),
             )
         var lastError: Throwable? = null
         for (backend in candidates) {
@@ -111,7 +114,7 @@ internal object WhisperCompanionSupport {
                 val handle =
                     NativeCall.requireHandle(
                         NativeCall.binding(
-                            "whisper",
+                            NativeLibraryCatalog.WHISPER_JNI,
                             "Whisper JNI bindings are unavailable.",
                         ) {
                             createHandle(
@@ -130,7 +133,7 @@ internal object WhisperCompanionSupport {
             } catch (e: Throwable) {
                 lastError = e
                 if (backend != ComputeBackend.CPU) {
-                    BackendRuntimePolicy.blacklist(ComputeSubsystem.WHISPER, backend)
+                    BackendCandidateResolver.blacklist(ComputeSubsystem.WHISPER, backend)
                     onGpuLoadFailure(backend)
                 }
             }
@@ -154,7 +157,7 @@ internal object WhisperCompanionSupport {
         val handle =
             NativeCall.requireHandle(
                 NativeCall.binding(
-                    "whisper",
+                    NativeLibraryCatalog.WHISPER_JNI,
                     "Whisper JNI bindings are unavailable.",
                 ) {
                     createHandle(

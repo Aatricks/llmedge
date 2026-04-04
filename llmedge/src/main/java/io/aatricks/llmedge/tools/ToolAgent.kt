@@ -2,6 +2,8 @@ package io.aatricks.llmedge.tools
 
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.ConversationMessage
+import io.aatricks.llmedge.text.ConversationPromptFormatter
+import io.aatricks.llmedge.text.ConversationRole
 import io.aatricks.llmedge.text.ConversationWindow
 import io.aatricks.llmedge.text.ConversationSessionSupport
 import io.aatricks.llmedge.text.TextClient
@@ -97,15 +99,14 @@ class ToolAgent internal constructor(
         step: Int,
         rawModelOutput: String,
         call: ToolCall,
-        working: MutableList<ToolPromptMessage>,
+        working: MutableList<ConversationMessage>,
         callbacks: ToolAgentTurnCallbacks = ToolAgentTurnCallbacks(),
     ): ToolStepResult =
         invocationExecutor.handle(message, step, rawModelOutput, call, working, callbacks)
 
-    private fun seedWorkingTranscript(message: String): MutableList<ToolPromptMessage> =
+    private fun seedWorkingTranscript(message: String): MutableList<ConversationMessage> =
         support
             .withHistoryPreview(message)
-            .map { promptMessage(it.role, it.content) }
             .toMutableList()
 
     private fun persistentConversationPreview(message: String): List<ConversationMessage> =
@@ -118,20 +119,15 @@ class ToolAgent internal constructor(
         support.commitTurn(message, response)
     }
 
-    private fun renderWorkingPrompt(messages: List<ToolPromptMessage>): String =
-        buildString {
-            append("Continue the conversation and answer the final user request.\n\n")
-            messages.forEach { message ->
-                append(message.role.label)
-                append(": ")
-                append(message.content.trim())
-                append('\n')
-            }
-        }.trimEnd()
+    private fun renderWorkingPrompt(messages: List<ConversationMessage>): String =
+        ConversationPromptFormatter.render(
+            prefix = "Continue the conversation and answer the final user request.",
+            messages = messages,
+        )
 
-    private fun emptyFinalAnswerReminder(): ToolPromptMessage =
-        ToolPromptMessage(
-            ToolPromptRole.SYSTEM,
+    private fun emptyFinalAnswerReminder(): ConversationMessage =
+        ConversationMessage(
+            ConversationRole.SYSTEM,
             "Your previous response contained no user-visible text after hidden reasoning was removed. " +
                 "Do not repeat a tool call you already satisfied. Answer the user now in plain text using the available tool results.",
         )

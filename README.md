@@ -278,16 +278,9 @@ println("Extracted text: $text")
 - Good for Latin scripts
 - Add dependency: `implementation("com.google.mlkit:text-recognition:16.0.0")`
 
-#### Processing Modes
-
-```kotlin
-enum class VisionMode {
-        AUTO_PREFER_VISION,  // Try vision model first, fall back to OCR
-        AUTO_PREFER_OCR,     // Try OCR first (ML Kit)
-        FORCE_VISION,        // Vision model only (error if unavailable)
-        FORCE_MLKIT          // ML Kit OCR only
-}
-```
+OCR is exposed directly through `edge.vision.extractText(...)`. The older `VisionMode` convenience
+wrapper is gone; callers now choose explicitly between OCR and VLM analysis instead of routing both
+through a second abstraction layer.
 
 ### Vision Models
 

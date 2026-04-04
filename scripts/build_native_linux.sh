@@ -4,18 +4,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESKTOP_CMAKE_DIR="$ROOT_DIR/scripts/jni-desktop"
 BUILD_BIN_DIR="$DESKTOP_CMAKE_DIR/build/bin"
+source "$ROOT_DIR/scripts/native_targets.sh"
 
 usage() {
     cat <<'EOF'
 Usage: scripts/build_native_linux.sh <target> [<target> ...]
 
 Targets:
-  smollm
-  whisper
-  sdcpp
-  bark
-  all
 EOF
+    llmedge_print_native_targets
 }
 
 if [[ $# -eq 0 ]]; then
@@ -32,8 +29,7 @@ esac
 
 copy_output() {
     local built_lib="$1"
-    local target_name="$2"
-    local output_name="$3"
+    local output_name="$2"
 
     mkdir -p "$ROOT_DIR/llmedge/build/native/$ARCH_DIR"
     cp "$built_lib" "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/$output_name"
@@ -95,106 +91,109 @@ prepare_sdcpp_mods() {
     out_args+=("-DSD_ROOT_OVERRIDE=$patched_root")
 }
 
-build_sdcpp() {
-    local build_dir="$DESKTOP_CMAKE_DIR/build-sdcpp"
-    mkdir -p "$build_dir"
+configure_target() {
+    local target="$1"
+    local build_dir="$2"
+    local -n out_args="$3"
+
+    out_args=(-DCMAKE_BUILD_TYPE=Release)
+    case "$target" in
+        sdcpp)
+            prepare_sdcpp_mods "$build_dir" out_args
+            out_args+=(
+                -DBUILD_SDCPP=ON
+                -DBUILD_SMOLLM=OFF
+                -DBUILD_BARK=OFF
+                -DWHISPER_DESKTOP_JNI=OFF
+                -DSD_VULKAN=ON
+                -DWAN_SUPPORT=ON
+                -DSPDLOG_FMT_EXTERNAL=ON
+                -DGGML_SKIP_OSX_FEATURES=ON
+                -DSDC_TEST_DESKTOP_JNI=ON
+            )
+            ;;
+        smollm)
+            out_args+=(
+                -DBUILD_SDCPP=OFF
+                -DBUILD_SMOLLM=ON
+                -DBUILD_BARK=OFF
+                -DWHISPER_DESKTOP_JNI=OFF
+                -DGGML_VULKAN=OFF
+                -DSPDLOG_FMT_EXTERNAL=ON
+                -DGGML_SKIP_OSX_FEATURES=ON
+            )
+            ;;
+        whisper)
+            out_args+=(
+                -DBUILD_SDCPP=OFF
+                -DBUILD_SMOLLM=OFF
+                -DBUILD_BARK=OFF
+                -DWHISPER_DESKTOP_JNI=ON
+            )
+            ;;
+        bark)
+            out_args+=(
+                -DBUILD_SDCPP=OFF
+                -DBUILD_SMOLLM=OFF
+                -DBUILD_BARK=ON
+                -DWHISPER_DESKTOP_JNI=OFF
+            )
+            ;;
+        *)
+            echo "Unknown target: $target" >&2
+            return 1
+            ;;
+    esac
+}
+
+copy_alias_outputs() {
+    local target="$1"
+    local output_name="$2"
+    local alias_name
+    while IFS= read -r alias_name; do
+        [[ -n "$alias_name" ]] || continue
+        cp "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/$output_name" \
+            "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/$alias_name"
+    done < <(llmedge_native_alias_outputs "$target")
+}
+
+build_target() {
+    local target="$1"
+    local build_dir="$DESKTOP_CMAKE_DIR/$(llmedge_native_build_dir_name "$target")"
+    local cmake_target
+    local output_name
+    local lib_path
     local cmake_args=()
-    prepare_sdcpp_mods "$build_dir" cmake_args
 
-    cmake -S "$DESKTOP_CMAKE_DIR" -B "$build_dir" \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_SDCPP=ON \
-      -DBUILD_SMOLLM=OFF \
-      -DBUILD_BARK=OFF \
-      -DWHISPER_DESKTOP_JNI=OFF \
-      -DSD_VULKAN=ON \
-      -DWAN_SUPPORT=ON \
-      -DSPDLOG_FMT_EXTERNAL=ON \
-      -DGGML_SKIP_OSX_FEATURES=ON \
-      -DSDC_TEST_DESKTOP_JNI=ON \
-      "${cmake_args[@]}"
+    rm -rf "$build_dir"
+    mkdir -p "$build_dir"
+    configure_target "$target" "$build_dir" cmake_args
 
-    cmake --build "$build_dir" --target sdcpp --parallel "$(nproc)"
-    local lib_path
-    lib_path=$(find "$build_dir" -type f -name 'libsdcpp*.so' -print -quit || true)
+    cmake -S "$DESKTOP_CMAKE_DIR" -B "$build_dir" "${cmake_args[@]}"
+
+    cmake_target="$(llmedge_native_cmake_target "$target")"
+    cmake --build "$build_dir" --target "$cmake_target" --parallel "$(nproc)"
+
+    output_name="$(llmedge_native_output_name "$target")"
+    lib_path=$(find "$build_dir" -type f -name "$output_name" -print -quit || true)
     if [[ -z "$lib_path" ]]; then
-        echo "libsdcpp.so not found under $build_dir" >&2
+        echo "$output_name not found under $build_dir" >&2
         exit 1
     fi
-    copy_output "$lib_path" "sdcpp" "libsdcpp.so"
-}
-
-build_smollm() {
-    local build_dir="$DESKTOP_CMAKE_DIR/build-smollm"
-    mkdir -p "$build_dir"
-
-    cmake -S "$DESKTOP_CMAKE_DIR" -B "$build_dir" \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_SDCPP=OFF \
-      -DBUILD_SMOLLM=ON \
-      -DBUILD_BARK=OFF \
-      -DWHISPER_DESKTOP_JNI=OFF \
-      -DGGML_VULKAN=OFF \
-      -DSPDLOG_FMT_EXTERNAL=ON \
-      -DGGML_SKIP_OSX_FEATURES=ON
-
-    cmake --build "$build_dir" --target smollm --parallel "$(nproc)"
-    local lib_path
-    lib_path=$(find "$build_dir" -type f -name 'libsmollm*.so' -print -quit || true)
-    if [[ -z "$lib_path" ]]; then
-        echo "libsmollm.so not found under $build_dir" >&2
-        exit 1
-    fi
-    copy_output "$lib_path" "smollm" "libsmollm.so"
-    cp "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/libsmollm.so" "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/libsmollm_v7a.so"
-    cp "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/libsmollm.so" "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/libsmollm_v8.so"
-}
-
-build_whisper() {
-    local build_dir="$DESKTOP_CMAKE_DIR/build-whisper"
-    mkdir -p "$build_dir"
-
-    cmake -S "$DESKTOP_CMAKE_DIR" -B "$build_dir" \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_SDCPP=OFF \
-      -DBUILD_SMOLLM=OFF \
-      -DBUILD_BARK=OFF \
-      -DWHISPER_DESKTOP_JNI=ON
-
-    cmake --build "$build_dir" --target whisper_jni --parallel "$(nproc)"
-    copy_output "$build_dir/libwhisper_jni.so" "whisper" "libwhisper_jni.so"
-}
-
-build_bark() {
-    local build_dir="$DESKTOP_CMAKE_DIR/build-bark"
-    mkdir -p "$build_dir"
-
-    cmake -S "$DESKTOP_CMAKE_DIR" -B "$build_dir" \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_SDCPP=OFF \
-      -DBUILD_SMOLLM=OFF \
-      -DBUILD_BARK=ON \
-      -DWHISPER_DESKTOP_JNI=OFF
-
-    cmake --build "$build_dir" --target bark_jni --parallel "$(nproc)"
-    copy_output "$build_dir/libbark_jni.so" "bark" "libbark_jni.so"
+    copy_output "$lib_path" "$output_name"
+    copy_alias_outputs "$target" "$output_name"
 }
 
 targets=("$@")
 if [[ " ${targets[*]} " == *" all "* ]]; then
-    targets=(smollm whisper sdcpp bark)
+    targets=("${LLMEDGE_DESKTOP_TARGETS[@]}")
 fi
 
 for target in "${targets[@]}"; do
-    case "$target" in
-      smollm) build_smollm ;;
-      whisper) build_whisper ;;
-      sdcpp) build_sdcpp ;;
-      bark) build_bark ;;
-      *)
+    if ! llmedge_is_known_native_target "$target"; then
         echo "Unknown target: $target" >&2
         usage
         exit 1
-        ;;
-    esac
+    fi
+    build_target "$target"
 done

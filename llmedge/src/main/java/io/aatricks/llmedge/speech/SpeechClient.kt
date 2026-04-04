@@ -6,19 +6,13 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedClient
 import io.aatricks.llmedge.core.createOwnedClient
-import io.aatricks.llmedge.core.runtime.executeWithRuntimeRetry
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.speech.tts.BarkTTS
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 data class WhisperLoadOptions(
     val useGpu: Boolean = false,
@@ -80,6 +74,7 @@ class SpeechClient internal constructor(
 
     private val whisperPool = createWhisperRuntimePool(context, scope, config, resolver)
     private val barkPool = createBarkRuntimePool(context, scope, config, resolver)
+    private val requestExecutor = SpeechRequestExecutor(scope, whisperPool, barkPool)
 
     /**
      * Preload a Whisper model into the speech cache so later transcription calls avoid the initial
@@ -89,7 +84,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.speechToText,
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
     ) {
-        whisperPool.acquire(model, loadOptions)
+        requestExecutor.prepareSpeechToText(model, loadOptions)
     }
 
     /**
@@ -100,7 +95,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.textToSpeech,
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
     ) {
-        barkPool.acquire(model, loadOptions)
+        requestExecutor.prepareTextToSpeech(model, loadOptions)
     }
 
     /**
@@ -115,9 +110,7 @@ class SpeechClient internal constructor(
         params: Whisper.TranscribeParams = Whisper.TranscribeParams(),
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
     ): List<Whisper.TranscriptionSegment> =
-        withWhisperRuntime(model, loadOptions) { runtime ->
-            runtime.whisper.transcribe(audioSamples, params)
-        }
+        requestExecutor.transcribe(audioSamples, model, params, loadOptions)
 
     suspend fun transcribeToText(
         audioSamples: FloatArray,
@@ -131,10 +124,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.speechToText,
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
         nThreads: Int = 0,
-    ): String? =
-        withWhisperRuntime(model, loadOptions) { runtime ->
-            runtime.whisper.detectLanguage(audioSamples, nThreads)
-        }
+    ): String? = requestExecutor.detectLanguage(audioSamples, model, loadOptions, nThreads)
 
     /**
      * Create a reusable real-time transcription session.
@@ -145,13 +135,8 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.speechToText,
         params: Whisper.StreamingParams = Whisper.StreamingParams(),
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
-    ): StreamingTranscriptionSession {
-        val transcriber =
-            withWhisperRuntime(model, loadOptions) { runtime ->
-                runtime.whisper.createStreamingTranscriber(params)
-            }
-        return scope.resources.register(StreamingTranscriptionSession(transcriber))
-    }
+    ): StreamingTranscriptionSession =
+        requestExecutor.createStreamingSession(model, params, loadOptions)
 
     /**
      * Synthesize speech from text and return the full audio result.
@@ -164,10 +149,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.textToSpeech,
         params: BarkTTS.GenerateParams = BarkTTS.GenerateParams(),
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
-    ): BarkTTS.AudioResult =
-        withBarkRuntime(model, loadOptions) { runtime ->
-            runtime.bark.generate(text, params)
-        }
+    ): BarkTTS.AudioResult = requestExecutor.synthesize(text, model, params, loadOptions)
 
     /**
      * Stream Bark synthesis progress followed by the final audio result.
@@ -179,78 +161,11 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.textToSpeech,
         params: BarkTTS.GenerateParams = BarkTTS.GenerateParams(),
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
-    ): Flow<AudioStreamEvent> = callbackFlow {
-        val runtime = acquireBark(model, loadOptions)
-        trySend(AudioStreamEvent.Started)
-        val job = scope.coroutineScope.launch {
-            runtime.mutex.withLock {
-                runtime.bark.setProgressCallback { step, progress ->
-                    trySend(AudioStreamEvent.Progress(step, progress))
-                }
-                try {
-                    val result = withContext(scope.inferenceDispatcher) { runtime.bark.generate(text, params) }
-                    trySend(AudioStreamEvent.Result(result))
-                    trySend(AudioStreamEvent.Completed)
-                    close()
-                } catch (t: Throwable) {
-                    close(t)
-                } finally {
-                    runtime.bark.setProgressCallback(null)
-                }
-            }
-        }
-        awaitClose {
-            job.cancel()
-            runtime.bark.setProgressCallback(null)
-        }
-    }
-
-    private suspend fun acquireWhisper(
-        model: ModelSpec,
-        options: WhisperLoadOptions,
-    ): ManagedWhisperModel = whisperPool.acquire(model, options)
-
-    private suspend fun acquireBark(
-        model: ModelSpec,
-        options: BarkLoadOptions,
-    ): ManagedBarkModel = barkPool.acquire(model, options)
-
-    private suspend fun <T> withWhisperRuntime(
-        model: ModelSpec,
-        options: WhisperLoadOptions,
-        block: suspend (ManagedWhisperModel) -> T,
-    ): T =
-        whisperPool.executeWithRuntimeRetry(
-            spec = model,
-            options = options,
-        ) { execution ->
-            execution.runtime.mutex.withLock {
-                withContext(scope.inferenceDispatcher) {
-                    block(execution.runtime)
-                }
-            }
-        }
-
-    private suspend fun <T> withBarkRuntime(
-        model: ModelSpec,
-        options: BarkLoadOptions,
-        block: suspend (ManagedBarkModel) -> T,
-    ): T {
-        val runtime = acquireBark(model, options)
-        return runtime.mutex.withLock {
-            withContext(scope.inferenceDispatcher) {
-                block(runtime)
-            }
-        }
-    }
+    ): Flow<AudioStreamEvent> = requestExecutor.synthesizeStream(text, model, params, loadOptions)
 
     override fun close() {
         closeOwned {
-            try {
-                barkPool.close()
-            } finally {
-                whisperPool.close()
-            }
+            requestExecutor.close()
         }
     }
 }

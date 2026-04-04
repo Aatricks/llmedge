@@ -6,10 +6,10 @@ set -euo pipefail
 # same code path that Android devices use due to memory constraints.
 
 ROOT_DIR="$(dirname "$(realpath "$0")")/.."
-LLMEDGE_NATIVE_DIR="$ROOT_DIR/llmedge/build/native/linux-x86_64"
-NATIVE_LIB_NAME="libsdcpp.so"
-DEP_LIB_NAME="libstable-diffusion.so"
-PREBUILT_BIN_DIR="$ROOT_DIR/scripts/jni-desktop/build/bin"
+source "$ROOT_DIR/scripts/native_test_support.sh"
+LLMEDGE_NATIVE_DIR="$(llmedge_host_native_dir "$ROOT_DIR")"
+NATIVE_LIB_NAME="$(llmedge_native_output_name sdcpp)"
+PREBUILT_BIN_DIR="$(llmedge_prebuilt_bin_dir "$ROOT_DIR")"
 
 echo "============================================"
 echo "Sequential Video Generation E2E Test"
@@ -71,25 +71,7 @@ echo ""
 
 # Ensure native library directory exists
 mkdir -p "$LLMEDGE_NATIVE_DIR"
-
-# Check/build native library
-if [[ -f "$LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME" ]]; then
-  echo "Found native library at $LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME"
-elif [[ -d "$PREBUILT_BIN_DIR" && -f "$PREBUILT_BIN_DIR/$NATIVE_LIB_NAME" ]]; then
-  echo "Copying prebuilt $NATIVE_LIB_NAME from $PREBUILT_BIN_DIR"
-  cp "$PREBUILT_BIN_DIR/$NATIVE_LIB_NAME" "$LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME"
-  if [[ -f "$PREBUILT_BIN_DIR/$DEP_LIB_NAME" ]]; then
-    cp "$PREBUILT_BIN_DIR/$DEP_LIB_NAME" "$LLMEDGE_NATIVE_DIR/$DEP_LIB_NAME"
-  fi
-else
-  echo "Native library not found. Building with scripts/build_native_linux.sh sdcpp..."
-  if [[ -f "$ROOT_DIR/scripts/build_native_linux.sh" ]]; then
-    "$ROOT_DIR/scripts/build_native_linux.sh" sdcpp
-  else
-    echo "ERROR: No build script found. Please build libsdcpp for host."
-    exit 1
-  fi
-fi
+llmedge_ensure_host_native_artifact "$ROOT_DIR" sdcpp "$LLMEDGE_NATIVE_DIR"
 
 # Set up environment
 export LLMEDGE_BUILD_NATIVE_LIB_PATH="$LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME"

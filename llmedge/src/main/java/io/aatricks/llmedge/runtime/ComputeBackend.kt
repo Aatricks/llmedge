@@ -1,7 +1,5 @@
 package io.aatricks.llmedge.runtime
 
-import java.util.concurrent.ConcurrentHashMap
-
 internal enum class ComputeBackend(val id: Int) {
     CPU(0),
     OPENCL(1),
@@ -21,45 +19,35 @@ internal enum class ComputeSubsystem {
 }
 
 internal object BackendRuntimePolicy {
-    private val blacklistedBackends = ConcurrentHashMap<Pair<ComputeSubsystem, ComputeBackend>, Boolean>()
+    private val registry: BackendBlacklistRegistry
+        get() = RuntimeEnvironmentHolder.current().backendBlacklistRegistry
 
     fun resetForTests() {
-        blacklistedBackends.clear()
+        registry.reset()
     }
 
     fun blacklist(
         subsystem: ComputeSubsystem,
         backend: ComputeBackend,
     ) {
-        if (backend == ComputeBackend.CPU) {
-            return
-        }
-        blacklistedBackends[subsystem to backend] = true
+        registry.blacklist(subsystem, backend)
     }
 
     fun isBlacklisted(
         subsystem: ComputeSubsystem,
         backend: ComputeBackend,
-    ): Boolean = backend != ComputeBackend.CPU && blacklistedBackends[subsystem to backend] == true
+    ): Boolean = registry.isBlacklisted(subsystem, backend)
 
     fun candidates(
         subsystem: ComputeSubsystem,
         allowGpu: Boolean,
         openClAvailable: Boolean,
         vulkanAvailable: Boolean,
-    ): List<ComputeBackend> {
-        if (!allowGpu) {
-            return listOf(ComputeBackend.CPU)
-        }
-
-        val result = ArrayList<ComputeBackend>(3)
-        if (openClAvailable && !isBlacklisted(subsystem, ComputeBackend.OPENCL)) {
-            result += ComputeBackend.OPENCL
-        }
-        if (vulkanAvailable && !isBlacklisted(subsystem, ComputeBackend.VULKAN)) {
-            result += ComputeBackend.VULKAN
-        }
-        result += ComputeBackend.CPU
-        return result
-    }
+    ): List<ComputeBackend> =
+        registry.candidates(
+            subsystem = subsystem,
+            allowGpu = allowGpu,
+            openClAvailable = openClAvailable,
+            vulkanAvailable = vulkanAvailable,
+        )
 }

@@ -21,6 +21,7 @@ import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
+import io.aatricks.llmedge.core.NativeLibraryCatalog
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.model.ModelFileValidator
@@ -74,7 +75,7 @@ class GGUFReader : Closeable {
             nativeHandle =
                 NativeCall.requireHandle(
                     NativeCall.binding(
-                        "ggufreader",
+                        NativeLibraryCatalog.GGUF_READER,
                         "GGUF metadata reader JNI bindings are unavailable.",
                     ) {
                         nativeBridge.getGGUFContextNativeHandle(validatedModel.absolutePath)

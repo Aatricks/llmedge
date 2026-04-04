@@ -74,7 +74,7 @@ internal class VideoGenerationExecutor(
         ) { acquired ->
             acquired.runtime.mutex.withLock {
                 requestExecutor.withActiveModel(acquired.runtime.model) { model ->
-                    val easyCache = resolveEasyCache(model, params.easyCache)
+                    val easyCache = model.resolveEasyCacheParams(params.easyCache)
                     model.txt2vid(
                         params =
                             toVideoParams(
@@ -145,7 +145,7 @@ internal class VideoGenerationExecutor(
             acquired.runtime.mutex.withLock {
                 requestExecutor.withActiveModel(acquired.runtime.model) { model ->
                     onProgress?.invoke("Loading diffusion model", 0, params.steps)
-                    val easyCache = resolveEasyCache(model, params.easyCache)
+                    val easyCache = model.resolveEasyCacheParams(params.easyCache)
                     model.txt2VidWithPrecomputedCondition(
                         params =
                             toVideoParams(
@@ -190,13 +190,4 @@ internal class VideoGenerationExecutor(
             easyCacheParams = easyCache,
         )
 
-    private fun resolveEasyCache(
-        model: StableDiffusion,
-        requested: EasyCacheParams,
-    ): EasyCacheParams =
-        if (requested.enabled && !model.isEasyCacheSupported()) {
-            requested.copy(enabled = false)
-        } else {
-            requested
-        }
 }

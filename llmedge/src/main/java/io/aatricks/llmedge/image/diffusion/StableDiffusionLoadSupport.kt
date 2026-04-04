@@ -1,9 +1,15 @@
 package io.aatricks.llmedge.image.diffusion
 
 import android.content.Context
+import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.core.ModelLoadException
+import io.aatricks.llmedge.core.NativeBindingException
+import io.aatricks.llmedge.core.NativeLibraryCatalog
+import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.huggingface.WanModelEntry
 import io.aatricks.llmedge.huggingface.WanModelRegistry
+import io.aatricks.llmedge.runtime.ComputeBackend
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -15,6 +21,8 @@ internal data class StableDiffusionResolvedAssets(
 )
 
 internal object StableDiffusionLoadSupport {
+    private const val LOG_TAG = "StableDiffusion"
+
     suspend fun resolveRequestedAssets(
         context: Context,
         modelId: String?,
@@ -167,6 +175,283 @@ internal object StableDiffusionLoadSupport {
                     registryEntry?.toVideoModelMetadata(resolvedModelPath.substringAfterLast('/'))
                         ?: inferVideoModelMetadata(resolvedModelPath, modelId, filename),
             )
+        }
+
+    suspend fun inferVideoModelMetadata(
+        resolvedModelPath: String,
+        modelId: String?,
+        explicitFilename: String?,
+    ): VideoModelMetadata =
+        StableDiffusionMetadataSupport.inferVideoModelMetadata(
+            resolvedModelPath = resolvedModelPath,
+            modelId = modelId,
+            explicitFilename = explicitFilename,
+        )
+
+    fun validateResolvedAssets(
+        modelPath: String,
+        vaePath: String?,
+        t5xxlPath: String?,
+        taesdPath: String?,
+        loraModelDir: String?,
+    ) {
+        StableDiffusionLoadHeuristics.validateResolvedAssets(
+            modelPath = modelPath,
+            vaePath = vaePath,
+            t5xxlPath = t5xxlPath,
+            taesdPath = taesdPath,
+            loraModelDir = loraModelDir,
+        )
+    }
+
+    fun logLoadFallback(message: String) {
+        AndroidLogAdapter.w(LOG_TAG, message)
+    }
+
+    fun createLoadedInstance(
+        context: Context,
+        resolved: StableDiffusionResolvedAssets,
+        taesdPath: String?,
+        nThreads: Int,
+        offloadToCpu: Boolean,
+        keepClipOnCpu: Boolean,
+        keepVaeOnCpu: Boolean,
+        flashAttn: Boolean,
+        vaeDecodeOnly: Boolean,
+        sequentialLoad: Boolean?,
+        allowOpenCl: Boolean,
+        allowVulkan: Boolean,
+        forceVulkan: Boolean,
+        preferPerformanceMode: Boolean,
+        flowShift: Float,
+        loraModelDir: String?,
+        loraApplyMode: LoraApplyMode,
+        preferredBackend: ComputeBackend?,
+        allowBackendFallbackToCpu: Boolean,
+    ): StableDiffusion {
+        val loadPlan =
+            StableDiffusionLoadHeuristics.planLoad(
+                context = context,
+                resolvedModelPath = resolved.modelPath,
+                sequentialLoad = sequentialLoad,
+                preferPerformanceMode = preferPerformanceMode,
+                offloadToCpu = offloadToCpu,
+                keepClipOnCpu = keepClipOnCpu,
+                keepVaeOnCpu = keepVaeOnCpu,
+                allowOpenCl = allowOpenCl,
+                allowVulkan = allowVulkan,
+                forceVulkan = forceVulkan,
+            )
+        StableDiffusionLoadHeuristics.warnIfLargeModelOnLowRam(
+            metadata = resolved.metadata,
+            memorySnapshot = loadPlan.memorySnapshot,
+        ) { message -> AndroidLogAdapter.w(LOG_TAG, message) }
+
+        logLoadPlan(
+            resolvedModelPath = resolved.modelPath,
+            nThreads = nThreads,
+            loadPlan = loadPlan,
+            flashAttn = flashAttn,
+        )
+
+        val handle =
+            createHandleWithBackendFallback(
+                resolved = resolved,
+                taesdPath = taesdPath,
+                nThreads = nThreads,
+                loadPlan = loadPlan,
+                flashAttn = flashAttn,
+                vaeDecodeOnly = vaeDecodeOnly,
+                flowShift = flowShift,
+                loraModelDir = loraModelDir,
+                loraApplyMode = loraApplyMode,
+                allowBackendFallbackToCpu = allowBackendFallbackToCpu,
+            )
+        if (handle == 0L) {
+            throw ModelLoadException(
+                resolved.modelPath,
+                createLoadFailureMessage(
+                    resolvedModelPath = resolved.modelPath,
+                    taesdPath = taesdPath,
+                    resolvedVaePath = resolved.vaePath,
+                ),
+            )
+        }
+
+        val instance = StableDiffusion(handle)
+        instance.state.vulkanEnabledForMetrics = loadPlan.chosenBackend == ComputeBackend.VULKAN
+        instance.updateModelMetadata(resolved.metadata)
+
+        if (instance.state.modelMetadata?.mobileSupported == false) {
+            instance.close()
+            val paramCount = instance.state.modelMetadata?.parameterCount ?: "14B"
+            throw UnsupportedModelException(
+                "$paramCount models are not supported on mobile devices. " +
+                    "Please use 1.3B or 5B model variants instead. " +
+                    "14B models require 20-40GB RAM and are designed for desktop/server use only.",
+            )
+        }
+
+        return instance
+    }
+
+    private fun logLoadPlan(
+        resolvedModelPath: String,
+        nThreads: Int,
+        loadPlan: StableDiffusionLoadHeuristics.LoadPlan,
+        flashAttn: Boolean,
+    ) {
+        AndroidLogAdapter.i(
+            LOG_TAG,
+            "Initializing StableDiffusion (effective): modelPath=$resolvedModelPath, " +
+                "nThreads=$nThreads, sequentialLoad=${loadPlan.effectiveSequentialLoad}, " +
+                "offloadToCpu=${loadPlan.effectiveOffloadToCpu}, " +
+                "keepClipOnCpu=${loadPlan.effectiveKeepClipOnCpu}, backend=${loadPlan.chosenBackend}, " +
+                "keepVaeOnCpu=${loadPlan.effectiveKeepVaeOnCpu}, flashAttn=$flashAttn",
+        )
+        if (loadPlan.chosenDevice >= 0) {
+            AndroidLogAdapter.i(
+                LOG_TAG,
+                "Vulkan chosenDevice=${loadPlan.chosenDevice}, estimatedModelParamsMB=${String.format("%.2f", loadPlan.estimatedDeviceParamsBytes / 1024.0 / 1024.0)}, freeMB=${String.format("%.2f", loadPlan.freeVulkanBytes / 1024.0 / 1024.0)}",
+            )
+        }
+    }
+
+    private fun createHandleWithBackendFallback(
+        resolved: StableDiffusionResolvedAssets,
+        taesdPath: String?,
+        nThreads: Int,
+        loadPlan: StableDiffusionLoadHeuristics.LoadPlan,
+        flashAttn: Boolean,
+        vaeDecodeOnly: Boolean,
+        flowShift: Float,
+        loraModelDir: String?,
+        loraApplyMode: LoraApplyMode,
+        allowBackendFallbackToCpu: Boolean,
+    ): Long {
+        var effectiveOffloadToCpu = loadPlan.effectiveOffloadToCpu
+        var effectiveKeepClipOnCpu = loadPlan.effectiveKeepClipOnCpu
+        var effectiveKeepVaeOnCpu = loadPlan.effectiveKeepVaeOnCpu
+
+        var handle =
+            nativeCreateOrThrow(
+                modelPath = resolved.modelPath,
+                vaePath = resolved.vaePath,
+                t5xxlPath = resolved.t5xxlPath,
+                taesdPath = taesdPath,
+                nThreads = nThreads,
+                enableOpenCl = loadPlan.chosenBackend == ComputeBackend.OPENCL,
+                useVulkan = loadPlan.chosenBackend == ComputeBackend.VULKAN,
+                offloadToCpu = effectiveOffloadToCpu,
+                keepClipOnCpu = effectiveKeepClipOnCpu,
+                keepVaeOnCpu = effectiveKeepVaeOnCpu,
+                flashAttn = flashAttn,
+                vaeDecodeOnly = vaeDecodeOnly,
+                flowShift = flowShift,
+                loraModelDir = loraModelDir,
+                loraApplyMode = loraApplyMode,
+            )
+        if (handle == 0L && allowBackendFallbackToCpu && loadPlan.chosenBackend != ComputeBackend.CPU) {
+            AndroidLogAdapter.w(LOG_TAG, "nativeCreate failed on ${loadPlan.chosenBackend}; retrying with CPU backend")
+            handle =
+                nativeCreateOrThrow(
+                    modelPath = resolved.modelPath,
+                    vaePath = resolved.vaePath,
+                    t5xxlPath = resolved.t5xxlPath,
+                    taesdPath = taesdPath,
+                    nThreads = nThreads,
+                    enableOpenCl = false,
+                    useVulkan = false,
+                    offloadToCpu = effectiveOffloadToCpu,
+                    keepClipOnCpu = effectiveKeepClipOnCpu,
+                    keepVaeOnCpu = effectiveKeepVaeOnCpu,
+                    flashAttn = flashAttn,
+                    vaeDecodeOnly = vaeDecodeOnly,
+                    flowShift = flowShift,
+                    loraModelDir = loraModelDir,
+                    loraApplyMode = loraApplyMode,
+                )
+        }
+        if (handle == 0L && !effectiveOffloadToCpu) {
+            AndroidLogAdapter.w(LOG_TAG, "nativeCreate failed on CPU backend; retrying with CPU offload")
+            effectiveOffloadToCpu = true
+            effectiveKeepClipOnCpu = true
+            effectiveKeepVaeOnCpu = true
+            handle =
+                nativeCreateOrThrow(
+                    modelPath = resolved.modelPath,
+                    vaePath = resolved.vaePath,
+                    t5xxlPath = resolved.t5xxlPath,
+                    taesdPath = taesdPath,
+                    nThreads = nThreads,
+                    enableOpenCl = false,
+                    useVulkan = false,
+                    offloadToCpu = effectiveOffloadToCpu,
+                    keepClipOnCpu = effectiveKeepClipOnCpu,
+                    keepVaeOnCpu = effectiveKeepVaeOnCpu,
+                    flashAttn = flashAttn,
+                    vaeDecodeOnly = vaeDecodeOnly,
+                    flowShift = flowShift,
+                    loraModelDir = loraModelDir,
+                    loraApplyMode = loraApplyMode,
+                )
+        }
+        return handle
+    }
+
+    private fun nativeCreateOrThrow(
+        modelPath: String,
+        vaePath: String?,
+        t5xxlPath: String?,
+        taesdPath: String?,
+        nThreads: Int,
+        enableOpenCl: Boolean,
+        useVulkan: Boolean,
+        offloadToCpu: Boolean,
+        keepClipOnCpu: Boolean,
+        keepVaeOnCpu: Boolean,
+        flashAttn: Boolean,
+        vaeDecodeOnly: Boolean,
+        flowShift: Float,
+        loraModelDir: String?,
+        loraApplyMode: LoraApplyMode,
+    ): Long =
+        try {
+            StableDiffusion.supportNativeCreate(
+                modelPath,
+                vaePath,
+                t5xxlPath,
+                taesdPath,
+                nThreads,
+                enableOpenCl,
+                useVulkan,
+                offloadToCpu,
+                keepClipOnCpu,
+                keepVaeOnCpu,
+                flashAttn,
+                vaeDecodeOnly,
+                flowShift,
+                loraModelDir,
+                loraApplyMode.id,
+            )
+        } catch (error: UnsatisfiedLinkError) {
+            throw NativeBindingException(
+                libraryName = NativeLibraryCatalog.STABLE_DIFFUSION,
+                detail = "Stable Diffusion JNI bindings are unavailable.",
+                cause = error,
+            )
+        }
+
+    private fun createLoadFailureMessage(
+        resolvedModelPath: String,
+        taesdPath: String?,
+        resolvedVaePath: String?,
+    ): String =
+        buildString {
+            append("Failed to initialize Stable Diffusion context for $resolvedModelPath.")
+            if (taesdPath != null) append(" Custom TAE/TAEHV: $taesdPath.")
+            if (resolvedVaePath != null) append(" Custom VAE: $resolvedVaePath.")
+            append(" This often happens due to incompatible VAE/TAE weights or insufficient memory. Check logcat for [SmolSD] errors.")
         }
 }
 

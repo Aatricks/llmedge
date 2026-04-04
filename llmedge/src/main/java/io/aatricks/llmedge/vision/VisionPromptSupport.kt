@@ -2,6 +2,8 @@ package io.aatricks.llmedge.vision
 
 import io.aatricks.llmedge.model.ModelArtifactKind
 import io.aatricks.llmedge.model.ModelCapability
+import io.aatricks.llmedge.model.GgufModelMetadata
+import io.aatricks.llmedge.model.GgufModelMetadataSupport
 import io.aatricks.llmedge.model.ModelSpec
 import java.io.File
 
@@ -11,18 +13,17 @@ internal object VisionPromptSupport {
     fun appearsVisionCapable(model: ModelSpec): Boolean =
         when (model) {
             is ModelSpec.LocalFile ->
-                appearsVisionCapable(
-                    runCatching { model.file.absolutePath }.getOrElse { displayName(model) },
-                    model,
-                )
+                hasCapability(model, ModelCapability.VISION) ||
+                    metadataIndicatesVision(model.file.absolutePath) == true ||
+                    appearsVisionCapable(runCatching { model.file.absolutePath }.getOrElse { displayName(model) })
             is ModelSpec.HuggingFace ->
                 hasCapability(model, ModelCapability.VISION) ||
-                    appearsVisionCapable(displayName(model), model)
+                    appearsVisionCapable(displayName(model))
         }
 
     fun appearsVisionCapable(modelPath: String): Boolean {
-        val modelName = File(modelPath).name.lowercase()
-        return visionMarkers.any(modelName::contains)
+        metadataIndicatesVision(modelPath)?.let { return it }
+        return visionMarkers.any(File(modelPath).name.lowercase()::contains)
     }
 
     fun isProjectorSpec(projector: ModelSpec): Boolean =
@@ -92,11 +93,19 @@ internal object VisionPromptSupport {
 
     fun estimateTokens(text: String): Int = (text.length / 4).coerceAtLeast(1)
 
-    private fun appearsVisionCapable(
-        candidate: String,
-        model: ModelSpec,
-    ): Boolean =
-        hasCapability(model, ModelCapability.VISION) || appearsVisionCapable(candidate)
+    private fun metadataIndicatesVision(modelPath: String): Boolean? {
+        val metadata = GgufModelMetadataSupport.inspect(modelPath) ?: return null
+        return looksVisionCapable(metadata)
+    }
+
+    private fun looksVisionCapable(metadata: GgufModelMetadata): Boolean {
+        val candidates =
+            listOfNotNull(
+                metadata.architecture,
+                metadata.modelName,
+            ).map(String::lowercase)
+        return candidates.any { candidate -> visionMarkers.any(candidate::contains) }
+    }
 
     private fun hasCapability(
         model: ModelSpec,

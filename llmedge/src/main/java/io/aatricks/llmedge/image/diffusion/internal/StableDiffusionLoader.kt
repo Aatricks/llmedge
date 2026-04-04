@@ -146,11 +146,11 @@ internal object StableDiffusionLoader {
                     preferSystemDownloader = preferSystemDownloader,
                     loraModelDir = loraModelDir,
                     onProgress = onProgress,
-                    validateResolvedAssets = StableDiffusion::supportValidateResolvedAssets,
-                    inferVideoModelMetadata = StableDiffusion::supportInferVideoModelMetadata,
+                    validateResolvedAssets = StableDiffusionLoadSupport::validateResolvedAssets,
+                    inferVideoModelMetadata = StableDiffusionLoadSupport::inferVideoModelMetadata,
                 )
 
-            StableDiffusion.supportCreateLoadedInstance(
+            StableDiffusionLoadSupport.createLoadedInstance(
                 context = context,
                 resolved = resolved,
                 taesdPath = taesdPath,
@@ -213,12 +213,12 @@ internal object StableDiffusionLoader {
                     token = token,
                     forceDownload = forceDownload,
                     loraModelDir = loraModelDir,
-                    validateResolvedAssets = StableDiffusion::supportValidateResolvedAssets,
-                    inferVideoModelMetadata = StableDiffusion::supportInferVideoModelMetadata,
-                    onFallback = StableDiffusion::supportLogLoadFallback,
+                    validateResolvedAssets = StableDiffusionLoadSupport::validateResolvedAssets,
+                    inferVideoModelMetadata = StableDiffusionLoadSupport::inferVideoModelMetadata,
+                    onFallback = StableDiffusionLoadSupport::logLoadFallback,
                 )
 
-            StableDiffusion.supportCreateLoadedInstance(
+            StableDiffusionLoadSupport.createLoadedInstance(
                 context = context,
                 resolved = resolved,
                 taesdPath = taesdPath,

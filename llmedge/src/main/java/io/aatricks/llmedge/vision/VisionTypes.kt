@@ -55,32 +55,3 @@ data class VisionRuntimeMemory(
     val nativeBytes: Long,
     val stateBytes: Long,
 )
-
-/**
- * Interface for vision-capable language models.
- */
-interface VisionModelAnalyzer {
-    /**
-     * Analyze an image with a vision-capable language model.
-     *
-     * @param image The image to analyze.
-     * @param prompt The prompt/question about the image.
-     * @param params Vision model parameters.
-     * @return The result containing generated text and metadata.
-     */
-    suspend fun analyze(
-        image: ImageSource,
-        prompt: String,
-        params: VisionParams = VisionParams()
-    ): VisionResult
-    
-    /**
-     * Check if vision capabilities are available.
-     */
-    fun hasVisionCapabilities(): Boolean
-    
-    /**
-     * Get the model identifier.
-     */
-    fun getModelId(): String
-}

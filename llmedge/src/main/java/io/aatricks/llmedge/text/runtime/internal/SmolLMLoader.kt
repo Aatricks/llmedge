@@ -3,8 +3,9 @@ package io.aatricks.llmedge.text.runtime.internal
 import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeCall
+import io.aatricks.llmedge.core.NativeLibraryCatalog
+import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.model.ModelFileValidator
-import io.aatricks.llmedge.runtime.BackendRuntimePolicy
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.runtime.CpuTopology
@@ -57,11 +58,13 @@ internal object SmolLMLoader {
         val backendCandidates =
             preferredBackend?.let(::listOf)
                 ?: instance.state.requestedLoadBackend?.let(::listOf)
-                ?: BackendRuntimePolicy.candidates(
-                    subsystem = ComputeSubsystem.TEXT,
-                    allowGpu = instance.state.useVulkanGpu,
-                    openClAvailable = SmolLM.isOpenClBackendAvailable(),
-                    vulkanAvailable = SmolLM.isVulkanBackendRuntimeAvailable(),
+                ?: BackendCandidateResolver.candidates(
+                    BackendCandidateResolver.Request(
+                        subsystem = ComputeSubsystem.TEXT,
+                        allowGpu = instance.state.useVulkanGpu,
+                        openClAvailable = SmolLM.isOpenClBackendAvailable(),
+                        vulkanAvailable = SmolLM.isVulkanBackendRuntimeAvailable(),
+                    ),
                 )
 
         var lastLoadError: Throwable? = null
@@ -70,7 +73,10 @@ internal object SmolLMLoader {
             instance.state.requestedLoadBackend = backend
             try {
                 val candidateHandle =
-                    NativeCall.binding("smollm", "SmolLM JNI bindings are unavailable.") {
+                    NativeCall.binding(
+                        NativeLibraryCatalog.SMOLLM,
+                        "SmolLM JNI bindings are unavailable.",
+                    ) {
                         instance.bridge.loadModel(
                             instance,
                             validatedModel.absolutePath,
@@ -112,7 +118,7 @@ internal object SmolLMLoader {
             }
 
             if (backend != ComputeBackend.CPU && preferredBackend == null) {
-                BackendRuntimePolicy.blacklist(ComputeSubsystem.TEXT, backend)
+                BackendCandidateResolver.blacklist(ComputeSubsystem.TEXT, backend)
                 SmolLM.logWarning(
                     "Failed to load SmolLM on $backend; retrying with the next backend",
                 )

@@ -37,9 +37,9 @@ set(BARK_JNI_ALL_SOURCES
         ${LLMEDGE_CPP_ROOT}/bark_jni.cpp
 )
 
-add_library(bark_jni SHARED ${BARK_JNI_ALL_SOURCES})
+add_library(${LLMEDGE_TARGET_BARK_JNI} SHARED ${BARK_JNI_ALL_SOURCES})
 
-target_include_directories(bark_jni
+target_include_directories(${LLMEDGE_TARGET_BARK_JNI}
         PRIVATE
         ${BARK_DIR}
         ${BARK_ENCODEC_DIR}
@@ -47,7 +47,7 @@ target_include_directories(bark_jni
         ${BARK_GGML_DIR}/src
 )
 
-target_compile_definitions(bark_jni
+target_compile_definitions(${LLMEDGE_TARGET_BARK_JNI}
         PRIVATE
         GGML_COMMIT=""
         GGML_VERSION=""
@@ -55,13 +55,13 @@ target_compile_definitions(bark_jni
         GGML_USE_CPU
 )
 
-target_compile_features(bark_jni PUBLIC c_std_11 cxx_std_17)
+target_compile_features(${LLMEDGE_TARGET_BARK_JNI} PUBLIC c_std_11 cxx_std_17)
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-        target_compile_options(bark_jni PRIVATE -march=armv8-a)
+        target_compile_options(${LLMEDGE_TARGET_BARK_JNI} PRIVATE -march=armv8-a)
 
         if (LLMEDGE_BARK_AGGRESSIVE_ARM_OPT)
-                target_compile_options(bark_jni PRIVATE
+                target_compile_options(${LLMEDGE_TARGET_BARK_JNI} PRIVATE
                         -march=armv8.4-a+dotprod+fp16
                         -mtune=cortex-a78
                         -ffp-contract=fast
@@ -71,10 +71,10 @@ if (${ANDROID_ABI} STREQUAL "arm64-v8a")
                 )
         endif()
 elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
-        target_compile_options(bark_jni PRIVATE -mfpu=neon-vfpv4)
+        target_compile_options(${LLMEDGE_TARGET_BARK_JNI} PRIVATE -mfpu=neon-vfpv4)
 endif()
 
-target_compile_options(bark_jni PUBLIC
+target_compile_options(${LLMEDGE_TARGET_BARK_JNI} PUBLIC
         -fvisibility=hidden
         -fvisibility-inlines-hidden
         -ffunction-sections
@@ -84,13 +84,13 @@ target_compile_options(bark_jni PUBLIC
         -funroll-loops
 )
 
-target_compile_definitions(bark_jni PRIVATE GGML_USE_OPENMP)
+target_compile_definitions(${LLMEDGE_TARGET_BARK_JNI} PRIVATE GGML_USE_OPENMP)
 
-target_link_libraries(bark_jni
+target_link_libraries(${LLMEDGE_TARGET_BARK_JNI}
         android log
         -fopenmp -static-openmp
 )
 
-target_link_options(bark_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+target_link_options(${LLMEDGE_TARGET_BARK_JNI} PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
 
 message(STATUS "Bark.cpp JNI wrapper configured (direct source build with OpenMP)")

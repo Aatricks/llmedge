@@ -22,9 +22,11 @@ import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
+import io.aatricks.llmedge.core.NativeLibraryCatalog
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.model.ModelFileValidator
+import io.aatricks.llmedge.speech.SpeechThreadingSupport
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -151,12 +153,7 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
     fun generate(text: String, params: GenerateParams = GenerateParams()): AudioResult {
         require(text.isNotEmpty()) { "Text cannot be empty" }
 
-        val effectiveThreads =
-                if (params.nThreads <= 0) {
-                    Runtime.getRuntime().availableProcessors().coerceAtMost(8)
-                } else {
-                    params.nThreads
-                }
+        val effectiveThreads = SpeechThreadingSupport.resolveThreadCount(params.nThreads)
 
         val samples =
                 nativeGenerate(handle, text, effectiveThreads)
@@ -353,7 +350,7 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
             val handle =
                 NativeCall.requireHandle(
                     NativeCall.binding(
-                        "bark_jni",
+                        NativeLibraryCatalog.BARK,
                         "Bark JNI bindings are unavailable.",
                     ) {
                         staticInvoker.nativeCreate(

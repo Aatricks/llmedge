@@ -24,8 +24,10 @@ import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.speech.SpeechThreadingSupport
 import io.aatricks.llmedge.speech.stt.internal.WhisperCompanionSupport
 import io.aatricks.llmedge.speech.stt.internal.WhisperStreamingState
+import io.aatricks.llmedge.speech.stt.internal.WhisperSubtitleSupport
 import io.aatricks.llmedge.runtime.ComputeBackend
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -81,34 +83,10 @@ class Whisper internal constructor(
             get() = endTimeMs - startTimeMs
 
         /** Format as SRT subtitle entry */
-        fun toSrtEntry(): String {
-            val startFormatted = formatTimeSrt(startTimeMs)
-            val endFormatted = formatTimeSrt(endTimeMs)
-            return "${index + 1}\n$startFormatted --> $endFormatted\n$text\n"
-        }
+        fun toSrtEntry(): String = WhisperSubtitleSupport.toSrtEntry(this)
 
         /** Format as VTT subtitle entry */
-        fun toVttEntry(): String {
-            val startFormatted = formatTimeVtt(startTimeMs)
-            val endFormatted = formatTimeVtt(endTimeMs)
-            return "$startFormatted --> $endFormatted\n$text\n"
-        }
-
-        private fun formatTimeSrt(ms: Long): String {
-            val hours = ms / 3600000
-            val minutes = (ms % 3600000) / 60000
-            val seconds = (ms % 60000) / 1000
-            val millis = ms % 1000
-            return String.format("%02d:%02d:%02d,%03d", hours, minutes, seconds, millis)
-        }
-
-        private fun formatTimeVtt(ms: Long): String {
-            val hours = ms / 3600000
-            val minutes = (ms % 3600000) / 60000
-            val seconds = (ms % 60000) / 1000
-            val millis = ms % 1000
-            return String.format("%02d:%02d:%02d.%03d", hours, minutes, seconds, millis)
-        }
+        fun toVttEntry(): String = WhisperSubtitleSupport.toVttEntry(this)
     }
 
     /** Configuration for transcription. */
@@ -217,12 +195,7 @@ class Whisper internal constructor(
     ): List<TranscriptionSegment> {
         require(samples.isNotEmpty()) { "Audio samples cannot be empty" }
 
-        val effectiveThreads =
-                if (params.nThreads <= 0) {
-                    Runtime.getRuntime().availableProcessors().coerceAtMost(8)
-                } else {
-                    params.nThreads
-                }
+        val effectiveThreads = SpeechThreadingSupport.resolveThreadCount(params.nThreads)
 
         val segments =
                 nativeTranscribe(
@@ -269,12 +242,7 @@ class Whisper internal constructor(
     fun detectLanguage(samples: FloatArray, nThreads: Int = 0): String? {
         require(samples.isNotEmpty()) { "Audio samples cannot be empty" }
 
-        val effectiveThreads =
-                if (nThreads <= 0) {
-                    Runtime.getRuntime().availableProcessors().coerceAtMost(8)
-                } else {
-                    nThreads
-                }
+        val effectiveThreads = SpeechThreadingSupport.resolveThreadCount(nThreads)
 
         val langId = nativeDetectLanguage(handle, samples, effectiveThreads, 0)
         return if (langId >= 0) getLanguageString(langId) else null
@@ -296,15 +264,12 @@ class Whisper internal constructor(
     fun printTimings() = nativePrintTimings(handle)
 
     /** Generate SRT subtitle content from transcription segments. */
-    fun generateSrt(segments: List<TranscriptionSegment>): String {
-        return segments.joinToString("\n") { it.toSrtEntry() }
-    }
+    fun generateSrt(segments: List<TranscriptionSegment>): String =
+        WhisperSubtitleSupport.generateSrt(segments)
 
     /** Generate WebVTT subtitle content from transcription segments. */
-    fun generateVtt(segments: List<TranscriptionSegment>): String {
-        val header = "WEBVTT\n\n"
-        return header + segments.joinToString("\n") { it.toVttEntry() }
-    }
+    fun generateVtt(segments: List<TranscriptionSegment>): String =
+        WhisperSubtitleSupport.generateVtt(segments)
 
     /**
      * Create a streaming transcriber for real-time audio transcription.

@@ -1,0 +1,218 @@
+package io.aatricks.llmedge.image.diffusion
+
+internal object StableDiffusionNativeBridgeSupport {
+    fun defaultProvider(): (StableDiffusion) -> StableDiffusion.NativeBridge = { instance ->
+        object : StableDiffusion.NativeBridge {
+            override fun txt2img(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                vaeTiling: Boolean,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
+            ): ByteArray? =
+                instance.bridgeTxt2Img(
+                    handle,
+                    prompt,
+                    negative,
+                    width,
+                    height,
+                    steps,
+                    cfg,
+                    seed,
+                    vaeTiling,
+                    easyCacheEnabled,
+                    easyCacheReuseThreshold,
+                    easyCacheStartPercent,
+                    easyCacheEndPercent,
+                )
+
+            override fun txt2imgArgb(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                vaeTiling: Boolean,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
+            ): IntArray? =
+                instance.bridgeTxt2ImgArgb(
+                    handle,
+                    prompt,
+                    negative,
+                    width,
+                    height,
+                    steps,
+                    cfg,
+                    seed,
+                    vaeTiling,
+                    easyCacheEnabled,
+                    easyCacheReuseThreshold,
+                    easyCacheStartPercent,
+                    easyCacheEndPercent,
+                )
+
+            override fun txt2vid(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                videoFrames: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                sampleMethod: SampleMethod,
+                scheduler: Scheduler,
+                strength: Float,
+                initImage: ByteArray?,
+                initWidth: Int,
+                initHeight: Int,
+                vaceStrength: Float,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
+            ): Array<ByteArray>? =
+                instance.bridgeTxt2Vid(
+                    handle,
+                    prompt,
+                    negative,
+                    width,
+                    height,
+                    videoFrames,
+                    steps,
+                    cfg,
+                    seed,
+                    sampleMethod.id,
+                    scheduler.id,
+                    strength,
+                    initImage = initImage,
+                    initWidth = initWidth,
+                    initHeight = initHeight,
+                    vaceStrength = vaceStrength,
+                    easyCacheEnabled = easyCacheEnabled,
+                    easyCacheReuseThreshold = easyCacheReuseThreshold,
+                    easyCacheStartPercent = easyCacheStartPercent,
+                    easyCacheEndPercent = easyCacheEndPercent,
+                )
+
+            override fun precomputeCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                clipSkip: Int,
+            ): PrecomputedCondition? =
+                instance.bridgePrecomputeCondition(handle, prompt, negative, width, height, clipSkip)
+                    ?.let(StableDiffusionConditionInterop::fromNativeRaw)
+
+            override fun txt2vidWithPrecomputedCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                videoFrames: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                sampleMethod: SampleMethod,
+                scheduler: Scheduler,
+                strength: Float,
+                initImage: ByteArray?,
+                initWidth: Int,
+                initHeight: Int,
+                cond: PrecomputedCondition?,
+                uncond: PrecomputedCondition?,
+                vaceStrength: Float,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
+            ): Array<ByteArray>? =
+                instance.bridgeTxt2VidWithPrecomputedCondition(
+                    handle,
+                    prompt,
+                    negative,
+                    width,
+                    height,
+                    videoFrames,
+                    steps,
+                    cfg,
+                    seed,
+                    sampleMethod.id,
+                    scheduler.id,
+                    strength,
+                    initImage = initImage,
+                    initWidth = initWidth,
+                    initHeight = initHeight,
+                    cond = StableDiffusionConditionInterop.toNativeArray(cond),
+                    uncond = StableDiffusionConditionInterop.toNativeArray(uncond),
+                    vaceStrength = vaceStrength,
+                    easyCacheEnabled = easyCacheEnabled,
+                    easyCacheReuseThreshold = easyCacheReuseThreshold,
+                    easyCacheStartPercent = easyCacheStartPercent,
+                    easyCacheEndPercent = easyCacheEndPercent,
+                )
+
+            override fun setProgressCallback(
+                handle: Long,
+                callback: VideoProgressCallback?,
+            ) {
+                instance.bridgeSetProgressCallback(handle, callback)
+            }
+
+            override fun cancelGeneration(handle: Long) {
+                instance.bridgeCancelGeneration(handle)
+            }
+
+            override fun txt2ImgWithPrecomputedCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                cond: PrecomputedCondition?,
+                uncond: PrecomputedCondition?,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
+            ): ByteArray? =
+                instance.bridgeTxt2ImgWithPrecomputedCondition(
+                    handle,
+                    prompt,
+                    negative,
+                    width,
+                    height,
+                    steps,
+                    cfg,
+                    seed,
+                    StableDiffusionConditionInterop.toNativeArray(cond),
+                    StableDiffusionConditionInterop.toNativeArray(uncond),
+                    easyCacheEnabled,
+                    easyCacheReuseThreshold,
+                    easyCacheStartPercent,
+                    easyCacheEndPercent,
+                )
+        }
+    }
+}

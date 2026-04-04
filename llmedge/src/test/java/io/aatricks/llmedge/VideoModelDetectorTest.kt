@@ -4,9 +4,37 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.StableDiffusionMetadataSupport
 import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
+import io.aatricks.llmedge.runtime.GGUFReader
+import java.io.File
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Before
 
 class VideoModelDetectorTest {
+    @Before
+    fun setUp() {
+        GGUFReader.overrideNativeBridgeForTests { _ ->
+            object : GGUFReader.NativeBridge {
+                override fun getGGUFContextNativeHandle(modelPath: String): Long = 1L
+                override fun getContextSize(nativeHandle: Long): Long = 4096L
+                override fun getChatTemplate(nativeHandle: Long): String = ""
+                override fun getArchitecture(nativeHandle: Long): String = "wan"
+                override fun getParameterCount(nativeHandle: Long): String = "1.3B"
+                override fun getModelName(nativeHandle: Long): String = "Wan T2V"
+                override fun getFileType(nativeHandle: Long): Int = -1
+                override fun getDominantTensorType(nativeHandle: Long): Int = -1
+                override fun releaseGGUFContext(nativeHandle: Long) = Unit
+            }
+        }
+    }
+
+    @After
+    fun tearDown() {
+        GGUFReader.resetNativeBridgeForTests()
+    }
+
 
     @Test
     fun `isVideoModel detects wan architecture as video model`() {
@@ -218,6 +246,30 @@ class VideoModelDetectorTest {
         )
 
         assertTrue(sd.isVideoModel())
+    }
+
+    @Test
+    fun `inferVideoModelMetadata prefers GGUF metadata over filename`() {
+        val model = File.createTempFile("plain-model", ".gguf").apply {
+            outputStream().use { output ->
+                output.write(byteArrayOf('G'.code.toByte(), 'G'.code.toByte(), 'U'.code.toByte(), 'F'.code.toByte()))
+                output.write(byteArrayOf(0, 0, 0, 0))
+            }
+            deleteOnExit()
+        }
+
+        val metadata =
+            runBlocking {
+                StableDiffusionMetadataSupport.inferVideoModelMetadata(
+                    resolvedModelPath = model.absolutePath,
+                    modelId = null,
+                    explicitFilename = model.name,
+                )
+            }
+
+        assertTrue(StableDiffusionMetadataSupport.isVideoModel(metadata))
+        assertTrue(metadata.architecture.equals("wan", ignoreCase = true))
+        assertTrue(metadata.parameterCount.equals("1.3B", ignoreCase = true))
     }
 
     private fun newStableDiffusion(): StableDiffusion {

@@ -6,8 +6,9 @@ set -euo pipefail
 # Robolectric DebugUnit test.
 
 ROOT_DIR="$(dirname "$(realpath "$0")")/.."
-LLMEDGE_NATIVE_DIR="$ROOT_DIR/llmedge/build/native/linux-x86_64"
-NATIVE_LIB_NAME="libsmollm.so"
+source "$ROOT_DIR/scripts/native_test_support.sh"
+LLMEDGE_NATIVE_DIR="$(llmedge_host_native_dir "$ROOT_DIR")"
+NATIVE_LIB_NAME="$(llmedge_native_output_name smollm)"
 MODELS_DIR="$ROOT_DIR/models"
 
 # Default model path
@@ -25,19 +26,7 @@ if [[ -z "${LLMEDGE_TEST_TEXT_MODEL_PATH:-}" ]]; then
 fi
 
 mkdir -p "$LLMEDGE_NATIVE_DIR"
-
-# Check/Build native lib
-if [[ -f "$LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME" ]]; then
-  echo "Found native library at $LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME"
-else
-  echo "Native lib not found. Attempting to build with scripts/build_native_linux.sh smollm"
-  if [[ -f "$ROOT_DIR/scripts/build_native_linux.sh" ]]; then
-    "$ROOT_DIR/scripts/build_native_linux.sh" smollm
-  else
-    echo "No build script found."
-    exit 1
-  fi
-fi
+llmedge_ensure_host_native_artifact "$ROOT_DIR" smollm "$LLMEDGE_NATIVE_DIR"
 
 echo "Running unit test: TextInferenceLinuxE2ETest"
 echo "LLMEDGE_TEST_TEXT_MODEL_PATH=$LLMEDGE_TEST_TEXT_MODEL_PATH"
