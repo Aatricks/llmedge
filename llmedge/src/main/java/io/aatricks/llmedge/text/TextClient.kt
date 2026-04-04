@@ -4,9 +4,10 @@ import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.ClientBootstrapContext
+import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.core.OwnedClient
-import io.aatricks.llmedge.core.createOwnedClient
+import io.aatricks.llmedge.core.OwnedFeatureClient
+import io.aatricks.llmedge.core.createOwnedFeature
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -57,12 +58,26 @@ internal fun TextModelOptions.toInferenceParams(config: LLMEdgeConfig): SmolLM.I
     )
 
 class TextClient internal constructor(
-    private val context: Context,
-    private val scope: LLMEdgeScope,
-    private val config: LLMEdgeConfig,
-    private val modelResolver: ModelRepository,
+    featureContext: FeatureContext,
     private val ownedBootstrap: ClientBootstrapContext? = null,
-) : OwnedClient(ownedBootstrap) {
+) : OwnedFeatureClient(featureContext, ownedBootstrap) {
+    internal constructor(
+        context: Context,
+        scope: LLMEdgeScope,
+        config: LLMEdgeConfig,
+        modelResolver: ModelRepository,
+        ownedBootstrap: ClientBootstrapContext? = null,
+    ) : this(
+        featureContext =
+            FeatureContext(
+                appContext = context,
+                edgeScope = scope,
+                config = config,
+                modelRepository = modelResolver,
+            ),
+        ownedBootstrap = ownedBootstrap,
+    )
+
     companion object {
         private const val LOG_TAG = "TextClient"
         /** Cap for chat state snapshots — skip snapshotting if state exceeds 64 MB. */
@@ -76,12 +91,9 @@ class TextClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): TextClient =
-            createOwnedClient(context, scope, config) { bootstrap ->
+            createOwnedFeature(context, scope, config, modelRepository) { featureContext, bootstrap ->
                 TextClient(
-                    context = bootstrap.appContext,
-                    scope = bootstrap.edgeScope,
-                    config = config,
-                    modelResolver = modelRepository,
+                    featureContext = featureContext,
                     ownedBootstrap = bootstrap,
                 )
             }
@@ -90,11 +102,11 @@ class TextClient internal constructor(
     @Volatile
     private var lastGenerationMetrics: SmolLM.GenerationMetrics? = null
 
-    private val runtimePool = createTextRuntimePool(context, scope, config, modelResolver)
-    private val runtimeSession = TextRuntimeSession(scope, config, ::updateGenerationMetrics)
+    private val runtimePool = createTextRuntimePool(appContext, edgeScope, config, modelRepository)
+    private val runtimeSession = TextRuntimeSession(edgeScope, config, ::updateGenerationMetrics)
     private val requestExecutor =
         TextRequestExecutor(
-            runtimePool = runtimePool,
+            runtimeExecutor = io.aatricks.llmedge.core.runtime.ManagedRuntimeExecutor(runtimePool),
             runtimeSession = runtimeSession,
             config = config,
             logTag = LOG_TAG,

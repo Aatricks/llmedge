@@ -3,6 +3,7 @@ package io.aatricks.llmedge
 import android.content.Context
 import io.aatricks.llmedge.core.ClientBootstrap
 import io.aatricks.llmedge.core.ClientBootstrapContext
+import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.image.ImageClient
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
@@ -37,27 +38,34 @@ class LLMEdge private constructor(
     private val modelRepository: ModelRepository,
     private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : AutoCloseable {
+    private val featureContext =
+        FeatureContext(
+            appContext = appContext,
+            edgeScope = edgeScope,
+            config = config,
+            modelRepository = modelRepository,
+        )
     private val modelsDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         BoundModelRepository(appContext, modelRepository)
     }
     private val textDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        TextClient(appContext, edgeScope, config, modelRepository)
+        TextClient(featureContext)
     }
     private val speechDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        SpeechClient(appContext, edgeScope, config, modelRepository)
+        SpeechClient(featureContext)
     }
     private val imageDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        ImageClient(appContext, edgeScope, config, modelRepository)
+        ImageClient(featureContext)
     }
     private val visionDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VisionClient(
             context = appContext,
-            pipeline = VisionPipeline(appContext, edgeScope, modelRepository, config),
+            pipeline = VisionPipeline(featureContext),
             config = config,
         )
     }
     private val ragDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        RAGClient(appContext, edgeScope, config, modelRepository)
+        RAGClient(featureContext)
     }
 
     val models: BoundModelRepository

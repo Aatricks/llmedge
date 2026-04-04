@@ -1,23 +1,23 @@
 package io.aatricks.llmedge.image
 
 import io.aatricks.llmedge.core.AndroidLogAdapter
-import io.aatricks.llmedge.core.runtime.RuntimePool
-import io.aatricks.llmedge.core.runtime.executeWithRuntimeRetry
-import io.aatricks.llmedge.core.runtime.runExclusive
+import io.aatricks.llmedge.core.runtime.ManagedRuntimeExecutor
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 
 internal class DiffusionRequestExecutor(
-    private val runtimePool: RuntimePool<DiffusionRuntimeSpec, DiffusionLoadOptions, ManagedDiffusionModel>,
+    runtimePool: io.aatricks.llmedge.core.runtime.RuntimePool<DiffusionRuntimeSpec, DiffusionLoadOptions, ManagedDiffusionModel>,
     private val state: ImageClientState,
     private val logTag: String,
 ) {
+    private val runtimeExecutor = ManagedRuntimeExecutor(runtimePool)
+
     suspend fun <T> executeWithRuntimeRetry(
         spec: DiffusionRuntimeSpec,
         options: DiffusionLoadOptions,
         retryMessage: String,
         execute: suspend (AcquiredDiffusionRuntime) -> T,
     ): T =
-        runtimePool.executeWithRuntimeRetry(
+        runtimeExecutor.executeWithRetry(
             spec = spec,
             options = options,
             onRetry = { _, _ -> AndroidLogAdapter.w(logTag, "$retryMessage '${spec.model.cacheKey}'") },
@@ -44,7 +44,7 @@ internal class DiffusionRequestExecutor(
             options = options,
             retryMessage = retryMessage,
         ) { acquired ->
-            acquired.runtime.runExclusive { runtime ->
+            runtimeExecutor.withExclusiveRuntime(acquired.runtime) { runtime ->
                 withActiveModel(runtime.model) { model ->
                     execute(model, runtime, acquired.acquire)
                 }

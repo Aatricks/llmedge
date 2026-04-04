@@ -4,9 +4,10 @@ import android.content.Context
 import android.net.Uri
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.ClientBootstrapContext
+import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.core.OwnedClient
-import io.aatricks.llmedge.core.createOwnedClient
+import io.aatricks.llmedge.core.OwnedFeatureClient
+import io.aatricks.llmedge.core.createOwnedFeature
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -43,12 +44,26 @@ class RAGSession internal constructor(
 }
 
 class RAGClient internal constructor(
-    private val context: Context,
-    private val scope: LLMEdgeScope,
-    private val config: LLMEdgeConfig,
-    private val resolver: ModelRepository,
+    featureContext: FeatureContext,
     private val ownedBootstrap: ClientBootstrapContext? = null,
-) : OwnedClient(ownedBootstrap) {
+) : OwnedFeatureClient(featureContext, ownedBootstrap) {
+    internal constructor(
+        context: Context,
+        scope: LLMEdgeScope,
+        config: LLMEdgeConfig,
+        resolver: ModelRepository,
+        ownedBootstrap: ClientBootstrapContext? = null,
+    ) : this(
+        featureContext =
+            FeatureContext(
+                appContext = context,
+                edgeScope = scope,
+                config = config,
+                modelRepository = resolver,
+            ),
+        ownedBootstrap = ownedBootstrap,
+    )
+
     companion object {
         @JvmStatic
         @JvmOverloads
@@ -58,18 +73,15 @@ class RAGClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): RAGClient =
-            createOwnedClient(context, scope, config) { bootstrap ->
+            createOwnedFeature(context, scope, config, modelRepository) { featureContext, bootstrap ->
                 RAGClient(
-                    context = bootstrap.appContext,
-                    scope = bootstrap.edgeScope,
-                    config = config,
-                    resolver = modelRepository,
+                    featureContext = featureContext,
                     ownedBootstrap = bootstrap,
                 )
             }
     }
 
-    private val runtimePool = createTextRuntimePool(context, scope, config, resolver)
+    private val runtimePool = createTextRuntimePool(appContext, edgeScope, config, modelRepository)
 
     /**
      * Create a new retrieval-augmented generation session backed by a dedicated [SmolLM] instance.
@@ -87,10 +99,10 @@ class RAGClient internal constructor(
         val runtime = runtimePool.loadDetached(model, options)
         val session =
             RAGSession(
-                engine = RAGEngine(context, runtime.model, splitter = splitter, embeddingConfig = embeddingConfig),
+                engine = RAGEngine(appContext, runtime.model, splitter = splitter, embeddingConfig = embeddingConfig),
                 runtime = runtime,
             )
-        return scope.resources.register(session)
+        return edgeScope.resources.register(session)
     }
 
     override fun close() {

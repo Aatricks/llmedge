@@ -1,9 +1,7 @@
 package io.aatricks.llmedge.speech
 
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.core.runtime.RuntimePool
-import io.aatricks.llmedge.core.runtime.executeWithRuntimeRetry
-import io.aatricks.llmedge.core.runtime.runExclusive
+import io.aatricks.llmedge.core.runtime.ManagedRuntimeExecutor
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.speech.tts.BarkTTS
@@ -14,21 +12,24 @@ import kotlinx.coroutines.launch
 
 internal class SpeechRequestExecutor(
     private val scope: LLMEdgeScope,
-    private val whisperPool: RuntimePool<ModelSpec, WhisperLoadOptions, ManagedWhisperModel>,
-    private val barkPool: RuntimePool<ModelSpec, BarkLoadOptions, ManagedBarkModel>,
+    whisperPool: io.aatricks.llmedge.core.runtime.RuntimePool<ModelSpec, WhisperLoadOptions, ManagedWhisperModel>,
+    barkPool: io.aatricks.llmedge.core.runtime.RuntimePool<ModelSpec, BarkLoadOptions, ManagedBarkModel>,
 ) {
+    private val whisperExecutor = ManagedRuntimeExecutor(whisperPool, scope.inferenceDispatcher)
+    private val barkExecutor = ManagedRuntimeExecutor(barkPool, scope.inferenceDispatcher)
+
     suspend fun prepareSpeechToText(
         model: ModelSpec,
         loadOptions: WhisperLoadOptions,
     ) {
-        whisperPool.acquire(model, loadOptions)
+        whisperExecutor.prepare(model, loadOptions)
     }
 
     suspend fun prepareTextToSpeech(
         model: ModelSpec,
         loadOptions: BarkLoadOptions,
     ) {
-        barkPool.acquire(model, loadOptions)
+        barkExecutor.prepare(model, loadOptions)
     }
 
     suspend fun transcribe(
@@ -79,11 +80,11 @@ internal class SpeechRequestExecutor(
         params: BarkTTS.GenerateParams,
         loadOptions: BarkLoadOptions,
     ): Flow<AudioStreamEvent> = callbackFlow {
-        val runtime = barkPool.acquire(model, loadOptions)
+        val runtime = barkExecutor.acquire(model, loadOptions)
         trySend(AudioStreamEvent.Started)
         val job =
             scope.coroutineScope.launch {
-                runtime.runExclusive(scope.inferenceDispatcher) {
+                barkExecutor.withExclusiveRuntime(runtime) {
                     runtime.bark.setProgressCallback { step, progress ->
                         trySend(AudioStreamEvent.Progress(step, progress))
                     }
@@ -107,9 +108,9 @@ internal class SpeechRequestExecutor(
 
     fun close() {
         try {
-            barkPool.close()
+            barkExecutor.close()
         } finally {
-            whisperPool.close()
+            whisperExecutor.close()
         }
     }
 
@@ -118,11 +119,11 @@ internal class SpeechRequestExecutor(
         options: WhisperLoadOptions,
         block: suspend (ManagedWhisperModel) -> T,
     ): T =
-        whisperPool.executeWithRuntimeRetry(
+        whisperExecutor.withExclusiveRuntimeRetry(
             spec = model,
             options = options,
-        ) { execution ->
-            execution.runtime.runExclusive(scope.inferenceDispatcher, block)
+        ) { runtime, _ ->
+            block(runtime)
         }
 
     private suspend fun <T> withBarkRuntime(
@@ -130,7 +131,7 @@ internal class SpeechRequestExecutor(
         options: BarkLoadOptions,
         block: suspend (ManagedBarkModel) -> T,
     ): T {
-        val runtime = barkPool.acquire(model, options)
-        return runtime.runExclusive(scope.inferenceDispatcher, block)
+        val runtime = barkExecutor.acquire(model, options)
+        return barkExecutor.withExclusiveRuntime(runtime, block)
     }
 }

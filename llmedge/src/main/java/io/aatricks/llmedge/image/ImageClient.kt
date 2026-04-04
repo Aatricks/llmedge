@@ -4,9 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.ClientBootstrapContext
+import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.core.OwnedClient
-import io.aatricks.llmedge.core.createOwnedClient
+import io.aatricks.llmedge.core.OwnedFeatureClient
+import io.aatricks.llmedge.core.createOwnedFeature
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
@@ -66,12 +67,26 @@ data class VideoGenerationRequest(
 }
 
 class ImageClient internal constructor(
-    private val context: Context,
-    private val scope: LLMEdgeScope,
-    private val config: LLMEdgeConfig,
-    private val resolver: ModelRepository,
+    featureContext: FeatureContext,
     private val ownedBootstrap: ClientBootstrapContext? = null,
-) : OwnedClient(ownedBootstrap) {
+) : OwnedFeatureClient(featureContext, ownedBootstrap) {
+    internal constructor(
+        context: Context,
+        scope: LLMEdgeScope,
+        config: LLMEdgeConfig,
+        resolver: ModelRepository,
+        ownedBootstrap: ClientBootstrapContext? = null,
+    ) : this(
+        featureContext =
+            FeatureContext(
+                appContext = context,
+                edgeScope = scope,
+                config = config,
+                modelRepository = resolver,
+            ),
+        ownedBootstrap = ownedBootstrap,
+    )
+
     companion object {
         private const val LOG_TAG = "ImageClient"
 
@@ -83,12 +98,9 @@ class ImageClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): ImageClient =
-            createOwnedClient(context, scope, config) { bootstrap ->
+            createOwnedFeature(context, scope, config, modelRepository) { featureContext, bootstrap ->
                 ImageClient(
-                    context = bootstrap.appContext,
-                    scope = bootstrap.edgeScope,
-                    config = config,
-                    resolver = modelRepository,
+                    featureContext = featureContext,
                     ownedBootstrap = bootstrap,
                 )
             }
@@ -98,7 +110,7 @@ class ImageClient internal constructor(
         }
     }
 
-    private val runtimePool = createDiffusionRuntimePool(context, scope, config, resolver)
+    private val runtimePool = createDiffusionRuntimePool(appContext, edgeScope, config, modelRepository)
     private val generationMutex = Mutex()
     private val imageRequestIds = AtomicLong(0L)
     private val state = ImageClientState()
@@ -114,7 +126,7 @@ class ImageClient internal constructor(
         )
     private val videoGenerationExecutor =
         VideoGenerationExecutor(
-            scope = scope,
+            scope = edgeScope,
             config = config,
             generationMutex = generationMutex,
             state = state,

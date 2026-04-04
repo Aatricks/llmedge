@@ -1,24 +1,37 @@
 package io.aatricks.llmedge.vision
 
-import android.content.Context
-import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
-import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.core.runtime.runExclusive
-import io.aatricks.llmedge.model.ModelRepository
+import io.aatricks.llmedge.core.FeatureContext
+import io.aatricks.llmedge.core.runtime.ManagedRuntimeExecutor
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal class VisionPipeline(
-    private val context: Context,
-    private val scope: LLMEdgeScope,
-    private val resolver: ModelRepository,
-    private val config: LLMEdgeConfig,
+    private val featureContext: FeatureContext,
     private val smolLmFactory: (Boolean) -> SmolLM = { useVulkan -> SmolLM(useVulkan = useVulkan) },
     private val projectorFactory: () -> Projector = { Projector() },
 ) : AutoCloseable {
+    internal constructor(
+        context: android.content.Context,
+        scope: io.aatricks.llmedge.core.LLMEdgeScope,
+        resolver: io.aatricks.llmedge.model.ModelRepository,
+        config: io.aatricks.llmedge.LLMEdgeConfig,
+        smolLmFactory: (Boolean) -> SmolLM = { useVulkan -> SmolLM(useVulkan = useVulkan) },
+        projectorFactory: () -> Projector = { Projector() },
+    ) : this(
+        featureContext =
+            FeatureContext(
+                appContext = context,
+                edgeScope = scope,
+                config = config,
+                modelRepository = resolver,
+            ),
+        smolLmFactory = smolLmFactory,
+        projectorFactory = projectorFactory,
+    )
+
     private companion object {
         private const val TAG = "VisionPipeline"
         private const val JPEG_QUALITY = 90
@@ -26,15 +39,16 @@ internal class VisionPipeline(
 
     private val runtimePool =
         createVisionRuntimePool(
-            context = context,
-            scope = scope,
-            resolver = resolver,
-            config = config,
+            context = featureContext.appContext,
+            scope = featureContext.edgeScope,
+            resolver = featureContext.modelRepository,
+            config = featureContext.config,
             smolLmFactory = smolLmFactory,
             projectorFactory = projectorFactory,
         )
-    private val inputPreparer = VisionInputPreparer(context, JPEG_QUALITY)
-    private val runtimeExecutor = VisionRuntimeExecutor()
+    private val managedRuntimeExecutor = ManagedRuntimeExecutor(runtimePool)
+    private val inputPreparer = VisionInputPreparer(featureContext.appContext, JPEG_QUALITY)
+    private val pipelineExecutor = VisionRuntimeExecutor()
 
     suspend fun prepare(
         model: ModelSpec,
@@ -69,7 +83,7 @@ internal class VisionPipeline(
                     numThreads = request.numThreads,
                     generationThreads = request.generationThreads,
                 )
-            runtime.runExclusive {
+            managedRuntimeExecutor.withExclusiveRuntime(runtime) {
                 val preparedInput =
                     inputPreparer.prepare(
                         request = request,
@@ -78,7 +92,7 @@ internal class VisionPipeline(
                         logStage = ::logStage,
                     )
                 try {
-                    runtimeExecutor.execute(
+                    pipelineExecutor.execute(
                         request = request,
                         runtime = runtime,
                         preparedInput = preparedInput,
@@ -99,11 +113,11 @@ internal class VisionPipeline(
     ): ManagedVisionRuntime {
         val loadStartedNs = System.nanoTime()
         val runtime =
-            runtimePool.acquire(
+            managedRuntimeExecutor.acquire(
                 VisionRuntimeSpec(model = model, projector = projector),
                 VisionLoadOptions(
-                    numThreads = (numThreads ?: config.text.promptThreads).coerceAtLeast(1),
-                    generationThreads = (generationThreads ?: numThreads ?: config.text.generationThreads).coerceAtLeast(1),
+                    numThreads = (numThreads ?: featureContext.config.text.promptThreads).coerceAtLeast(1),
+                    generationThreads = (generationThreads ?: numThreads ?: featureContext.config.text.generationThreads).coerceAtLeast(1),
                 ),
             )
         logStage("runtime", "acquire", loadStartedNs)
@@ -116,6 +130,6 @@ internal class VisionPipeline(
     }
 
     override fun close() {
-        runtimePool.close()
+        managedRuntimeExecutor.close()
     }
 }
