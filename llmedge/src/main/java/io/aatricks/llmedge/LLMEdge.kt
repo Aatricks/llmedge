@@ -116,16 +116,16 @@ class LLMEdge private constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): LLMEdge {
-            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
-            return LLMEdge(
-                appContext = bootstrap.appContext,
-                edgeScope = bootstrap.edgeScope,
-                config = config,
-                modelRepository = modelRepository,
-                ownedBootstrap = bootstrap,
-            )
-        }
+        ): LLMEdge =
+            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+                LLMEdge(
+                    appContext = bootstrap.appContext,
+                    edgeScope = bootstrap.edgeScope,
+                    config = config,
+                    modelRepository = modelRepository,
+                    ownedBootstrap = bootstrap,
+                )
+            }
 
         @JvmStatic
         fun isVulkanAvailable(): Boolean {

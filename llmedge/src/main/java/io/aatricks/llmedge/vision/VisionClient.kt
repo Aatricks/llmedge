@@ -37,15 +37,15 @@ class VisionClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): VisionClient {
-            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
-            return VisionClient(
-                context = bootstrap.appContext,
-                pipeline = VisionPipeline(bootstrap.appContext, bootstrap.edgeScope, modelRepository, config),
-                config = config,
-                ownedBootstrap = bootstrap,
-            )
-        }
+        ): VisionClient =
+            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+                VisionClient(
+                    context = bootstrap.appContext,
+                    pipeline = VisionPipeline(bootstrap.appContext, bootstrap.edgeScope, modelRepository, config),
+                    config = config,
+                    ownedBootstrap = bootstrap,
+                )
+            }
     }
 
     private val defaultModel: ModelSpec = config.models.vision.model
@@ -130,10 +130,8 @@ class VisionClient internal constructor(
     fun getLastRuntimeMemory(): VisionRuntimeMemory? = lastRuntimeMemory
 
     override fun close() {
-        try {
+        ClientBootstrap.close(ownedBootstrap) {
             pipeline.close()
-        } finally {
-            ClientBootstrap.close(ownedBootstrap)
         }
     }
 }

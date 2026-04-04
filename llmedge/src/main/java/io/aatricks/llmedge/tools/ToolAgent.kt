@@ -2,19 +2,13 @@ package io.aatricks.llmedge.tools
 
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.ConversationMessage
-import io.aatricks.llmedge.text.ConversationRole
 import io.aatricks.llmedge.text.ConversationWindow
 import io.aatricks.llmedge.text.ConversationSessionSupport
 import io.aatricks.llmedge.text.TextClient
 import io.aatricks.llmedge.text.TextModelOptions
-import io.aatricks.llmedge.text.stripThinkBlocks
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 class ToolAgent internal constructor(
     private val client: TextClient,
@@ -38,63 +32,17 @@ class ToolAgent internal constructor(
         maxSteps: Int = 6,
         maxTokens: Int = -1,
         batchSize: Int = 0,
-    ): ToolAgentResult {
-        require(maxSteps > 0) { "maxSteps must be greater than 0." }
-
-        return support.withRuntime {
-            val working = seedWorkingTranscript(message)
-            val trace = mutableListOf<ToolAgentTraceStep>()
-            var finalText = ""
-
-            for (step in 1..maxSteps) {
-                val response = complete(renderWorkingPrompt(working), toolSystemPrompt, maxTokens, batchSize)
-
-                when (val turn = ToolCallParser.classify(response)) {
-                    is ParsedModelTurn.FinalText -> {
-                        trace += ToolAgentTraceStep(step = step, rawModelOutput = response)
-                        val visibleText = turn.text.stripThinkBlocks()
-                        if (visibleText.isNotBlank()) {
-                            finalText = visibleText
-                            commitTurn(message, finalText)
-                            return@withRuntime ToolAgentResult(
-                                text = finalText,
-                                finishReason = ToolAgentFinishReason.COMPLETED,
-                                trace = trace.toList(),
-                            )
-                        }
-
-                        working += emptyFinalAnswerReminder()
-                    }
-
-                    is ParsedModelTurn.InvalidToolInvocation -> {
-                        val result = ToolResult.error(turn.reason, toolErrorData("invalid_tool_call", turn.reason))
-                        trace +=
-                            ToolAgentTraceStep(
-                                step = step,
-                                rawModelOutput = response,
-                                toolResult = result,
-                            )
-                        working += ToolPromptMessage(ToolPromptRole.ASSISTANT, response)
-                        working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage("invalid_tool_call", result))
-                    }
-
-                    is ParsedModelTurn.ToolInvocation -> {
-                        val stepResult = handleToolInvocation(message, step, response, turn.call, working)
-                        trace += stepResult.trace
-                    }
-                }
-            }
-
-            val result =
-                ToolAgentResult(
-                    text = finalText,
-                    finishReason = ToolAgentFinishReason.MAX_STEPS,
-                    trace = trace.toList(),
-                )
-            commitTurn(message, finalText.takeUnless(String::isBlank))
-            result
+    ): ToolAgentResult =
+        support.withRuntime {
+            createTurnLoop { prompt, maxTokens, stepBatchSize ->
+                complete(prompt, toolSystemPrompt, maxTokens, stepBatchSize)
+            }.run(
+                message = message,
+                maxSteps = maxSteps,
+                maxTokens = maxTokens,
+                batchSize = batchSize,
+            )
         }
-    }
 
     fun stream(
         message: String,
@@ -102,96 +50,41 @@ class ToolAgent internal constructor(
         batchSize: Int = 0,
     ): Flow<ToolAgentEvent> =
         flow {
-            require(maxSteps > 0) { "maxSteps must be greater than 0." }
             emit(ToolAgentEvent.Started(message))
 
             try {
                 support.withRuntime {
-                    val working = seedWorkingTranscript(message)
-                    val trace = mutableListOf<ToolAgentTraceStep>()
-                    var finalText = ""
-
-                    for (step in 1..maxSteps) {
-                        val prompt = renderWorkingPrompt(working)
-                        val chunks = mutableListOf<String>()
-
-                        streamCompletion(prompt, toolSystemPrompt, batchSize).collect { chunk -> chunks += chunk }
-
-                        val response = chunks.joinToString("")
-
-                        when (val turn = ToolCallParser.classify(response)) {
-                            is ParsedModelTurn.FinalText -> {
-                                trace += ToolAgentTraceStep(step = step, rawModelOutput = response)
-                                val visibleText = turn.text.stripThinkBlocks()
-                                if (visibleText.isNotBlank()) {
-                                    finalText = visibleText
-                                    emit(ToolAgentEvent.TextChunk(finalText))
-                                    commitTurn(message, finalText)
-                                    emit(
-                                        ToolAgentEvent.Completed(
-                                            ToolAgentResult(
-                                                text = finalText,
-                                                finishReason = ToolAgentFinishReason.COMPLETED,
-                                                trace = trace.toList(),
-                                            ),
-                                        ),
-                                    )
-                                    return@withRuntime
-                                }
-
-                                working += emptyFinalAnswerReminder()
+                    val streamTurnLoop =
+                        createTurnLoop { prompt, _, stepBatchSize ->
+                            val chunks = mutableListOf<String>()
+                            streamCompletion(prompt, toolSystemPrompt, stepBatchSize).collect { chunk ->
+                                chunks += chunk
                             }
-
-                            is ParsedModelTurn.InvalidToolInvocation -> {
-                                val result = ToolResult.error(turn.reason, toolErrorData("invalid_tool_call", turn.reason))
-                                trace +=
-                                    ToolAgentTraceStep(
-                                        step = step,
-                                        rawModelOutput = response,
-                                        toolResult = result,
-                                    )
-                                working += ToolPromptMessage(ToolPromptRole.ASSISTANT, response)
-                                working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage("invalid_tool_call", result))
-                                emit(
-                                    ToolAgentEvent.ToolResultReceived(
-                                        ToolCall("invalid_tool_call"),
-                                        result,
-                                    ),
-                                )
-                            }
-
-                            is ParsedModelTurn.ToolInvocation -> {
-                                emit(ToolAgentEvent.ToolCallRequested(turn.call))
-                                val stepResult =
-                                    handleToolInvocation(
-                                        message = message,
-                                        step = step,
-                                        rawModelOutput = response,
-                                        call = turn.call,
-                                        working = working,
-                                        onApproved = { emit(ToolAgentEvent.ToolApproved(it)) },
-                                        onDenied = { callValue, reason -> emit(ToolAgentEvent.ToolDenied(callValue, reason)) },
-                                        onExecuting = { emit(ToolAgentEvent.ToolExecuting(it)) },
-                                        onResult = { callValue, result -> emit(ToolAgentEvent.ToolResultReceived(callValue, result)) },
-                                    )
-                                trace += stepResult.trace
-                            }
+                            chunks.joinToString("")
                         }
-                    }
-
                     val result =
-                        ToolAgentResult(
-                            text = finalText,
-                            finishReason = ToolAgentFinishReason.MAX_STEPS,
-                            trace = trace.toList(),
+                        streamTurnLoop.run(
+                            message = message,
+                            maxSteps = maxSteps,
+                            batchSize = batchSize,
+                            callbacks =
+                                ToolAgentTurnCallbacks(
+                                    onToolCallRequested = { emit(ToolAgentEvent.ToolCallRequested(it)) },
+                                    onToolApproved = { emit(ToolAgentEvent.ToolApproved(it)) },
+                                    onToolDenied = { call, reason -> emit(ToolAgentEvent.ToolDenied(call, reason)) },
+                                    onToolExecuting = { emit(ToolAgentEvent.ToolExecuting(it)) },
+                                    onToolResultReceived = { call, result ->
+                                        emit(ToolAgentEvent.ToolResultReceived(call, result))
+                                    },
+                                    onTextChunk = { emit(ToolAgentEvent.TextChunk(it)) },
+                                ),
                         )
-                    commitTurn(message, finalText.takeUnless(String::isBlank))
                     emit(ToolAgentEvent.Completed(result))
                 }
             } catch (t: Throwable) {
                 emit(ToolAgentEvent.Failed(t.message ?: "Tool agent failed.", t))
             }
-    }
+        }
 
     fun historySnapshot(): List<ConversationMessage> = support.historySnapshot()
 
@@ -201,10 +94,7 @@ class ToolAgent internal constructor(
         rawModelOutput: String,
         call: ToolCall,
         working: MutableList<ToolPromptMessage>,
-        onApproved: suspend (ToolCall) -> Unit = {},
-        onDenied: suspend (ToolCall, String) -> Unit = { _, _ -> },
-        onExecuting: suspend (ToolCall) -> Unit = {},
-        onResult: suspend (ToolCall, ToolResult) -> Unit = { _, _ -> },
+        callbacks: ToolAgentTurnCallbacks = ToolAgentTurnCallbacks(),
     ): ToolStepResult {
         working += ToolPromptMessage(ToolPromptRole.ASSISTANT, rawModelOutput)
         val tool = toolsByName[call.tool]
@@ -216,7 +106,7 @@ class ToolAgent internal constructor(
                     toolErrorData("unknown_tool", "Tool '${call.tool}' is not registered."),
                 )
             working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
-            onResult(call, result)
+            callbacks.onToolResultReceived(call, result)
             return ToolStepResult(
                 ToolAgentTraceStep(
                     step = step,
@@ -235,7 +125,7 @@ class ToolAgent internal constructor(
                     toolErrorData("invalid_arguments", validationErrors.joinToString(" ")),
                 )
             working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
-            onResult(call, result)
+            callbacks.onToolResultReceived(call, result)
             return ToolStepResult(
                 ToolAgentTraceStep(
                     step = step,
@@ -248,12 +138,12 @@ class ToolAgent internal constructor(
 
         if (tool.kind == ToolKind.ACTION) {
             when (val decision = policy.evaluate(ToolCallRequest(tool, call.arguments, persistentConversationPreview(message), step))) {
-                ToolDecision.Allow -> onApproved(call)
+                ToolDecision.Allow -> callbacks.onToolApproved(call)
                 is ToolDecision.Deny -> {
                     val result = ToolResult.error(decision.reason, toolErrorData("action_denied", decision.reason))
                     working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
-                    onDenied(call, decision.reason)
-                    onResult(call, result)
+                    callbacks.onToolDenied(call, decision.reason)
+                    callbacks.onToolResultReceived(call, result)
                     return ToolStepResult(
                         ToolAgentTraceStep(
                             step = step,
@@ -267,7 +157,7 @@ class ToolAgent internal constructor(
             }
         }
 
-        onExecuting(call)
+        callbacks.onToolExecuting(call)
         val result =
             runCatching { tool.handler(call.arguments) }
                 .getOrElse { error ->
@@ -278,7 +168,7 @@ class ToolAgent internal constructor(
                 }
 
         working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
-        onResult(call, result)
+        callbacks.onToolResultReceived(call, result)
         return ToolStepResult(
             ToolAgentTraceStep(
                 step = step,
@@ -316,76 +206,22 @@ class ToolAgent internal constructor(
             }
         }.trimEnd()
 
-    private fun promptMessage(
-        role: ConversationRole,
-        content: String,
-    ): ToolPromptMessage =
-        when (role) {
-            ConversationRole.SYSTEM -> ToolPromptMessage(ToolPromptRole.SYSTEM, content)
-            ConversationRole.USER -> ToolPromptMessage(ToolPromptRole.USER, content)
-            ConversationRole.ASSISTANT -> ToolPromptMessage(ToolPromptRole.ASSISTANT, content)
-        }
-
-    private fun formatToolResultMessage(
-        toolName: String,
-        result: ToolResult,
-    ): String =
-        buildString {
-            append("Tool '")
-            append(toolName)
-            append("' returned this JSON result:\n")
-            append(
-                Json.encodeToString(
-                    JsonObject.serializer(),
-                    buildJsonObject {
-                        put("tool", toolName)
-                        put("ok", !result.isError)
-                        put("text", result.text)
-                        put("data", result.data)
-                    },
-                ),
-            )
-            append("\nUse it to continue.")
-        }
-
-    private fun toolErrorData(
-        code: String,
-        message: String,
-    ): JsonObject =
-        buildJsonObject {
-            put("code", code)
-            put("message", message)
-        }
-
     private fun emptyFinalAnswerReminder(): ToolPromptMessage =
         ToolPromptMessage(
             ToolPromptRole.SYSTEM,
             "Your previous response contained no user-visible text after hidden reasoning was removed. " +
                 "Do not repeat a tool call you already satisfied. Answer the user now in plain text using the available tool results.",
         )
+
+    private fun createTurnLoop(
+        produceResponse: suspend (prompt: String, maxTokens: Int, batchSize: Int) -> String,
+    ): ToolAgentTurnLoop =
+        ToolAgentTurnLoop(
+            seedWorkingTranscript = ::seedWorkingTranscript,
+            renderWorkingPrompt = ::renderWorkingPrompt,
+            emptyFinalAnswerReminder = ::emptyFinalAnswerReminder,
+            commitTurn = ::commitTurn,
+            produceResponse = produceResponse,
+            handleToolInvocation = ::handleToolInvocation,
+        )
 }
-
-private data class ToolStepResult(
-    val trace: ToolAgentTraceStep,
-)
-
-private enum class ToolPromptRole {
-    SYSTEM,
-    USER,
-    ASSISTANT,
-    TOOL,
-}
-
-private data class ToolPromptMessage(
-    val role: ToolPromptRole,
-    val content: String,
-)
-
-private val ToolPromptRole.label: String
-    get() =
-        when (this) {
-            ToolPromptRole.SYSTEM -> "System"
-            ToolPromptRole.USER -> "User"
-            ToolPromptRole.ASSISTANT -> "Assistant"
-            ToolPromptRole.TOOL -> "Tool"
-        }

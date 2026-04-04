@@ -65,16 +65,16 @@ class SpeechClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): SpeechClient {
-            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
-            return SpeechClient(
-                context = bootstrap.appContext,
-                scope = bootstrap.edgeScope,
-                config = config,
-                resolver = modelRepository,
-                ownedBootstrap = bootstrap,
-            )
-        }
+        ): SpeechClient =
+            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+                SpeechClient(
+                    context = bootstrap.appContext,
+                    scope = bootstrap.edgeScope,
+                    config = config,
+                    resolver = modelRepository,
+                    ownedBootstrap = bootstrap,
+                )
+            }
     }
 
     private val whisperPool = createWhisperRuntimePool(context, scope, config, resolver)
@@ -244,13 +244,11 @@ class SpeechClient internal constructor(
     }
 
     override fun close() {
-        try {
-            barkPool.close()
-        } finally {
+        ClientBootstrap.close(ownedBootstrap) {
             try {
-                whisperPool.close()
+                barkPool.close()
             } finally {
-                ClientBootstrap.close(ownedBootstrap)
+                whisperPool.close()
             }
         }
     }

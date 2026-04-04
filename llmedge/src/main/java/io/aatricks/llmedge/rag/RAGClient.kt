@@ -56,16 +56,16 @@ class RAGClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): RAGClient {
-            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
-            return RAGClient(
-                context = bootstrap.appContext,
-                scope = bootstrap.edgeScope,
-                config = config,
-                resolver = modelRepository,
-                ownedBootstrap = bootstrap,
-            )
-        }
+        ): RAGClient =
+            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+                RAGClient(
+                    context = bootstrap.appContext,
+                    scope = bootstrap.edgeScope,
+                    config = config,
+                    resolver = modelRepository,
+                    ownedBootstrap = bootstrap,
+                )
+            }
     }
 
     private val runtimePool = createTextRuntimePool(context, scope, config, resolver)
@@ -93,10 +93,8 @@ class RAGClient internal constructor(
     }
 
     override fun close() {
-        try {
+        ClientBootstrap.close(ownedBootstrap) {
             runtimePool.close()
-        } finally {
-            ClientBootstrap.close(ownedBootstrap)
         }
     }
 }

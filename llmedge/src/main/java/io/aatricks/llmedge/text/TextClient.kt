@@ -82,16 +82,16 @@ class TextClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): TextClient {
-            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
-            return TextClient(
-                context = bootstrap.appContext,
-                scope = bootstrap.edgeScope,
-                config = config,
-                modelResolver = modelRepository,
-                ownedBootstrap = bootstrap,
-            )
-        }
+        ): TextClient =
+            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+                TextClient(
+                    context = bootstrap.appContext,
+                    scope = bootstrap.edgeScope,
+                    config = config,
+                    modelResolver = modelRepository,
+                    ownedBootstrap = bootstrap,
+                )
+            }
     }
 
     @Volatile
@@ -392,10 +392,8 @@ class TextClient internal constructor(
     }
 
     override fun close() {
-        try {
+        ClientBootstrap.close(ownedBootstrap) {
             runtimePool.close()
-        } finally {
-            ClientBootstrap.close(ownedBootstrap)
         }
     }
 

@@ -26,8 +26,6 @@ import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.BackendRuntimePolicy
 import io.aatricks.llmedge.runtime.ComputeBackend
-import io.aatricks.llmedge.runtime.ComputeSubsystem
-import io.aatricks.llmedge.runtime.CpuTopology
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
@@ -98,16 +96,16 @@ class ImageClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): ImageClient {
-            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
-            return ImageClient(
-                context = bootstrap.appContext,
-                scope = bootstrap.edgeScope,
-                config = config,
-                resolver = modelRepository,
-                ownedBootstrap = bootstrap,
-            )
-        }
+        ): ImageClient =
+            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+                ImageClient(
+                    context = bootstrap.appContext,
+                    scope = bootstrap.edgeScope,
+                    config = config,
+                    resolver = modelRepository,
+                    ownedBootstrap = bootstrap,
+                )
+            }
 
         internal fun resetVideoVulkanBlacklistForTests() {
             BackendRuntimePolicy.resetForTests()
@@ -127,11 +125,6 @@ class ImageClient internal constructor(
     @Volatile
     private var activeModel: StableDiffusion? = null
 
-    private data class RuntimeRequest(
-        val spec: DiffusionRuntimeSpec,
-        val options: DiffusionLoadOptions,
-    )
-
     /**
      * Generate a single bitmap from text.
      *
@@ -147,7 +140,7 @@ class ImageClient internal constructor(
         generationMutex.withLock {
             lastGenerationMetrics = null
             lastImageRequestTrace = emptyList()
-            val request = imageRuntimeRequest(params)
+            val request = ImageRuntimeRequestPlanner.imageRequest(params, config)
             val requestId = imageRequestIds.incrementAndGet()
             AndroidLogAdapter.i(
                 LOG_TAG,
@@ -319,7 +312,7 @@ class ImageClient internal constructor(
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): List<Bitmap> {
         lastGenerationMetrics = null
-        val request = directVideoRuntimeRequest(params)
+        val request = ImageRuntimeRequestPlanner.directVideoRequest(params, config)
         return executeWithRuntimeRetry(
             spec = request.spec,
             options = request.options,
@@ -366,7 +359,7 @@ class ImageClient internal constructor(
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): List<Bitmap> {
         lastGenerationMetrics = null
-        val conditioningRequest = sequentialVideoConditioningRequest(params)
+        val conditioningRequest = ImageRuntimeRequestPlanner.sequentialVideoConditioningRequest(params, config)
         val conditioning =
             executeWithRuntimeRetry(
                 spec = conditioningRequest.spec,
@@ -400,7 +393,7 @@ class ImageClient internal constructor(
                 }
             }
 
-        val diffusionRequest = sequentialVideoDiffusionRequest(params)
+        val diffusionRequest = ImageRuntimeRequestPlanner.sequentialVideoDiffusionRequest(params, config)
         return executeWithRuntimeRetry(
             spec = diffusionRequest.spec,
             options = diffusionRequest.options,
@@ -464,123 +457,11 @@ class ImageClient internal constructor(
     }
 
     override fun close() {
-        try {
+        ClientBootstrap.close(ownedBootstrap) {
             cancelGeneration()
             activeModel = null
             runtimePool.close()
-        } finally {
-            ClientBootstrap.close(ownedBootstrap)
         }
-    }
-
-    private fun imageRuntimeRequest(params: ImageGenerationRequest): RuntimeRequest {
-        return RuntimeRequest(
-            spec =
-                DiffusionRuntimeSpec(
-                    role = DiffusionRuntimeRole.IMAGE,
-                    model = params.model ?: config.models.image,
-                ),
-            options =
-                DiffusionLoadOptions(
-                    subsystem = ComputeSubsystem.IMAGE,
-                    // Keep GPU backends eligible by default. preferPerformanceMode tunes
-                    // heuristics, but should not silently force CPU or CPU-offloaded weights.
-                    allowGpu = true,
-                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                    offloadToCpu = false,
-                    keepClipOnCpu = false,
-                    keepVaeOnCpu = false,
-                    flashAttn = params.flashAttention,
-                    vaeDecodeOnly = true,
-                    // Image generation should stay on the direct path unless the caller
-                    // explicitly forces sequential loading. The generic diffusion heuristic
-                    // is tuned for larger video/text-encoder loads and can incorrectly
-                    // downgrade GPU-capable image generation into CPU-heavy mode.
-                    sequentialLoad = params.forceSequentialLoad,
-                    preferPerformanceMode = config.image.preferPerformanceMode,
-                    loraModelDir = params.loraModelDir,
-                    loraApplyMode = params.loraApplyMode,
-                ),
-        )
-    }
-
-    private fun directVideoRuntimeRequest(params: VideoGenerationRequest): RuntimeRequest {
-        val usingCustomTae = params.taehv != null
-        return RuntimeRequest(
-            spec =
-                DiffusionRuntimeSpec(
-                    role = DiffusionRuntimeRole.VIDEO,
-                    model = params.model ?: config.models.video.diffusion,
-                    vae = if (usingCustomTae) null else (params.vae ?: config.models.video.vae),
-                    textEncoder = params.textEncoder ?: config.models.video.textEncoder,
-                    taehv = params.taehv,
-                ),
-            options =
-                DiffusionLoadOptions(
-                    subsystem = ComputeSubsystem.VIDEO,
-                    allowGpu = !usingCustomTae,
-                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                    offloadToCpu = usingCustomTae || !config.image.preferPerformanceMode,
-                    keepClipOnCpu = usingCustomTae || !config.image.preferPerformanceMode,
-                    keepVaeOnCpu = usingCustomTae || !config.image.preferPerformanceMode,
-                    flashAttn = params.flashAttention,
-                    vaeDecodeOnly = params.initImage == null,
-                    preferPerformanceMode = config.image.preferPerformanceMode,
-                    flowShift = params.flowShift,
-                    loraModelDir = params.loraModelDir,
-                    loraApplyMode = params.loraApplyMode,
-                ),
-        )
-    }
-
-    private fun sequentialVideoConditioningRequest(params: VideoGenerationRequest): RuntimeRequest {
-        val usingCustomTae = params.taehv != null
-        return RuntimeRequest(
-            spec =
-                DiffusionRuntimeSpec(
-                    role = DiffusionRuntimeRole.VIDEO_TEXT_ENCODER,
-                    model = params.textEncoder ?: config.models.video.textEncoder,
-                ),
-            options =
-                DiffusionLoadOptions(
-                    subsystem = ComputeSubsystem.VIDEO,
-                    allowGpu = !usingCustomTae,
-                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
-                    offloadToCpu = true,
-                    keepClipOnCpu = true,
-                    keepVaeOnCpu = true,
-                    flashAttn = params.flashAttention,
-                    preferPerformanceMode = config.image.preferPerformanceMode,
-                ),
-        )
-    }
-
-    private fun sequentialVideoDiffusionRequest(params: VideoGenerationRequest): RuntimeRequest {
-        val usingCustomTae = params.taehv != null
-        return RuntimeRequest(
-            spec =
-                DiffusionRuntimeSpec(
-                    role = DiffusionRuntimeRole.VIDEO,
-                    model = params.model ?: config.models.video.diffusion,
-                    vae = if (usingCustomTae) null else (params.vae ?: config.models.video.vae),
-                    taehv = params.taehv,
-                ),
-            options =
-                DiffusionLoadOptions(
-                    subsystem = ComputeSubsystem.VIDEO,
-                    allowGpu = !usingCustomTae,
-                    nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                    offloadToCpu = true,
-                    keepClipOnCpu = true,
-                    keepVaeOnCpu = true,
-                    flashAttn = params.flashAttention,
-                    vaeDecodeOnly = params.initImage == null,
-                    preferPerformanceMode = config.image.preferPerformanceMode,
-                    flowShift = params.flowShift,
-                    loraModelDir = params.loraModelDir,
-                    loraApplyMode = params.loraApplyMode,
-                ),
-        )
     }
 
     private suspend fun <T> executeWithRuntimeRetry(

@@ -31,7 +31,28 @@ internal object ClientBootstrap {
         promptThreads: Int,
     ): ClientBootstrapContext = ClientBootstrapContext.create(context, scope, promptThreads)
 
+    inline fun <T> createOwned(
+        context: Context,
+        scope: CoroutineScope,
+        promptThreads: Int,
+        build: (ClientBootstrapContext) -> T,
+    ): T {
+        val bootstrap = create(context, scope, promptThreads)
+        return build(bootstrap)
+    }
+
     fun close(owner: ClientBootstrapContext?) {
         owner?.close()
+    }
+
+    inline fun close(
+        owner: ClientBootstrapContext?,
+        closeManagedResources: () -> Unit,
+    ) {
+        try {
+            closeManagedResources()
+        } finally {
+            close(owner)
+        }
     }
 }
