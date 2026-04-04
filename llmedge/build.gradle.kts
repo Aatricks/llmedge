@@ -165,3 +165,13 @@ dependencies {
 
 apply(from = rootProject.file("gradle/llmedge-test-config.gradle"))
 apply(from = rootProject.file("gradle/llmedge-jacoco.gradle"))
+
+val generateNativeTargetNames by tasks.registering(Exec::class) {
+    group = "build setup"
+    description = "Generates Kotlin native target constants from CMake target declarations."
+    commandLine("bash", "${rootProject.projectDir}/scripts/generate_native_target_names.sh")
+}
+
+tasks.named("preBuild") {
+    dependsOn(generateNativeTargetNames)
+}

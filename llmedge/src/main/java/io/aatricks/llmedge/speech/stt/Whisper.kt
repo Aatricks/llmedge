@@ -24,8 +24,8 @@ import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.AndroidLogAdapter
-import io.aatricks.llmedge.speech.SpeechThreadingSupport
 import io.aatricks.llmedge.speech.stt.internal.WhisperCompanionSupport
+import io.aatricks.llmedge.speech.stt.internal.WhisperInferenceOperations
 import io.aatricks.llmedge.speech.stt.internal.WhisperStreamingState
 import io.aatricks.llmedge.speech.stt.internal.WhisperSubtitleSupport
 import io.aatricks.llmedge.runtime.ComputeBackend
@@ -192,34 +192,27 @@ class Whisper internal constructor(
     fun transcribe(
             samples: FloatArray,
             params: TranscribeParams = TranscribeParams()
-    ): List<TranscriptionSegment> {
-        require(samples.isNotEmpty()) { "Audio samples cannot be empty" }
-
-        val effectiveThreads = SpeechThreadingSupport.resolveThreadCount(params.nThreads)
-
-        val segments =
-                nativeTranscribe(
-                        handle,
-                        samples,
-                        effectiveThreads,
-                        params.translate,
-                        params.language,
-                        params.detectLanguage,
-                        params.tokenTimestamps,
-                        params.maxLen,
-                        params.splitOnWord,
-                        params.temperature,
-                        params.beamSize,
-                        params.suppressBlank,
-                        params.printProgress
-                )
-                        ?: throw InferenceFailedException(
-                                operation = "Whisper transcription",
-                                detail = "The native transcription call returned no segments."
-                        )
-
-        return segments.toList()
-    }
+    ): List<TranscriptionSegment> =
+        WhisperInferenceOperations.transcribe(
+            samples = samples,
+            params = params,
+        ) { pcm, threads, translate, language, detectLanguage, tokenTimestamps, maxLen, splitOnWord, temperature, beamSize, suppressBlank, printProgress ->
+            nativeTranscribe(
+                handle,
+                pcm,
+                threads,
+                translate,
+                language,
+                detectLanguage,
+                tokenTimestamps,
+                maxLen,
+                splitOnWord,
+                temperature,
+                beamSize,
+                suppressBlank,
+                printProgress,
+            )
+        }
 
     /** Transcribe audio and return results as a Flow for streaming use cases. */
     fun transcribeFlow(
@@ -240,12 +233,12 @@ class Whisper internal constructor(
      * @return Language code (e.g., "en", "es", "fr") or null if detection fails
      */
     fun detectLanguage(samples: FloatArray, nThreads: Int = 0): String? {
-        require(samples.isNotEmpty()) { "Audio samples cannot be empty" }
-
-        val effectiveThreads = SpeechThreadingSupport.resolveThreadCount(nThreads)
-
-        val langId = nativeDetectLanguage(handle, samples, effectiveThreads, 0)
-        return if (langId >= 0) getLanguageString(langId) else null
+        return WhisperInferenceOperations.detectLanguage(
+            samples = samples,
+            nThreads = nThreads,
+            detectLanguageNative = { pcm, threads -> nativeDetectLanguage(handle, pcm, threads, 0) },
+            resolveLanguageString = ::getLanguageString,
+        )
     }
 
     /** Get the full transcribed text from the last transcription. */

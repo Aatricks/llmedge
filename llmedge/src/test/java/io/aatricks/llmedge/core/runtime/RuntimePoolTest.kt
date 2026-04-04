@@ -48,8 +48,8 @@ class RuntimePoolTest {
             FakeRuntime(backend)
         }
 
-        val first = pool.acquire("model", FakeOptions(allowGpu = false))
-        val second = pool.acquire("model", FakeOptions(allowGpu = false))
+        val first = pool.coordinator.acquire("model", FakeOptions(allowGpu = false))
+        val second = pool.coordinator.acquire("model", FakeOptions(allowGpu = false))
 
         assertSame(first, second)
         assertEquals(1, loadCalls)
@@ -63,8 +63,8 @@ class RuntimePoolTest {
             FakeRuntime(backend)
         }
 
-        val cached = pool.acquire("model", FakeOptions(allowGpu = false))
-        val detached = pool.loadDetached("model", FakeOptions(allowGpu = false))
+        val cached = pool.coordinator.acquire("model", FakeOptions(allowGpu = false))
+        val detached = pool.coordinator.loadDetached("model", FakeOptions(allowGpu = false))
 
         assertNotSame(cached, detached)
         assertEquals(2, loadCalls)
@@ -78,8 +78,8 @@ class RuntimePoolTest {
                 FakeRuntime(backend)
             }
 
-        val cold = pool.acquireDetailed("model", FakeOptions(allowGpu = false))
-        val warm = pool.acquireDetailed("model", FakeOptions(allowGpu = false))
+        val cold = pool.coordinator.acquireDetailed("model", FakeOptions(allowGpu = false))
+        val warm = pool.coordinator.acquireDetailed("model", FakeOptions(allowGpu = false))
 
         assertFalse(cold.cacheHit)
         assertTrue(cold.modelLoadTimeMs > 0L)
@@ -99,9 +99,15 @@ class RuntimePoolTest {
         }
 
         val options = FakeOptions(allowGpu = true, openClAvailable = true)
-        val first = pool.acquire("model", options)
-        val blacklisted = pool.recordBackendFailureIfNeeded("model", options, first, IllegalStateException("device lost"))
-        val second = pool.acquire("model", options)
+        val first = pool.coordinator.acquire("model", options)
+        val blacklisted =
+            pool.coordinator.recordBackendFailureIfNeeded(
+                "model",
+                options,
+                first,
+                IllegalStateException("device lost"),
+            )
+        val second = pool.coordinator.acquire("model", options)
 
         assertTrue(blacklisted)
         assertEquals(ComputeBackend.CPU, second.backend)

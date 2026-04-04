@@ -224,7 +224,12 @@ internal object SmolLMNativeBridgeSupport {
             ) = instance.close(modelPtr)
 
             override fun hasVulkanBackendSupport(instance: SmolLM): Boolean =
-                instance.nativeHasVulkanBackendSupport()
+                runCatching { instance.nativeHasVulkanBackendSupport() }
+                    .getOrElse {
+                        // Older desktop test binaries can miss newer JNI probe symbols.
+                        // Fall back to process-level capability probing instead of failing load.
+                        SmolLM.isVulkanBackendAvailable()
+                    }
         }
     }
 }

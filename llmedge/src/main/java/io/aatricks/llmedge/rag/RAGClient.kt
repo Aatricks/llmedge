@@ -11,6 +11,7 @@ import io.aatricks.llmedge.core.createOwnedFeature
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.core.runtime.ManagedRuntimeExecutor
 import io.aatricks.llmedge.text.TextModelOptions
 import io.aatricks.llmedge.text.ManagedTextModel
 import io.aatricks.llmedge.text.createTextRuntimePool
@@ -47,23 +48,6 @@ class RAGClient internal constructor(
     featureContext: FeatureContext,
     private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : OwnedFeatureClient(featureContext, ownedBootstrap) {
-    internal constructor(
-        context: Context,
-        scope: LLMEdgeScope,
-        config: LLMEdgeConfig,
-        resolver: ModelRepository,
-        ownedBootstrap: ClientBootstrapContext? = null,
-    ) : this(
-        featureContext =
-            FeatureContext(
-                appContext = context,
-                edgeScope = scope,
-                config = config,
-                modelRepository = resolver,
-            ),
-        ownedBootstrap = ownedBootstrap,
-    )
-
     companion object {
         @JvmStatic
         @JvmOverloads
@@ -79,9 +63,28 @@ class RAGClient internal constructor(
                     ownedBootstrap = bootstrap,
                 )
             }
+
+        @JvmSynthetic
+        internal fun forTesting(
+            context: Context,
+            scope: LLMEdgeScope,
+            config: LLMEdgeConfig,
+            resolver: ModelRepository,
+            ownedBootstrap: ClientBootstrapContext? = null,
+        ): RAGClient =
+            RAGClient(
+                featureContext =
+                    FeatureContext(
+                        appContext = context,
+                        edgeScope = scope,
+                        config = config,
+                        modelRepository = resolver,
+                    ),
+                ownedBootstrap = ownedBootstrap,
+            )
     }
 
-    private val runtimePool = createTextRuntimePool(appContext, edgeScope, config, modelRepository)
+    private val runtimeExecutor = ManagedRuntimeExecutor(createTextRuntimePool(appContext, edgeScope, config, modelRepository))
 
     /**
      * Create a new retrieval-augmented generation session backed by a dedicated [SmolLM] instance.
@@ -96,7 +99,7 @@ class RAGClient internal constructor(
         splitter: TextSplitter = TextSplitter(),
         options: TextModelOptions = TextModelOptions(),
     ): RAGSession {
-        val runtime = runtimePool.loadDetached(model, options)
+        val runtime = runtimeExecutor.loadDetached(model, options)
         val session =
             RAGSession(
                 engine = RAGEngine(appContext, runtime.model, splitter = splitter, embeddingConfig = embeddingConfig),
@@ -107,7 +110,7 @@ class RAGClient internal constructor(
 
     override fun close() {
         closeOwned {
-            runtimePool.close()
+            runtimeExecutor.close()
         }
     }
 }

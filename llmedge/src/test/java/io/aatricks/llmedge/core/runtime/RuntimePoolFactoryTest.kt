@@ -59,9 +59,9 @@ class RuntimePoolFactoryTest {
                     },
                 )
 
-            val first = pool.acquire("model", 1)
-            val reused = pool.acquire("model", 1)
-            val second = pool.acquire("model", 2)
+            val first = pool.coordinator.acquire("model", 1)
+            val reused = pool.coordinator.acquire("model", 1)
+            val second = pool.coordinator.acquire("model", 2)
 
             assertSame(first, reused)
             assertNotSame(first, second)

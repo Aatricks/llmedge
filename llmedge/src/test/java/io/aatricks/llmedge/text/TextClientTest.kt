@@ -182,7 +182,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 64), batchSize = 6)),
@@ -306,7 +306,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64), batchSize = 6)),
@@ -406,7 +406,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64))),
@@ -528,7 +528,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(streamBatchSize = 3)),
@@ -626,7 +626,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(streamBatchSize = 4)),
@@ -734,7 +734,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64))),
@@ -840,7 +840,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64))),
@@ -949,7 +949,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(promptThreads = 6, generationThreads = 2)),
@@ -1069,7 +1069,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = true, useFlashAttention = true)),
@@ -1178,7 +1178,7 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64))),

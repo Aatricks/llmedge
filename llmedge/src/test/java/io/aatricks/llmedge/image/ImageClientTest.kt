@@ -209,7 +209,7 @@ class ImageClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(),
@@ -340,7 +340,7 @@ class ImageClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = false)),
@@ -467,7 +467,7 @@ class ImageClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = true)),
@@ -622,14 +622,14 @@ class ImageClientTest {
         val edgeScope1 = LLMEdgeScope(this, 1)
         val edgeScope2 = LLMEdgeScope(this, 1)
         val client1 =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope1,
                 config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = true)),
                 resolver = DefaultModelRepository(),
             )
         val client2 =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope2,
                 config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = true)),
@@ -742,7 +742,7 @@ class ImageClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(),
@@ -835,7 +835,7 @@ class ImageClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(),
@@ -1012,7 +1012,7 @@ class ImageClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(),
@@ -1126,7 +1126,7 @@ class ImageClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = true)),
@@ -1241,7 +1241,7 @@ class ImageClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = true)),

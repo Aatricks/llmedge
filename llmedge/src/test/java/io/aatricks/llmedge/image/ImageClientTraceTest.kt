@@ -126,7 +126,7 @@ class ImageClientTraceTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            ImageClient(
+            ImageClient.forTesting(
                 context = context,
                 scope = edgeScope,
                 config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = true)),

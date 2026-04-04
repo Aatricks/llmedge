@@ -9,28 +9,28 @@ internal class ManagedRuntimeExecutor<TSpec, TOptions, TRuntime : ManagedRuntime
     suspend fun prepare(
         spec: TSpec,
         options: TOptions,
-    ): TRuntime = runtimePool.acquire(spec, options)
+    ): TRuntime = runtimePool.coordinator.acquire(spec, options)
 
     suspend fun acquire(
         spec: TSpec,
         options: TOptions,
-    ): TRuntime = runtimePool.acquire(spec, options)
+    ): TRuntime = runtimePool.coordinator.acquire(spec, options)
 
     suspend fun acquireDetailed(
         spec: TSpec,
         options: TOptions,
-    ): RuntimeAcquireResult<TRuntime> = runtimePool.acquireDetailed(spec, options)
+    ): RuntimeAcquireResult<TRuntime> = runtimePool.coordinator.acquireDetailed(spec, options)
 
     suspend fun loadDetached(
         spec: TSpec,
         options: TOptions,
-    ): TRuntime = runtimePool.loadDetached(spec, options)
+    ): TRuntime = runtimePool.coordinator.loadDetached(spec, options)
 
     fun invalidate(
         spec: TSpec,
         options: TOptions,
     ) {
-        runtimePool.invalidate(spec, options)
+        runtimePool.coordinator.invalidate(spec, options)
     }
 
     fun recordBackendFailureIfNeeded(
@@ -38,7 +38,7 @@ internal class ManagedRuntimeExecutor<TSpec, TOptions, TRuntime : ManagedRuntime
         options: TOptions,
         runtime: TRuntime,
         error: Throwable,
-    ): Boolean = runtimePool.recordBackendFailureIfNeeded(spec, options, runtime, error)
+    ): Boolean = runtimePool.coordinator.recordBackendFailureIfNeeded(spec, options, runtime, error)
 
     suspend fun <T> executeWithRetry(
         spec: TSpec,
@@ -46,7 +46,7 @@ internal class ManagedRuntimeExecutor<TSpec, TOptions, TRuntime : ManagedRuntime
         onRetry: ((RuntimeAcquireResult<TRuntime>, Throwable) -> Unit)? = null,
         execute: suspend (RuntimeExecutionContext<TRuntime>) -> T,
     ): T =
-        runtimePool.executeWithRuntimeRetry(
+        runtimePool.coordinator.executeWithRuntimeRetry(
             spec = spec,
             options = options,
             onRetry = onRetry,

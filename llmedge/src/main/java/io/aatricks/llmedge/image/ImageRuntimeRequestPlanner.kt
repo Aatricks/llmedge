@@ -9,6 +9,17 @@ internal data class PlannedDiffusionRuntimeRequest(
     val options: DiffusionLoadOptions,
 )
 
+internal sealed interface DiffusionExecutionPlan {
+    data class Direct(
+        val request: PlannedDiffusionRuntimeRequest,
+    ) : DiffusionExecutionPlan
+
+    data class Sequential(
+        val conditioningRequest: PlannedDiffusionRuntimeRequest,
+        val diffusionRequest: PlannedDiffusionRuntimeRequest,
+    ) : DiffusionExecutionPlan
+}
+
 internal object ImageRuntimeRequestPlanner {
     fun imageRequest(
         params: ImageGenerationRequest,
@@ -64,6 +75,21 @@ internal object ImageRuntimeRequestPlanner {
                     vaeDecodeOnly = params.initImage == null,
                 ),
         )
+
+    fun videoPlan(
+        params: VideoGenerationRequest,
+        config: LLMEdgeConfig,
+    ): DiffusionExecutionPlan =
+        if (params.forceSequentialLoad) {
+            DiffusionExecutionPlan.Sequential(
+                conditioningRequest = sequentialVideoConditioningRequest(params, config),
+                diffusionRequest = sequentialVideoDiffusionRequest(params, config),
+            )
+        } else {
+            DiffusionExecutionPlan.Direct(
+                request = directVideoRequest(params, config),
+            )
+        }
 
     fun sequentialVideoConditioningRequest(
         params: VideoGenerationRequest,

@@ -70,23 +70,6 @@ class ImageClient internal constructor(
     featureContext: FeatureContext,
     private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : OwnedFeatureClient(featureContext, ownedBootstrap) {
-    internal constructor(
-        context: Context,
-        scope: LLMEdgeScope,
-        config: LLMEdgeConfig,
-        resolver: ModelRepository,
-        ownedBootstrap: ClientBootstrapContext? = null,
-    ) : this(
-        featureContext =
-            FeatureContext(
-                appContext = context,
-                edgeScope = scope,
-                config = config,
-                modelRepository = resolver,
-            ),
-        ownedBootstrap = ownedBootstrap,
-    )
-
     companion object {
         private const val LOG_TAG = "ImageClient"
 
@@ -104,6 +87,25 @@ class ImageClient internal constructor(
                     ownedBootstrap = bootstrap,
                 )
             }
+
+        @JvmSynthetic
+        internal fun forTesting(
+            context: Context,
+            scope: LLMEdgeScope,
+            config: LLMEdgeConfig,
+            resolver: ModelRepository,
+            ownedBootstrap: ClientBootstrapContext? = null,
+        ): ImageClient =
+            ImageClient(
+                featureContext =
+                    FeatureContext(
+                        appContext = context,
+                        edgeScope = scope,
+                        config = config,
+                        modelRepository = resolver,
+                    ),
+                ownedBootstrap = ownedBootstrap,
+            )
 
         internal fun resetVideoVulkanBlacklistForTests() {
             BackendRuntimePolicy.resetForTests()

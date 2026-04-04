@@ -18,7 +18,7 @@ internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
     private val candidateRequest: (TOptions) -> BackendCandidateResolver.Request,
     loadMutex: Mutex = Mutex(),
 ) : AutoCloseable {
-    private val coordinator =
+    internal val coordinator =
         RuntimeCoordinator(
             cache = cache,
             cacheKeyPrefix = cacheKeyPrefix,
@@ -27,35 +27,6 @@ internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
             candidateRequest = candidateRequest,
             loadMutex = loadMutex,
         )
-
-    suspend fun acquire(
-        spec: TSpec,
-        options: TOptions,
-    ): TRuntime = coordinator.acquire(spec, options)
-
-    suspend fun acquireDetailed(
-        spec: TSpec,
-        options: TOptions,
-    ): RuntimeAcquireResult<TRuntime> = coordinator.acquireDetailed(spec, options)
-
-    suspend fun loadDetached(
-        spec: TSpec,
-        options: TOptions,
-    ): TRuntime = coordinator.loadDetached(spec, options)
-
-    fun invalidate(
-        spec: TSpec,
-        options: TOptions,
-    ) {
-        coordinator.invalidate(spec, options)
-    }
-
-    fun recordBackendFailureIfNeeded(
-        spec: TSpec,
-        options: TOptions,
-        runtime: TRuntime,
-        error: Throwable,
-    ): Boolean = coordinator.recordBackendFailureIfNeeded(spec, options, runtime, error)
 
     override fun close() {
         cache.clear()

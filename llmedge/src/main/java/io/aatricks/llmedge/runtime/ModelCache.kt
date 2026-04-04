@@ -67,14 +67,15 @@ class ModelCache<T : AutoCloseable>(
     private val evictions = AtomicInteger(0)
 
     /**
-     * Get model from cache. Uses read lock for the common hit path and only
-     * upgrades to write lock when entry metadata needs updating (LRU access order).
+     * Get model from cache.
+     *
+     * Access-order [LinkedHashMap] updates must happen under the write lock,
+     * so cache reads intentionally take the write lock to keep LRU ordering and
+     * entry-size refresh consistent.
      * @return model if found, null otherwise
      */
     fun get(key: String): T? {
-        // Fast read-lock path: check existence
         val entry = lock.write {
-            // LinkedHashMap access-order update requires write lock, but stats are atomic
             val e = cache[key]
             if (e != null) {
                 refreshEntrySize(e)

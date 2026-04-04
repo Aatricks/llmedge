@@ -705,6 +705,7 @@ class SmolLM private constructor(
     internal fun setThreadAffinityForLoad(modelPtr: Long, coreMask: Long) =
         setThreadAffinity(modelPtr, coreMask)
 
+    @JvmName("loadModel")
     internal external fun loadModel(
             modelPath: String,
             minP: Float,
@@ -722,37 +723,49 @@ class SmolLM private constructor(
             nGpuLayers: Int,
     ): Long
 
+    @JvmName("setReasoningOptions")
     internal external fun setReasoningOptions(
             modelPtr: Long,
             disableThinking: Boolean,
             reasoningBudget: Int,
     )
 
+    @JvmName("addChatMessage")
     internal external fun addChatMessage(
             modelPtr: Long,
             message: String,
             role: String,
     )
 
+    @JvmName("getResponseGenerationSpeed")
     internal external fun getResponseGenerationSpeed(modelPtr: Long): Float
 
+    @JvmName("getResponseGeneratedTokenCount")
     internal external fun getResponseGeneratedTokenCount(modelPtr: Long): Long
 
+    @JvmName("getResponseGenerationDurationMicros")
     internal external fun getResponseGenerationDurationMicros(modelPtr: Long): Long
 
+    @JvmName("nativeGetLastGenerationMetrics")
     internal external fun nativeGetLastGenerationMetrics(modelPtr: Long): LongArray?
 
+    @JvmName("nativeHasVulkanBackendSupport")
     internal external fun nativeHasVulkanBackendSupport(): Boolean
 
+    @JvmName("nativeConfigureThreading")
     internal external fun nativeConfigureThreading(modelPtr: Long, generationThreads: Int, promptThreads: Int)
 
+    @JvmName("nativeGetEstimatedMemoryBytes")
     internal external fun nativeGetEstimatedMemoryBytes(modelPtr: Long): Long
 
+    @JvmName("nativeGetEstimatedStateMemoryBytes")
     internal external fun nativeGetEstimatedStateMemoryBytes(modelPtr: Long): Long
 
+    @JvmName("getContextSizeUsed")
     internal external fun getContextSizeUsed(modelPtr: Long): Int
 
     // Return native llama_model* pointer for advanced native integrations (do not free)
+    @JvmName("getNativeModelPtr")
     internal external fun getNativeModelPtr(modelPtr: Long): Long
 
     /**
@@ -766,6 +779,7 @@ class SmolLM private constructor(
     }
 
     // Decode embeddings prepared by the projector (raw floats) without loading mmproj
+    @JvmName("nativeDecodePreparedEmbeddings")
     internal external fun nativeDecodePreparedEmbeddings(
             modelPtr: Long,
             embdPath: String,
@@ -774,6 +788,7 @@ class SmolLM private constructor(
     ): Boolean
 
     // Buffer-based embedding decoding: accepts float array + metadata directly
+    @JvmName("nativeDecodeEmbeddingsBuffer")
     internal external fun nativeDecodeEmbeddingsBuffer(
             modelPtr: Long,
             embeddings: FloatArray,
@@ -785,6 +800,7 @@ class SmolLM private constructor(
             useNonCausal: Boolean,
             nBatch: Int
     ): Boolean
+    @JvmName("nativePrimeImageBuffer")
     internal external fun nativePrimeImageBuffer(
             modelPtr: Long,
             projectorNativePtr: Long,
@@ -793,11 +809,17 @@ class SmolLM private constructor(
     ): Boolean
 
     // State persistence helpers (KV cache and other context state)
+    @JvmName("nativeGetStateBytes")
     internal external fun nativeGetStateBytes(modelPtr: Long): ByteArray?
+    @JvmName("nativeSetStateBytes")
     internal external fun nativeSetStateBytes(modelPtr: Long, state: ByteArray): Boolean
+    @JvmName("nativeGetSequenceStateBytes")
     internal external fun nativeGetSequenceStateBytes(modelPtr: Long, seqId: Int): ByteArray?
+    @JvmName("nativeSetSequenceStateBytes")
     internal external fun nativeSetSequenceStateBytes(modelPtr: Long, seqId: Int, state: ByteArray): Boolean
+    @JvmName("nativeClearKvCache")
     internal external fun nativeClearKvCache(modelPtr: Long)
+    @JvmName("nativeClearMessages")
     internal external fun nativeClearMessages(modelPtr: Long)
 
     /**
@@ -863,19 +885,25 @@ class SmolLM private constructor(
         SmolLMStateSupport.clearMessages(this)
     }
 
+    @JvmName("close")
     internal external fun close(modelPtr: Long)
 
+    @JvmName("startCompletion")
     internal external fun startCompletion(
             modelPtr: Long,
             prompt: String,
     )
 
+    @JvmName("completionLoop")
     internal external fun completionLoop(modelPtr: Long): String
 
+    @JvmName("completionLoopBatch")
     internal external fun completionLoopBatch(modelPtr: Long, maxTokens: Int): String
 
+    @JvmName("completionLoopBatchBytes")
     internal external fun completionLoopBatchBytes(modelPtr: Long, maxTokens: Int): ByteArray?
 
+    @JvmName("stopCompletion")
     internal external fun stopCompletion(modelPtr: Long)
 
     private external fun setThreadAffinity(modelPtr: Long, coreMask: Long)

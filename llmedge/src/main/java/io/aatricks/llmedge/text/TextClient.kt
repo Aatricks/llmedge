@@ -61,23 +61,6 @@ class TextClient internal constructor(
     featureContext: FeatureContext,
     private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : OwnedFeatureClient(featureContext, ownedBootstrap) {
-    internal constructor(
-        context: Context,
-        scope: LLMEdgeScope,
-        config: LLMEdgeConfig,
-        modelResolver: ModelRepository,
-        ownedBootstrap: ClientBootstrapContext? = null,
-    ) : this(
-        featureContext =
-            FeatureContext(
-                appContext = context,
-                edgeScope = scope,
-                config = config,
-                modelRepository = modelResolver,
-            ),
-        ownedBootstrap = ownedBootstrap,
-    )
-
     companion object {
         private const val LOG_TAG = "TextClient"
         /** Cap for chat state snapshots — skip snapshotting if state exceeds 64 MB. */
@@ -97,6 +80,25 @@ class TextClient internal constructor(
                     ownedBootstrap = bootstrap,
                 )
             }
+
+        @JvmSynthetic
+        internal fun forTesting(
+            context: Context,
+            scope: LLMEdgeScope,
+            config: LLMEdgeConfig,
+            modelResolver: ModelRepository,
+            ownedBootstrap: ClientBootstrapContext? = null,
+        ): TextClient =
+            TextClient(
+                featureContext =
+                    FeatureContext(
+                        appContext = context,
+                        edgeScope = scope,
+                        config = config,
+                        modelRepository = modelResolver,
+                    ),
+                ownedBootstrap = ownedBootstrap,
+            )
     }
 
     @Volatile

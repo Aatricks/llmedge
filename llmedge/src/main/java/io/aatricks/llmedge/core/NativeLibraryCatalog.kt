@@ -5,21 +5,21 @@ import java.io.File
 import java.io.FileNotFoundException
 
 internal object NativeLibraryCatalog {
-    const val SMOLLM = "smollm"
-    const val SMOLLM_V7A = "smollm_v7a"
-    const val SMOLLM_V8 = "smollm_v8"
-    const val SMOLLM_V8_2_FP16 = "smollm_v8_2_fp16"
-    const val SMOLLM_V8_2_FP16_DOTPROD = "smollm_v8_2_fp16_dotprod"
-    const val SMOLLM_V8_4_FP16_DOTPROD = "smollm_v8_4_fp16_dotprod"
-    const val SMOLLM_V8_4_FP16_DOTPROD_SVE = "smollm_v8_4_fp16_dotprod_sve"
-    const val SMOLLM_V8_4_FP16_DOTPROD_I8MM = "smollm_v8_4_fp16_dotprod_i8mm"
-    const val SMOLLM_V8_4_FP16_DOTPROD_I8MM_SVE = "smollm_v8_4_fp16_dotprod_i8mm_sve"
-    const val STABLE_DIFFUSION = "sdcpp"
+    val SMOLLM: String = NativeTargetNames.SMOLLM
+    val SMOLLM_V7A: String = NativeTargetNames.SMOLLM_V7A
+    val SMOLLM_V8: String = NativeTargetNames.SMOLLM_V8
+    val SMOLLM_V8_2_FP16: String = NativeTargetNames.SMOLLM_V8_2_FP16
+    val SMOLLM_V8_2_FP16_DOTPROD: String = NativeTargetNames.SMOLLM_V8_2_FP16_DOTPROD
+    val SMOLLM_V8_4_FP16_DOTPROD: String = NativeTargetNames.SMOLLM_V8_4_FP16_DOTPROD
+    val SMOLLM_V8_4_FP16_DOTPROD_SVE: String = NativeTargetNames.SMOLLM_V8_4_FP16_DOTPROD_SVE
+    val SMOLLM_V8_4_FP16_DOTPROD_I8MM: String = NativeTargetNames.SMOLLM_V8_4_FP16_DOTPROD_I8MM
+    val SMOLLM_V8_4_FP16_DOTPROD_I8MM_SVE: String = NativeTargetNames.SMOLLM_V8_4_FP16_DOTPROD_I8MM_SVE
+    val STABLE_DIFFUSION: String = NativeTargetNames.SDCPP
     const val WHISPER = "whisper"
     const val WHISPER_JNI = "whisper_jni"
     const val WHISPER_ARM64 = "whisper_arm64"
-    const val BARK = "bark_jni"
-    const val GGUF_READER = "ggufreader"
+    val BARK: String = NativeTargetNames.BARK_JNI
+    val GGUF_READER: String = NativeTargetNames.GGUF_READER
 
     /** Cached CPU features string — read /proc/cpuinfo only once. */
     private val cachedCpuFeatures: String by lazy { readCpuFeaturesFromProc() }

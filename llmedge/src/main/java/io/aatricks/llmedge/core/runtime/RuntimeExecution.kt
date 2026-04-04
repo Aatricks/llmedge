@@ -26,7 +26,7 @@ internal suspend inline fun <TRuntime : ManagedRuntime, TResult> TRuntime.runExc
         execute(this@runExclusive)
     }
 
-internal suspend fun <TSpec, TOptions, TRuntime : ManagedRuntime, TResult> RuntimePool<TSpec, TOptions, TRuntime>.executeWithRuntimeRetry(
+internal suspend fun <TSpec, TOptions, TRuntime : ManagedRuntime, TResult> RuntimeCoordinator<TSpec, TOptions, TRuntime>.executeWithRuntimeRetry(
     spec: TSpec,
     options: TOptions,
     onRetry: ((RuntimeAcquireResult<TRuntime>, Throwable) -> Unit)? = null,

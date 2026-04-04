@@ -31,13 +31,21 @@ internal class VideoGenerationExecutor(
                         val frames =
                             generationMutex.withLock {
                                 state.lastGenerationMetrics = null
-                                if (params.forceSequentialLoad) {
-                                    generateSequentially(params) { message, current, total ->
-                                        emitProgress(producer, message, current, total)
+                                when (val plan = ImageRuntimeRequestPlanner.videoPlan(params, config)) {
+                                    is DiffusionExecutionPlan.Direct -> {
+                                        generateDirect(params, plan.request) { message, current, total ->
+                                            emitProgress(producer, message, current, total)
+                                        }
                                     }
-                                } else {
-                                    generateDirect(params) { message, current, total ->
-                                        emitProgress(producer, message, current, total)
+
+                                    is DiffusionExecutionPlan.Sequential -> {
+                                        generateSequentially(
+                                            params = params,
+                                            conditioningRequest = plan.conditioningRequest,
+                                            diffusionRequest = plan.diffusionRequest,
+                                        ) { message, current, total ->
+                                            emitProgress(producer, message, current, total)
+                                        }
                                     }
                                 }
                             }
@@ -68,9 +76,9 @@ internal class VideoGenerationExecutor(
 
     private suspend fun generateDirect(
         params: VideoGenerationRequest,
+        request: PlannedDiffusionRuntimeRequest,
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): List<Bitmap> {
-        val request = ImageRuntimeRequestPlanner.directVideoRequest(params, config)
         return requestExecutor.withRuntimeModel(
             spec = request.spec,
             options = request.options,
@@ -99,10 +107,10 @@ internal class VideoGenerationExecutor(
 
     private suspend fun generateSequentially(
         params: VideoGenerationRequest,
+        conditioningRequest: PlannedDiffusionRuntimeRequest,
+        diffusionRequest: PlannedDiffusionRuntimeRequest,
         onProgress: ((String, Int, Int) -> Unit)? = null,
     ): List<Bitmap> {
-        val conditioningRequest =
-            ImageRuntimeRequestPlanner.sequentialVideoConditioningRequest(params, config)
         val conditioning =
             requestExecutor.withRuntimeModel(
                 spec = conditioningRequest.spec,
@@ -131,8 +139,6 @@ internal class VideoGenerationExecutor(
                     }
                 cond to uncond
             }
-
-        val diffusionRequest = ImageRuntimeRequestPlanner.sequentialVideoDiffusionRequest(params, config)
         return requestExecutor.withRuntimeModel(
             spec = diffusionRequest.spec,
             options = diffusionRequest.options,
