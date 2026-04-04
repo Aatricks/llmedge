@@ -1,12 +1,15 @@
 package io.aatricks.llmedge
 
 import android.content.Context
+import io.aatricks.llmedge.core.ClientBootstrap
+import io.aatricks.llmedge.core.ClientBootstrapContext
+import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.runtime.RuntimeCapabilities
 import io.aatricks.llmedge.image.ImageClient
-import io.aatricks.llmedge.model.DefaultModelResolver
-import io.aatricks.llmedge.model.HuggingFaceModelStore
-import io.aatricks.llmedge.model.ModelManager
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.model.BoundModelRepository
+import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.rag.RAGClient
 import io.aatricks.llmedge.speech.SpeechClient
 import io.aatricks.llmedge.text.TextClient
@@ -32,14 +35,50 @@ class LLMEdge private constructor(
     private val appContext: Context,
     private val edgeScope: LLMEdgeScope,
     val config: LLMEdgeConfig,
-    private val resolver: ModelResolver,
+    private val modelRepository: ModelRepository,
+    private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : AutoCloseable {
-    val models: ModelManager = ModelManager(appContext, resolver)
-    val text: TextClient = TextClient(appContext, edgeScope, config, resolver)
-    val speech: SpeechClient = SpeechClient(appContext, edgeScope, config, resolver)
-    val image: ImageClient = ImageClient(appContext, edgeScope, config, resolver)
-    val vision: VisionClient = VisionClient(appContext, VisionPipeline(appContext, resolver, config), config)
-    val rag: RAGClient = RAGClient(appContext, edgeScope, config, resolver)
+    private val featureContext =
+        FeatureContext(
+            appContext = appContext,
+            edgeScope = edgeScope,
+            config = config,
+            modelRepository = modelRepository,
+        )
+    private val modelsDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        BoundModelRepository(appContext, modelRepository)
+    }
+    private val textDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        TextClient(featureContext)
+    }
+    private val speechDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        SpeechClient(featureContext)
+    }
+    private val imageDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        ImageClient(featureContext)
+    }
+    private val visionDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        VisionClient(
+            featureContext = featureContext,
+            pipeline = VisionPipeline(featureContext),
+        )
+    }
+    private val ragDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        RAGClient(featureContext)
+    }
+
+    val models: BoundModelRepository
+        get() = modelsDelegate.value
+    val text: TextClient
+        get() = textDelegate.value
+    val speech: SpeechClient
+        get() = speechDelegate.value
+    val image: ImageClient
+        get() = imageDelegate.value
+    val vision: VisionClient
+        get() = visionDelegate.value
+    val rag: RAGClient
+        get() = ragDelegate.value
 
     override fun close() {
         var failure: Throwable? = null
@@ -56,12 +95,16 @@ class LLMEdge private constructor(
             }
         }
 
-        closeSafely(rag)
-        closeSafely(vision)
-        closeSafely(image)
-        closeSafely(speech)
-        closeSafely(text)
-        closeSafely(edgeScope)
+        if (ragDelegate.isInitialized()) closeSafely(ragDelegate.value)
+        if (visionDelegate.isInitialized()) closeSafely(visionDelegate.value)
+        if (imageDelegate.isInitialized()) closeSafely(imageDelegate.value)
+        if (speechDelegate.isInitialized()) closeSafely(speechDelegate.value)
+        if (textDelegate.isInitialized()) closeSafely(textDelegate.value)
+        if (ownedBootstrap != null) {
+            closeSafely(ownedBootstrap)
+        } else {
+            closeSafely(edgeScope)
+        }
 
         failure?.let { throw IllegalStateException("Failed to close LLMEdge cleanly", it) }
     }
@@ -79,42 +122,25 @@ class LLMEdge private constructor(
             context: Context,
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
-            resolver: ModelResolver = DefaultModelResolver(HuggingFaceModelStore()),
-        ): LLMEdge {
-            val appContext = context.applicationContext
-            val edgeScope = LLMEdgeScope(scope, config.defaultTextThreads.coerceAtLeast(1))
-            return LLMEdge(appContext, edgeScope, config, resolver)
-        }
+            modelRepository: ModelRepository = DefaultModelRepository(),
+        ): LLMEdge =
+            ClientBootstrap.createOwned(context, scope, config.execution.inferenceThreads) { bootstrap ->
+                LLMEdge(
+                    appContext = bootstrap.appContext,
+                    edgeScope = bootstrap.edgeScope,
+                    config = config,
+                    modelRepository = modelRepository,
+                    ownedBootstrap = bootstrap,
+                )
+            }
 
         @JvmStatic
-        fun isVulkanAvailable(): Boolean {
-            val deviceCount = StableDiffusion.getVulkanDeviceCount()
-            if (deviceCount <= 0) {
-                return false
-            }
-            val memory = StableDiffusion.getVulkanDeviceMemory(0) ?: return false
-            return memory.size >= 2
-        }
+        fun isVulkanAvailable(): Boolean = RuntimeCapabilities.isStableDiffusionVulkanAvailable()
 
         @JvmStatic
-        fun isOpenClAvailable(): Boolean = StableDiffusion.isOpenClAvailable()
+        fun isOpenClAvailable(): Boolean = RuntimeCapabilities.isStableDiffusionOpenClAvailable()
 
         @JvmStatic
-        fun getVulkanDeviceInfo(): VulkanDeviceInfo? {
-            val deviceCount = StableDiffusion.getVulkanDeviceCount()
-            if (deviceCount <= 0) {
-                return null
-            }
-            val memory = StableDiffusion.getVulkanDeviceMemory(0) ?: return null
-            if (memory.size < 2) {
-                return null
-            }
-            return VulkanDeviceInfo(
-                deviceCount = deviceCount,
-                freeMemoryMB = memory[0] / (1024 * 1024),
-                totalMemoryMB = memory[1] / (1024 * 1024),
-                deviceIndex = 0,
-            )
-        }
+        fun getVulkanDeviceInfo(): VulkanDeviceInfo? = RuntimeCapabilities.getStableDiffusionVulkanDeviceInfo()
     }
 }

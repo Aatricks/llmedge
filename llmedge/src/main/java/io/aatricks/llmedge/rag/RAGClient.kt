@@ -3,16 +3,23 @@ package io.aatricks.llmedge.rag
 import android.content.Context
 import android.net.Uri
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.text.runtime.SmolLM
+import io.aatricks.llmedge.core.ClientBootstrapContext
+import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.model.ModelResolver
-import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.core.OwnedFeatureClient
+import io.aatricks.llmedge.core.featureClientFactory
 import io.aatricks.llmedge.text.TextModelOptions
-import io.aatricks.llmedge.text.toInferenceParams
+import io.aatricks.llmedge.text.ManagedTextModel
+import io.aatricks.llmedge.text.createTextRuntimePool
+import io.aatricks.llmedge.text.runtime.SmolLM
+import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelRepository
+import io.aatricks.llmedge.model.ModelSpec
+import kotlinx.coroutines.CoroutineScope
 
 class RAGSession internal constructor(
     val engine: RAGEngine,
-    private val model: SmolLM,
+    private val runtime: ManagedTextModel,
 ) : AutoCloseable {
     suspend fun init() {
         engine.init()
@@ -29,19 +36,42 @@ class RAGSession internal constructor(
     suspend fun retrievalPreview(question: String, topK: Int = 5): String =
         engine.retrievalPreview(question, topK)
 
-    fun getLastGenerationMetrics(): SmolLM.GenerationMetrics = model.getLastGenerationMetrics()
+    fun getLastGenerationMetrics(): SmolLM.GenerationMetrics = runtime.model.getLastGenerationMetrics()
 
     override fun close() {
-        model.close()
+        runtime.close()
     }
 }
 
 class RAGClient internal constructor(
-    private val context: Context,
-    private val scope: LLMEdgeScope,
-    private val config: LLMEdgeConfig,
-    private val resolver: ModelResolver,
-) : AutoCloseable {
+    featureContext: FeatureContext,
+    private val ownedBootstrap: ClientBootstrapContext? = null,
+) : OwnedFeatureClient(featureContext, ownedBootstrap) {
+    companion object {
+        private val FACTORY = featureClientFactory(::RAGClient)
+
+        @JvmStatic
+        @JvmOverloads
+        fun create(
+            context: Context,
+            scope: CoroutineScope,
+            config: LLMEdgeConfig = LLMEdgeConfig(),
+            modelRepository: ModelRepository = DefaultModelRepository(),
+        ): RAGClient = FACTORY.create(context, scope, config, modelRepository, Unit)
+
+        @JvmSynthetic
+        internal fun forTesting(
+            context: Context,
+            scope: LLMEdgeScope,
+            config: LLMEdgeConfig,
+            resolver: ModelRepository,
+            ownedBootstrap: ClientBootstrapContext? = null,
+        ): RAGClient =
+            FACTORY.forTesting(context, scope, config, resolver, Unit, ownedBootstrap)
+    }
+
+    private val runtimePool = createTextRuntimePool(appContext, edgeScope, config, modelRepository)
+
     /**
      * Create a new retrieval-augmented generation session backed by a dedicated [SmolLM] instance.
      *
@@ -55,16 +85,18 @@ class RAGClient internal constructor(
         splitter: TextSplitter = TextSplitter(),
         options: TextModelOptions = TextModelOptions(),
     ): RAGSession {
-        val file = resolver.resolve(context, model)
-        val smol = SmolLM(useVulkan = options.useVulkan ?: config.textUseVulkan)
-        smol.load(file.absolutePath, options.toInferenceParams(config))
+        val runtime = runtimePool.loadDetached(model, options)
         val session =
             RAGSession(
-                engine = RAGEngine(context, smol, splitter = splitter, embeddingConfig = embeddingConfig),
-                model = smol,
+                engine = RAGEngine(appContext, runtime.model, splitter = splitter, embeddingConfig = embeddingConfig),
+                runtime = runtime,
             )
-        return scope.resources.register(session)
+        return edgeScope.resources.register(session)
     }
 
-    override fun close() = Unit
+    override fun close() {
+        closeOwned {
+            runtimePool.close()
+        }
+    }
 }

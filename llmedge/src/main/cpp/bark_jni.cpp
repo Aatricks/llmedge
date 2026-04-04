@@ -15,6 +15,7 @@
 #include <cstring>
 #include <cmath>
 
+#include "jni_utils.h"
 #include "jni_thread_cache.h"
 
 #if __has_include(<android/log.h>)
@@ -56,16 +57,13 @@ struct BarkHandle {
 };
 
 static void throwJavaException(JNIEnv* env, const char* className, const char* message) {
-    if (!env) return;
-    jclass exClass = env->FindClass(className);
-    if (!exClass) return;
-    env->ThrowNew(exClass, message);
+    llmedge_throw_java_exception(env, className, message);
 }
 
 static BarkHandle* requireBarkHandle(JNIEnv* env, jlong handlePtr, const char* message) {
     auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
     if (!handle || !handle->ctx) {
-        throwJavaException(env, "java/lang/IllegalStateException", message);
+        llmedge_throw_java_exception(env, "java/lang/IllegalStateException", message);
         return nullptr;
     }
     return handle;
@@ -170,9 +168,7 @@ Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeDestroy(JNIEnv* env, jclass, j
 
     std::lock_guard<std::mutex> lock(handle->mutex);
 
-    if (handle->progressCallbackGlobalRef && env) {
-        env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
-    }
+    llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
 
     if (handle->ctx) {
         bark_free(handle->ctx);
@@ -193,19 +189,26 @@ Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeSetProgressCallback(JNIEnv* en
 
     // Clear existing callback
     if (handle->progressCallbackGlobalRef) {
-        env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
-        handle->progressCallbackGlobalRef = nullptr;
+        llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
         handle->progressMethodID = nullptr;
     }
 
     if (callback) {
-        handle->progressCallbackGlobalRef = env->NewGlobalRef(callback);
-        jclass callbackClass = env->GetObjectClass(callback);
-        handle->progressMethodID = env->GetMethodID(callbackClass, "onProgress", "(II)V");
-        env->DeleteLocalRef(callbackClass);
+        handle->progressCallbackGlobalRef =
+                llmedge_new_global_ref_or_throw(
+                        env,
+                        callback,
+                        "Unable to hold Bark progress callback reference");
+        handle->progressMethodID =
+                llmedge_get_callback_method(
+                        env,
+                        callback,
+                        "onProgress",
+                        "(II)V",
+                        "java/lang/NoSuchMethodError",
+                        "onProgress(II)V method not found");
         if (!handle->progressMethodID) {
-            env->DeleteGlobalRef(handle->progressCallbackGlobalRef);
-            handle->progressCallbackGlobalRef = nullptr;
+            llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
             ALOGE("Failed to find onProgress(II)V method on Bark progress callback");
         }
     }

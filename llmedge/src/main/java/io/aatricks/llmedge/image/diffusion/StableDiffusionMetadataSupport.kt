@@ -1,6 +1,7 @@
 package io.aatricks.llmedge.image.diffusion
 
 import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.model.GgufModelMetadataSupport
 import java.io.File
 import java.util.Locale
 
@@ -45,15 +46,17 @@ internal object StableDiffusionMetadataSupport {
 
         val filename = explicitFilename ?: resolvedModelPath.substringAfterLast('/')
         val lowerName = filename.lowercase(Locale.US)
+        val ggufMetadata = GgufModelMetadataSupport.inspect(resolvedModelPath)
         val tags = mutableSetOf<String>()
 
         AndroidLogAdapter.d(
             LOG_TAG,
-            "Using filename-based video model detection for: $resolvedModelPath",
+            "Inferring video model metadata for $resolvedModelPath using hints/metadata before filename fallback",
         )
 
         val architecture =
             when {
+                !ggufMetadata?.architecture.isNullOrBlank() -> ggufMetadata?.architecture
                 !modelId.isNullOrBlank() -> modelId
                 lowerName.contains("hunyuan") -> "hunyuan_video"
                 lowerName.contains("wan") -> "wan"
@@ -62,14 +65,15 @@ internal object StableDiffusionMetadataSupport {
 
         val modelType =
             when {
-                lowerName.contains("ti2v") -> "ti2v"
-                lowerName.contains("i2v") -> "i2v"
-                lowerName.contains("t2v") -> "t2v"
+                containsIgnoreCase(ggufMetadata?.modelName, "ti2v") || lowerName.contains("ti2v") -> "ti2v"
+                containsIgnoreCase(ggufMetadata?.modelName, "i2v") || lowerName.contains("i2v") -> "i2v"
+                containsIgnoreCase(ggufMetadata?.modelName, "t2v") || lowerName.contains("t2v") -> "t2v"
                 else -> null
             }
 
         val parameterCount =
             when {
+                !ggufMetadata?.parameterCount.isNullOrBlank() -> ggufMetadata?.parameterCount
                 lowerName.contains("1.3b") || lowerName.contains("1_3b") -> "1.3B"
                 lowerName.contains("5b") || lowerName.contains("5_b") -> "5B"
                 lowerName.contains("14b") || lowerName.contains("14_b") -> "14B"
@@ -83,11 +87,17 @@ internal object StableDiffusionMetadataSupport {
                 else -> true
             }
 
-        if (lowerName.contains("wan")) tags += "wan"
-        if (lowerName.contains("video") || modelType in listOf("t2v", "i2v", "ti2v")) {
+        if (containsIgnoreCase(ggufMetadata?.architecture, "wan") || lowerName.contains("wan")) tags += "wan"
+        if (
+            containsIgnoreCase(ggufMetadata?.modelName, "video") ||
+            lowerName.contains("video") ||
+            modelType in listOf("t2v", "i2v", "ti2v")
+        ) {
             tags += "text-to-video"
         }
-        if (lowerName.contains("hunyuan")) tags += "hunyuan"
+        if (containsIgnoreCase(ggufMetadata?.architecture, "hunyuan") || lowerName.contains("hunyuan")) {
+            tags += "hunyuan"
+        }
 
         return VideoModelMetadata(
             architecture = architecture,
@@ -120,6 +130,11 @@ internal object StableDiffusionMetadataSupport {
         if (value.isEmpty()) return false
         return videoKeywords.any { keyword -> value.contains(keyword) }
     }
+
+    private fun containsIgnoreCase(
+        value: String?,
+        needle: String,
+    ): Boolean = value?.contains(needle, ignoreCase = true) == true
 
     fun supportsEasyCache(metadata: VideoModelMetadata): Boolean {
         val candidates =

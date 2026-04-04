@@ -10,6 +10,11 @@ import java.io.InputStream
 data class WanModelEntry(
     val modelId: String,
     val filename: String,
+    val architecture: String? = null,
+    val modelType: String? = null,
+    val mobileSupported: Boolean = true,
+    val recommendedMinRAM: String? = null,
+    val description: String? = null,
     val quantization: String? = null,
     val t5ModelId: String? = null,
     val t5Filename: String? = null,
@@ -18,14 +23,26 @@ data class WanModelEntry(
 )
 
 object WanModelRegistry {
+    private const val ASSET_NAME = "wan-models/model-registry.json"
     private val json = Json { ignoreUnknownKeys = true }
+    private val cacheLock = Any()
+    private val cachedEntriesByAssets = mutableMapOf<Int, List<WanModelEntry>>()
 
     fun loadFromAssets(context: Context): List<WanModelEntry> {
-        // Asset name for model registry
-        val assetName = "wan-models/model-registry.json"
-        val input: InputStream = context.assets.open(assetName)
+        val assetManager = context.assets
+        val cacheKey = System.identityHashCode(assetManager)
+
+        synchronized(cacheLock) {
+            cachedEntriesByAssets[cacheKey]?.let { return it }
+        }
+
+        val input: InputStream = assetManager.open(ASSET_NAME)
         val text = input.bufferedReader().use { it.readText() }
-        return json.decodeFromString(text)
+        return json.decodeFromString<List<WanModelEntry>>(text).also { loaded ->
+            synchronized(cacheLock) {
+                cachedEntriesByAssets[cacheKey] = loaded
+            }
+        }
     }
 
     fun findById(context: Context, modelId: String): WanModelEntry? =

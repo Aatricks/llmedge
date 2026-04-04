@@ -1,6 +1,7 @@
 package io.aatricks.llmedge
 
 import android.graphics.Bitmap
+import io.aatricks.llmedge.core.InferenceFailedException
 import io.mockk.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -151,7 +152,7 @@ class VideoGenerationTest {
         val params = VideoGenerateParams(prompt = "fail") // Triggers null return
 
         val thrown = runCatching { sd.txt2vid(params) }.exceptionOrNull()
-        assertTrue(thrown is IllegalStateException)
+        assertTrue(thrown is InferenceFailedException)
 
         assertEquals("Video generation failed", thrown?.message)
     }

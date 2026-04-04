@@ -35,6 +35,15 @@ internal object StableDiffusionOutputSupport {
                 }
                 out
             }
+            in 1 until expectedRgb -> {
+                AndroidLogAdapter.w(
+                    logTag,
+                    "Frame is truncated (${bytes.size} bytes, expected $expectedRgb). Padding remaining RGB bytes with zeros.",
+                )
+                ByteArray(expectedRgb).also { out ->
+                    bytes.copyInto(out, endIndex = bytes.size)
+                }
+            }
             else -> {
                 throw IllegalArgumentException(
                     "Unexpected frame byte size=${bytes.size}. Expected $expectedRgb (RGB24) or $expectedRgba (RGBA32) for ${width}x${height}.",
@@ -159,6 +168,8 @@ internal object StableDiffusionOutputSupport {
             val runtime = Runtime.getRuntime()
             (runtime.totalMemory() - runtime.freeMemory()) / bytesInMb
         }
+
+    fun determineBatchSizeForTests(frameCount: Int): Int = determineBatchSize(frameCount)
 
     private fun computeAverageBrightnessRgb24(bytes: ByteArray): Double {
         var sum = 0L

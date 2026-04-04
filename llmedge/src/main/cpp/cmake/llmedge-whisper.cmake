@@ -43,6 +43,7 @@ set(WHISPER_GGML_SOURCES
 
 set(WHISPER_SOURCES
         ${WHISPER_DIR}/src/whisper.cpp
+        ${LLMEDGE_CPP_ROOT}/whisper_jni_common.cpp
         ${LLMEDGE_CPP_ROOT}/whisper_jni.cpp
 )
 
@@ -51,10 +52,10 @@ set(WHISPER_JNI_ALL_SOURCES
         ${WHISPER_SOURCES}
 )
 
-add_library(whisper_jni SHARED ${WHISPER_JNI_ALL_SOURCES})
+add_library(${LLMEDGE_TARGET_WHISPER_JNI} SHARED ${WHISPER_JNI_ALL_SOURCES})
 
-target_compile_definitions(whisper_jni PUBLIC GGML_USE_CPU)
-target_compile_definitions(whisper_jni PRIVATE
+target_compile_definitions(${LLMEDGE_TARGET_WHISPER_JNI} PUBLIC GGML_USE_CPU)
+target_compile_definitions(${LLMEDGE_TARGET_WHISPER_JNI} PRIVATE
         WHISPER_VERSION="1.0.0"
         GGML_VERSION="0.9.4"
         GGML_COMMIT="unknown"
@@ -62,12 +63,12 @@ target_compile_definitions(whisper_jni PRIVATE
 )
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-        target_compile_options(whisper_jni PRIVATE -march=armv8.2-a+fp16)
+        target_compile_options(${LLMEDGE_TARGET_WHISPER_JNI} PRIVATE -march=armv8.2-a+fp16)
 elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
-        target_compile_options(whisper_jni PRIVATE -mfpu=neon-vfpv4)
+        target_compile_options(${LLMEDGE_TARGET_WHISPER_JNI} PRIVATE -mfpu=neon-vfpv4)
 endif()
 
-target_include_directories(whisper_jni
+target_include_directories(${LLMEDGE_TARGET_WHISPER_JNI}
         PRIVATE
         ${WHISPER_DIR}/include
         ${WHISPER_DIR}/src
@@ -77,19 +78,19 @@ target_include_directories(whisper_jni
         ${WHISPER_GGML_DIR}/src/ggml-cpu/arch
 )
 
-target_compile_features(whisper_jni PUBLIC c_std_11 cxx_std_17)
+target_compile_features(${LLMEDGE_TARGET_WHISPER_JNI} PUBLIC c_std_11 cxx_std_17)
 
-target_compile_options(whisper_jni PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3 -fopenmp)
+target_compile_options(${LLMEDGE_TARGET_WHISPER_JNI} PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3 -fopenmp)
 
 if (LLMEDGE_OPENCL_ENABLED)
-        llmedge_enable_android_opencl(whisper_jni "${WHISPER_GGML_DIR}")
+        llmedge_enable_android_opencl(${LLMEDGE_TARGET_WHISPER_JNI} "${WHISPER_GGML_DIR}")
 endif()
 
-target_link_libraries(whisper_jni
+target_link_libraries(${LLMEDGE_TARGET_WHISPER_JNI}
         android log
         -fopenmp -static-openmp
 )
 
-target_link_options(whisper_jni PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+target_link_options(${LLMEDGE_TARGET_WHISPER_JNI} PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
 
 message(STATUS "Whisper.cpp JNI wrapper configured (direct source build with bundled ggml, OpenMP enabled)")

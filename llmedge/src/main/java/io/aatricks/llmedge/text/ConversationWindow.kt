@@ -1,16 +1,6 @@
 package io.aatricks.llmedge.text
+
 import kotlin.math.ceil
-
-enum class ConversationRole {
-    SYSTEM,
-    USER,
-    ASSISTANT,
-}
-
-data class ConversationMessage(
-    val role: ConversationRole,
-    val content: String,
-)
 
 data class ConversationWindow(
     val maxTurns: Int = 6,

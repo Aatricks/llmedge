@@ -2,12 +2,14 @@ package io.aatricks.llmedge.text
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import io.aatricks.llmedge.runtime.GGUFReader
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.text.runtime.SmolLM
+import io.aatricks.llmedge.RuntimeCacheConfig
+import io.aatricks.llmedge.TextRuntimeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.runtime.GGUFReader
+import io.aatricks.llmedge.text.runtime.SmolLM
 import java.io.File
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -73,7 +75,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -180,10 +182,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(textCacheSize = 2, textCacheMemoryMb = 64, defaultTextBatchSize = 6),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 64), batchSize = 6)),
                 modelResolver = resolver,
             )
 
@@ -214,7 +216,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -304,10 +306,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(textCacheSize = 1, textCacheMemoryMb = 64, defaultTextBatchSize = 6),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64), batchSize = 6)),
                 modelResolver = resolver,
             )
 
@@ -327,7 +329,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -404,10 +406,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(textCacheSize = 1, textCacheMemoryMb = 64),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64))),
                 modelResolver = resolver,
             )
 
@@ -436,7 +438,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -526,10 +528,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(defaultTextStreamBatchSize = 3),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(streamBatchSize = 3)),
                 modelResolver = resolver,
             )
 
@@ -550,7 +552,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -624,10 +626,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(defaultTextStreamBatchSize = 4),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(streamBatchSize = 4)),
                 modelResolver = resolver,
             )
 
@@ -655,7 +657,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -732,10 +734,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(textCacheSize = 1, textCacheMemoryMb = 64),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64))),
                 modelResolver = resolver,
             )
 
@@ -758,7 +760,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -838,10 +840,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(textCacheSize = 1, textCacheMemoryMb = 64),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64))),
                 modelResolver = resolver,
             )
 
@@ -867,7 +869,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -947,10 +949,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(defaultTextThreads = 6, defaultTextGenerationThreads = 2),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(promptThreads = 6, generationThreads = 2)),
                 modelResolver = resolver,
             )
 
@@ -975,7 +977,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -1067,10 +1069,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(textUseVulkan = true, defaultUseFlashAttention = true),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = true, useFlashAttention = true)),
                 modelResolver = resolver,
             )
 
@@ -1092,7 +1094,7 @@ class TextClientTest {
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =
-            object : ModelResolver {
+            object : ModelRepository {
                 override suspend fun resolve(
                     context: Context,
                     spec: ModelSpec,
@@ -1176,10 +1178,10 @@ class TextClientTest {
 
         val edgeScope = LLMEdgeScope(this, 1)
         val client =
-            TextClient(
+            TextClient.forTesting(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(textCacheSize = 1, textCacheMemoryMb = 64),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 64))),
                 modelResolver = resolver,
             )
 

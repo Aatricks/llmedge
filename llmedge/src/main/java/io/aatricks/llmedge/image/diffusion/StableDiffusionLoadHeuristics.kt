@@ -2,6 +2,7 @@ package io.aatricks.llmedge.image.diffusion
 
 import android.app.ActivityManager
 import android.content.Context
+import io.aatricks.llmedge.core.runtime.RuntimeCapabilities
 import io.aatricks.llmedge.model.ModelFileValidator
 import io.aatricks.llmedge.runtime.ComputeBackend
 
@@ -45,7 +46,7 @@ internal object StableDiffusionLoadHeuristics {
 
         val estimatedParamBytes =
             try {
-                val devIdx = if (StableDiffusion.getVulkanDeviceCount() > 0) 0 else -1
+                val devIdx = if (RuntimeCapabilities.isStableDiffusionVulkanAvailable()) 0 else -1
                 StableDiffusion.estimateModelParamsMemoryBytes(resolvedModelPath, devIdx)
             } catch (_: Throwable) {
                 0L

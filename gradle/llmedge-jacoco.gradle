@@ -1,0 +1,56 @@
+jacoco {
+    toolVersion = "0.8.11"
+}
+
+tasks.withType(Test).configureEach {
+    jacoco {
+        includeNoLocationClasses = true
+        excludes = ["jdk.internal.*"]
+    }
+}
+
+tasks.register("jacocoTestReport", org.gradle.testing.jacoco.tasks.JacocoReport) {
+    dependsOn("testDebugUnitTest")
+
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+
+        def reportsDir = layout.buildDirectory.dir("reports/jacoco/jacocoTestReport")
+        xml.outputLocation.set(reportsDir.map { it.file("jacocoTestReport.xml") })
+        html.outputLocation.set(reportsDir.map { it.dir("html") })
+    }
+
+    def fileFilter = [
+        '**/R.class',
+        '**/R$*.class',
+        '**/BuildConfig.*',
+        '**/Manifest*.*',
+        '**/*Test*.*',
+        '**/*$*Companion*',
+        '**/io/aatricks/llmedge/vision/**',
+        '**/io/aatricks/llmedge/vision/ocr/**',
+        '**/io/aatricks/llmedge/rag/**',
+        '**/io/aatricks/llmedge/huggingface/**',
+    ]
+
+    def classTrees = [
+        layout.buildDirectory.dir("intermediates/javac/debug/classes"),
+        layout.buildDirectory.dir("tmp/kotlin-classes/debug"),
+    ].collect { dirProvider ->
+        dirProvider.map { dir ->
+            fileTree(dir) {
+                include("io/aatricks/llmedge/**")
+                exclude(fileFilter)
+            }
+        }
+    }
+
+    classDirectories.setFrom(classTrees)
+    sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
+    executionData.setFrom(layout.buildDirectory.asFileTree.matching {
+        include("jacoco/testDebugUnitTest.exec")
+        include("outputs/unit_test_code_coverage/**/testDebugUnitTest.exec")
+        include("outputs/unit_test_code_coverage/**/*.ec")
+    })
+}

@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
-class HuggingFaceModelStoreTest {
+class DefaultModelRepositoryHuggingFaceTest {
     private lateinit var context: Context
 
     @Before
@@ -63,9 +63,9 @@ class HuggingFaceModelStoreTest {
             )
         } returns result
 
-        val store = HuggingFaceModelStore()
+        val repository = DefaultModelRepository()
         val resolved =
-            store.resolve(
+            repository.resolve(
                 context,
                 ModelSpec.HuggingFace(repoId = "repo/model", filename = "model.gguf"),
             )
@@ -103,9 +103,9 @@ class HuggingFaceModelStoreTest {
             )
         } returns result
 
-        val store = HuggingFaceModelStore()
+        val repository = DefaultModelRepository()
         val resolved =
-            store.resolve(
+            repository.resolve(
                 context,
                 ModelSpec.HuggingFace(repoId = "repo/model", filename = "model.bin"),
             )

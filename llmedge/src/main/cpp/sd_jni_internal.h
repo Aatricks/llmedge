@@ -2,6 +2,7 @@
 
 #include <jni.h>
 #include <atomic>
+#include <string>
 
 struct sd_ctx_t;
 
@@ -9,6 +10,7 @@ struct SdHandle {
     sd_ctx_t* ctx = nullptr;
     void* t5_ctx = nullptr; // Pointer to T5CLIPEmbedder for T5-only mode
     float flowShift = 0.0f;
+    std::string loraModelDir;
     int last_width = 0;
     int last_height = 0;
     JavaVM* jvm = nullptr;
@@ -26,7 +28,7 @@ struct SdHandle {
 void sd_jni_notify_frame_buffer_freed(const void* ptr);
 void sd_jni_notify_frame_array_freed(const void* ptr);
 #else
-#define SD_JNI_INTERNAL static
+#define SD_JNI_INTERNAL
 inline void sd_jni_notify_frame_buffer_freed(const void*) {}
 inline void sd_jni_notify_frame_array_freed(const void*) {}
 #endif

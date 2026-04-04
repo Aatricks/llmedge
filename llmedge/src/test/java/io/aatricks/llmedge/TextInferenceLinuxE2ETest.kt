@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
  *
  * Requirements to run:
  * - Build the native smollm library for Linux and place as llmedge/build/native/linux-x86_64/libsmollm.so
- *   (Use scripts/build_smollm_linux.sh).
+ *   (Use scripts/build_native_linux.sh smollm).
  * - Provide a test model path via environment variable LLMEDGE_TEST_TEXT_MODEL_PATH.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -57,6 +57,8 @@ class TextInferenceLinuxE2ETest {
         if (!libFile.exists()) {
              println("[TextInferenceLinuxE2ETest] Warning: $libPath does not exist. Test might fail if not in java.library.path")
         }
+        DesktopNativeTestSupport.requireEnabled()
+        DesktopNativeTestSupport.requireAndLoadLibrary(libPath)
 
         // Use Robolectric context (though SmolLM might not strictly need it for load, loadFromHuggingFace does)
         val context = org.robolectric.RuntimeEnvironment.getApplication() as Context

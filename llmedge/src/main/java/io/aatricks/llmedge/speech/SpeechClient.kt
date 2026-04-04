@@ -1,24 +1,19 @@
 package io.aatricks.llmedge.speech
 
 import android.content.Context
-import io.aatricks.llmedge.speech.tts.BarkTTS
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.runtime.BackendRuntimePolicy
-import io.aatricks.llmedge.runtime.ComputeBackend
-import io.aatricks.llmedge.runtime.ComputeSubsystem
-import io.aatricks.llmedge.runtime.ModelCache
-import io.aatricks.llmedge.speech.stt.Whisper
-import io.aatricks.llmedge.core.ModelCacheFactory
+import io.aatricks.llmedge.core.ClientBootstrapContext
+import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.core.OwnedFeatureClient
+import io.aatricks.llmedge.core.featureClientFactory
+import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
-import kotlinx.coroutines.channels.awaitClose
+import io.aatricks.llmedge.speech.stt.Whisper
+import io.aatricks.llmedge.speech.tts.BarkTTS
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 data class WhisperLoadOptions(
     val useGpu: Boolean = false,
@@ -51,50 +46,36 @@ class StreamingTranscriptionSession internal constructor(
     }
 }
 
-private class ManagedWhisperModel(
-    val fileSizeBytes: Long,
-    val whisper: Whisper,
-) : AutoCloseable {
-    val mutex: Mutex = Mutex()
-
-    override fun close() {
-        whisper.close()
-    }
-}
-
-private class ManagedBarkModel(
-    val fileSizeBytes: Long,
-    val bark: BarkTTS,
-) : AutoCloseable {
-    val mutex: Mutex = Mutex()
-
-    override fun close() {
-        bark.close()
-    }
-}
-
 class SpeechClient internal constructor(
-    private val context: Context,
-    private val scope: LLMEdgeScope,
-    private val config: LLMEdgeConfig,
-    private val resolver: ModelResolver,
-) : AutoCloseable {
-    private val whisperCache =
-        ModelCacheFactory.create<ManagedWhisperModel>(
-            context = context,
-            scope = scope,
-            maxCacheSize = config.speechCacheSize,
-            maxMemoryMB = config.speechCacheMemoryMb,
-        )
-    private val barkCache =
-        ModelCacheFactory.create<ManagedBarkModel>(
-            context = context,
-            scope = scope,
-            maxCacheSize = config.speechCacheSize,
-            maxMemoryMB = config.speechCacheMemoryMb,
-        )
-    private val whisperLoadMutex = Mutex()
-    private val barkLoadMutex = Mutex()
+    featureContext: FeatureContext,
+    private val ownedBootstrap: ClientBootstrapContext? = null,
+) : OwnedFeatureClient(featureContext, ownedBootstrap) {
+    companion object {
+        private val FACTORY = featureClientFactory(::SpeechClient)
+
+        @JvmStatic
+        @JvmOverloads
+        fun create(
+            context: Context,
+            scope: CoroutineScope,
+            config: LLMEdgeConfig = LLMEdgeConfig(),
+            modelRepository: ModelRepository = DefaultModelRepository(),
+        ): SpeechClient = FACTORY.create(context, scope, config, modelRepository, Unit)
+
+        @JvmSynthetic
+        internal fun forTesting(
+            context: Context,
+            scope: LLMEdgeScope,
+            config: LLMEdgeConfig,
+            resolver: ModelRepository,
+            ownedBootstrap: ClientBootstrapContext? = null,
+        ): SpeechClient =
+            FACTORY.forTesting(context, scope, config, resolver, Unit, ownedBootstrap)
+    }
+
+    private val whisperPool = createWhisperRuntimePool(appContext, edgeScope, config, modelRepository)
+    private val barkPool = createBarkRuntimePool(appContext, edgeScope, config, modelRepository)
+    private val requestExecutor = SpeechRequestExecutor(edgeScope, whisperPool, barkPool)
 
     /**
      * Preload a Whisper model into the speech cache so later transcription calls avoid the initial
@@ -104,7 +85,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.speechToText,
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
     ) {
-        acquireWhisper(model, loadOptions)
+        requestExecutor.prepareSpeechToText(model, loadOptions)
     }
 
     /**
@@ -115,7 +96,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.textToSpeech,
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
     ) {
-        acquireBark(model, loadOptions)
+        requestExecutor.prepareTextToSpeech(model, loadOptions)
     }
 
     /**
@@ -129,21 +110,8 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.speechToText,
         params: Whisper.TranscribeParams = Whisper.TranscribeParams(),
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
-    ): List<Whisper.TranscriptionSegment> {
-        val runtime = acquireWhisper(model, loadOptions)
-        return try {
-            runtime.mutex.withLock {
-                withContext(scope.inferenceDispatcher) {
-                    runtime.whisper.transcribe(audioSamples, params)
-                }
-            }
-        } catch (error: io.aatricks.llmedge.core.InferenceFailedException) {
-            if (recordWhisperBackendFailureIfNeeded(model, loadOptions, runtime, error)) {
-                return transcribe(audioSamples, model, params, loadOptions)
-            }
-            throw error
-        }
-    }
+    ): List<Whisper.TranscriptionSegment> =
+        requestExecutor.transcribe(audioSamples, model, params, loadOptions)
 
     suspend fun transcribeToText(
         audioSamples: FloatArray,
@@ -157,21 +125,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.speechToText,
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
         nThreads: Int = 0,
-    ): String? {
-        val runtime = acquireWhisper(model, loadOptions)
-        return try {
-            runtime.mutex.withLock {
-                withContext(scope.inferenceDispatcher) {
-                    runtime.whisper.detectLanguage(audioSamples, nThreads)
-                }
-            }
-        } catch (error: io.aatricks.llmedge.core.InferenceFailedException) {
-            if (recordWhisperBackendFailureIfNeeded(model, loadOptions, runtime, error)) {
-                return detectLanguage(audioSamples, model, loadOptions, nThreads)
-            }
-            throw error
-        }
-    }
+    ): String? = requestExecutor.detectLanguage(audioSamples, model, loadOptions, nThreads)
 
     /**
      * Create a reusable real-time transcription session.
@@ -182,19 +136,8 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.speechToText,
         params: Whisper.StreamingParams = Whisper.StreamingParams(),
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
-    ): StreamingTranscriptionSession {
-        val runtime = acquireWhisper(model, loadOptions)
-        val transcriber =
-            try {
-                runtime.mutex.withLock { runtime.whisper.createStreamingTranscriber(params) }
-            } catch (error: io.aatricks.llmedge.core.InferenceFailedException) {
-                if (recordWhisperBackendFailureIfNeeded(model, loadOptions, runtime, error)) {
-                    return createStreamingSession(model, params, loadOptions)
-                }
-                throw error
-            }
-        return scope.resources.register(StreamingTranscriptionSession(transcriber))
-    }
+    ): StreamingTranscriptionSession =
+        requestExecutor.createStreamingSession(model, params, loadOptions)
 
     /**
      * Synthesize speech from text and return the full audio result.
@@ -207,14 +150,7 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.textToSpeech,
         params: BarkTTS.GenerateParams = BarkTTS.GenerateParams(),
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
-    ): BarkTTS.AudioResult {
-        val runtime = acquireBark(model, loadOptions)
-        return runtime.mutex.withLock {
-            withContext(scope.inferenceDispatcher) {
-                runtime.bark.generate(text, params)
-            }
-        }
-    }
+    ): BarkTTS.AudioResult = requestExecutor.synthesize(text, model, params, loadOptions)
 
     /**
      * Stream Bark synthesis progress followed by the final audio result.
@@ -226,142 +162,11 @@ class SpeechClient internal constructor(
         model: ModelSpec = config.models.textToSpeech,
         params: BarkTTS.GenerateParams = BarkTTS.GenerateParams(),
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
-    ): Flow<AudioStreamEvent> = callbackFlow {
-        val runtime = acquireBark(model, loadOptions)
-        trySend(AudioStreamEvent.Started)
-        val job = scope.coroutineScope.launch {
-            runtime.mutex.withLock {
-                runtime.bark.setProgressCallback { step, progress ->
-                    trySend(AudioStreamEvent.Progress(step, progress))
-                }
-                try {
-                    val result = withContext(scope.inferenceDispatcher) { runtime.bark.generate(text, params) }
-                    trySend(AudioStreamEvent.Result(result))
-                    trySend(AudioStreamEvent.Completed)
-                    close()
-                } catch (t: Throwable) {
-                    close(t)
-                } finally {
-                    runtime.bark.setProgressCallback(null)
-                }
-            }
-        }
-        awaitClose {
-            job.cancel()
-            runtime.bark.setProgressCallback(null)
-        }
-    }
-
-    private suspend fun acquireWhisper(
-        model: ModelSpec,
-        options: WhisperLoadOptions,
-    ): ManagedWhisperModel {
-        val keyPrefix = buildWhisperCacheKeyPrefix(model, options)
-        findCachedWhisperRuntime(keyPrefix, options)?.let { return it }
-        return whisperLoadMutex.withLock {
-            findCachedWhisperRuntime(keyPrefix, options)?.let { return@withLock it }
-            val file = resolver.resolve(context, model)
-            val runtime = ManagedWhisperModel(
-                fileSizeBytes = file.length(),
-                whisper = Whisper.load(file.absolutePath, options.useGpu, options.flashAttention, options.gpuDevice),
-            )
-            whisperCache.put(
-                buildWhisperCacheKey(keyPrefix, runtime.whisper.activeBackend),
-                runtime,
-                runtime.fileSizeBytes,
-            )
-            runtime
-        }
-    }
-
-    private fun buildWhisperCacheKeyPrefix(model: ModelSpec, options: WhisperLoadOptions): String =
-        listOf(model.cacheKey, options.useGpu, options.flashAttention, options.gpuDevice).joinToString("|")
-
-    private fun buildWhisperCacheKey(prefix: String, backend: ComputeBackend): String =
-        "$prefix|backend=${backend.name}"
-
-    private fun findCachedWhisperRuntime(
-        prefix: String,
-        options: WhisperLoadOptions,
-    ): ManagedWhisperModel? {
-        val candidates =
-            BackendRuntimePolicy.candidates(
-                subsystem = ComputeSubsystem.WHISPER,
-                allowGpu = options.useGpu,
-                openClAvailable = Whisper.isOpenClAvailable(),
-                vulkanAvailable = Whisper.isVulkanBackendAvailable(),
-            )
-        for (backend in candidates) {
-            whisperCache.get(buildWhisperCacheKey(prefix, backend))?.let { return it }
-        }
-        return null
-    }
-
-    private fun invalidateWhisperRuntime(
-        model: ModelSpec,
-        options: WhisperLoadOptions,
-        backend: ComputeBackend,
-    ) {
-        whisperCache.remove(buildWhisperCacheKey(buildWhisperCacheKeyPrefix(model, options), backend))
-    }
-
-    private fun recordWhisperBackendFailureIfNeeded(
-        model: ModelSpec,
-        options: WhisperLoadOptions,
-        runtime: ManagedWhisperModel,
-        error: io.aatricks.llmedge.core.InferenceFailedException,
-    ): Boolean {
-        if (!isBackendFailure(error)) {
-            return false
-        }
-        val backend = runtime.whisper.activeBackend
-        if (backend == ComputeBackend.CPU) {
-            return false
-        }
-        BackendRuntimePolicy.blacklist(ComputeSubsystem.WHISPER, backend)
-        invalidateWhisperRuntime(model, options, backend)
-        return true
-    }
-
-    private fun isBackendFailure(error: io.aatricks.llmedge.core.InferenceFailedException): Boolean =
-        error.message?.contains("backend", ignoreCase = true) == true ||
-            error.cause?.message?.contains("backend", ignoreCase = true) == true ||
-            error.message?.contains("device lost", ignoreCase = true) == true ||
-            error.cause?.message?.contains("device lost", ignoreCase = true) == true
-
-    private suspend fun acquireBark(
-        model: ModelSpec,
-        options: BarkLoadOptions,
-    ): ManagedBarkModel {
-        val key =
-            listOf(
-                model.cacheKey,
-                options.seed,
-                options.temperature,
-                options.fineTemperature,
-                options.verbosity,
-            ).joinToString("|")
-        barkCache.get(key)?.let { return it }
-        return barkLoadMutex.withLock {
-            barkCache.get(key)?.let { return@withLock it }
-            val file = resolver.resolve(context, model)
-            val runtime = ManagedBarkModel(
-                fileSizeBytes = file.length(),
-                bark = BarkTTS.load(
-                    modelPath = file.absolutePath,
-                    seed = options.seed,
-                    temperature = options.temperature,
-                    fineTemperature = options.fineTemperature,
-                    verbosity = options.verbosity,
-                ),
-            )
-            barkCache.put(key, runtime, runtime.fileSizeBytes)
-            runtime
-        }
-    }
+    ): Flow<AudioStreamEvent> = requestExecutor.synthesizeStream(text, model, params, loadOptions)
 
     override fun close() {
-        barkCache.clear()
-        whisperCache.clear()
+        closeOwned {
+            requestExecutor.close()
+        }
     }
 }

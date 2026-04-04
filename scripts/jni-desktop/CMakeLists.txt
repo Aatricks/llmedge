@@ -6,6 +6,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 get_filename_component(LLMEDGE_CPP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../llmedge/src/main/cpp" ABSOLUTE)
 include("${LLMEDGE_CPP_ROOT}/cmake/llmedge-mods.cmake")
+include("${LLMEDGE_CPP_ROOT}/cmake/llmedge-targets.cmake")
 
 # Point to stable-diffusion.cpp root.
 set(SD_ROOT_OVERRIDE "" CACHE PATH "Override path to stable-diffusion.cpp root")
@@ -20,6 +21,7 @@ set(LLMEDGE_MODS_DIR "${LLMEDGE_REPO_ROOT}/mods")
 # Options to control what to build
 option(BUILD_SDCPP "Build stable-diffusion.cpp JNI" ON)
 option(BUILD_SMOLLM "Build SmolLM (llama.cpp) JNI" OFF)
+option(BUILD_BARK "Build Bark JNI" OFF)
 
 # Find JNI
 find_package(JNI REQUIRED)
@@ -41,32 +43,32 @@ if(BUILD_SDCPP)
     add_subdirectory(${SD_ROOT} stable-diffusion)
 
     # Build sdcpp shared library
-    add_library(sdcpp SHARED
+    add_library(${LLMEDGE_TARGET_SDCPP} SHARED
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni.cpp
     )
 
-    target_include_directories(sdcpp PRIVATE
+    target_include_directories(${LLMEDGE_TARGET_SDCPP} PRIVATE
         ${SD_ROOT}
         ${SD_ROOT}/src
         ${SD_ROOT}/thirdparty
         ${JNI_INCLUDE_DIRS}
     )
 
-    target_link_libraries(sdcpp PRIVATE
+    target_link_libraries(${LLMEDGE_TARGET_SDCPP} PRIVATE
         stable-diffusion
         ${JNI_LIBRARIES}
     )
 
     if(SD_VULKAN)
-        target_compile_definitions(sdcpp PRIVATE SD_USE_VULKAN)
-        target_link_libraries(sdcpp PRIVATE vulkan)
+        target_compile_definitions(${LLMEDGE_TARGET_SDCPP} PRIVATE SD_USE_VULKAN)
+        target_link_libraries(${LLMEDGE_TARGET_SDCPP} PRIVATE vulkan)
         if(TARGET ggml-vulkan)
-            target_link_libraries(sdcpp PRIVATE ggml-vulkan)
+            target_link_libraries(${LLMEDGE_TARGET_SDCPP} PRIVATE ggml-vulkan)
         endif()
     endif()
 
     if(WAN_SUPPORT)
-        target_compile_definitions(sdcpp PRIVATE WAN_SUPPORT=1)
+        target_compile_definitions(${LLMEDGE_TARGET_SDCPP} PRIVATE WAN_SUPPORT=1)
     endif()
 endif()
 
@@ -111,14 +113,18 @@ if(BUILD_SMOLLM)
     add_subdirectory(${LLAMA_ROOT}/examples/quantize llama.cpp-quantize)
 
     # Build smollm shared library
-    add_library(smollm SHARED
+    add_library(${LLMEDGE_TARGET_SMOLLM} SHARED
         ${LLMEDGE_CPP_ROOT}/smollm.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_load.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_completion.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_embeddings.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_state.cpp
         ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
         ${LLMEDGE_CPP_ROOT}/gguf_reader_internal.cpp
         ${LLMEDGE_CPP_ROOT}/GGUFReader.cpp
     )
 
-    target_include_directories(smollm PRIVATE
+    target_include_directories(${LLMEDGE_TARGET_SMOLLM} PRIVATE
         ${LLAMA_ROOT}/include
         ${LLAMA_ROOT}/common
         ${LLAMA_ROOT}/examples/mtmd
@@ -128,16 +134,62 @@ if(BUILD_SMOLLM)
         ${JNI_INCLUDE_DIRS}
     )
 
-    target_compile_definitions(smollm PRIVATE
+    target_compile_definitions(${LLMEDGE_TARGET_SMOLLM} PRIVATE
         LLMEDGE_LLAMA_USE_MEMORY_API=$<BOOL:${LLMEDGE_LLAMA_USE_MEMORY_API}>
     )
 
-    target_link_libraries(smollm PRIVATE
+    target_link_libraries(${LLMEDGE_TARGET_SMOLLM} PRIVATE
         llama
         common
         mtmd
         ${JNI_LIBRARIES}
     )
+endif()
+
+# ------------------------------------------------------------
+# Bark JNI wrapper for desktop testing
+# ------------------------------------------------------------
+
+if(BUILD_BARK)
+    get_filename_component(BARK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../bark.cpp" ABSOLUTE)
+    if(EXISTS "${BARK_ROOT}/bark.h")
+        set(BARK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(ENCODEC_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+        add_subdirectory(${BARK_ROOT} bark.cpp)
+
+        add_library(${LLMEDGE_TARGET_BARK_JNI} SHARED
+            ${LLMEDGE_CPP_ROOT}/bark_jni.cpp
+        )
+
+        target_include_directories(${LLMEDGE_TARGET_BARK_JNI} PRIVATE
+            ${BARK_ROOT}
+            ${BARK_ROOT}/encodec.cpp
+            ${BARK_ROOT}/encodec.cpp/ggml/include
+            ${JNI_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(${LLMEDGE_TARGET_BARK_JNI} PRIVATE
+            bark
+            encodec
+            ggml
+            ${JNI_LIBRARIES}
+            pthread
+            m
+        )
+
+        find_package(OpenMP)
+        if(OpenMP_CXX_FOUND)
+            target_link_libraries(${LLMEDGE_TARGET_BARK_JNI} PRIVATE OpenMP::OpenMP_CXX)
+        endif()
+
+        target_compile_options(${LLMEDGE_TARGET_BARK_JNI} PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden)
+
+        message(STATUS "Bark desktop JNI configured")
+    else()
+        message(WARNING "bark.cpp not found at ${BARK_ROOT}, skipping bark_jni")
+    endif()
 endif()
 
 # ------------------------------------------------------------
@@ -167,17 +219,17 @@ if(WHISPER_DESKTOP_JNI)
 
         add_subdirectory(${WHISPER_ROOT} whisper.cpp)
 
-        add_library(whisper_jni SHARED
+        add_library(${LLMEDGE_TARGET_WHISPER_JNI} SHARED
             ${LLMEDGE_CPP_ROOT}/whisper_jni.cpp
         )
 
-        target_include_directories(whisper_jni PRIVATE
+        target_include_directories(${LLMEDGE_TARGET_WHISPER_JNI} PRIVATE
             ${WHISPER_ROOT}/include
             ${WHISPER_ROOT}/ggml/include
             ${JNI_INCLUDE_DIRS}
         )
 
-        target_link_libraries(whisper_jni PRIVATE
+        target_link_libraries(${LLMEDGE_TARGET_WHISPER_JNI} PRIVATE
             whisper
             ${JNI_LIBRARIES}
         )

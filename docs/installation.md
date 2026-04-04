@@ -42,10 +42,10 @@ git submodule update --init --recursive
 ```
 
 - Build the example app (separate Gradle build):
+  The example app uses `includeBuild("..")` to substitute the local `:llmedge` project.
 
 ```fish
 ./gradlew :llmedge:assembleRelease
-cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
 cd llmedge-examples
 ./gradlew :app:assembleDebug
 ```

@@ -8,6 +8,8 @@ import org.robolectric.annotation.Config
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.After
+import org.junit.Before
 import org.junit.Test
 import java.lang.reflect.Method
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
@@ -15,6 +17,16 @@ import io.aatricks.llmedge.image.diffusion.StableDiffusion
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class BitmapConversionTest {
+    @Before
+    fun setUp() {
+        System.setProperty("llmedge.disableNativeLoad", "true")
+    }
+
+    @After
+    fun tearDown() {
+        System.clearProperty("llmedge.disableNativeLoad")
+        StableDiffusion.resetNativeBridgeForTests()
+    }
 
     @Test
     fun `bitmapToRgbBytes converts ARGB_8888 bitmap correctly`() {

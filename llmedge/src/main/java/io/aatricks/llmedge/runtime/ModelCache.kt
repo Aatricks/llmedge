@@ -67,14 +67,15 @@ class ModelCache<T : AutoCloseable>(
     private val evictions = AtomicInteger(0)
 
     /**
-     * Get model from cache. Uses read lock for the common hit path and only
-     * upgrades to write lock when entry metadata needs updating (LRU access order).
+     * Get model from cache.
+     *
+     * Access-order [LinkedHashMap] updates must happen under the write lock,
+     * so cache reads intentionally take the write lock to keep LRU ordering and
+     * entry-size refresh consistent.
      * @return model if found, null otherwise
      */
     fun get(key: String): T? {
-        // Fast read-lock path: check existence
         val entry = lock.write {
-            // LinkedHashMap access-order update requires write lock, but stats are atomic
             val e = cache[key]
             if (e != null) {
                 refreshEntrySize(e)
@@ -114,8 +115,18 @@ class ModelCache<T : AutoCloseable>(
         val toClose = mutableListOf<T>()
         lock.write {
             val resolvedSizeBytes = sizeProvider?.invoke()?.coerceAtLeast(0L) ?: sizeBytes
-            while (shouldEvict(resolvedSizeBytes)) {
-                evictLRULocked(toClose)
+            // Always allow the first insert. Otherwise a large model can get stuck in an
+            // impossible eviction loop when the cache is empty, and on Android this also keeps
+            // runtime acquisition off the live-memory binder path for the cold-load case.
+            if (cache.isEmpty()) {
+                logOversizedInsertIfNeeded(key, resolvedSizeBytes)
+            } else {
+                while (cache.isNotEmpty() && shouldEvict(resolvedSizeBytes)) {
+                    evictLRULocked(toClose)
+                }
+                if (cache.isEmpty() && shouldEvict(resolvedSizeBytes)) {
+                    logOversizedInsertIfNeeded(key, resolvedSizeBytes)
+                }
             }
 
             cache[key]?.let { oldEntry ->
@@ -143,26 +154,27 @@ class ModelCache<T : AutoCloseable>(
     /** Check if we should evict based on cache size and memory limits */
     private fun shouldEvict(newSizeBytes: Long): Boolean {
         refreshAllEntrySizes()
-        if (cache.size >= maxCacheSize) return true
+        return ModelCacheBudgetPolicy.shouldEvict(
+            entryCount = cache.size,
+            maxCacheSize = maxCacheSize,
+            totalCachedBytes = totalCachedBytes,
+            newSizeBytes = newSizeBytes,
+            maxMemoryMB = maxMemoryMB,
+            systemMemoryProvider = systemMemoryProvider,
+        )
+    }
 
-        val currentMemoryMB = totalCachedBytes / 1024 / 1024
-        val newMemoryMB = currentMemoryMB + (newSizeBytes / 1024 / 1024)
-
-        // If we have a system memory provider, be conservative and cap cache size to a fraction
-        // of currently available system memory (e.g., reserve 10% of whatever is free)
-        val effectiveMax = systemMemoryProvider?.let { provider ->
-            val avail = provider()
-            // Ensure we keep at least 10% of the available system memory for OS/other apps
-            val reserved = (avail * 0.1).toLong()
-            val budget = (avail - reserved).coerceAtMost(maxMemoryMB)
-            // Avoid tiny budgets that cause immediate eviction; keep at least a conservative
-            // lower bound so the cache can still hold large models when needed.
-            val minBudget = (maxMemoryMB / 4).coerceAtLeast(256L)
-            val finalBudget = budget.coerceAtLeast(minBudget)
-            finalBudget
-        } ?: maxMemoryMB
-
-        return newMemoryMB > effectiveMax
+    private fun logOversizedInsertIfNeeded(
+        key: String,
+        resolvedSizeBytes: Long,
+    ) {
+        if (ModelCacheBudgetPolicy.shouldLogOversizedInsert(resolvedSizeBytes, maxMemoryMB)) {
+            AndroidLogAdapter.w(
+                TAG,
+                "Caching '$key' even though it exceeds the configured cache budget " +
+                    "(${resolvedSizeBytes / 1024 / 1024}MB > $maxMemoryMB MB) because the cache is empty",
+            )
+        }
     }
 
     private fun refreshEntrySize(entry: CacheEntry<T>) {

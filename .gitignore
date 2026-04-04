@@ -68,6 +68,7 @@ dist/
 *.mp4
 *.gif
 *.png
+artifacts/local/
 
 # Whisper build outputs
 scripts/jni-desktop/build-whisper/

@@ -34,14 +34,10 @@ class ImageGenerationLinuxE2ETest {
         Assume.assumeTrue("VAE or TAESD path not set", !vaePath.isNullOrBlank() || !taesdPath.isNullOrBlank())
 
         val libPath =
-            System.getenv(libPathEnv)
-                ?: System.getProperty(libPathEnv)
-                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
-        Assume.assumeTrue("Native library not found at $libPath", File(libPath).exists())
-        Assume.assumeTrue(
-            "Native loading is disabled",
-            System.getProperty("llmedge.disableNativeLoad") != "true",
-        )
+            DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+                envName = libPathEnv,
+                defaultRelativePath = "llmedge/build/native/linux-x86_64/libsdcpp.so",
+            )
 
         val width = 128
         val height = 128

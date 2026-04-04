@@ -3,8 +3,16 @@ package io.aatricks.llmedge.vision
 import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.core.ClientBootstrapContext
+import io.aatricks.llmedge.core.FeatureContext
+import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.OwnedFeatureClient
+import io.aatricks.llmedge.core.featureClientFactory
+import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.vision.ocr.MlKitOcrEngine
+import kotlinx.coroutines.CoroutineScope
 
 data class VisionRequest(
     val image: Bitmap,
@@ -18,15 +26,56 @@ data class VisionRequest(
 )
 
 class VisionClient internal constructor(
-    private val context: Context,
+    featureContext: FeatureContext,
     private val pipeline: VisionPipeline,
-    config: LLMEdgeConfig,
-) : AutoCloseable {
+    private val ownedBootstrap: ClientBootstrapContext? = null,
+) : OwnedFeatureClient(featureContext, ownedBootstrap) {
+    companion object {
+        private data class Dependencies(
+            val pipelineFactory: (FeatureContext) -> VisionPipeline,
+        )
+
+        private val FACTORY =
+            featureClientFactory<VisionClient, Dependencies> { featureContext, bootstrap, dependencies ->
+                VisionClient(
+                    featureContext = featureContext,
+                    pipeline = dependencies.pipelineFactory(featureContext),
+                    ownedBootstrap = bootstrap,
+                )
+            }
+
+        @JvmStatic
+        @JvmOverloads
+        fun create(
+            context: Context,
+            scope: CoroutineScope,
+            config: LLMEdgeConfig = LLMEdgeConfig(),
+            modelRepository: ModelRepository = DefaultModelRepository(),
+        ): VisionClient = FACTORY.create(context, scope, config, modelRepository, Dependencies(::VisionPipeline))
+
+        @JvmSynthetic
+        internal fun forTesting(
+            context: Context,
+            scope: LLMEdgeScope,
+            config: LLMEdgeConfig,
+            modelRepository: ModelRepository,
+            pipeline: VisionPipeline,
+            ownedBootstrap: ClientBootstrapContext? = null,
+        ): VisionClient =
+            FACTORY.forTesting(
+                context = context,
+                scope = scope,
+                config = config,
+                modelRepository = modelRepository,
+                dependencies = Dependencies { pipeline },
+                ownedBootstrap = ownedBootstrap,
+            )
+    }
+
     private val defaultModel: ModelSpec = config.models.vision.model
     private val defaultProjector: ModelSpec = config.models.vision.projector
-    private val defaultPromptThreads: Int = config.defaultTextThreads.coerceAtLeast(1)
-    private val defaultGenerationThreads: Int =
-        config.defaultTextGenerationThreads.coerceAtLeast(1)
+    private val defaultPromptThreads: Int = config.vision.promptThreads
+    private val defaultGenerationThreads: Int = config.vision.generationThreads
     @Volatile
     private var lastRuntimeMemory: VisionRuntimeMemory? = null
 
@@ -94,7 +143,7 @@ class VisionClient internal constructor(
      * This is independent from VLM-based analysis and works without loading a vision-language model.
      */
     suspend fun extractText(image: Bitmap): String {
-        val engine = MlKitOcrEngine(context)
+        val engine = MlKitOcrEngine(appContext)
         try {
             return engine.extractText(ImageSource.BitmapSource(image)).text
         } finally {
@@ -105,6 +154,8 @@ class VisionClient internal constructor(
     fun getLastRuntimeMemory(): VisionRuntimeMemory? = lastRuntimeMemory
 
     override fun close() {
-        pipeline.close()
+        closeOwned {
+            pipeline.close()
+        }
     }
 }

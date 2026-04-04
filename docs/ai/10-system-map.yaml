@@ -1,0 +1,188 @@
+schema: ai-context/v1
+runtime_surfaces:
+  library_api:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge"
+    entrypoints:
+      - "LLMEdge.create(context, scope, config, resolver)"
+      - "expert runtimes under text.runtime, image.diffusion, speech.stt, speech.tts, runtime.GGUFReader"
+    manifest: "llmedge/src/main/AndroidManifest.xml"
+    manifest_contract: "empty manifest; library defines no activities, providers, or permissions"
+  example_app:
+    owner: "llmedge-examples/app/src/main/java/com/example/llmedgeexample"
+    entrypoint: "com.example.llmedgeexample.app.MainActivity"
+    role: "manual smoke harness and composite-build consumer"
+  desktop_e2e:
+    owner: "scripts"
+    entrypoints:
+      - "scripts/run_native_e2e.sh"
+      - "scripts/run_text_e2e.sh"
+      - "scripts/run_whisper_e2e.sh"
+      - "scripts/run_linux_e2e.sh"
+      - "scripts/run_linux_e2e_sequential.sh"
+  ci:
+    owner: ".github/workflows"
+    entrypoints:
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/android-smoke.yml"
+process_singletons_and_globals:
+  - name: "RuntimeEnvironmentHolder.defaultEnvironment"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/runtime/RuntimeEnvironment.kt"
+    purpose: "default process-wide runtime environment for native load tracking and backend blacklist state"
+  - name: "RuntimeEnvironment.nativeLibraryRegistry"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/runtime/RuntimeEnvironment.kt"
+    purpose: "process-wide once-only native library tracking"
+  - name: "RuntimeEnvironment.backendBlacklistRegistry"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/runtime/RuntimeEnvironment.kt"
+    purpose: "process-wide GPU backend blacklist per ComputeSubsystem"
+  - name: "RuntimeCapabilities"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/core/runtime/RuntimeCapabilities.kt"
+    purpose: "shared Stable Diffusion/OpenCL/Vulkan capability probes used by facade and feature stacks"
+  - name: "NativeBridgeProvider overrides"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/core/NativeBridgeProvider.kt"
+    purpose: "test-only bridge injection for GGUFReader and native wrappers"
+  - name: "LLMEdgeLifecycle.mainHandler"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/lifecycle/LLMEdgeLifecycle.kt"
+    purpose: "bind lifecycle observer on main thread"
+load_order_contracts:
+  build_graph:
+    root_sequence:
+      - "settings.gradle.kts includes only :llmedge"
+      - "llmedge/build.gradle.kts configures Android library + externalNativeBuild"
+      - "llmedge/src/main/cpp/CMakeLists.txt includes llmedge-common, llmedge-targets, llmedge-smollm, llmedge-stable-diffusion, llmedge-whisper, llmedge-bark in that order"
+    cmake_dependencies:
+      - "llmedge-common.cmake resolves/upatches llama.cpp tree and delegates Vulkan/OpenCL/SmolLM-target wiring to llmedge-vulkan.cmake, llmedge-opencl.cmake, and llmedge-smollm-targets.cmake"
+      - "llmedge-targets.cmake is the shared native target-name and logical target-group source of truth for Android and desktop CMake."
+      - "NativeTargetNames.kt and build/generated/source/nativeTargetNames/main/shell/native-targets.sh are generated from llmedge-targets.cmake so Kotlin and shell consumers share one derived target metadata view."
+      - "llmedge-stable-diffusion.cmake may create a copied overlay tree from stable-diffusion.cpp plus mods/"
+      - "whisper and bark build their own bundled ggml sources instead of linking shared ggml targets"
+  facade_runtime:
+    ordered_steps:
+      - "LLMEdge.create -> applicationContext capture"
+      - "ClientBootstrap.create -> applicationContext + LLMEdgeScope(inference thread pool)"
+      - "client construction: text, speech, image, vision, rag"
+      - "optional LLMEdgeLifecycle.bind(owner, edge)"
+  native_library_selection:
+    smollm_candidates:
+      owner: "NativeLibraryLoader.smolLmCandidates()"
+      order_rule: "best CPU-feature-specific arm variant first, generic smollm last"
+    whisper_candidates:
+      owner: "NativeLibraryLoader.whisperCandidates()"
+      order_rule: "desktop prefers whisper_jni then whisper; Android prefers whisper_jni first and falls back to legacy whisper_arm64/whisper names when present"
+    stable_diffusion_and_bark:
+      order_rule: "single candidate names: sdcpp, bark_jni"
+  desktop_native_build:
+    owner: "scripts/build_native_linux.sh + scripts/native_targets.sh + scripts/native_test_support.sh + scripts/run_native_e2e.sh"
+    order: ["shared prerequisite checks", "source generated shell target metadata through native_targets.sh", "per-target CMake configure/build", "copy outputs into llmedge/build/native/linux-x86_64"]
+    invariants:
+      - "Linux desktop builds route through one parameterized entrypoint fed by scripts/native_targets.sh."
+      - "scripts/run_native_e2e.sh is the canonical host E2E runner; run_*_e2e.sh wrappers should delegate to it."
+      - "Host E2E scripts reuse native_test_support.sh instead of copying native-lib discovery/build logic."
+      - "Desktop JVM E2E tests prefer exact library paths (LLMEDGE_BUILD_*_LIB_PATH + System.load) over ambient java.library.path lookup when a host artifact path is provided."
+  backend_selection:
+    owner: "RuntimeLoadPolicy -> BackendCandidateResolver -> RuntimeCoordinator -> BackendRuntimePolicy"
+    order: ["OPENCL", "VULKAN", "CPU"]
+    invariants:
+      - "CPU is always appended and never blacklisted"
+      - "RuntimeLoadPolicy is the shared candidate-order and CPU-fallback seam for pooled runtimes and direct expert-load helpers."
+      - "RuntimeCoordinator owns backend-candidate loading and process-wide GPU blacklist updates for pooled runtimes"
+      - "RuntimeCoordinator + RuntimeExecution handle acquire -> execute -> backend-failure retry for text, image/video, and whisper requests"
+      - "Bark runtime is CPU-only"
+  vision_analysis_order:
+    owner: "VisionPipeline.analyze"
+    order:
+      - "runtime acquire"
+      - "bitmap preprocess to maxDimension=672"
+      - "try buffer-based primeImageBuffer path"
+      - "fallback to projector.encodeImageBuffer"
+      - "fallback to file-based image+bin+.meta.json path executed directly by VisionRuntimeExecutor"
+      - "delete temp files"
+state_owners:
+  - owner: "LLMEdgeScope"
+    state:
+      - "coroutineScope"
+      - "fixed inferenceDispatcher"
+      - "ResourceScope registry"
+  - owner: "RuntimePool(cache owner) + RuntimeCoordinator(policy owner) + ModelCache"
+    state:
+      - "feature-specific runtime cache entries"
+      - "cache-hit/load timings"
+      - "backend-specific invalidation"
+      - "pooled-runtime backend retry decisions"
+  - owner: "TextClient"
+    state:
+      - "lastGenerationMetrics"
+      - "cached text runtimes"
+      - "TextRequestExecutor + TextRuntimeSession coordination"
+  - owner: "ChatSession"
+    state:
+      - "SessionTranscript history"
+      - "lastStateSnapshot bytes"
+      - "snapshotWindowSize"
+  - owner: "ToolAgent"
+    state:
+      - "SessionTranscript history"
+      - "ToolInvocationExecutor registry/policy wiring"
+      - "toolSystemPrompt"
+  - owner: "SpeechClient"
+    state:
+      - "independent Whisper and Bark runtime pools"
+  - owner: "ImageClient"
+    state:
+      - "lastGenerationMetrics"
+      - "lastImageRequestTrace"
+      - "single activeModel for cancellation"
+      - "generationMutex across image/video requests"
+      - "ImageClientState shared by ImageGenerationExecutor and VideoGenerationExecutor"
+  - owner: "VisionPipeline"
+    state:
+      - "single-entry vision runtime pool"
+      - "lastRuntimeMemory exposed by VisionClient"
+  - owner: "RAGEngine"
+    state:
+      - "InMemoryVectorStore contents"
+      - "lastContext"
+      - "systemPromptInjected flag"
+storage_owners:
+  - path: "context.filesDir/hf-models/<sanitize(repoId)>/<revision>/<filename>"
+    owner: "HFDownloadSupport via HuggingFaceHub"
+    purpose: "persistent downloaded GGUF / repo files"
+  - path: "context.getExternalFilesDir('hf-downloads')/<sanitize(path)>-<timestamp>.tmp"
+    owner: "SystemDownload"
+    purpose: "temporary system DownloadManager target before copy into filesDir"
+  - path: "targetFile.parent/<filename>.part"
+    owner: "HFModelDownload"
+    purpose: "resume-capable in-app streaming temp file"
+  - path: "context.filesDir/embedding_models/{model.onnx,tokenizer.json}"
+    owner: "EmbeddingProvider"
+    purpose: "copied sentence-embedding assets"
+  - path: "context.filesDir/rag_store/index.json"
+    owner: "RAGEngine / InMemoryVectorStore"
+    purpose: "persistent vector index"
+  - path: "context.cacheDir/vision_input*.jpg"
+    owner: "VisionPipeline"
+    purpose: "vision fallback temp input"
+  - path: "context.cacheDir/vision_prepared*.bin and sibling .meta.json"
+    owner: "VisionPipeline + native projector"
+    purpose: "prepared multimodal embeddings"
+  - path: "context.cacheDir/<filename>"
+    owner: "ImageBitmapSupport"
+    purpose: "temporary image file materialization for vision helpers"
+message_boundaries:
+  in_process_structured_events:
+    - "TextStreamEvent"
+    - "AudioStreamEvent"
+    - "GenerationStreamEvent"
+    - "ToolAgentEvent"
+    - "ProgressEvent"
+  external_boundaries:
+    - "Ktor metadata requests to huggingface.co"
+    - "OkHttp streaming downloads to huggingface.co"
+    - "Android DownloadManager when preferSystemDownloader=true"
+  absent_boundaries:
+    - "no app-internal IPC, service bus, socket server, or WebView bridge in :llmedge"
+ui_boundaries:
+  library:
+    statement: "No UI components in the library module; all user interaction lives in llmedge-examples."
+  example_app_screens:
+    - "MainActivity routes to demo activities for text, tools, RAG, OCR, VLM, image, video, speech"
+    - "HeadlessVideoTestActivity exists only for automated demo/testing hooks"

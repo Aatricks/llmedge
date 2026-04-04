@@ -1,7 +1,10 @@
-#include "stable-diffusion.h"
+#include "sdcpp_jni_shared.h"
+#include "model.h"
 
 #include <cstdlib>
 #include <cstring>
+#include <map>
+#include <string>
 #include <vector>
 
 extern "C" {
@@ -24,7 +27,7 @@ void sd_set_progress_callback(sd_progress_cb_t cb, void* data) {
     g_progress_user_data = data;
 }
 
-void sd_set_preview_callback(sd_preview_cb_t, enum preview_t, int, bool, bool) {
+void sd_set_preview_callback(sd_preview_cb_t, enum preview_t, int, bool, bool, void*) {
     // Not used in tests.
 }
 
@@ -41,11 +44,11 @@ enum sd_type_t str_to_sd_type(const char*) { return SD_TYPE_F16; }
 const char* sd_rng_type_name(enum rng_type_t) { return "stub"; }
 enum rng_type_t str_to_rng_type(const char*) { return STD_DEFAULT_RNG; }
 const char* sd_sample_method_name(enum sample_method_t) { return "stub"; }
-enum sample_method_t str_to_sample_method(const char*) { return SAMPLE_METHOD_DEFAULT; }
-const char* sd_schedule_name(enum scheduler_t) { return "stub"; }
-enum scheduler_t str_to_schedule(const char*) { return DEFAULT; }
+enum sample_method_t str_to_sample_method(const char*) { return EULER_SAMPLE_METHOD; }
+const char* sd_scheduler_name(enum scheduler_t) { return "stub"; }
+enum scheduler_t str_to_scheduler(const char*) { return DISCRETE_SCHEDULER; }
 const char* sd_prediction_name(enum prediction_t) { return "stub"; }
-enum prediction_t str_to_prediction(const char*) { return DEFAULT_PRED; }
+enum prediction_t str_to_prediction(const char*) { return EPS_PRED; }
 const char* sd_preview_name(enum preview_t) { return "stub"; }
 enum preview_t str_to_preview(const char*) { return PREVIEW_NONE; }
 const char* sd_lora_apply_mode_name(enum lora_apply_mode_t) { return "stub"; }
@@ -70,7 +73,11 @@ void free_sd_ctx(sd_ctx_t* ctx) {
 }
 
 enum sample_method_t sd_get_default_sample_method(const sd_ctx_t*) {
-    return SAMPLE_METHOD_DEFAULT;
+    return EULER_SAMPLE_METHOD;
+}
+
+enum scheduler_t sd_get_default_scheduler(const sd_ctx_t*, enum sample_method_t) {
+    return DISCRETE_SCHEDULER;
 }
 
 void sd_sample_params_init(sd_sample_params_t* params) {
@@ -132,63 +139,43 @@ sd_image_t* generate_video(sd_ctx_t*, const sd_vid_gen_params_t* params, int* nu
     return images;
 }
 
-upscaler_ctx_t* new_upscaler_ctx(const char*, bool, bool, int) { return nullptr; }
+upscaler_ctx_t* new_upscaler_ctx(const char*, bool, bool, int, int) { return nullptr; }
 void free_upscaler_ctx(upscaler_ctx_t*) {}
 sd_image_t upscale(upscaler_ctx_t*, sd_image_t input_image, uint32_t) { return input_image; }
 int get_upscale_factor(upscaler_ctx_t*) { return 1; }
 
-bool convert(const char*, const char*, const char*, enum sd_type_t, const char*) { return true; }
+bool convert(const char*, const char*, const char*, enum sd_type_t, const char*, bool) { return true; }
 
 bool preprocess_canny(sd_image_t, float, float, float, float, bool) { return true; }
 
 }  // extern "C"
 
-// Mock ModelLoader for tests
-// #include "model.h" // Do not include model.h to avoid compilation errors
-
-// Define minimal ModelLoader mock
-#include <string>
-#include <map>
-#include <cstdlib>
-
-enum SDVersion {
-    VERSION_SD1,
-    VERSION_COUNT
-};
-
-struct TensorStorage {
-    ggml_type type;
-    ggml_type expected_type;
-};
-
-class ModelLoader {
-public:
-    bool init_from_file(const std::string&, const std::string& = "");
-    int64_t get_params_mem_size(ggml_backend_t, ggml_type);
-    std::map<ggml_type, uint32_t> get_wtype_stat() { return {}; }
-    std::map<ggml_type, uint32_t> get_conditioner_wtype_stat() { return {}; }
-    std::map<ggml_type, uint32_t> get_diffusion_model_wtype_stat() { return {}; }
-    std::map<ggml_type, uint32_t> get_vae_wtype_stat() { return {}; }
-    void convert_tensors_name() {}
-    SDVersion get_sd_version() { return VERSION_SD1; }
-    std::map<std::string, TensorStorage>& get_tensor_storage_map() { 
-        static std::map<std::string, TensorStorage> m; 
-        return m; 
-    }
-    void set_wtype_override(ggml_type, const std::string&) {}
-};
-
 bool ModelLoader::init_from_file(const std::string&, const std::string&) { return true; }
 int64_t ModelLoader::get_params_mem_size(ggml_backend_t, ggml_type) { return 1024 * 1024; }
+std::map<ggml_type, uint32_t> ModelLoader::get_wtype_stat() { return {}; }
+std::map<ggml_type, uint32_t> ModelLoader::get_conditioner_wtype_stat() { return {}; }
+std::map<ggml_type, uint32_t> ModelLoader::get_diffusion_model_wtype_stat() { return {}; }
+std::map<ggml_type, uint32_t> ModelLoader::get_vae_wtype_stat() { return {}; }
+SDVersion ModelLoader::get_sd_version() { return VERSION_SD1; }
+void ModelLoader::set_wtype_override(ggml_type, std::string) {}
 
 extern "C" {
 
 // Mock ggml_backend_free
 void ggml_backend_free(ggml_backend_t) {}
 
-sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* sd_vid_gen_params) {
+sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx,
+                                            const char* prompt,
+                                            int clip_skip,
+                                            int width,
+                                            int height,
+                                            bool is_video) {
     (void)sd_ctx;
-    (void)sd_vid_gen_params;
+    (void)prompt;
+    (void)clip_skip;
+    (void)width;
+    (void)height;
+    (void)is_video;
 
     sd_condition_raw_t* cond = (sd_condition_raw_t*)calloc(1, sizeof(sd_condition_raw_t));
     if (!cond) return nullptr;

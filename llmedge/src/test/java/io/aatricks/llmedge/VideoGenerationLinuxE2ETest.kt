@@ -23,7 +23,7 @@ import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
  *
  * Requirements to run:
  * - Build the native sdcpp library for Linux and place as llmedge/build/native/linux-x86_64/libsdcpp.so
- *   (There is a script at scripts/build_sdcpp_linux.sh to help).
+ *   (Use scripts/build_native_linux.sh sdcpp).
  * - Provide a small test model suitable for testing via environment variable
  *   LLMEDGE_TEST_MODEL_PATH (path to a .gguf model). If not set, the test will be skipped.
  *
@@ -57,15 +57,8 @@ class VideoGenerationLinuxE2ETest {
         val libFile = java.io.File(libPath)
         println("[VideoGenerationLinuxE2ETest] libPath=$libPath libExists=${libFile.exists()}")
         println("[VideoGenerationLinuxE2ETest] java.library.path=${System.getProperty("java.library.path")}")
-        Assume.assumeTrue("Native library not found at $libPath", libFile.exists())
-
-        // Verify native library loading is enabled
-        val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        println("[VideoGenerationLinuxE2ETest] llmedge.disableNativeLoad=$disableNativeLoad")
-        Assume.assumeTrue(
-            "Native loading is disabled. Run with LLMEDGE_BUILD_NATIVE_LIB_PATH env var set.",
-            disableNativeLoad != "true"
-        )
+        DesktopNativeTestSupport.requireEnabled()
+        DesktopNativeTestSupport.requireAndLoadLibrary(libPath)
 
         // Use Robolectric context
         val context = org.robolectric.RuntimeEnvironment.getApplication() as Context

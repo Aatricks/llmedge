@@ -176,6 +176,7 @@ typedef struct {
     uint32_t embedding_count;
     const char* photo_maker_path;
     const char* tensor_type_rules;
+    const char* lora_model_dir;
     bool vae_decode_only;
     bool free_params_immediately;
     int n_threads;

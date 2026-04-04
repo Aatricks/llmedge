@@ -18,7 +18,7 @@ import io.aatricks.llmedge.speech.tts.BarkTTS
  * Requirements to run:
  * - Build the native bark library for Linux and place as
  * llmedge/build/native/linux-x86_64/libbark_jni.so (There is a script at
- * scripts/build_bark_linux.sh to help).
+ * scripts/build_native_linux.sh bark to help).
  * - Provide a test model file via environment variable LLMEDGE_TEST_BARK_MODEL_PATH (path to a bark
  * ggml_weights.bin file). If not set, the test will be skipped.
  *
@@ -40,22 +40,14 @@ class BarkLinuxE2ETest {
 
         // Check that native library path is properly set and library file exists
         val libPath =
-                System.getenv(LIB_PATH_ENV)
-                        ?: System.getProperty(LIB_PATH_ENV)
-                                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libbark_jni.so"
+                DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+                        envName = LIB_PATH_ENV,
+                        defaultRelativePath = "llmedge/build/native/linux-x86_64/libbark_jni.so",
+                )
 
         val libFile = File(libPath)
         println("[BarkLinuxE2ETest] libPath=$libPath libExists=${libFile.exists()}")
         println("[BarkLinuxE2ETest] java.library.path=${System.getProperty("java.library.path")}")
-        Assume.assumeTrue("Native library not found at $libPath", libFile.exists())
-
-        // Verify native library loading is enabled
-        val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        println("[BarkLinuxE2ETest] llmedge.disableNativeLoad=$disableNativeLoad")
-        Assume.assumeTrue(
-                "Native loading is disabled. Run with LLMEDGE_BUILD_BARK_LIB_PATH env var set.",
-                disableNativeLoad != "true"
-        )
 
         // Check if model file exists
         val modelFile = File(modelPath)
@@ -143,16 +135,10 @@ class BarkLinuxE2ETest {
 
     @Test
     fun `bark bindings check`() {
-        val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        Assume.assumeTrue("Native loading is disabled", disableNativeLoad != "true")
-
-        val libPath =
-                System.getenv(LIB_PATH_ENV)
-                        ?: System.getProperty(LIB_PATH_ENV)
-                                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libbark_jni.so"
-
-        val libFile = File(libPath)
-        Assume.assumeTrue("Native library not found", libFile.exists())
+        DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+                envName = LIB_PATH_ENV,
+                defaultRelativePath = "llmedge/build/native/linux-x86_64/libbark_jni.so",
+        )
 
         try {
             val bindingsOk = BarkTTS.checkBindings()
@@ -169,15 +155,10 @@ class BarkLinuxE2ETest {
         val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
         Assume.assumeTrue("No test model specified", !modelPath.isNullOrBlank())
 
-        val libPath =
-                System.getenv(LIB_PATH_ENV)
-                        ?: System.getProperty(LIB_PATH_ENV)
-                                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libbark_jni.so"
-
-        Assume.assumeTrue("Native library not found", File(libPath).exists())
-
-        val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        Assume.assumeTrue("Native loading disabled", disableNativeLoad != "true")
+        DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+                envName = LIB_PATH_ENV,
+                defaultRelativePath = "llmedge/build/native/linux-x86_64/libbark_jni.so",
+        )
 
         val modelDir = File(modelPath)
         Assume.assumeTrue("Model not found", modelDir.exists() && modelDir.isDirectory)
@@ -203,15 +184,10 @@ class BarkLinuxE2ETest {
         val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
         Assume.assumeTrue("No test model specified", !modelPath.isNullOrBlank())
 
-        val libPath =
-                System.getenv(LIB_PATH_ENV)
-                        ?: System.getProperty(LIB_PATH_ENV)
-                                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libbark_jni.so"
-
-        Assume.assumeTrue("Native library not found", File(libPath).exists())
-
-        val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        Assume.assumeTrue("Native loading disabled", disableNativeLoad != "true")
+        DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+                envName = LIB_PATH_ENV,
+                defaultRelativePath = "llmedge/build/native/linux-x86_64/libbark_jni.so",
+        )
 
         val modelDir = File(modelPath)
         Assume.assumeTrue("Model not found", modelDir.exists() && modelDir.isDirectory)

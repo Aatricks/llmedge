@@ -1,5 +1,3 @@
-import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
-import org.gradle.testing.jacoco.tasks.JacocoReport
 /*
  * Copyright (C) 2024 Shubham Panchal
  *
@@ -85,161 +83,6 @@ android {
             version = "3.22.1"
         }
     }
-        testOptions {
-            unitTests.all {
-                val testUserHome =
-                    System.getenv("LLMEDGE_TEST_USER_HOME")
-                        ?: System.getenv("HOME")
-                        ?: System.getProperty("user.home")
-                it.systemProperty("user.home", testUserHome)
-
-                // Optional: show test stdout/stderr in Gradle output (useful for long-running
-                // local E2E tests that download models or run generation).
-                val showTestOutput =
-                    (System.getenv("LLMEDGE_SHOW_TEST_OUTPUT")?.equals("true", ignoreCase = true) == true) ||
-                        (project.findProperty("llmedgeShowTestOutput")?.toString()?.equals("true", ignoreCase = true) == true)
-                if (showTestOutput) {
-                    it.testLogging {
-                        showStandardStreams = true
-                        events(
-                            org.gradle.api.tasks.testing.logging.TestLogEvent.FAILED,
-                            org.gradle.api.tasks.testing.logging.TestLogEvent.SKIPPED,
-                            org.gradle.api.tasks.testing.logging.TestLogEvent.PASSED,
-                            org.gradle.api.tasks.testing.logging.TestLogEvent.STANDARD_OUT,
-                            org.gradle.api.tasks.testing.logging.TestLogEvent.STANDARD_ERROR,
-                        )
-                    }
-                }
-
-                // Check if we're running the E2E test with native library path specified
-                val nativeLibPath = System.getenv("LLMEDGE_BUILD_NATIVE_LIB_PATH")
-                val skipE2E = System.getenv("LLMEDGE_SKIP_E2E_IN_UNIT")?.equals("true", ignoreCase = true) == true
-                
-                if (skipE2E) {
-                    println("LLMEDGE CI: Skipping E2E tests for task ${it.name}")
-                    it.filter.excludeTestsMatching("*LinuxE2ETest")
-                    it.filter.excludeTestsMatching("*IntegrationTest")
-                    it.filter.excludeTestsMatching("*ImageGenerationTest")
-                    it.filter.excludeTestsMatching("*VideoGenerationTest")
-                    it.filter.excludeTestsMatching("*StableDiffusionTxt2VidTest")
-                    it.filter.excludeTestsMatching("*StableDiffusionTxt2ImgTest")
-                    it.filter.excludeTestsMatching("*VideoI2VAndLoraE2ETest")
-                    it.filter.excludeTestsMatching("*VideoGenerationSequentialE2ETest")
-                    it.filter.excludeTestsMatching("*VideoGenerationHQTest")
-                    it.filter.excludeTestsMatching("*VideoGenerationExportTest")
-                    it.filter.excludeTestsMatching("*SamplerSchedulerGifTest")
-                    it.filter.excludeTestsMatching("*FullPhonePathCatTest")
-                    it.filter.excludeTestsMatching("*BarkTTSTest")
-                    it.filter.excludeTestsMatching("*WhisperTest")
-                    it.filter.excludeTestsMatching("*ReproductionTest")
-                    it.filter.excludeTestsMatching("*WanCatGifTask")
-                    it.filter.excludeTestsMatching("*LLMEdgeManagerTest")
-                    it.filter.excludeTestsMatching("*MemoryManagementTest")
-                    it.filter.excludeTestsMatching("*MetadataInferenceTest")
-                    it.filter.excludeTestsMatching("*StableDiffusionVideoModelDetectorExtraTest")
-                    it.filter.excludeTestsMatching("*StableDiffusionVideoTest")
-                    it.filter.excludeTestsMatching("*VideoGenerateParamsTest")
-                    it.filter.excludeTestsMatching("*VideoModelDetectorTest")
-                    it.filter.excludeTestsMatching("*BitmapConversionTest")
-                    it.filter.excludeTestsMatching("*CombinedHeuristicTest")
-                }
-
-                val whisperLibPath = System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")
-                val barkLibPath = System.getenv("LLMEDGE_BUILD_BARK_LIB_PATH")
-                val hasNativeLib = !nativeLibPath.isNullOrBlank() || !whisperLibPath.isNullOrBlank() || !barkLibPath.isNullOrBlank()
-                if (!hasNativeLib) {
-                    // Disable native load for regular unit tests (no native library available)
-                    it.systemProperty("llmedge.disableNativeLoad", "true")
-                } else {
-                    // For E2E tests with native library, enable native loading and set library path
-                    it.systemProperty("llmedge.disableNativeLoad", "false")
-                    // Build library path from available native libraries
-                    val libraryPaths = mutableListOf<String>()
-                    nativeLibPath?.let { libraryPaths.add(File(it).parent) }
-                    whisperLibPath?.let { libraryPaths.add(File(it).parent) }
-                    barkLibPath?.let { libraryPaths.add(File(it).parent) }
-                    // Also include the jni-desktop build directory for dependencies
-                    val jniDesktopDir = "${rootProject.projectDir}/scripts/jni-desktop/build/bin"
-                    libraryPaths.add(jniDesktopDir)
-                    val libraryPath = libraryPaths.joinToString(":")
-                    it.jvmArgs("-Djava.library.path=$libraryPath")
-                    // Increase memory for video generation tests (needs lots of RAM for model + video frames)
-                    it.maxHeapSize = "12g"
-                    // Pass environment variables as system properties
-                    System.getenv("LLMEDGE_TEST_MODEL_PATH")?.let { path ->
-                        it.systemProperty("LLMEDGE_TEST_MODEL_PATH", path)
-                    }
-                    System.getenv("LLMEDGE_TEST_MODEL_ID")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_MODEL_ID", v)
-                    }
-                    System.getenv("LLMEDGE_TEST_MODEL_FILENAME")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_MODEL_FILENAME", v)
-                    }
-                    System.getenv("LLMEDGE_TEST_T5_PATH")?.let { path ->
-                        it.systemProperty("LLMEDGE_TEST_T5_PATH", path)
-                    }
-                    System.getenv("LLMEDGE_TEST_VAE_PATH")?.let { path ->
-                        it.systemProperty("LLMEDGE_TEST_VAE_PATH", path)
-                    }
-                    System.getenv("LLMEDGE_TEST_TAESD_PATH")?.let { path ->
-                        it.systemProperty("LLMEDGE_TEST_TAESD_PATH", path)
-                    }
-
-                    // Optional overrides for explicit WAN component downloads
-                    System.getenv("LLMEDGE_TEST_VAE_FILENAME")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_VAE_FILENAME", v)
-                    }
-                    System.getenv("LLMEDGE_TEST_T5_MODEL_ID")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_T5_MODEL_ID", v)
-                    }
-                    System.getenv("LLMEDGE_TEST_T5_FILENAME")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_T5_FILENAME", v)
-                    }
-                    System.getenv("LLMEDGE_TEST_FORCE_DOWNLOAD")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_FORCE_DOWNLOAD", v)
-                    }
-                    System.getenv("LLMEDGE_TEST_VIDEO_FRAMES")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_VIDEO_FRAMES", v)
-                    }
-                    System.getenv("LLMEDGE_TEST_STEPS")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_STEPS", v)
-                    }
-                    System.getenv("LLMEDGE_TEST_WIDTH")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_WIDTH", v)
-                    }
-                    System.getenv("LLMEDGE_TEST_HEIGHT")?.let { v ->
-                        it.systemProperty("LLMEDGE_TEST_HEIGHT", v)
-                    }
-
-                    // Whisper test environment variables
-                    System.getenv("LLMEDGE_TEST_WHISPER_MODEL_PATH")?.let { path ->
-                        it.systemProperty("LLMEDGE_TEST_WHISPER_MODEL_PATH", path)
-                    }
-                    System.getenv("LLMEDGE_BUILD_WHISPER_LIB_PATH")?.let { path ->
-                        it.systemProperty("LLMEDGE_BUILD_WHISPER_LIB_PATH", path)
-                    }
-                    System.getenv("LLMEDGE_TEST_AUDIO_PATH")?.let { path ->
-                        it.systemProperty("LLMEDGE_TEST_AUDIO_PATH", path)
-                    }
-                    // Bark TTS test environment variables
-                    System.getenv("LLMEDGE_TEST_BARK_MODEL_PATH")?.let { path ->
-                        it.systemProperty("LLMEDGE_TEST_BARK_MODEL_PATH", path)
-                    }
-                    System.getenv("LLMEDGE_BUILD_BARK_LIB_PATH")?.let { path ->
-                        it.systemProperty("LLMEDGE_BUILD_BARK_LIB_PATH", path)
-                    }
-                }
-            }
-            managedDevices {
-                devices {
-                    maybeCreate<com.android.build.api.dsl.ManagedVirtualDevice>("pixel6api33").apply {
-                        device = "Pixel 6"
-                        apiLevel = 33
-                        systemImageSource = "aosp-atd"
-                    }
-                }
-            }
-        }
     packaging {
         jniLibs {
             excludes += "**/libOpenCL.so"
@@ -257,6 +100,21 @@ android {
             pickFirsts += "META-INF/LICENSE.md"
             pickFirsts += "META-INF/LICENSE-notice.md"
         }
+    }
+    testOptions {
+        managedDevices {
+            devices {
+                maybeCreate<com.android.build.api.dsl.ManagedVirtualDevice>("pixel6api33").apply {
+                    device = "Pixel 6"
+                    apiLevel = 33
+                    systemImageSource = "aosp-atd"
+                }
+            }
+        }
+    }
+
+    sourceSets {
+        getByName("main").java.srcDir(layout.buildDirectory.dir("generated/source/nativeTargetNames/main/kotlin"))
     }
 }
 
@@ -309,64 +167,29 @@ dependencies {
     androidTestImplementation("io.mockk:mockk-android:1.13.12")
 }
 
-jacoco {
-    toolVersion = "0.8.11"
-}
+apply(from = rootProject.file("gradle/llmedge-test-config.gradle"))
+apply(from = rootProject.file("gradle/llmedge-jacoco.gradle"))
 
-tasks.withType<Test>().configureEach {
-    extensions.configure(JacocoTaskExtension::class) {
-        isIncludeNoLocationClasses = true
-        excludes = listOf("jdk.internal.*")
-    }
-}
-
-val jacocoTestReport by tasks.registering(JacocoReport::class) {
-    dependsOn("testDebugUnitTest")
-
-    reports {
-        xml.required.set(true)
-        html.required.set(true)
-
-        val reportsDir = layout.buildDirectory.dir("reports/jacoco/jacocoTestReport")
-        xml.outputLocation.set(reportsDir.map { it.file("jacocoTestReport.xml") })
-        html.outputLocation.set(reportsDir.map { it.dir("html") })
-    }
-
-    val fileFilter = listOf(
-        "**/R.class",
-        "**/R$*.class",
-        "**/BuildConfig.*",
-        "**/Manifest*.*",
-        "**/*Test*.*",
-        "**/*$*Companion*",
-        // Exclude non-core Android-facing packages from coverage to focus on core library logic
-        // These areas involve platform services (ML Kit OCR, Camera, DownloadManager) and
-        // external integrations that are not meaningful for unit test coverage targets.
-        "**/io/aatricks/llmedge/vision/**",
-        "**/io/aatricks/llmedge/vision/ocr/**",
-        "**/io/aatricks/llmedge/rag/**",
-        "**/io/aatricks/llmedge/huggingface/**",
+val generateNativeTargetNames by tasks.registering(Exec::class) {
+    group = "build setup"
+    description = "Generates Kotlin and shell native target metadata from CMake target declarations."
+    val kotlinOutputFile =
+        layout.buildDirectory.file(
+            "generated/source/nativeTargetNames/main/kotlin/io/aatricks/llmedge/core/NativeTargetNames.kt",
+        )
+    val shellOutputFile =
+        layout.buildDirectory.file(
+            "generated/source/nativeTargetNames/main/shell/native-targets.sh",
+        )
+    outputs.files(kotlinOutputFile, shellOutputFile)
+    commandLine(
+        "bash",
+        "${rootProject.projectDir}/scripts/generate_native_target_names.sh",
+        kotlinOutputFile.get().asFile.absolutePath,
+        shellOutputFile.get().asFile.absolutePath,
     )
+}
 
-    val classTrees = listOf(
-        layout.buildDirectory.dir("intermediates/javac/debug/classes"),
-        layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    ).map { dirProvider ->
-        dirProvider.map { dir ->
-            fileTree(dir) {
-                // Only include core library package and exclude Android/platform-heavy subpackages
-                include("io/aatricks/llmedge/**")
-                exclude(fileFilter)
-            }
-        }
-    }
-
-    classDirectories.setFrom(classTrees)
-    sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
-    val coverageData = layout.buildDirectory.asFileTree.matching {
-        include("jacoco/testDebugUnitTest.exec")
-        include("outputs/unit_test_code_coverage/**/testDebugUnitTest.exec")
-        include("outputs/unit_test_code_coverage/**/*.ec")
-    }
-    executionData.setFrom(coverageData)
+tasks.named("preBuild") {
+    dependsOn(generateNativeTargetNames)
 }

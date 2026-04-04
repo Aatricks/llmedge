@@ -46,12 +46,8 @@ jobs:
 
     - name: Build Native Libraries
       run: |
-        # Build Whisper JNI
-        ./scripts/build_whisper_linux.sh
-        # Build SDCPP JNI (needed for Video test, even if we skip it, to ensure build passes)
-        ./scripts/build_sdcpp_linux.sh
-        # Build SmolLM (llama.cpp) JNI
-        ./scripts/build_smollm_linux.sh
+        source scripts/native_targets.sh
+        ./scripts/build_native_linux.sh "${LLMEDGE_CI_TARGETS[@]}"
 
     - name: Build Android AAR (Vulkan enabled)
       run: |
@@ -92,11 +88,10 @@ jobs:
           -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.VisionSmokeTest
 
     - name: Run E2E Tests (Whisper)
-      env:
-        LLMEDGE_TEST_WHISPER_MODEL_PATH: ${{ github.workspace }}/models/ggml-tiny.en.bin
-        LLMEDGE_BUILD_WHISPER_LIB_PATH: ${{ github.workspace }}/llmedge/build/native/linux-x86_64/libwhisper_jni.so
       run: |
-        # Explicitly run the Whisper E2E test
+        source scripts/native_targets.sh
+        export LLMEDGE_TEST_WHISPER_MODEL_PATH="${{ github.workspace }}/models/ggml-tiny.en.bin"
+        export LLMEDGE_BUILD_WHISPER_LIB_PATH="${{ github.workspace }}/llmedge/build/native/linux-x86_64/$(llmedge_native_output_name whisper)"
         ./gradlew :llmedge:testDebugUnitTest --tests "*WhisperLinuxE2ETest"
 
     - name: Run E2E Tests (SmolLM Text)

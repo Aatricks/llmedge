@@ -38,13 +38,10 @@ class VideoI2VAndLoraE2ETest {
         val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
         Assume.assumeTrue("No test model specified", !modelPath.isNullOrBlank())
 
-        val libPath = System.getenv(LIB_PATH_ENV)
-            ?: System.getProperty(LIB_PATH_ENV)
-            ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
-        Assume.assumeTrue("Native library not found", File(libPath).exists())
-
-        val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        Assume.assumeTrue("Native loading disabled", disableNativeLoad != "true")
+        DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+            envName = LIB_PATH_ENV,
+            defaultRelativePath = "llmedge/build/native/linux-x86_64/libsdcpp.so",
+        )
 
         val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
         val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")
@@ -166,13 +163,10 @@ class VideoI2VAndLoraE2ETest {
         val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
         Assume.assumeTrue("No test model specified", !modelPath.isNullOrBlank())
 
-        val libPath = System.getenv(LIB_PATH_ENV)
-            ?: System.getProperty(LIB_PATH_ENV)
-            ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
-        Assume.assumeTrue("Native library not found", File(libPath).exists())
-
-        val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        Assume.assumeTrue("Native loading disabled", disableNativeLoad != "true")
+        DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+            envName = LIB_PATH_ENV,
+            defaultRelativePath = "llmedge/build/native/linux-x86_64/libsdcpp.so",
+        )
 
         val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
         val t5Path = System.getenv("LLMEDGE_TEST_T5_PATH") ?: System.getProperty("LLMEDGE_TEST_T5_PATH")

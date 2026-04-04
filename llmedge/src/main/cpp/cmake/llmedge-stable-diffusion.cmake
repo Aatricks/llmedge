@@ -192,44 +192,49 @@ if (TARGET ggml-vulkan AND vulkan_hpp_SOURCE_DIR)
     target_include_directories(ggml-vulkan PRIVATE ${vulkan_hpp_SOURCE_DIR})
 endif()
 
-add_library(sdcpp SHARED
+add_library(${LLMEDGE_TARGET_SDCPP} SHARED
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_common.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_condition.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_image.cpp
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_load.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_video.cpp
 )
 
-target_include_directories(sdcpp
+target_include_directories(${LLMEDGE_TARGET_SDCPP}
         PUBLIC
         ${SD_DIR}
         ${SD_DIR}/src
         ${SD_DIR}/thirdparty
 )
 
-target_compile_features(sdcpp PUBLIC c_std_11 cxx_std_17)
+target_compile_features(${LLMEDGE_TARGET_SDCPP} PUBLIC c_std_11 cxx_std_17)
 
-target_compile_options(sdcpp PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3)
+target_compile_options(${LLMEDGE_TARGET_SDCPP} PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3)
 
-target_link_libraries(sdcpp
+target_link_libraries(${LLMEDGE_TARGET_SDCPP}
         android log
         stable-diffusion
 )
 if(SD_VULKAN)
         # Ensure the JNI bridge compiles the Vulkan query helpers (device count, memory, description).
-        target_compile_definitions(sdcpp PRIVATE SD_USE_VULKAN)
-        target_link_libraries(sdcpp vulkan)
+        target_compile_definitions(${LLMEDGE_TARGET_SDCPP} PRIVATE SD_USE_VULKAN)
+        target_link_libraries(${LLMEDGE_TARGET_SDCPP} vulkan)
         if (TARGET ggml-vulkan)
-                target_link_libraries(sdcpp ggml-vulkan)
+                target_link_libraries(${LLMEDGE_TARGET_SDCPP} ggml-vulkan)
         endif()
 endif()
 if(SD_OPENCL)
-        target_compile_definitions(sdcpp PRIVATE SD_USE_OPENCL)
-        target_link_libraries(sdcpp OpenCL::OpenCL)
+        target_compile_definitions(${LLMEDGE_TARGET_SDCPP} PRIVATE SD_USE_OPENCL)
+        target_link_libraries(${LLMEDGE_TARGET_SDCPP} OpenCL::OpenCL)
         if (TARGET ggml-opencl)
-                target_link_libraries(sdcpp ggml-opencl)
+                target_link_libraries(${LLMEDGE_TARGET_SDCPP} ggml-opencl)
         endif()
 endif()
 
 if (WAN_SUPPORT)
-        target_compile_definitions(sdcpp PRIVATE WAN_SUPPORT=1)
-        message(STATUS "Wan video support is enabled for sdcpp")
+        target_compile_definitions(${LLMEDGE_TARGET_SDCPP} PRIVATE WAN_SUPPORT=1)
+        message(STATUS "Wan video support is enabled for ${LLMEDGE_TARGET_SDCPP}")
 endif()
 
-target_link_options(sdcpp PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
+target_link_options(${LLMEDGE_TARGET_SDCPP} PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)

@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
-class DefaultModelResolverTest {
+class DefaultModelRepositoryTest {
     @Test
     fun `resolve returns local file unchanged`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -26,7 +26,7 @@ class DefaultModelResolverTest {
             }
 
         try {
-            val resolver = DefaultModelResolver()
+            val resolver = DefaultModelRepository()
             val resolved = resolver.resolve(context, ModelSpec.localFile(file))
             assertEquals(file.absolutePath, resolved.absolutePath)
         } finally {
@@ -38,7 +38,7 @@ class DefaultModelResolverTest {
     fun `resolve throws when local file is missing`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val file = Files.createTempDirectory("llmedge").resolve("missing.gguf").toFile()
-        val resolver = DefaultModelResolver()
+        val resolver = DefaultModelRepository()
 
         try {
             resolver.resolve(context, ModelSpec.localFile(file))
@@ -57,15 +57,18 @@ class DefaultModelResolverTest {
             }
         val events = mutableListOf<ProgressEvent.Downloading>()
         val resolver =
-            DefaultModelResolver(
-                store =
-                    object : ModelStore {
-                        override suspend fun resolve(
-                            context: Context,
-                            spec: ModelSpec.HuggingFace,
-                            onProgress: ((downloaded: Long, total: Long?) -> Unit)?,
-                        ) = file.also { onProgress?.invoke(5L, 10L) }
-                    },
+            DefaultModelRepository(
+                huggingFaceResolver = { _, spec, onProgress ->
+                    file.also {
+                        onProgress?.invoke(
+                            ProgressEvent.Downloading(
+                                model = spec,
+                                downloadedBytes = 5L,
+                                totalBytes = 10L,
+                            ),
+                        )
+                    }
+                },
             )
 
         try {
