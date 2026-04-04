@@ -33,6 +33,48 @@ internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
     }
 }
 
+internal data class RuntimePoolProfile<TSpec, TOptions, TRuntime : ManagedRuntime>(
+    val cacheConfig: RuntimeCacheConfig,
+    val cacheKeyPrefix: (TSpec, TOptions) -> String,
+    val loadRuntime: suspend (TSpec, TOptions, ComputeBackend) -> TRuntime,
+    val activeBackend: (TRuntime) -> ComputeBackend,
+    val candidateRequest: (TOptions) -> BackendCandidateResolver.Request,
+)
+
+internal fun <TSpec, TOptions, TRuntime : ManagedRuntime> runtimePoolProfile(
+    cacheConfig: RuntimeCacheConfig,
+    cacheKeyPrefix: (TSpec, TOptions) -> String,
+    loadRuntime: suspend (TSpec, TOptions, ComputeBackend) -> TRuntime,
+    activeBackend: (TRuntime) -> ComputeBackend,
+    candidateRequest: (TOptions) -> BackendCandidateResolver.Request,
+): RuntimePoolProfile<TSpec, TOptions, TRuntime> =
+    RuntimePoolProfile(
+        cacheConfig = cacheConfig,
+        cacheKeyPrefix = cacheKeyPrefix,
+        loadRuntime = loadRuntime,
+        activeBackend = activeBackend,
+        candidateRequest = candidateRequest,
+    )
+
+internal fun <TSpec, TOptions, TRuntime : ManagedRuntime> createCachedRuntimePool(
+    context: Context,
+    scope: LLMEdgeScope,
+    profile: RuntimePoolProfile<TSpec, TOptions, TRuntime>,
+): RuntimePool<TSpec, TOptions, TRuntime> =
+    RuntimePool(
+        cache =
+            ModelCacheFactory.create(
+                context = context,
+                scope = scope,
+                maxCacheSize = profile.cacheConfig.maxEntries,
+                maxMemoryMB = profile.cacheConfig.maxMemoryMb,
+            ),
+        cacheKeyPrefix = profile.cacheKeyPrefix,
+        loadRuntime = profile.loadRuntime,
+        activeBackend = profile.activeBackend,
+        candidateRequest = profile.candidateRequest,
+    )
+
 internal fun <TSpec, TOptions, TRuntime : ManagedRuntime> createCachedRuntimePool(
     context: Context,
     scope: LLMEdgeScope,
@@ -42,16 +84,15 @@ internal fun <TSpec, TOptions, TRuntime : ManagedRuntime> createCachedRuntimePoo
     activeBackend: (TRuntime) -> ComputeBackend,
     candidateRequest: (TOptions) -> BackendCandidateResolver.Request,
 ): RuntimePool<TSpec, TOptions, TRuntime> =
-    RuntimePool(
-        cache =
-            ModelCacheFactory.create(
-                context = context,
-                scope = scope,
-                maxCacheSize = cacheConfig.maxEntries,
-                maxMemoryMB = cacheConfig.maxMemoryMb,
+    createCachedRuntimePool(
+        context = context,
+        scope = scope,
+        profile =
+            runtimePoolProfile(
+                cacheConfig = cacheConfig,
+                cacheKeyPrefix = cacheKeyPrefix,
+                loadRuntime = loadRuntime,
+                activeBackend = activeBackend,
+                candidateRequest = candidateRequest,
             ),
-        cacheKeyPrefix = cacheKeyPrefix,
-        loadRuntime = loadRuntime,
-        activeBackend = activeBackend,
-        candidateRequest = candidateRequest,
     )

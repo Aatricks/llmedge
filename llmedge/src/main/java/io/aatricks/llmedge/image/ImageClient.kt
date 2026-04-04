@@ -7,6 +7,7 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
+import io.aatricks.llmedge.core.createFeatureForTesting
 import io.aatricks.llmedge.core.createOwnedFeature
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
@@ -96,16 +97,9 @@ class ImageClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): ImageClient =
-            ImageClient(
-                featureContext =
-                    FeatureContext(
-                        appContext = context,
-                        edgeScope = scope,
-                        config = config,
-                        modelRepository = resolver,
-                    ),
-                ownedBootstrap = ownedBootstrap,
-            )
+            createFeatureForTesting(context, scope, config, resolver, ownedBootstrap) { featureContext, bootstrap ->
+                ImageClient(featureContext = featureContext, ownedBootstrap = bootstrap)
+            }
 
         internal fun resetVideoVulkanBlacklistForTests() {
             BackendRuntimePolicy.resetForTests()

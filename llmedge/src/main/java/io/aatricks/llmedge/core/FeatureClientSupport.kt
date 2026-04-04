@@ -12,6 +12,37 @@ internal data class FeatureContext(
     val modelRepository: ModelRepository,
 )
 
+internal fun featureContextForTesting(
+    context: Context,
+    scope: LLMEdgeScope,
+    config: LLMEdgeConfig,
+    modelRepository: ModelRepository,
+): FeatureContext =
+    FeatureContext(
+        appContext = context,
+        edgeScope = scope,
+        config = config,
+        modelRepository = modelRepository,
+    )
+
+internal inline fun <T> createFeatureForTesting(
+    context: Context,
+    scope: LLMEdgeScope,
+    config: LLMEdgeConfig,
+    modelRepository: ModelRepository,
+    ownedBootstrap: ClientBootstrapContext? = null,
+    build: (FeatureContext, ClientBootstrapContext?) -> T,
+): T =
+    build(
+        featureContextForTesting(
+            context = context,
+            scope = scope,
+            config = config,
+            modelRepository = modelRepository,
+        ),
+        ownedBootstrap,
+    )
+
 internal inline fun <T> createOwnedFeature(
     context: Context,
     scope: CoroutineScope,

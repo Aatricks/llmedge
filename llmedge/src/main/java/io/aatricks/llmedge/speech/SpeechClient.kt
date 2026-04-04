@@ -6,6 +6,7 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
+import io.aatricks.llmedge.core.createFeatureForTesting
 import io.aatricks.llmedge.core.createOwnedFeature
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
@@ -74,16 +75,9 @@ class SpeechClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): SpeechClient =
-            SpeechClient(
-                featureContext =
-                    FeatureContext(
-                        appContext = context,
-                        edgeScope = scope,
-                        config = config,
-                        modelRepository = resolver,
-                    ),
-                ownedBootstrap = ownedBootstrap,
-            )
+            createFeatureForTesting(context, scope, config, resolver, ownedBootstrap) { featureContext, bootstrap ->
+                SpeechClient(featureContext = featureContext, ownedBootstrap = bootstrap)
+            }
     }
 
     private val whisperPool = createWhisperRuntimePool(appContext, edgeScope, config, modelRepository)

@@ -9,6 +9,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicReference
 
 internal class SpeechRequestExecutor(
     private val scope: LLMEdgeScope,
@@ -80,11 +81,12 @@ internal class SpeechRequestExecutor(
         params: BarkTTS.GenerateParams,
         loadOptions: BarkLoadOptions,
     ): Flow<AudioStreamEvent> = callbackFlow {
-        val runtime = barkExecutor.acquire(model, loadOptions)
+        val activeRuntime = AtomicReference<ManagedBarkModel?>()
         trySend(AudioStreamEvent.Started)
         val job =
             scope.coroutineScope.launch {
-                barkExecutor.withExclusiveRuntime(runtime) {
+                barkExecutor.withExclusiveRuntimeRetry(spec = model, options = loadOptions) { runtime, _ ->
+                    activeRuntime.set(runtime)
                     runtime.bark.setProgressCallback { step, progress ->
                         trySend(AudioStreamEvent.Progress(step, progress))
                     }
@@ -97,12 +99,13 @@ internal class SpeechRequestExecutor(
                         close(t)
                     } finally {
                         runtime.bark.setProgressCallback(null)
+                        activeRuntime.compareAndSet(runtime, null)
                     }
                 }
             }
         awaitClose {
             job.cancel()
-            runtime.bark.setProgressCallback(null)
+            activeRuntime.getAndSet(null)?.bark?.setProgressCallback(null)
         }
     }
 
@@ -130,8 +133,11 @@ internal class SpeechRequestExecutor(
         model: ModelSpec,
         options: BarkLoadOptions,
         block: suspend (ManagedBarkModel) -> T,
-    ): T {
-        val runtime = barkExecutor.acquire(model, options)
-        return barkExecutor.withExclusiveRuntime(runtime, block)
-    }
+    ): T =
+        barkExecutor.withExclusiveRuntimeRetry(
+            spec = model,
+            options = options,
+        ) { runtime, _ ->
+            block(runtime)
+        }
 }

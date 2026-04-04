@@ -10,6 +10,7 @@ import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
+import io.aatricks.llmedge.core.runtime.runtimePoolProfile
 import io.aatricks.llmedge.image.diffusion.LoraApplyMode
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.model.ModelRepository
@@ -210,36 +211,39 @@ internal fun createDiffusionRuntimePool(
     createCachedRuntimePool(
         context = context,
         scope = scope,
-        cacheConfig = config.image.cache,
-        cacheKeyPrefix = { spec, options ->
-            RuntimeCacheKeyBuilder.prefix(
-                "role=${spec.role.name}",
-                spec.model.cacheKey,
-                spec.vae?.cacheKey,
-                spec.textEncoder?.cacheKey,
-                spec.taehv?.cacheKey,
-                "threads=${options.nThreads}",
-                "gpu=${options.allowGpu}",
-                "offload=${options.offloadToCpu}",
-                "clipCpu=${options.keepClipOnCpu}",
-                "vaeCpu=${options.keepVaeOnCpu}",
-                "flash=${options.flashAttn}",
-                "vaeDecodeOnly=${options.vaeDecodeOnly}",
-                "sequential=${options.sequentialLoad}",
-                "perf=${options.preferPerformanceMode}",
-                "flowShift=${options.flowShift}",
-                "loraDir=${options.loraModelDir}",
-                "loraMode=${options.loraApplyMode.id}",
-            )
-        },
-        loadRuntime = DiffusionRuntimeLoader(context, resolver)::load,
-        activeBackend = { it.backend },
-        candidateRequest = { options ->
-            BackendCandidateResolver.Request(
-                subsystem = options.subsystem,
-                allowGpu = options.allowGpu,
-                openClAvailable = StableDiffusion.isOpenClAvailable(),
-                vulkanAvailable = LLMEdge.isVulkanAvailable(),
-            )
-        },
+        profile =
+            runtimePoolProfile(
+                cacheConfig = config.image.cache,
+                cacheKeyPrefix = { spec, options ->
+                    RuntimeCacheKeyBuilder.prefix(
+                        "role=${spec.role.name}",
+                        spec.model.cacheKey,
+                        spec.vae?.cacheKey,
+                        spec.textEncoder?.cacheKey,
+                        spec.taehv?.cacheKey,
+                        "threads=${options.nThreads}",
+                        "gpu=${options.allowGpu}",
+                        "offload=${options.offloadToCpu}",
+                        "clipCpu=${options.keepClipOnCpu}",
+                        "vaeCpu=${options.keepVaeOnCpu}",
+                        "flash=${options.flashAttn}",
+                        "vaeDecodeOnly=${options.vaeDecodeOnly}",
+                        "sequential=${options.sequentialLoad}",
+                        "perf=${options.preferPerformanceMode}",
+                        "flowShift=${options.flowShift}",
+                        "loraDir=${options.loraModelDir}",
+                        "loraMode=${options.loraApplyMode.id}",
+                    )
+                },
+                loadRuntime = DiffusionRuntimeLoader(context, resolver)::load,
+                activeBackend = { it.backend },
+                candidateRequest = { options ->
+                    BackendCandidateResolver.Request(
+                        subsystem = options.subsystem,
+                        allowGpu = options.allowGpu,
+                        openClAvailable = StableDiffusion.isOpenClAvailable(),
+                        vulkanAvailable = LLMEdge.isVulkanAvailable(),
+                    )
+                },
+            ),
     )

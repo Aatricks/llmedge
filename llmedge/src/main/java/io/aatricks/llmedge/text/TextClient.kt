@@ -7,6 +7,7 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
+import io.aatricks.llmedge.core.createFeatureForTesting
 import io.aatricks.llmedge.core.createOwnedFeature
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
@@ -89,16 +90,9 @@ class TextClient internal constructor(
             modelResolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): TextClient =
-            TextClient(
-                featureContext =
-                    FeatureContext(
-                        appContext = context,
-                        edgeScope = scope,
-                        config = config,
-                        modelRepository = modelResolver,
-                    ),
-                ownedBootstrap = ownedBootstrap,
-            )
+            createFeatureForTesting(context, scope, config, modelResolver, ownedBootstrap) { featureContext, bootstrap ->
+                TextClient(featureContext = featureContext, ownedBootstrap = bootstrap)
+            }
     }
 
     @Volatile

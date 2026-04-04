@@ -8,6 +8,7 @@ import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
+import io.aatricks.llmedge.core.runtime.runtimePoolProfile
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
@@ -46,31 +47,40 @@ internal fun createWhisperRuntimePool(
     createCachedRuntimePool(
         context = context,
         scope = scope,
-        cacheConfig = config.speech.cache,
-        cacheKeyPrefix = { spec, options ->
-            RuntimeCacheKeyBuilder.prefix(
-                spec.cacheKey,
-                "gpu=${options.useGpu}",
-                "flash=${options.flashAttention}",
-                "gpuDevice=${options.gpuDevice}",
-            )
-        },
-        loadRuntime = { spec, options, backend ->
-            val file = resolver.resolve(context, spec)
-            ManagedWhisperModel(
-                fileSizeBytes = file.length(),
-                whisper = Whisper.load(file.absolutePath, backend, options.flashAttention, options.gpuDevice),
-            )
-        },
-        activeBackend = { it.whisper.activeBackend },
-        candidateRequest = { options ->
-            BackendCandidateResolver.Request(
-                subsystem = ComputeSubsystem.WHISPER,
-                allowGpu = options.useGpu,
-                openClAvailable = Whisper.isOpenClAvailable(),
-                vulkanAvailable = Whisper.isVulkanBackendAvailable(),
-            )
-        },
+        profile =
+            runtimePoolProfile(
+                cacheConfig = config.speech.cache,
+                cacheKeyPrefix = { spec, options ->
+                    RuntimeCacheKeyBuilder.prefix(
+                        spec.cacheKey,
+                        "gpu=${options.useGpu}",
+                        "flash=${options.flashAttention}",
+                        "gpuDevice=${options.gpuDevice}",
+                    )
+                },
+                loadRuntime = { spec, options, backend ->
+                    val file = resolver.resolve(context, spec)
+                    ManagedWhisperModel(
+                        fileSizeBytes = file.length(),
+                        whisper =
+                            Whisper.load(
+                                file.absolutePath,
+                                backend,
+                                options.flashAttention,
+                                options.gpuDevice,
+                            ),
+                    )
+                },
+                activeBackend = { it.whisper.activeBackend },
+                candidateRequest = { options ->
+                    BackendCandidateResolver.Request(
+                        subsystem = ComputeSubsystem.WHISPER,
+                        allowGpu = options.useGpu,
+                        openClAvailable = Whisper.isOpenClAvailable(),
+                        vulkanAvailable = Whisper.isVulkanBackendAvailable(),
+                    )
+                },
+            ),
     )
 
 internal fun createBarkRuntimePool(
@@ -82,37 +92,40 @@ internal fun createBarkRuntimePool(
     createCachedRuntimePool(
         context = context,
         scope = scope,
-        cacheConfig = config.speech.cache,
-        cacheKeyPrefix = { spec, options ->
-            RuntimeCacheKeyBuilder.prefix(
-                spec.cacheKey,
-                "seed=${options.seed}",
-                "temperature=${options.temperature}",
-                "fineTemperature=${options.fineTemperature}",
-                "verbosity=${options.verbosity}",
-            )
-        },
-        loadRuntime = { spec, options, _ ->
-            val file = resolver.resolve(context, spec)
-            ManagedBarkModel(
-                fileSizeBytes = file.length(),
-                bark =
-                    BarkTTS.load(
-                        modelPath = file.absolutePath,
-                        seed = options.seed,
-                        temperature = options.temperature,
-                        fineTemperature = options.fineTemperature,
-                        verbosity = options.verbosity,
-                    ),
-            )
-        },
-        activeBackend = { ComputeBackend.CPU },
-        candidateRequest = {
-            BackendCandidateResolver.Request(
-                subsystem = null,
-                allowGpu = false,
-                openClAvailable = false,
-                vulkanAvailable = false,
-            )
-        },
+        profile =
+            runtimePoolProfile(
+                cacheConfig = config.speech.cache,
+                cacheKeyPrefix = { spec, options ->
+                    RuntimeCacheKeyBuilder.prefix(
+                        spec.cacheKey,
+                        "seed=${options.seed}",
+                        "temperature=${options.temperature}",
+                        "fineTemperature=${options.fineTemperature}",
+                        "verbosity=${options.verbosity}",
+                    )
+                },
+                loadRuntime = { spec, options, _ ->
+                    val file = resolver.resolve(context, spec)
+                    ManagedBarkModel(
+                        fileSizeBytes = file.length(),
+                        bark =
+                            BarkTTS.load(
+                                modelPath = file.absolutePath,
+                                seed = options.seed,
+                                temperature = options.temperature,
+                                fineTemperature = options.fineTemperature,
+                                verbosity = options.verbosity,
+                            ),
+                    )
+                },
+                activeBackend = { ComputeBackend.CPU },
+                candidateRequest = {
+                    BackendCandidateResolver.Request(
+                        subsystem = null,
+                        allowGpu = false,
+                        openClAvailable = false,
+                        vulkanAvailable = false,
+                    )
+                },
+            ),
     )
