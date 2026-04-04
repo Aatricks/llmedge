@@ -4,15 +4,13 @@ import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.ConversationMessage
 import io.aatricks.llmedge.text.ConversationRole
 import io.aatricks.llmedge.text.ConversationWindow
-import io.aatricks.llmedge.text.SessionTranscript
+import io.aatricks.llmedge.text.ConversationSessionSupport
 import io.aatricks.llmedge.text.TextClient
 import io.aatricks.llmedge.text.TextModelOptions
 import io.aatricks.llmedge.text.stripThinkBlocks
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -27,13 +25,12 @@ class ToolAgent internal constructor(
     private val options: TextModelOptions,
     private val policy: ToolPolicy,
 ) {
-    private val sessionMutex = Mutex()
-    private val transcript = SessionTranscript(memory)
+    private val support = ConversationSessionSupport(client, model, options, memory)
     private val toolsByName = tools.associateBy(Tool::name)
     private val toolSystemPrompt by lazy { ToolPromptGenerator.generateSystemPrompt(tools, systemPrompt) }
 
     suspend fun prepare() {
-        client.prepare(model, options)
+        support.prepare()
     }
 
     suspend fun reply(
@@ -44,22 +41,13 @@ class ToolAgent internal constructor(
     ): ToolAgentResult {
         require(maxSteps > 0) { "maxSteps must be greater than 0." }
 
-        return sessionMutex.withLock {
-            val runtime = client.acquire(model, options)
+        return support.withRuntime {
             val working = seedWorkingTranscript(message)
             val trace = mutableListOf<ToolAgentTraceStep>()
             var finalText = ""
 
             for (step in 1..maxSteps) {
-                val response =
-                    client.complete(
-                        runtime = runtime,
-                        prompt = renderWorkingPrompt(working),
-                        systemPrompt = toolSystemPrompt,
-                        options = options,
-                        maxTokens = maxTokens,
-                        batchSize = batchSize,
-                    )
+                val response = complete(renderWorkingPrompt(working), toolSystemPrompt, maxTokens, batchSize)
 
                 when (val turn = ToolCallParser.classify(response)) {
                     is ParsedModelTurn.FinalText -> {
@@ -68,7 +56,7 @@ class ToolAgent internal constructor(
                         if (visibleText.isNotBlank()) {
                             finalText = visibleText
                             commitTurn(message, finalText)
-                            return@withLock ToolAgentResult(
+                            return@withRuntime ToolAgentResult(
                                 text = finalText,
                                 finishReason = ToolAgentFinishReason.COMPLETED,
                                 trace = trace.toList(),
@@ -118,8 +106,7 @@ class ToolAgent internal constructor(
             emit(ToolAgentEvent.Started(message))
 
             try {
-                sessionMutex.withLock {
-                    val runtime = client.acquire(model, options)
+                support.withRuntime {
                     val working = seedWorkingTranscript(message)
                     val trace = mutableListOf<ToolAgentTraceStep>()
                     var finalText = ""
@@ -128,14 +115,7 @@ class ToolAgent internal constructor(
                         val prompt = renderWorkingPrompt(working)
                         val chunks = mutableListOf<String>()
 
-                        client
-                            .streamCompletion(
-                                runtime = runtime,
-                                prompt = prompt,
-                                systemPrompt = toolSystemPrompt,
-                                options = options,
-                                batchSize = batchSize,
-                            ).collect { chunk -> chunks += chunk }
+                        streamCompletion(prompt, toolSystemPrompt, batchSize).collect { chunk -> chunks += chunk }
 
                         val response = chunks.joinToString("")
 
@@ -156,7 +136,7 @@ class ToolAgent internal constructor(
                                             ),
                                         ),
                                     )
-                                    return@withLock
+                                    return@withRuntime
                                 }
 
                                 working += emptyFinalAnswerReminder()
@@ -211,9 +191,9 @@ class ToolAgent internal constructor(
             } catch (t: Throwable) {
                 emit(ToolAgentEvent.Failed(t.message ?: "Tool agent failed.", t))
             }
-        }
+    }
 
-    fun historySnapshot(): List<ConversationMessage> = transcript.snapshot()
+    fun historySnapshot(): List<ConversationMessage> = support.historySnapshot()
 
     private suspend fun handleToolInvocation(
         message: String,
@@ -310,19 +290,19 @@ class ToolAgent internal constructor(
     }
 
     private fun seedWorkingTranscript(message: String): MutableList<ToolPromptMessage> =
-        transcript
-            .previewWithUser(message)
+        support
+            .withHistoryPreview(message)
             .map { promptMessage(it.role, it.content) }
             .toMutableList()
 
     private fun persistentConversationPreview(message: String): List<ConversationMessage> =
-        transcript.previewWithUser(message)
+        support.withHistoryPreview(message)
 
     private fun commitTurn(
         message: String,
         response: String?,
     ) {
-        transcript.commitTurn(message, response)
+        support.commitTurn(message, response)
     }
 
     private fun renderWorkingPrompt(messages: List<ToolPromptMessage>): String =

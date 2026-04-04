@@ -3,6 +3,7 @@ package io.aatricks.llmedge.vision
 import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.TextRuntimeConfig
 import io.aatricks.llmedge.model.ModelSpec
 import io.mockk.coVerify
 import io.mockk.coEvery
@@ -31,14 +32,14 @@ class VisionClientTest {
 
         coEvery { pipeline.analyze(match { it.prompt == "first" }, any()) } coAnswers {
             delay(40)
-            VisionPipeline.VisionPipelineResult(
+            VisionPipelineResult(
                 text = "first-result",
                 runtimeMemory = VisionRuntimeMemory(nativeBytes = 100L, stateBytes = 10L),
             )
         }
         coEvery { pipeline.analyze(match { it.prompt == "second" }, any()) } coAnswers {
             delay(5)
-            VisionPipeline.VisionPipelineResult(
+            VisionPipelineResult(
                 text = "second-result",
                 runtimeMemory = VisionRuntimeMemory(nativeBytes = 200L, stateBytes = 20L),
             )
@@ -68,7 +69,7 @@ class VisionClientTest {
         val pipeline = mockk<VisionPipeline>(relaxed = true)
         val model = mockk<ModelSpec>()
         val projector = mockk<ModelSpec>()
-        val config = LLMEdgeConfig(defaultTextThreads = 6, defaultTextGenerationThreads = 3)
+        val config = LLMEdgeConfig(text = TextRuntimeConfig(promptThreads = 6, generationThreads = 3))
         val client = VisionClient(context, pipeline, config)
 
         client.prepare(model = model, projector = projector)

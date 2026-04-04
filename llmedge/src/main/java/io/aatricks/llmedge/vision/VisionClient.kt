@@ -3,8 +3,12 @@ package io.aatricks.llmedge.vision
 import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.vision.ocr.MlKitOcrEngine
+import kotlinx.coroutines.CoroutineScope
 
 data class VisionRequest(
     val image: Bitmap,
@@ -21,7 +25,28 @@ class VisionClient internal constructor(
     private val context: Context,
     private val pipeline: VisionPipeline,
     config: LLMEdgeConfig,
+    private val ownedScope: LLMEdgeScope? = null,
 ) : AutoCloseable {
+    companion object {
+        @JvmStatic
+        @JvmOverloads
+        fun create(
+            context: Context,
+            scope: CoroutineScope,
+            config: LLMEdgeConfig = LLMEdgeConfig(),
+            modelRepository: ModelRepository = DefaultModelRepository(),
+        ): VisionClient {
+            val appContext = context.applicationContext
+            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
+            return VisionClient(
+                context = appContext,
+                pipeline = VisionPipeline(appContext, edgeScope, modelRepository, config),
+                config = config,
+                ownedScope = edgeScope,
+            )
+        }
+    }
+
     private val defaultModel: ModelSpec = config.models.vision.model
     private val defaultProjector: ModelSpec = config.models.vision.projector
     private val defaultPromptThreads: Int = config.text.promptThreads
@@ -104,6 +129,10 @@ class VisionClient internal constructor(
     fun getLastRuntimeMemory(): VisionRuntimeMemory? = lastRuntimeMemory
 
     override fun close() {
-        pipeline.close()
+        try {
+            pipeline.close()
+        } finally {
+            ownedScope?.close()
+        }
     }
 }

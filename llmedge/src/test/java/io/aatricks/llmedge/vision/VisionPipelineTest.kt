@@ -3,7 +3,9 @@ package io.aatricks.llmedge.vision
 import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.TextRuntimeConfig
+import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.runtime.SmolLM
 import io.mockk.coEvery
@@ -27,8 +29,8 @@ class VisionPipelineTest {
     @Test
     fun `prepare caches runtime and analyze reuses it`() = runTest {
         val context = mockk<Context>(relaxed = true)
-        val resolver = mockk<ModelResolver>()
-        val config = LLMEdgeConfig(textUseVulkan = false, defaultTextThreads = 4, defaultTextGenerationThreads = 2)
+        val resolver = mockk<ModelRepository>()
+        val config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = false, promptThreads = 4, generationThreads = 2))
         val smol = mockk<SmolLM>(relaxed = true)
         val projector = mockk<Projector>(relaxed = true)
         val model = mockk<ModelSpec>()
@@ -36,6 +38,7 @@ class VisionPipelineTest {
         val modelFile = File.createTempFile("llava-vision-model", ".gguf").apply { writeText("model") }
         val projectorFile = File.createTempFile("llava-vision-projector", ".mmproj.gguf").apply { writeText("projector") }
         val bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+        val edgeScope = LLMEdgeScope(this, config.text.promptThreads)
 
         coEvery { resolver.resolve(context, model) } returns modelFile
         coEvery { resolver.resolve(context, projectorSpec) } returns projectorFile
@@ -53,36 +56,42 @@ class VisionPipelineTest {
         val pipeline =
             VisionPipeline(
                 context = context,
+                scope = edgeScope,
                 resolver = resolver,
                 config = config,
                 smolLmFactory = { smol },
                 projectorFactory = { projector },
             )
 
-        pipeline.prepare(model = model, projector = projectorSpec, numThreads = 4, generationThreads = 2)
-        val result =
-            pipeline.analyze(
-                VisionRequest(
-                    image = bitmap,
-                    prompt = "Describe the image",
-                    model = model,
-                    projector = projectorSpec,
-                ),
-            )
+        try {
+            pipeline.prepare(model = model, projector = projectorSpec, numThreads = 4, generationThreads = 2)
+            val result =
+                pipeline.analyze(
+                    VisionRequest(
+                        image = bitmap,
+                        prompt = "Describe the image",
+                        model = model,
+                        projector = projectorSpec,
+                    ),
+                )
 
-        assertEquals("warm-response", result.text)
-        coVerify(exactly = 1) { smol.load(modelFile.absolutePath, any()) }
-        verify(exactly = 1) { projector.init(projectorFile.absolutePath, 33L) }
-        verify(exactly = 1) { smol.clearKvCache() }
-        modelFile.delete()
-        projectorFile.delete()
+            assertEquals("warm-response", result.text)
+            coVerify(exactly = 1) { smol.load(modelFile.absolutePath, any()) }
+            verify(exactly = 1) { projector.init(projectorFile.absolutePath, 33L) }
+            verify(exactly = 1) { smol.clearKvCache() }
+        } finally {
+            pipeline.close()
+            edgeScope.close()
+            modelFile.delete()
+            projectorFile.delete()
+        }
     }
 
     @Test
     fun `prepare uses config-backed runtime defaults`() = runTest {
         val context = mockk<Context>(relaxed = true)
-        val resolver = mockk<ModelResolver>()
-        val config = LLMEdgeConfig(textUseVulkan = true, defaultTextThreads = 7, defaultTextGenerationThreads = 3, defaultUseFlashAttention = false)
+        val resolver = mockk<ModelRepository>()
+        val config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = true, promptThreads = 7, generationThreads = 3, useFlashAttention = false))
         val smol = mockk<SmolLM>(relaxed = true)
         val projector = mockk<Projector>(relaxed = true)
         val model = mockk<ModelSpec>()
@@ -90,6 +99,7 @@ class VisionPipelineTest {
         val modelFile = File.createTempFile("llava-default-model", ".gguf").apply { writeText("model") }
         val projectorFile = File.createTempFile("llava-default-projector", ".mmproj.gguf").apply { writeText("projector") }
         val paramsSlot = slot<SmolLM.InferenceParams>()
+        val edgeScope = LLMEdgeScope(this, config.text.promptThreads)
 
         coEvery { resolver.resolve(context, model) } returns modelFile
         coEvery { resolver.resolve(context, projectorSpec) } returns projectorFile
@@ -102,6 +112,7 @@ class VisionPipelineTest {
         val pipeline =
             VisionPipeline(
                 context = context,
+                scope = edgeScope,
                 resolver = resolver,
                 config = config,
                 smolLmFactory = { useVulkan ->
@@ -111,12 +122,17 @@ class VisionPipelineTest {
                 projectorFactory = { projector },
             )
 
-        pipeline.prepare(model = model, projector = projectorSpec, numThreads = 7, generationThreads = 3)
+        try {
+            pipeline.prepare(model = model, projector = projectorSpec, numThreads = 7, generationThreads = 3)
 
-        assertEquals(7, paramsSlot.captured.numThreads)
-        assertEquals(3, paramsSlot.captured.generationThreads)
-        assertEquals(false, paramsSlot.captured.useFlashAttn)
-        modelFile.delete()
-        projectorFile.delete()
+            assertEquals(7, paramsSlot.captured.numThreads)
+            assertEquals(3, paramsSlot.captured.generationThreads)
+            assertEquals(false, paramsSlot.captured.useFlashAttn)
+        } finally {
+            pipeline.close()
+            edgeScope.close()
+            modelFile.delete()
+            projectorFile.delete()
+        }
     }
 }

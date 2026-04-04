@@ -5,14 +5,16 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.core.runtime.BackendFailureClassifier
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.tools.Tool
 import io.aatricks.llmedge.tools.ToolAgent
 import io.aatricks.llmedge.tools.ToolPolicies
 import io.aatricks.llmedge.tools.ToolPolicy
 import io.aatricks.llmedge.text.runtime.SmolLM
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collect
@@ -62,12 +64,26 @@ class TextClient internal constructor(
     private val context: Context,
     private val scope: LLMEdgeScope,
     private val config: LLMEdgeConfig,
-    private val modelResolver: ModelResolver,
+    private val modelResolver: ModelRepository,
+    private val ownedScope: LLMEdgeScope? = null,
 ) : AutoCloseable {
-    private companion object {
+    companion object {
         private const val LOG_TAG = "TextClient"
         /** Cap for chat state snapshots — skip snapshotting if state exceeds 64 MB. */
         private const val MAX_CHAT_STATE_BYTES = 64L * 1024L * 1024L
+
+        @JvmStatic
+        @JvmOverloads
+        fun create(
+            context: Context,
+            scope: CoroutineScope,
+            config: LLMEdgeConfig = LLMEdgeConfig(),
+            modelRepository: ModelRepository = DefaultModelRepository(),
+        ): TextClient {
+            val appContext = context.applicationContext
+            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
+            return TextClient(appContext, edgeScope, config, modelRepository, ownedScope = edgeScope)
+        }
     }
 
     @Volatile
@@ -377,7 +393,11 @@ class TextClient internal constructor(
     }
 
     override fun close() {
-        runtimePool.close()
+        try {
+            runtimePool.close()
+        } finally {
+            ownedScope?.close()
+        }
     }
 
     private fun invalidateRuntime(model: ModelSpec, options: TextModelOptions) {

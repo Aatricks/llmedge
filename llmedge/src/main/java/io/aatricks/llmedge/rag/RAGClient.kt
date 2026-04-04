@@ -3,13 +3,15 @@ package io.aatricks.llmedge.rag
 import android.content.Context
 import android.net.Uri
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.TextModelOptions
 import io.aatricks.llmedge.text.ManagedTextModel
 import io.aatricks.llmedge.text.createTextRuntimePool
+import io.aatricks.llmedge.text.runtime.SmolLM
+import kotlinx.coroutines.CoroutineScope
 
 class RAGSession internal constructor(
     val engine: RAGEngine,
@@ -41,8 +43,24 @@ class RAGClient internal constructor(
     private val context: Context,
     private val scope: LLMEdgeScope,
     private val config: LLMEdgeConfig,
-    private val resolver: ModelResolver,
+    private val resolver: ModelRepository,
+    private val ownedScope: LLMEdgeScope? = null,
 ) : AutoCloseable {
+    companion object {
+        @JvmStatic
+        @JvmOverloads
+        fun create(
+            context: Context,
+            scope: CoroutineScope,
+            config: LLMEdgeConfig = LLMEdgeConfig(),
+            modelRepository: ModelRepository = DefaultModelRepository(),
+        ): RAGClient {
+            val appContext = context.applicationContext
+            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
+            return RAGClient(appContext, edgeScope, config, modelRepository, ownedScope = edgeScope)
+        }
+    }
+
     private val runtimePool = createTextRuntimePool(context, scope, config, resolver)
 
     /**
@@ -68,6 +86,10 @@ class RAGClient internal constructor(
     }
 
     override fun close() {
-        runtimePool.close()
+        try {
+            runtimePool.close()
+        } finally {
+            ownedScope?.close()
+        }
     }
 }

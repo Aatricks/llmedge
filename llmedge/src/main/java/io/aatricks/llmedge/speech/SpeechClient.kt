@@ -4,10 +4,12 @@ import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.speech.tts.BarkTTS
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -50,8 +52,24 @@ class SpeechClient internal constructor(
     private val context: Context,
     private val scope: LLMEdgeScope,
     private val config: LLMEdgeConfig,
-    private val resolver: ModelResolver,
+    private val resolver: ModelRepository,
+    private val ownedScope: LLMEdgeScope? = null,
 ) : AutoCloseable {
+    companion object {
+        @JvmStatic
+        @JvmOverloads
+        fun create(
+            context: Context,
+            scope: CoroutineScope,
+            config: LLMEdgeConfig = LLMEdgeConfig(),
+            modelRepository: ModelRepository = DefaultModelRepository(),
+        ): SpeechClient {
+            val appContext = context.applicationContext
+            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
+            return SpeechClient(appContext, edgeScope, config, modelRepository, ownedScope = edgeScope)
+        }
+    }
+
     private val whisperPool = createWhisperRuntimePool(context, scope, config, resolver)
     private val barkPool = createBarkRuntimePool(context, scope, config, resolver)
 
@@ -230,7 +248,14 @@ class SpeechClient internal constructor(
     }
 
     override fun close() {
-        barkPool.close()
-        whisperPool.close()
+        try {
+            barkPool.close()
+        } finally {
+            try {
+                whisperPool.close()
+            } finally {
+                ownedScope?.close()
+            }
+        }
     }
 }

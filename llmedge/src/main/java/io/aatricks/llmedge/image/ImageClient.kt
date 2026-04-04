@@ -18,7 +18,8 @@ import io.aatricks.llmedge.image.diffusion.Scheduler
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
 import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.BackendRuntimePolicy
 import io.aatricks.llmedge.runtime.ComputeBackend
@@ -27,6 +28,7 @@ import io.aatricks.llmedge.runtime.CpuTopology
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
@@ -80,10 +82,24 @@ class ImageClient internal constructor(
     private val context: Context,
     private val scope: LLMEdgeScope,
     private val config: LLMEdgeConfig,
-    private val resolver: ModelResolver,
+    private val resolver: ModelRepository,
+    private val ownedScope: LLMEdgeScope? = null,
 ) : AutoCloseable {
     companion object {
         private const val LOG_TAG = "ImageClient"
+
+        @JvmStatic
+        @JvmOverloads
+        fun create(
+            context: Context,
+            scope: CoroutineScope,
+            config: LLMEdgeConfig = LLMEdgeConfig(),
+            modelRepository: ModelRepository = DefaultModelRepository(),
+        ): ImageClient {
+            val appContext = context.applicationContext
+            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
+            return ImageClient(appContext, edgeScope, config, modelRepository, ownedScope = edgeScope)
+        }
 
         internal fun resetVideoVulkanBlacklistForTests() {
             BackendRuntimePolicy.resetForTests()
@@ -436,9 +452,13 @@ class ImageClient internal constructor(
     }
 
     override fun close() {
-        cancelGeneration()
-        activeModel = null
-        runtimePool.close()
+        try {
+            cancelGeneration()
+            activeModel = null
+            runtimePool.close()
+        } finally {
+            ownedScope?.close()
+        }
     }
 
     private fun imageRuntimeRequest(params: ImageGenerationRequest): RuntimeRequest {

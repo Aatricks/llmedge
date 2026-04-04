@@ -3,14 +3,15 @@ package io.aatricks.llmedge.text
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.runtime.BackendPolicy
+import io.aatricks.llmedge.core.runtime.CachedRuntimeDescriptor
 import io.aatricks.llmedge.core.runtime.ManagedRuntime
 import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
 import io.aatricks.llmedge.core.runtime.RuntimeLoader
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.text.runtime.SmolLM
@@ -84,7 +85,7 @@ internal class TextBackendPolicy(
 internal class TextRuntimeLoader(
     private val context: Context,
     private val config: LLMEdgeConfig,
-    private val resolver: ModelResolver,
+    private val resolver: ModelRepository,
 ) : RuntimeLoader<ModelSpec, TextModelOptions, ManagedTextModel> {
     override suspend fun load(
         spec: ModelSpec,
@@ -101,18 +102,17 @@ internal fun createTextRuntimePool(
     context: Context,
     scope: LLMEdgeScope,
     config: LLMEdgeConfig,
-    resolver: ModelResolver,
+    resolver: ModelRepository,
 ): RuntimePool<ModelSpec, TextModelOptions, ManagedTextModel> =
-    RuntimePool(
-        cache =
-            ModelCacheFactory.create(
-                context = context,
-                scope = scope,
-                maxCacheSize = config.text.cache.maxEntries,
-                maxMemoryMB = config.text.cache.maxMemoryMb,
+    createCachedRuntimePool(
+        context = context,
+        scope = scope,
+        descriptor =
+            CachedRuntimeDescriptor(
+                cache = config.text.cache,
+                keyStrategy = TextRuntimeKeyStrategy(config),
+                runtimeLoader = TextRuntimeLoader(context, config, resolver),
+                activeBackend = { it.model.getActiveBackend() },
+                backendPolicy = TextBackendPolicy(config),
             ),
-        keyStrategy = TextRuntimeKeyStrategy(config),
-        runtimeLoader = TextRuntimeLoader(context, config, resolver),
-        activeBackend = { it.model.getActiveBackend() },
-        backendPolicy = TextBackendPolicy(config),
     )

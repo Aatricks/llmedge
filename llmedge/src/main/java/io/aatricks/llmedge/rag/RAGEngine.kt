@@ -19,11 +19,7 @@ package io.aatricks.llmedge.rag
 import android.content.Context
 import android.net.Uri
 import io.aatricks.llmedge.text.runtime.SmolLM
-import android.util.Log
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.UUID
 
 /**
  * Minimal on-device RAG pipeline wiring:
@@ -41,83 +37,41 @@ class RAGEngine(
 ) {
     private val embeddingProvider = EmbeddingProvider(context, embeddingConfig)
     @Volatile private var lastContext: String = ""
-    private val vectorStore = InMemoryVectorStore(
-        File(context.filesDir, "rag_store/index.json")
-    )
-    private var systemPromptInjected = false
+    private val vectorStore = InMemoryVectorStore(File(context.filesDir, "rag_store/index.json"))
+    private val indexer = RAGIndexer(context, splitter, embeddingProvider, vectorStore)
+    private val retriever = RAGRetriever(embeddingProvider, vectorStore)
+    private val answerer = RAGAnswerer(smolLM)
 
     suspend fun init() {
         vectorStore.load()
         embeddingProvider.init()
     }
 
-    suspend fun indexPdf(uri: Uri): Int = withContext(Dispatchers.IO) {
-        val text = PDFReader.readAllText(context, uri).trim()
-        Log.d(TAG, "PDF extracted chars=${text.length}")
-        val chunks = splitter.split(text)
-        Log.d(TAG, "Chunk count=${chunks.size}")
-        val entries = chunks.map { chunk ->
-            val id = UUID.randomUUID().toString()
-            val emb = embeddingProvider.encode(chunk)
-            VectorEntry(id = id, text = chunk, embedding = emb)
-        }
-        vectorStore.addAll(entries)
-        vectorStore.save()
-        return@withContext entries.size
+    suspend fun indexPdf(uri: Uri): Int = indexer.indexPdf(uri)
+
+    suspend fun ask(question: String, topK: Int = 5): String {
+        val contextText = contextFor(question, topK)
+        lastContext = contextText
+        return answerer.ask(question, contextText)
     }
 
-    suspend fun ask(question: String, topK: Int = 5): String = withContext(Dispatchers.IO) {
-        checkNotNull(smolLM) { "SmolLM must be initialized and loaded with a model before calling ask()" }
-        val contextText = contextFor(question, topK)
-        if (contextText.isBlank()) {
-            Log.w(TAG, "No retrieval hits; vector store empty or no similar content")
-            return@withContext "No relevant context found in the indexed documents. If your PDF is a scanned image, text extraction may be empty (no OCR). Try a text-based PDF."
-        }
-        ensureSystemPrompt()
-        val prompt = buildPrompt(contextText, question)
-        val answer = smolLM.getResponse(prompt)
-        return@withContext answer.trim()
-    }
-    suspend fun contextFor(question: String, topK: Int = 5): String = withContext(Dispatchers.IO) {
-        val hitsWithScores = retrieve(question, topK)
-        if (hitsWithScores.isEmpty()) {
-            lastContext = ""
-            return@withContext ""
-        }
-        val ctx = buildContextFromHits(hitsWithScores)
+    suspend fun contextFor(question: String, topK: Int = 5): String {
+        val ctx = retriever.contextFor(question, topK)
         lastContext = ctx
-        return@withContext ctx
+        return ctx
     }
 
     fun getLastContext(): String = lastContext
 
-    private fun ensureSystemPrompt() {
-        if (!systemPromptInjected) {
-            smolLM.addSystemPrompt(SYSTEM_PROMPT)
-            systemPromptInjected = true
-        }
-    }
+    suspend fun retrieve(question: String, topK: Int = 5): List<Pair<VectorEntry, Float>> =
+        retriever.retrieve(question, topK)
 
-    private fun buildPrompt(context: String, query: String): String {
-        return RAGPromptSupport.buildPrompt(context, query)
-    }
-
-    private fun buildContextFromHits(hitsWithScores: List<Pair<VectorEntry, Float>>): String {
-        return RAGPromptSupport.buildContextFromHits(hitsWithScores)
-    }
-
-    suspend fun retrieve(question: String, topK: Int = 5): List<Pair<VectorEntry, Float>> = withContext(Dispatchers.IO) {
-        val qEmb = embeddingProvider.encode(question)
-        vectorStore.topKWithScores(qEmb, topK)
-    }
-
-    suspend fun retrievalPreview(question: String, topK: Int = 5): String = withContext(Dispatchers.IO) {
-        val hits = retrieve(question, topK)
-        RAGPromptSupport.formatRetrievalPreview(hits)
-    }
+    suspend fun retrievalPreview(question: String, topK: Int = 5): String =
+        retriever.retrievalPreview(question, topK)
 
     companion object {
-        private const val TAG = "RAGEngine"
-        private const val SYSTEM_PROMPT = "You are a question answering assistant. Use only the provided context to answer. If the context does not contain the answer, say 'I don't know'."
+        internal const val TAG = "RAGEngine"
+        internal const val SYSTEM_PROMPT =
+            "You are a question answering assistant. Use only the provided context to answer. If the context does not contain the answer, say 'I don't know'."
     }
 }

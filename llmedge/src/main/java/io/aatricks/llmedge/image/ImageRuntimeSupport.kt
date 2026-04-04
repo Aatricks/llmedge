@@ -5,17 +5,18 @@ import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.BackendPolicy
+import io.aatricks.llmedge.core.runtime.CachedRuntimeDescriptor
 import io.aatricks.llmedge.core.runtime.ManagedRuntime
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
 import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
 import io.aatricks.llmedge.core.runtime.RuntimeLoader
 import io.aatricks.llmedge.core.runtime.RuntimePool
+import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
 import io.aatricks.llmedge.image.diffusion.LoraApplyMode
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
@@ -116,7 +117,7 @@ internal class DiffusionBackendPolicy : BackendPolicy<DiffusionLoadOptions> {
 
 internal class DiffusionRuntimeLoader(
     private val context: Context,
-    private val resolver: ModelResolver,
+    private val resolver: ModelRepository,
 ) : RuntimeLoader<DiffusionRuntimeSpec, DiffusionLoadOptions, ManagedDiffusionModel> {
     companion object {
         private const val LOG_TAG = "DiffusionRuntimeLoader"
@@ -283,18 +284,17 @@ internal fun createDiffusionRuntimePool(
     context: Context,
     scope: LLMEdgeScope,
     config: LLMEdgeConfig,
-    resolver: ModelResolver,
+    resolver: ModelRepository,
 ): RuntimePool<DiffusionRuntimeSpec, DiffusionLoadOptions, ManagedDiffusionModel> =
-    RuntimePool(
-        cache =
-            ModelCacheFactory.create(
-                context = context,
-                scope = scope,
-                maxCacheSize = config.image.cache.maxEntries,
-                maxMemoryMB = config.image.cache.maxMemoryMb,
+    createCachedRuntimePool(
+        context = context,
+        scope = scope,
+        descriptor =
+            CachedRuntimeDescriptor(
+                cache = config.image.cache,
+                keyStrategy = DiffusionRuntimeKeyStrategy(),
+                runtimeLoader = DiffusionRuntimeLoader(context, resolver),
+                activeBackend = { it.backend },
+                backendPolicy = DiffusionBackendPolicy(),
             ),
-        keyStrategy = DiffusionRuntimeKeyStrategy(),
-        runtimeLoader = DiffusionRuntimeLoader(context, resolver),
-        activeBackend = { it.backend },
-        backendPolicy = DiffusionBackendPolicy(),
     )

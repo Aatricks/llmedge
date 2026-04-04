@@ -40,7 +40,15 @@ import kotlinx.coroutines.flow.Flow
  * Kotlin wrapper for the native LLM runtime. Handles loading models and providing a simple API for
  * running completions and managing model state.
  */
-class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
+internal fun interface SmolLMNativeLibrarySupport {
+    fun ensureLoaded()
+}
+
+class SmolLM private constructor(
+    useVulkan: Boolean,
+    private val nativeLibrarySupport: SmolLMNativeLibrarySupport,
+) : AutoCloseable {
+    constructor(useVulkan: Boolean = true) : this(useVulkan, currentNativeLibrarySupport())
 
     internal interface NativeBridge {
         fun loadModel(
@@ -174,9 +182,24 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         private fun logE(tag: String, message: String, throwable: Throwable? = null) =
             AndroidLogAdapter.e(tag, message, throwable)
 
+        private val defaultNativeLibrarySupport =
+            SmolLMNativeLibrarySupport {
+                NativeLibraryLoader.ensureSmolLMLoaded(
+                    required = true,
+                    onDebug = { message -> logD(LOG_TAG, message) },
+                    onError = { message, throwable -> logE(LOG_TAG, message, throwable) },
+                )
+            }
+
+        private val noOpNativeLibrarySupport = SmolLMNativeLibrarySupport { }
+
+        @Volatile
+        private var nativeLibrarySupportOverride: SmolLMNativeLibrarySupport? = null
+
         @JvmStatic
         fun isOpenClAvailable(): Boolean =
             try {
+                currentNativeLibrarySupport().ensureLoaded()
                 nativeIsOpenClAvailable()
             } catch (_: Throwable) {
                 false
@@ -185,18 +208,11 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         @JvmStatic
         fun isVulkanBackendAvailable(): Boolean =
             try {
+                currentNativeLibrarySupport().ensureLoaded()
                 nativeIsVulkanAvailable()
             } catch (_: Throwable) {
                 true
             }
-
-        init {
-            NativeLibraryLoader.ensureSmolLMLoaded(
-                required = true,
-                onDebug = { message -> logD(LOG_TAG, message) },
-                onError = { message, throwable -> logE(LOG_TAG, message, throwable) },
-            )
-        }
 
         private val defaultNativeBridgeProvider: (SmolLM) -> NativeBridge = { instance ->
             object : NativeBridge {
@@ -381,11 +397,24 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
 
         internal fun overrideNativeBridgeForTests(provider: (SmolLM) -> NativeBridge) {
             nativeBridgeProvider.override(provider)
+            nativeLibrarySupportOverride = noOpNativeLibrarySupport
         }
 
         internal fun resetNativeBridgeForTests() {
             nativeBridgeProvider.reset()
+            nativeLibrarySupportOverride = null
         }
+
+        internal fun overrideNativeLibrarySupportForTests(support: SmolLMNativeLibrarySupport) {
+            nativeLibrarySupportOverride = support
+        }
+
+        internal fun resetNativeLibrarySupportForTests() {
+            nativeLibrarySupportOverride = null
+        }
+
+        internal fun currentNativeLibrarySupport(): SmolLMNativeLibrarySupport =
+            nativeLibrarySupportOverride ?: defaultNativeLibrarySupport
 
         @JvmStatic
         private external fun nativeIsOpenClAvailable(): Boolean
@@ -398,7 +427,7 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
             useVulkan: Boolean = false,
             loadedParams: InferenceParams = InferenceParams(),
         ): SmolLM {
-            val s = SmolLM(useVulkan)
+            val s = SmolLM(useVulkan, nativeLibrarySupport = noOpNativeLibrarySupport)
             s.state.nativePtr = nativePtr
             s.state.loadedInferenceParams = loadedParams
             s.state.selectedBackend = if (useVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
@@ -412,6 +441,10 @@ class SmolLM(useVulkan: Boolean = true) : AutoCloseable {
         internal fun isOpenClBackendAvailable(): Boolean = isOpenClAvailable()
 
         internal fun isVulkanBackendRuntimeAvailable(): Boolean = isVulkanBackendAvailable()
+    }
+
+    init {
+        nativeLibrarySupport.ensureLoaded()
     }
 
     private val runtimeState = SmolLMState(useVulkan, DEFAULT_REASONING_BUDGET)

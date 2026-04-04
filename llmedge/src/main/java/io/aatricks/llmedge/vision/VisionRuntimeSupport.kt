@@ -2,18 +2,21 @@ package io.aatricks.llmedge.vision
 
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.RuntimeCacheConfig
+import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.BackendPolicy
+import io.aatricks.llmedge.core.runtime.CachedRuntimeDescriptor
 import io.aatricks.llmedge.core.runtime.ManagedRuntime
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
 import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
 import io.aatricks.llmedge.core.runtime.RuntimeLoader
 import io.aatricks.llmedge.core.runtime.RuntimePool
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
-import io.aatricks.llmedge.runtime.ModelCache
 import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.sync.Mutex
 
@@ -77,7 +80,7 @@ internal class VisionBackendPolicy(
 
 internal class VisionRuntimeLoader(
     private val context: Context,
-    private val resolver: ModelResolver,
+    private val resolver: ModelRepository,
     private val config: LLMEdgeConfig,
     private val smolLmFactory: (Boolean) -> SmolLM,
     private val projectorFactory: () -> Projector,
@@ -121,15 +124,21 @@ internal class VisionRuntimeLoader(
 
 internal fun createVisionRuntimePool(
     context: Context,
-    resolver: ModelResolver,
+    scope: LLMEdgeScope,
+    resolver: ModelRepository,
     config: LLMEdgeConfig,
     smolLmFactory: (Boolean) -> SmolLM,
     projectorFactory: () -> Projector,
 ): RuntimePool<VisionRuntimeSpec, VisionLoadOptions, ManagedVisionRuntime> =
-    RuntimePool(
-        cache = ModelCache(maxCacheSize = 1, maxMemoryMB = config.text.cache.maxMemoryMb),
-        keyStrategy = VisionRuntimeKeyStrategy(),
-        runtimeLoader = VisionRuntimeLoader(context, resolver, config, smolLmFactory, projectorFactory),
-        activeBackend = { ComputeBackend.CPU },
-        backendPolicy = VisionBackendPolicy(config),
+    createCachedRuntimePool(
+        context = context,
+        scope = scope,
+        descriptor =
+            CachedRuntimeDescriptor(
+                cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = config.text.cache.maxMemoryMb),
+                keyStrategy = VisionRuntimeKeyStrategy(),
+                runtimeLoader = VisionRuntimeLoader(context, resolver, config, smolLmFactory, projectorFactory),
+                activeBackend = { ComputeBackend.CPU },
+                backendPolicy = VisionBackendPolicy(config),
+            ),
     )

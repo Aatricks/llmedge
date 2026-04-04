@@ -3,15 +3,16 @@ package io.aatricks.llmedge.speech
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
-import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.BackendPolicy
+import io.aatricks.llmedge.core.runtime.CachedRuntimeDescriptor
 import io.aatricks.llmedge.core.runtime.ManagedRuntime
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
 import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
 import io.aatricks.llmedge.core.runtime.RuntimeLoader
 import io.aatricks.llmedge.core.runtime.RuntimePool
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
@@ -94,7 +95,7 @@ internal class BarkBackendPolicy : BackendPolicy<BarkLoadOptions> {
 
 internal class WhisperRuntimeLoader(
     private val context: Context,
-    private val resolver: ModelResolver,
+    private val resolver: ModelRepository,
 ) : RuntimeLoader<ModelSpec, WhisperLoadOptions, ManagedWhisperModel> {
     override suspend fun load(
         spec: ModelSpec,
@@ -110,7 +111,7 @@ internal class WhisperRuntimeLoader(
 
 internal class BarkRuntimeLoader(
     private val context: Context,
-    private val resolver: ModelResolver,
+    private val resolver: ModelRepository,
 ) : RuntimeLoader<ModelSpec, BarkLoadOptions, ManagedBarkModel> {
     override suspend fun load(
         spec: ModelSpec,
@@ -135,38 +136,36 @@ internal fun createWhisperRuntimePool(
     context: Context,
     scope: LLMEdgeScope,
     config: LLMEdgeConfig,
-    resolver: ModelResolver,
+    resolver: ModelRepository,
 ): RuntimePool<ModelSpec, WhisperLoadOptions, ManagedWhisperModel> =
-    RuntimePool(
-        cache =
-            ModelCacheFactory.create(
-                context = context,
-                scope = scope,
-                maxCacheSize = config.speech.cache.maxEntries,
-                maxMemoryMB = config.speech.cache.maxMemoryMb,
+    createCachedRuntimePool(
+        context = context,
+        scope = scope,
+        descriptor =
+            CachedRuntimeDescriptor(
+                cache = config.speech.cache,
+                keyStrategy = WhisperRuntimeKeyStrategy(),
+                runtimeLoader = WhisperRuntimeLoader(context, resolver),
+                activeBackend = { it.whisper.activeBackend },
+                backendPolicy = WhisperBackendPolicy(),
             ),
-        keyStrategy = WhisperRuntimeKeyStrategy(),
-        runtimeLoader = WhisperRuntimeLoader(context, resolver),
-        activeBackend = { it.whisper.activeBackend },
-        backendPolicy = WhisperBackendPolicy(),
     )
 
 internal fun createBarkRuntimePool(
     context: Context,
     scope: LLMEdgeScope,
     config: LLMEdgeConfig,
-    resolver: ModelResolver,
+    resolver: ModelRepository,
 ): RuntimePool<ModelSpec, BarkLoadOptions, ManagedBarkModel> =
-    RuntimePool(
-        cache =
-            ModelCacheFactory.create(
-                context = context,
-                scope = scope,
-                maxCacheSize = config.speech.cache.maxEntries,
-                maxMemoryMB = config.speech.cache.maxMemoryMb,
+    createCachedRuntimePool(
+        context = context,
+        scope = scope,
+        descriptor =
+            CachedRuntimeDescriptor(
+                cache = config.speech.cache,
+                keyStrategy = BarkRuntimeKeyStrategy(),
+                runtimeLoader = BarkRuntimeLoader(context, resolver),
+                activeBackend = { ComputeBackend.CPU },
+                backendPolicy = BarkBackendPolicy(),
             ),
-        keyStrategy = BarkRuntimeKeyStrategy(),
-        runtimeLoader = BarkRuntimeLoader(context, resolver),
-        activeBackend = { ComputeBackend.CPU },
-        backendPolicy = BarkBackendPolicy(),
     )

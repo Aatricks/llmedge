@@ -3,10 +3,10 @@ package io.aatricks.llmedge
 import android.content.Context
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.image.ImageClient
-import io.aatricks.llmedge.model.DefaultModelResolver
-import io.aatricks.llmedge.model.HuggingFaceModelStore
-import io.aatricks.llmedge.model.ModelManager
-import io.aatricks.llmedge.model.ModelResolver
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.model.BoundModelRepository
+import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.rag.RAGClient
 import io.aatricks.llmedge.speech.SpeechClient
 import io.aatricks.llmedge.text.TextClient
@@ -32,14 +32,43 @@ class LLMEdge private constructor(
     private val appContext: Context,
     private val edgeScope: LLMEdgeScope,
     val config: LLMEdgeConfig,
-    private val resolver: ModelResolver,
+    private val modelRepository: ModelRepository,
 ) : AutoCloseable {
-    val models: ModelManager = ModelManager(appContext, resolver)
-    val text: TextClient = TextClient(appContext, edgeScope, config, resolver)
-    val speech: SpeechClient = SpeechClient(appContext, edgeScope, config, resolver)
-    val image: ImageClient = ImageClient(appContext, edgeScope, config, resolver)
-    val vision: VisionClient = VisionClient(appContext, VisionPipeline(appContext, resolver, config), config)
-    val rag: RAGClient = RAGClient(appContext, edgeScope, config, resolver)
+    private val modelsDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        BoundModelRepository(appContext, modelRepository)
+    }
+    private val textDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        TextClient(appContext, edgeScope, config, modelRepository)
+    }
+    private val speechDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        SpeechClient(appContext, edgeScope, config, modelRepository)
+    }
+    private val imageDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        ImageClient(appContext, edgeScope, config, modelRepository)
+    }
+    private val visionDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        VisionClient(
+            context = appContext,
+            pipeline = VisionPipeline(appContext, edgeScope, modelRepository, config),
+            config = config,
+        )
+    }
+    private val ragDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        RAGClient(appContext, edgeScope, config, modelRepository)
+    }
+
+    val models: BoundModelRepository
+        get() = modelsDelegate.value
+    val text: TextClient
+        get() = textDelegate.value
+    val speech: SpeechClient
+        get() = speechDelegate.value
+    val image: ImageClient
+        get() = imageDelegate.value
+    val vision: VisionClient
+        get() = visionDelegate.value
+    val rag: RAGClient
+        get() = ragDelegate.value
 
     override fun close() {
         var failure: Throwable? = null
@@ -56,11 +85,11 @@ class LLMEdge private constructor(
             }
         }
 
-        closeSafely(rag)
-        closeSafely(vision)
-        closeSafely(image)
-        closeSafely(speech)
-        closeSafely(text)
+        if (ragDelegate.isInitialized()) closeSafely(ragDelegate.value)
+        if (visionDelegate.isInitialized()) closeSafely(visionDelegate.value)
+        if (imageDelegate.isInitialized()) closeSafely(imageDelegate.value)
+        if (speechDelegate.isInitialized()) closeSafely(speechDelegate.value)
+        if (textDelegate.isInitialized()) closeSafely(textDelegate.value)
         closeSafely(edgeScope)
 
         failure?.let { throw IllegalStateException("Failed to close LLMEdge cleanly", it) }
@@ -79,11 +108,11 @@ class LLMEdge private constructor(
             context: Context,
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
-            resolver: ModelResolver = DefaultModelResolver(HuggingFaceModelStore()),
+            modelRepository: ModelRepository = DefaultModelRepository(),
         ): LLMEdge {
             val appContext = context.applicationContext
             val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
-            return LLMEdge(appContext, edgeScope, config, resolver)
+            return LLMEdge(appContext, edgeScope, config, modelRepository)
         }
 
         @JvmStatic

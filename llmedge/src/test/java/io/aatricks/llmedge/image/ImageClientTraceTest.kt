@@ -2,6 +2,7 @@ package io.aatricks.llmedge.image
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.aatricks.llmedge.ImageRuntimeConfig
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.image.diffusion.ImageGenerationPhase
@@ -10,7 +11,7 @@ import io.aatricks.llmedge.image.diffusion.SampleMethod
 import io.aatricks.llmedge.image.diffusion.Scheduler
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
-import io.aatricks.llmedge.model.DefaultModelResolver
+import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -128,8 +129,8 @@ class ImageClientTraceTest {
             ImageClient(
                 context = context,
                 scope = edgeScope,
-                config = LLMEdgeConfig(preferPerformanceMode = true),
-                resolver = DefaultModelResolver(),
+                config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = true)),
+                resolver = DefaultModelRepository(),
             )
 
         try {

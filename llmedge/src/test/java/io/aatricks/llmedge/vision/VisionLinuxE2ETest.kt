@@ -6,6 +6,7 @@ import android.graphics.Color
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.TextRuntimeConfig
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.GGUFReader
 import io.aatricks.llmedge.text.runtime.SmolLM
@@ -101,7 +102,7 @@ class VisionLinuxE2ETest {
             LLMEdge.create(
                 context = context,
                 scope = CoroutineScope(SupervisorJob()),
-                config = LLMEdgeConfig(textUseVulkan = false),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = false)),
             )
 
         try {

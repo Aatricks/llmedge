@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.TextRuntimeConfig
 import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.model.ModelSpec
 import java.io.File
@@ -55,7 +56,7 @@ class SpeechClientLinuxE2ETest {
             LLMEdge.create(
                 context = context,
                 scope = CoroutineScope(SupervisorJob()),
-                config = LLMEdgeConfig(textUseVulkan = false),
+                config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = false)),
             )
 
         try {

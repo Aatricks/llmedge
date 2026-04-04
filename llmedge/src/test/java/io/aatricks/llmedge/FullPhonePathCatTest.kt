@@ -75,7 +75,7 @@ class FullPhonePathCatTest {
             LLMEdge.create(
                 context,
                 CoroutineScope(kotlin.coroutines.coroutineContext),
-                config = LLMEdgeConfig(preferPerformanceMode = false),
+                config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = false)),
             )
         val params =
             VideoGenerationRequest(
