@@ -88,14 +88,13 @@ internal class VisionRuntimeLoader(
     override suspend fun load(
         spec: VisionRuntimeSpec,
         options: VisionLoadOptions,
+        backend: ComputeBackend,
     ): ManagedVisionRuntime {
         val modelFile = resolver.resolve(context, spec.model)
         val projectorFile = resolver.resolve(context, spec.projector)
-        val smol = smolLmFactory(config.text.useVulkan)
-        val adapter = SmolLMVisionAdapter(context, smol)
-        adapter.loadVisionModel(
+        val smol = smolLmFactory(backend == ComputeBackend.VULKAN)
+        smol.load(
             modelPath = modelFile.absolutePath,
-            mmprojPath = projectorFile.absolutePath,
             params =
                 SmolLM.InferenceParams(
                     numThreads = options.numThreads.coerceAtLeast(1),
@@ -106,6 +105,7 @@ internal class VisionRuntimeLoader(
                     useFlashAttn = config.text.useFlashAttention,
                     thinkingMode = SmolLM.ThinkingMode.DEFAULT,
                 ),
+            preferredBackend = backend,
         )
 
         val projector = projectorFactory()
@@ -138,7 +138,7 @@ internal fun createVisionRuntimePool(
                 cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = config.text.cache.maxMemoryMb),
                 keyStrategy = VisionRuntimeKeyStrategy(),
                 runtimeLoader = VisionRuntimeLoader(context, resolver, config, smolLmFactory, projectorFactory),
-                activeBackend = { ComputeBackend.CPU },
+                activeBackend = { it.smol.getActiveBackend() },
                 backendPolicy = VisionBackendPolicy(config),
             ),
     )

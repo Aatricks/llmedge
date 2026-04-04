@@ -47,7 +47,7 @@ class CachedRuntimeDescriptorTest {
                             cache = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 256),
                             keyStrategy = RuntimeKeyStrategy { spec: String, options: Int -> "$spec:$options" },
                             runtimeLoader =
-                                RuntimeLoader { spec, options ->
+                                RuntimeLoader { spec, options, _ ->
                                     loads += spec to options
                                     FakeRuntime()
                                 },

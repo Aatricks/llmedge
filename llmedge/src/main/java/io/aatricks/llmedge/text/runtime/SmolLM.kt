@@ -633,7 +633,13 @@ class SmolLM private constructor(
     suspend fun load(
             modelPath: String,
             params: InferenceParams = InferenceParams(),
-    ) = SmolLMLoader.load(this, modelPath, params)
+    ) = load(modelPath, params, preferredBackend = null)
+
+    internal suspend fun load(
+        modelPath: String,
+        params: InferenceParams,
+        preferredBackend: ComputeBackend?,
+    ) = SmolLMLoader.load(this, modelPath, params, preferredBackend)
 
     /**
      * Downloads a GGUF model from Hugging Face (if needed) and loads it for inference.

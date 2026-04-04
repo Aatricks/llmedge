@@ -43,9 +43,9 @@ class RuntimePoolTest {
     @Test
     fun `acquire reuses cached runtime`() = runTest {
         var loadCalls = 0
-        val pool = createPool { _, _ ->
+        val pool = createPool { _, _, backend ->
             loadCalls++
-            FakeRuntime(ComputeBackend.CPU)
+            FakeRuntime(backend)
         }
 
         val first = pool.acquire("model", FakeOptions(allowGpu = false))
@@ -58,9 +58,9 @@ class RuntimePoolTest {
     @Test
     fun `loadDetached bypasses cache`() = runTest {
         var loadCalls = 0
-        val pool = createPool { _, _ ->
+        val pool = createPool { _, _, backend ->
             loadCalls++
-            FakeRuntime(ComputeBackend.CPU)
+            FakeRuntime(backend)
         }
 
         val cached = pool.acquire("model", FakeOptions(allowGpu = false))
@@ -73,9 +73,9 @@ class RuntimePoolTest {
     @Test
     fun `acquireDetailed reports cold then warm runtime`() = runTest {
         val pool =
-            createPool { _, _ ->
+            createPool { _, _, backend ->
                 sleep(5)
-                FakeRuntime(ComputeBackend.CPU)
+                FakeRuntime(backend)
             }
 
         val cold = pool.acquireDetailed("model", FakeOptions(allowGpu = false))
@@ -93,14 +93,8 @@ class RuntimePoolTest {
     fun `backend failure blacklists failed runtime and reloads next backend`() = runTest {
         var loadCalls = 0
         var closeCalls = 0
-        val pool = createPool { _, _ ->
+        val pool = createPool { _, _, backend ->
             loadCalls++
-            val backend =
-                if (BackendRuntimePolicy.isBlacklisted(ComputeSubsystem.TEXT, ComputeBackend.OPENCL)) {
-                    ComputeBackend.CPU
-                } else {
-                    ComputeBackend.OPENCL
-                }
             FakeRuntime(backend) { closeCalls++ }
         }
 
@@ -116,7 +110,7 @@ class RuntimePoolTest {
     }
 
     private fun createPool(
-        loader: suspend (String, FakeOptions) -> FakeRuntime,
+        loader: suspend (String, FakeOptions, ComputeBackend) -> FakeRuntime,
     ): RuntimePool<String, FakeOptions, FakeRuntime> =
         RuntimePool(
             cache = ModelCache(maxCacheSize = 2, maxMemoryMB = 16),

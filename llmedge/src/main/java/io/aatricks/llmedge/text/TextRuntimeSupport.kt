@@ -13,6 +13,7 @@ import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
 import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.runBlocking
@@ -90,10 +91,11 @@ internal class TextRuntimeLoader(
     override suspend fun load(
         spec: ModelSpec,
         options: TextModelOptions,
+        backend: ComputeBackend,
     ): ManagedTextModel {
         val modelFile = resolver.resolve(context, spec)
-        val smol = SmolLM(useVulkan = options.useVulkan ?: config.text.useVulkan)
-        smol.load(modelFile.absolutePath, options.toInferenceParams(config))
+        val smol = SmolLM(useVulkan = backend == ComputeBackend.VULKAN)
+        smol.load(modelFile.absolutePath, options.toInferenceParams(config), preferredBackend = backend)
         return ManagedTextModel(fileSizeBytes = modelFile.length(), model = smol)
     }
 }

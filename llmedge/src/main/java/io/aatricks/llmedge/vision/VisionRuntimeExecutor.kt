@@ -1,6 +1,5 @@
 package io.aatricks.llmedge.vision
 
-import android.content.Context
 import io.aatricks.llmedge.text.runtime.SmolLM
 
 internal data class VisionPipelineResult(
@@ -8,9 +7,7 @@ internal data class VisionPipelineResult(
     val runtimeMemory: VisionRuntimeMemory,
 )
 
-internal class VisionRuntimeExecutor(
-    private val context: Context,
-) {
+internal class VisionRuntimeExecutor {
     suspend fun execute(
         request: VisionRequest,
         runtime: ManagedVisionRuntime,
@@ -34,18 +31,22 @@ internal class VisionRuntimeExecutor(
 
             is VisionPreparedInput.EmbeddingsFile -> {
                 onStatus?.invoke("Running vision analysis")
-                val adapter = SmolLMVisionAdapter(context, smol)
-                val generationStartedNs = System.nanoTime()
-                val analysis =
-                    adapter.analyze(
-                        ImageSource.FileSource(preparedInput.embedFile),
-                        request.prompt,
-                        VisionParams(),
+                val decodeStartedNs = System.nanoTime()
+                val decodeOk =
+                    smol.decodePreparedEmbeddings(
+                        preparedInput.embedFile.absolutePath,
+                        preparedInput.metaFile.absolutePath,
+                        nBatch = 1,
                     )
-                logStage("analyze", "generation", generationStartedNs)
-                VisionPipelineResult(
-                    text = analysis.text,
-                    runtimeMemory = runtimeMemoryOf(smol),
+                logStage("analyze", "decode_embeddings_file", decodeStartedNs)
+                check(decodeOk) {
+                    "File-based embedding decode failed for the active vision runtime."
+                }
+                generateText(
+                    prompt = request.prompt,
+                    smol = smol,
+                    onStatus = onStatus,
+                    logStage = logStage,
                 )
             }
         }

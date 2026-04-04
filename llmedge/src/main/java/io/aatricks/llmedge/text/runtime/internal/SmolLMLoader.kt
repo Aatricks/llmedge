@@ -18,6 +18,7 @@ internal object SmolLMLoader {
         instance: SmolLM,
         modelPath: String,
         params: SmolLM.InferenceParams,
+        preferredBackend: ComputeBackend?,
     ) = withContext(Dispatchers.IO) {
         val validatedModel = ModelFileValidator.requireGgufFile(modelPath, "SmolLM model")
         if (instance.state.nativePtr != 0L) {
@@ -54,7 +55,8 @@ internal object SmolLMLoader {
         val storeChats = params.storeChats
         val promptThreads = params.numThreads.coerceAtLeast(1)
         val backendCandidates =
-            instance.state.requestedLoadBackend?.let(::listOf)
+            preferredBackend?.let(::listOf)
+                ?: instance.state.requestedLoadBackend?.let(::listOf)
                 ?: BackendRuntimePolicy.candidates(
                     subsystem = ComputeSubsystem.TEXT,
                     allowGpu = instance.state.useVulkanGpu,
@@ -109,7 +111,7 @@ internal object SmolLMLoader {
                 lastLoadError = e
             }
 
-            if (backend != ComputeBackend.CPU) {
+            if (backend != ComputeBackend.CPU && preferredBackend == null) {
                 BackendRuntimePolicy.blacklist(ComputeSubsystem.TEXT, backend)
                 SmolLM.logWarning(
                     "Failed to load SmolLM on $backend; retrying with the next backend",

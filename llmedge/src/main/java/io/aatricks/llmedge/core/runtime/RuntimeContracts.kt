@@ -1,11 +1,13 @@
 package io.aatricks.llmedge.core.runtime
 
+import io.aatricks.llmedge.runtime.ComputeBackend
+
 internal fun interface RuntimeKeyStrategy<TSpec, TOptions> {
     fun prefix(spec: TSpec, options: TOptions): String
 }
 
 internal fun interface RuntimeLoader<TSpec, TOptions, TRuntime : ManagedRuntime> {
-    suspend fun load(spec: TSpec, options: TOptions): TRuntime
+    suspend fun load(spec: TSpec, options: TOptions, backend: ComputeBackend): TRuntime
 }
 
 internal fun interface BackendPolicy<TOptions> {

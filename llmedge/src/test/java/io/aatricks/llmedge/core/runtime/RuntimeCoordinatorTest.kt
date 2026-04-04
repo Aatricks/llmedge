@@ -40,9 +40,9 @@ class RuntimeCoordinatorTest {
     @Test
     fun `acquire reuses cached runtime for identical spec and options`() = runTest {
         var loadCalls = 0
-        val coordinator = createCoordinator { _, _ ->
+        val coordinator = createCoordinator { _, _, backend ->
             loadCalls++
-            FakeRuntime(ComputeBackend.CPU)
+            FakeRuntime(backend)
         }
 
         val first = coordinator.acquire("model", FakeOptions(allowGpu = false))
@@ -56,14 +56,8 @@ class RuntimeCoordinatorTest {
     fun `backend failure invalidates blacklisted runtime and reloads on next candidate`() = runTest {
         var loadCalls = 0
         var closeCalls = 0
-        val coordinator = createCoordinator { _, _ ->
+        val coordinator = createCoordinator { _, _, backend ->
             loadCalls++
-            val backend =
-                if (BackendRuntimePolicy.isBlacklisted(ComputeSubsystem.TEXT, ComputeBackend.OPENCL)) {
-                    ComputeBackend.CPU
-                } else {
-                    ComputeBackend.OPENCL
-                }
             FakeRuntime(backend) { closeCalls++ }
         }
 
@@ -87,7 +81,7 @@ class RuntimeCoordinatorTest {
     }
 
     private fun createCoordinator(
-        loader: suspend (String, FakeOptions) -> FakeRuntime,
+        loader: suspend (String, FakeOptions, ComputeBackend) -> FakeRuntime,
     ): RuntimeCoordinator<String, FakeOptions, FakeRuntime> =
         RuntimeCoordinator(
             cache = ModelCache(maxCacheSize = 2, maxMemoryMB = 16),

@@ -1,6 +1,8 @@
 package io.aatricks.llmedge
 
 import android.content.Context
+import io.aatricks.llmedge.core.ClientBootstrap
+import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.image.ImageClient
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
@@ -33,6 +35,7 @@ class LLMEdge private constructor(
     private val edgeScope: LLMEdgeScope,
     val config: LLMEdgeConfig,
     private val modelRepository: ModelRepository,
+    private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : AutoCloseable {
     private val modelsDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         BoundModelRepository(appContext, modelRepository)
@@ -90,7 +93,11 @@ class LLMEdge private constructor(
         if (imageDelegate.isInitialized()) closeSafely(imageDelegate.value)
         if (speechDelegate.isInitialized()) closeSafely(speechDelegate.value)
         if (textDelegate.isInitialized()) closeSafely(textDelegate.value)
-        closeSafely(edgeScope)
+        if (ownedBootstrap != null) {
+            closeSafely(ownedBootstrap)
+        } else {
+            closeSafely(edgeScope)
+        }
 
         failure?.let { throw IllegalStateException("Failed to close LLMEdge cleanly", it) }
     }
@@ -110,9 +117,14 @@ class LLMEdge private constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): LLMEdge {
-            val appContext = context.applicationContext
-            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
-            return LLMEdge(appContext, edgeScope, config, modelRepository)
+            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
+            return LLMEdge(
+                appContext = bootstrap.appContext,
+                edgeScope = bootstrap.edgeScope,
+                config = config,
+                modelRepository = modelRepository,
+                ownedBootstrap = bootstrap,
+            )
         }
 
         @JvmStatic

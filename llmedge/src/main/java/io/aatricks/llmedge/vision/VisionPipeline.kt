@@ -34,7 +34,7 @@ internal class VisionPipeline(
             projectorFactory = projectorFactory,
         )
     private val inputPreparer = VisionInputPreparer(context, JPEG_QUALITY)
-    private val runtimeExecutor = VisionRuntimeExecutor(context)
+    private val runtimeExecutor = VisionRuntimeExecutor()
 
     suspend fun prepare(
         model: ModelSpec,

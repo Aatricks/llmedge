@@ -2,6 +2,7 @@ package io.aatricks.llmedge.vision
 
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.TextRuntimeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
@@ -28,7 +29,7 @@ class VisionPipelineTest {
 
     @Test
     fun `prepare caches runtime and analyze reuses it`() = runTest {
-        val context = mockk<Context>(relaxed = true)
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val resolver = mockk<ModelRepository>()
         val config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = false, promptThreads = 4, generationThreads = 2))
         val smol = mockk<SmolLM>(relaxed = true)
@@ -44,8 +45,9 @@ class VisionPipelineTest {
         coEvery { resolver.resolve(context, projectorSpec) } returns projectorFile
         every { model.cacheKey } returns "vision-model"
         every { projectorSpec.cacheKey } returns "vision-projector"
-        coEvery { smol.load(any(), any()) } returns Unit
+        coEvery { smol.load(any(), any(), any()) } returns Unit
         every { smol.getNativeModelPointer() } returns 33L
+        every { smol.getActiveBackend() } returns io.aatricks.llmedge.runtime.ComputeBackend.CPU
         every { projector.isReady() } returns true
         every { projector.nativeHandle() } returns 77L
         every { smol.primeImageBuffer(77L, any(), 1) } returns true
@@ -76,7 +78,7 @@ class VisionPipelineTest {
                 )
 
             assertEquals("warm-response", result.text)
-            coVerify(exactly = 1) { smol.load(modelFile.absolutePath, any()) }
+            coVerify(exactly = 1) { smol.load(modelFile.absolutePath, any(), any()) }
             verify(exactly = 1) { projector.init(projectorFile.absolutePath, 33L) }
             verify(exactly = 1) { smol.clearKvCache() }
         } finally {
@@ -89,7 +91,7 @@ class VisionPipelineTest {
 
     @Test
     fun `prepare uses config-backed runtime defaults`() = runTest {
-        val context = mockk<Context>(relaxed = true)
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val resolver = mockk<ModelRepository>()
         val config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = true, promptThreads = 7, generationThreads = 3, useFlashAttention = false))
         val smol = mockk<SmolLM>(relaxed = true)
@@ -105,8 +107,9 @@ class VisionPipelineTest {
         coEvery { resolver.resolve(context, projectorSpec) } returns projectorFile
         every { model.cacheKey } returns "default-model"
         every { projectorSpec.cacheKey } returns "default-projector"
-        coEvery { smol.load(modelFile.absolutePath, capture(paramsSlot)) } returns Unit
+        coEvery { smol.load(modelFile.absolutePath, capture(paramsSlot), any()) } returns Unit
         every { smol.getNativeModelPointer() } returns 44L
+        every { smol.getActiveBackend() } returns io.aatricks.llmedge.runtime.ComputeBackend.VULKAN
         every { projector.isReady() } returns true
 
         val pipeline =

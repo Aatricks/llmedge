@@ -3,6 +3,8 @@ package io.aatricks.llmedge.vision
 import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.core.ClientBootstrap
+import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
@@ -25,7 +27,7 @@ class VisionClient internal constructor(
     private val context: Context,
     private val pipeline: VisionPipeline,
     config: LLMEdgeConfig,
-    private val ownedScope: LLMEdgeScope? = null,
+    private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : AutoCloseable {
     companion object {
         @JvmStatic
@@ -36,13 +38,12 @@ class VisionClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): VisionClient {
-            val appContext = context.applicationContext
-            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
+            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
             return VisionClient(
-                context = appContext,
-                pipeline = VisionPipeline(appContext, edgeScope, modelRepository, config),
+                context = bootstrap.appContext,
+                pipeline = VisionPipeline(bootstrap.appContext, bootstrap.edgeScope, modelRepository, config),
                 config = config,
-                ownedScope = edgeScope,
+                ownedBootstrap = bootstrap,
             )
         }
     }
@@ -132,7 +133,7 @@ class VisionClient internal constructor(
         try {
             pipeline.close()
         } finally {
-            ownedScope?.close()
+            ClientBootstrap.close(ownedBootstrap)
         }
     }
 }

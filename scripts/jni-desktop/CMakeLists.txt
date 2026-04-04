@@ -20,6 +20,7 @@ set(LLMEDGE_MODS_DIR "${LLMEDGE_REPO_ROOT}/mods")
 # Options to control what to build
 option(BUILD_SDCPP "Build stable-diffusion.cpp JNI" ON)
 option(BUILD_SMOLLM "Build SmolLM (llama.cpp) JNI" OFF)
+option(BUILD_BARK "Build Bark JNI" OFF)
 
 # Find JNI
 find_package(JNI REQUIRED)
@@ -113,6 +114,10 @@ if(BUILD_SMOLLM)
     # Build smollm shared library
     add_library(smollm SHARED
         ${LLMEDGE_CPP_ROOT}/smollm.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_load.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_completion.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_embeddings.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_state.cpp
         ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
         ${LLMEDGE_CPP_ROOT}/gguf_reader_internal.cpp
         ${LLMEDGE_CPP_ROOT}/GGUFReader.cpp
@@ -138,6 +143,52 @@ if(BUILD_SMOLLM)
         mtmd
         ${JNI_LIBRARIES}
     )
+endif()
+
+# ------------------------------------------------------------
+# Bark JNI wrapper for desktop testing
+# ------------------------------------------------------------
+
+if(BUILD_BARK)
+    get_filename_component(BARK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../bark.cpp" ABSOLUTE)
+    if(EXISTS "${BARK_ROOT}/bark.h")
+        set(BARK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(ENCODEC_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+        add_subdirectory(${BARK_ROOT} bark.cpp)
+
+        add_library(bark_jni SHARED
+            ${LLMEDGE_CPP_ROOT}/bark_jni.cpp
+        )
+
+        target_include_directories(bark_jni PRIVATE
+            ${BARK_ROOT}
+            ${BARK_ROOT}/encodec.cpp
+            ${BARK_ROOT}/encodec.cpp/ggml/include
+            ${JNI_INCLUDE_DIRS}
+        )
+
+        target_link_libraries(bark_jni PRIVATE
+            bark
+            encodec
+            ggml
+            ${JNI_LIBRARIES}
+            pthread
+            m
+        )
+
+        find_package(OpenMP)
+        if(OpenMP_CXX_FOUND)
+            target_link_libraries(bark_jni PRIVATE OpenMP::OpenMP_CXX)
+        endif()
+
+        target_compile_options(bark_jni PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden)
+
+        message(STATUS "Bark desktop JNI configured")
+    else()
+        message(WARNING "bark.cpp not found at ${BARK_ROOT}, skipping bark_jni")
+    endif()
 endif()
 
 # ------------------------------------------------------------

@@ -4,8 +4,11 @@ import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.core.ClientBootstrap
+import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.ProgressEvent
+import io.aatricks.llmedge.core.runtime.executeWithRuntimeRetry
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerateParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
@@ -83,7 +86,7 @@ class ImageClient internal constructor(
     private val scope: LLMEdgeScope,
     private val config: LLMEdgeConfig,
     private val resolver: ModelRepository,
-    private val ownedScope: LLMEdgeScope? = null,
+    private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : AutoCloseable {
     companion object {
         private const val LOG_TAG = "ImageClient"
@@ -96,9 +99,14 @@ class ImageClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): ImageClient {
-            val appContext = context.applicationContext
-            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
-            return ImageClient(appContext, edgeScope, config, modelRepository, ownedScope = edgeScope)
+            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
+            return ImageClient(
+                context = bootstrap.appContext,
+                scope = bootstrap.edgeScope,
+                config = config,
+                resolver = modelRepository,
+                ownedBootstrap = bootstrap,
+            )
         }
 
         internal fun resetVideoVulkanBlacklistForTests() {
@@ -146,7 +154,8 @@ class ImageClient internal constructor(
                 "Image request entering runtime acquisition: requestId=$requestId size=${params.width}x${params.height} steps=${params.steps}",
             )
             executeWithRuntimeRetry(
-                request = request,
+                spec = request.spec,
+                options = request.options,
                 retryMessage = "Retrying image generation on the next backend after a backend-specific failure for",
             ) { acquired ->
                 val runtime = acquired.runtime
@@ -312,7 +321,8 @@ class ImageClient internal constructor(
         lastGenerationMetrics = null
         val request = directVideoRuntimeRequest(params)
         return executeWithRuntimeRetry(
-            request = request,
+            spec = request.spec,
+            options = request.options,
             retryMessage = "Retrying video generation on the next backend after a backend-specific failure for",
         ) { acquired ->
             acquired.runtime.mutex.withLock {
@@ -359,7 +369,8 @@ class ImageClient internal constructor(
         val conditioningRequest = sequentialVideoConditioningRequest(params)
         val conditioning =
             executeWithRuntimeRetry(
-                request = conditioningRequest,
+                spec = conditioningRequest.spec,
+                options = conditioningRequest.options,
                 retryMessage = "Retrying sequential video text conditioning on the next backend after a backend-specific failure for",
             ) { acquired ->
                 acquired.runtime.mutex.withLock {
@@ -391,7 +402,8 @@ class ImageClient internal constructor(
 
         val diffusionRequest = sequentialVideoDiffusionRequest(params)
         return executeWithRuntimeRetry(
-            request = diffusionRequest,
+            spec = diffusionRequest.spec,
+            options = diffusionRequest.options,
             retryMessage = "Retrying sequential video diffusion on the next backend after a backend-specific failure for",
         ) { acquired ->
             acquired.runtime.mutex.withLock {
@@ -457,7 +469,7 @@ class ImageClient internal constructor(
             activeModel = null
             runtimePool.close()
         } finally {
-            ownedScope?.close()
+            ClientBootstrap.close(ownedBootstrap)
         }
     }
 
@@ -572,38 +584,22 @@ class ImageClient internal constructor(
     }
 
     private suspend fun <T> executeWithRuntimeRetry(
-        request: RuntimeRequest,
+        spec: DiffusionRuntimeSpec,
+        options: DiffusionLoadOptions,
         retryMessage: String,
         execute: suspend (AcquiredDiffusionRuntime) -> T,
-    ): T {
-        while (true) {
+    ): T =
+        runtimePool.executeWithRuntimeRetry(
+            spec = spec,
+            options = options,
+            onRetry = { _, _ -> AndroidLogAdapter.w(LOG_TAG, "$retryMessage '${spec.model.cacheKey}'") },
+        ) { execution ->
             AndroidLogAdapter.i(
                 LOG_TAG,
-                "Runtime acquire attempt: role=${request.spec.role} model=${request.spec.model.cacheKey}",
+                "Runtime acquire completed: role=${spec.role} backend=${execution.acquire.backend} cacheHit=${execution.acquire.cacheHit} loadMs=${execution.acquire.modelLoadTimeMs}",
             )
-            val acquire = runtimePool.acquireDetailed(request.spec, request.options)
-            val runtime = acquire.runtime
-            AndroidLogAdapter.i(
-                LOG_TAG,
-                "Runtime acquire completed: role=${request.spec.role} backend=${acquire.backend} cacheHit=${acquire.cacheHit} loadMs=${acquire.modelLoadTimeMs}",
-            )
-            try {
-                return execute(AcquiredDiffusionRuntime(runtime, acquire))
-            } catch (error: Throwable) {
-                val blacklisted =
-                    runtimePool.recordBackendFailureIfNeeded(
-                        request.spec,
-                        request.options,
-                        runtime,
-                        error,
-                    )
-                if (!blacklisted) {
-                    throw error
-                }
-                AndroidLogAdapter.w(LOG_TAG, "$retryMessage '${request.spec.model.cacheKey}'")
-            }
+            execute(AcquiredDiffusionRuntime(execution.runtime, execution.acquire))
         }
-    }
 
     private fun fallbackImageMetrics(
         runtime: ManagedDiffusionModel,

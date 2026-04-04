@@ -37,7 +37,7 @@ internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
     suspend fun loadDetached(
         spec: TSpec,
         options: TOptions,
-    ): TRuntime = runtimeLoader.load(spec, options)
+    ): TRuntime = coordinator.loadDetached(spec, options)
 
     fun invalidate(
         spec: TSpec,

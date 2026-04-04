@@ -143,6 +143,33 @@ internal object WhisperCompanionSupport {
         )
     }
 
+    fun loadOnBackend(
+        modelPath: String,
+        backend: ComputeBackend,
+        flashAttn: Boolean,
+        gpuDevice: Int,
+        createHandle: (String, ComputeBackend, Boolean, Int) -> Long,
+    ): Whisper {
+        val validatedModel = ModelFileValidator.requireReadableFile(modelPath, "Whisper model")
+        val handle =
+            NativeCall.requireHandle(
+                NativeCall.binding(
+                    "whisper",
+                    "Whisper JNI bindings are unavailable.",
+                ) {
+                    createHandle(
+                        validatedModel.absolutePath,
+                        backend,
+                        flashAttn,
+                        gpuDevice,
+                    )
+                },
+                validatedModel.absolutePath,
+                "The native Whisper loader returned an invalid handle.",
+            )
+        return Whisper(handle, backend)
+    }
+
     suspend fun load(
         context: Context,
         modelPath: String,

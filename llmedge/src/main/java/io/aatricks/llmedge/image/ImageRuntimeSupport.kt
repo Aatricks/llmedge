@@ -126,46 +126,21 @@ internal class DiffusionRuntimeLoader(
     override suspend fun load(
         spec: DiffusionRuntimeSpec,
         options: DiffusionLoadOptions,
+        backend: ComputeBackend,
     ): ManagedDiffusionModel {
         val resolvedModel = resolver.resolve(context, spec.model)
         val resolvedVae = spec.vae?.let { resolver.resolve(context, it) }
         val resolvedTextEncoder = spec.textEncoder?.let { resolver.resolve(context, it) }
         val resolvedTaehv = spec.taehv?.let { resolver.resolve(context, it) }
-
-        val request =
-            BackendCandidateResolver.Request(
-                subsystem = options.subsystem,
-                allowGpu = options.allowGpu,
-                openClAvailable = StableDiffusion.isOpenClAvailable(),
-                vulkanAvailable = LLMEdge.isVulkanAvailable(),
-            )
-
-        var lastError: Throwable? = null
-        for (backend in BackendCandidateResolver.candidates(request)) {
-            try {
-                return loadManagedModel(
-                    spec = spec,
-                    options = options,
-                    backend = backend,
-                    resolvedModel = resolvedModel,
-                    resolvedVae = resolvedVae,
-                    resolvedTextEncoder = resolvedTextEncoder,
-                    resolvedTaehv = resolvedTaehv,
-                )
-            } catch (error: Throwable) {
-                lastError = error
-                if (backend == ComputeBackend.CPU) {
-                    break
-                }
-                BackendCandidateResolver.blacklist(options.subsystem, backend)
-                AndroidLogAdapter.w(
-                    LOG_TAG,
-                    "Failed to load ${spec.role} runtime on $backend; retrying with the next backend",
-                )
-            }
-        }
-
-        throw (lastError ?: IllegalStateException("Diffusion runtime load failed without a reported cause"))
+        return loadManagedModel(
+            spec = spec,
+            options = options,
+            backend = backend,
+            resolvedModel = resolvedModel,
+            resolvedVae = resolvedVae,
+            resolvedTextEncoder = resolvedTextEncoder,
+            resolvedTaehv = resolvedTaehv,
+        )
     }
 
     private fun estimateFileSizeBytes(vararg files: File?): Long =

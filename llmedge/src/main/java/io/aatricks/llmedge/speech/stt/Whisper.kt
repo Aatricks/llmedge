@@ -641,6 +641,21 @@ class Whisper internal constructor(
                 logW(LOG_TAG, "Failed to load Whisper on $backend; retrying with the next backend")
             }
 
+        internal fun load(
+            modelPath: String,
+            backend: ComputeBackend,
+            flashAttn: Boolean = true,
+            gpuDevice: Int = 0,
+        ): Whisper =
+            WhisperCompanionSupport.loadOnBackend(
+                modelPath = modelPath,
+                backend = backend,
+                flashAttn = flashAttn,
+                gpuDevice = gpuDevice,
+            ) { path, chosenBackend, useFlashAttn, device ->
+                loadBridgeProvider.create(Unit).create(path, chosenBackend, useFlashAttn, device)
+            }
+
         /**
          * Load a Whisper model with Android Context support. This allows loading models from app
          * assets or cache directories.

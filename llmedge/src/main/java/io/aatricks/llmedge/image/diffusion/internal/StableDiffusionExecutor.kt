@@ -380,10 +380,10 @@ internal object StableDiffusionExecutor {
         generateFrames: (ByteArray?, Int, Int) -> Array<ByteArray>?,
     ): List<Bitmap> =
         withContext(StableDiffusion.diffusionDispatcher) {
+            params.validate().getOrThrow()
             check(StableDiffusion.supportIsNativeLibraryAvailable()) {
                 "Video generation is unavailable on this platform"
             }
-            params.validate().getOrThrow()
             check(instance.isVideoModel()) { "Loaded model is not a video model (use txt2img instead)" }
 
             val maxFrames =

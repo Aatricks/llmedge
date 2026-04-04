@@ -100,11 +100,12 @@ internal class WhisperRuntimeLoader(
     override suspend fun load(
         spec: ModelSpec,
         options: WhisperLoadOptions,
+        backend: ComputeBackend,
     ): ManagedWhisperModel {
         val file = resolver.resolve(context, spec)
         return ManagedWhisperModel(
             fileSizeBytes = file.length(),
-            whisper = Whisper.load(file.absolutePath, options.useGpu, options.flashAttention, options.gpuDevice),
+            whisper = Whisper.load(file.absolutePath, backend, options.flashAttention, options.gpuDevice),
         )
     }
 }
@@ -116,6 +117,7 @@ internal class BarkRuntimeLoader(
     override suspend fun load(
         spec: ModelSpec,
         options: BarkLoadOptions,
+        backend: ComputeBackend,
     ): ManagedBarkModel {
         val file = resolver.resolve(context, spec)
         return ManagedBarkModel(

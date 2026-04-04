@@ -3,10 +3,13 @@ package io.aatricks.llmedge.text
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.core.ClientBootstrap
+import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.core.runtime.BackendFailureClassifier
+import io.aatricks.llmedge.core.runtime.executeWithRuntimeRetry
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.tools.Tool
@@ -65,7 +68,7 @@ class TextClient internal constructor(
     private val scope: LLMEdgeScope,
     private val config: LLMEdgeConfig,
     private val modelResolver: ModelRepository,
-    private val ownedScope: LLMEdgeScope? = null,
+    private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : AutoCloseable {
     companion object {
         private const val LOG_TAG = "TextClient"
@@ -80,9 +83,14 @@ class TextClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): TextClient {
-            val appContext = context.applicationContext
-            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
-            return TextClient(appContext, edgeScope, config, modelRepository, ownedScope = edgeScope)
+            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
+            return TextClient(
+                context = bootstrap.appContext,
+                scope = bootstrap.edgeScope,
+                config = config,
+                modelResolver = modelRepository,
+                ownedBootstrap = bootstrap,
+            )
         }
     }
 
@@ -132,48 +140,39 @@ class TextClient internal constructor(
     suspend fun generate(request: TextGenerationRequest): String {
         lastGenerationMetrics = null
         return try {
-            generateOnce(request)
+            generateWithRuntimeRetry(request)
         } catch (error: InferenceFailedException) {
             retryGenerateIfNeeded(request, error)
         }
     }
 
-    private suspend fun generateOnce(request: TextGenerationRequest): String {
-        val runtime = acquire(request.model, request.options)
-        return try {
+    private suspend fun generateWithRuntimeRetry(request: TextGenerationRequest): String =
+        runtimePool.executeWithRuntimeRetry(
+            spec = request.model,
+            options = request.options,
+            onRetry = { _, _ ->
+                AndroidLogAdapter.w(
+                    LOG_TAG,
+                    "Retrying text generation on the next backend after a backend-specific failure for '${request.model.cacheKey}'",
+                )
+            },
+        ) { execution ->
             complete(
-                runtime = runtime,
+                runtime = execution.runtime,
                 prompt = request.prompt,
                 systemPrompt = request.systemPrompt,
                 options = request.options,
                 maxTokens = request.maxTokens,
                 batchSize = request.batchSize,
             )
-        } catch (error: InferenceFailedException) {
-            recordBackendFailureIfNeeded(request.model, request.options, runtime, error)
-            throw error
         }
-    }
 
     private suspend fun retryGenerateIfNeeded(
         request: TextGenerationRequest,
         error: InferenceFailedException,
     ): String {
-        if (isBackendFailure(error)) {
-            AndroidLogAdapter.w(
-                LOG_TAG,
-                "Retrying text generation on the next backend after a backend-specific failure for '${request.model.cacheKey}'",
-            )
-            return try {
-                generateOnce(request)
-            } catch (retryError: InferenceFailedException) {
-                retryError.addSuppressed(error)
-                throw retryError
-            }
-        }
-
         val fallbackRequest = buildSafeRetryRequest(request) ?: throw error
-        if (!isDecodeFailure(error)) {
+        if (!isDecodeFailure(error) || isBackendFailure(error)) {
             throw error
         }
 
@@ -184,7 +183,7 @@ class TextClient internal constructor(
         invalidateRuntime(request.model, request.options)
 
         return try {
-            generateOnce(fallbackRequest)
+            generateWithRuntimeRetry(fallbackRequest)
         } catch (retryError: InferenceFailedException) {
             retryError.addSuppressed(error)
             throw retryError
@@ -396,7 +395,7 @@ class TextClient internal constructor(
         try {
             runtimePool.close()
         } finally {
-            ownedScope?.close()
+            ClientBootstrap.close(ownedBootstrap)
         }
     }
 

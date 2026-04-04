@@ -2,8 +2,10 @@ package io.aatricks.llmedge.speech
 
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.core.InferenceFailedException
+import io.aatricks.llmedge.core.ClientBootstrap
+import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.runtime.executeWithRuntimeRetry
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -53,7 +55,7 @@ class SpeechClient internal constructor(
     private val scope: LLMEdgeScope,
     private val config: LLMEdgeConfig,
     private val resolver: ModelRepository,
-    private val ownedScope: LLMEdgeScope? = null,
+    private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : AutoCloseable {
     companion object {
         @JvmStatic
@@ -64,9 +66,14 @@ class SpeechClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): SpeechClient {
-            val appContext = context.applicationContext
-            val edgeScope = LLMEdgeScope(scope, config.text.promptThreads)
-            return SpeechClient(appContext, edgeScope, config, modelRepository, ownedScope = edgeScope)
+            val bootstrap = ClientBootstrap.create(context, scope, config.text.promptThreads)
+            return SpeechClient(
+                context = bootstrap.appContext,
+                scope = bootstrap.edgeScope,
+                config = config,
+                resolver = modelRepository,
+                ownedBootstrap = bootstrap,
+            )
         }
     }
 
@@ -202,13 +209,6 @@ class SpeechClient internal constructor(
         options: WhisperLoadOptions,
     ): ManagedWhisperModel = whisperPool.acquire(model, options)
 
-    private fun recordWhisperBackendFailureIfNeeded(
-        model: ModelSpec,
-        options: WhisperLoadOptions,
-        runtime: ManagedWhisperModel,
-        error: InferenceFailedException,
-    ): Boolean = whisperPool.recordBackendFailureIfNeeded(model, options, runtime, error)
-
     private suspend fun acquireBark(
         model: ModelSpec,
         options: BarkLoadOptions,
@@ -218,21 +218,17 @@ class SpeechClient internal constructor(
         model: ModelSpec,
         options: WhisperLoadOptions,
         block: suspend (ManagedWhisperModel) -> T,
-    ): T {
-        val runtime = acquireWhisper(model, options)
-        return try {
-            runtime.mutex.withLock {
+    ): T =
+        whisperPool.executeWithRuntimeRetry(
+            spec = model,
+            options = options,
+        ) { execution ->
+            execution.runtime.mutex.withLock {
                 withContext(scope.inferenceDispatcher) {
-                    block(runtime)
+                    block(execution.runtime)
                 }
             }
-        } catch (error: InferenceFailedException) {
-            if (recordWhisperBackendFailureIfNeeded(model, options, runtime, error)) {
-                return withWhisperRuntime(model, options, block)
-            }
-            throw error
         }
-    }
 
     private suspend fun <T> withBarkRuntime(
         model: ModelSpec,
@@ -254,7 +250,7 @@ class SpeechClient internal constructor(
             try {
                 whisperPool.close()
             } finally {
-                ownedScope?.close()
+                ClientBootstrap.close(ownedBootstrap)
             }
         }
     }

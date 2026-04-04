@@ -8,7 +8,7 @@ import kotlinx.coroutines.sync.withLock
 internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
     private val cache: ModelCache<TRuntime>,
     private val cacheKeyPrefix: (TSpec, TOptions) -> String,
-    private val loadRuntime: suspend (TSpec, TOptions) -> TRuntime,
+    private val loadRuntime: suspend (TSpec, TOptions, ComputeBackend) -> TRuntime,
     private val activeBackend: (TRuntime) -> ComputeBackend,
     private val candidateRequest: (TOptions) -> BackendCandidateResolver.Request,
     private val loadMutex: Mutex = Mutex(),
@@ -33,7 +33,8 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
     ): AcquireResult<TRuntime> {
         val prefix = cacheKeyPrefix(spec, options)
         val startNanos = System.nanoTime()
-        findCachedRuntime(prefix, options)?.let { runtime ->
+        val request = candidateRequest(options)
+        findCachedRuntime(prefix, request)?.let { runtime ->
             return AcquireResult(
                 runtime = runtime,
                 cacheHit = true,
@@ -45,7 +46,7 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
         }
 
         return loadMutex.withLock {
-            findCachedRuntime(prefix, options)?.let { runtime ->
+            findCachedRuntime(prefix, request)?.let { runtime ->
                 return@withLock AcquireResult(
                     runtime = runtime,
                     cacheHit = true,
@@ -55,25 +56,29 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
                     modelLoadTimeMs = 0L,
                 )
             }
-            val loadStartNanos = System.nanoTime()
-            val runtime = loadRuntime(spec, options)
-            val backend = activeBackend(runtime)
-            cache.put(
-                key = RuntimeCacheKeyBuilder.withBackend(prefix, backend),
-                model = runtime,
-                sizeBytes = runtime.estimatedSizeBytes(),
-                sizeProvider = runtime::estimatedSizeBytes,
-            )
-            AcquireResult(
-                runtime = runtime,
-                cacheHit = false,
-                keyPrefix = prefix,
-                backend = backend,
-                acquireTimeMs = elapsedMillis(startNanos),
-                modelLoadTimeMs = elapsedMillis(loadStartNanos),
+            loadAcrossCandidates(
+                spec = spec,
+                options = options,
+                prefix = prefix,
+                request = request,
+                startNanos = startNanos,
+                cacheLoadedRuntime = true,
             )
         }
     }
+
+    suspend fun loadDetached(
+        spec: TSpec,
+        options: TOptions,
+    ): TRuntime =
+        loadAcrossCandidates(
+            spec = spec,
+            options = options,
+            prefix = cacheKeyPrefix(spec, options),
+            request = candidateRequest(options),
+            startNanos = System.nanoTime(),
+            cacheLoadedRuntime = false,
+        ).runtime
 
     fun invalidate(
         spec: TSpec,
@@ -108,13 +113,53 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
 
     private fun findCachedRuntime(
         prefix: String,
-        options: TOptions,
+        request: BackendCandidateResolver.Request,
     ): TRuntime? {
-        val request = candidateRequest(options)
         for (backend in BackendCandidateResolver.candidates(request)) {
             cache.get(RuntimeCacheKeyBuilder.withBackend(prefix, backend))?.let { return it }
         }
         return null
+    }
+
+    private suspend fun loadAcrossCandidates(
+        spec: TSpec,
+        options: TOptions,
+        prefix: String,
+        request: BackendCandidateResolver.Request,
+        startNanos: Long,
+        cacheLoadedRuntime: Boolean,
+    ): AcquireResult<TRuntime> {
+        var lastError: Throwable? = null
+        for (backendCandidate in BackendCandidateResolver.candidates(request)) {
+            val loadStartNanos = System.nanoTime()
+            try {
+                val runtime = loadRuntime(spec, options, backendCandidate)
+                val backend = activeBackend(runtime)
+                if (cacheLoadedRuntime) {
+                    cache.put(
+                        key = RuntimeCacheKeyBuilder.withBackend(prefix, backend),
+                        model = runtime,
+                        sizeBytes = runtime.estimatedSizeBytes(),
+                        sizeProvider = runtime::estimatedSizeBytes,
+                    )
+                }
+                return AcquireResult(
+                    runtime = runtime,
+                    cacheHit = false,
+                    keyPrefix = prefix,
+                    backend = backend,
+                    acquireTimeMs = elapsedMillis(startNanos),
+                    modelLoadTimeMs = elapsedMillis(loadStartNanos),
+                )
+            } catch (error: Throwable) {
+                lastError = error
+                if (backendCandidate == ComputeBackend.CPU) {
+                    throw error
+                }
+                BackendCandidateResolver.blacklist(request.subsystem, backendCandidate)
+            }
+        }
+        throw lastError ?: IllegalStateException("Runtime load failed without a reported cause")
     }
 
     private fun elapsedMillis(startNanos: Long): Long =
