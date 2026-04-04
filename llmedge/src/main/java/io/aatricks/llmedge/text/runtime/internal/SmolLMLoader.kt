@@ -5,6 +5,7 @@ import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeLibraryCatalog
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
+import io.aatricks.llmedge.core.runtime.RuntimeLoadPolicy
 import io.aatricks.llmedge.model.ModelFileValidator
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
@@ -55,17 +56,19 @@ internal object SmolLMLoader {
         @Suppress("DEPRECATION")
         val storeChats = params.storeChats
         val promptThreads = params.numThreads.coerceAtLeast(1)
+        val loadRequest =
+            BackendCandidateResolver.Request(
+                subsystem = ComputeSubsystem.TEXT,
+                allowGpu = instance.state.useVulkanGpu,
+                openClAvailable = SmolLM.isOpenClBackendAvailable(),
+                vulkanAvailable = SmolLM.isVulkanBackendRuntimeAvailable(),
+            )
         val backendCandidates =
-            preferredBackend?.let(::listOf)
-                ?: instance.state.requestedLoadBackend?.let(::listOf)
-                ?: BackendCandidateResolver.candidates(
-                    BackendCandidateResolver.Request(
-                        subsystem = ComputeSubsystem.TEXT,
-                        allowGpu = instance.state.useVulkanGpu,
-                        openClAvailable = SmolLM.isOpenClBackendAvailable(),
-                        vulkanAvailable = SmolLM.isVulkanBackendRuntimeAvailable(),
-                    ),
-                )
+            RuntimeLoadPolicy.candidates(
+                request = loadRequest,
+                preferredBackend = preferredBackend ?: instance.state.requestedLoadBackend,
+                includeCpuFallback = preferredBackend == null && instance.state.requestedLoadBackend == null,
+            )
 
         var lastLoadError: Throwable? = null
         instance.state.nativePtr = 0L
@@ -117,8 +120,7 @@ internal object SmolLMLoader {
                 lastLoadError = e
             }
 
-            if (backend != ComputeBackend.CPU && preferredBackend == null) {
-                BackendCandidateResolver.blacklist(ComputeSubsystem.TEXT, backend)
+            if (RuntimeLoadPolicy.recordBackendFailureIfNeeded(loadRequest, backend, preferredBackend)) {
                 SmolLM.logWarning(
                     "Failed to load SmolLM on $backend; retrying with the next backend",
                 )

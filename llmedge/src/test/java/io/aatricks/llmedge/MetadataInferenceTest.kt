@@ -1,7 +1,6 @@
 package io.aatricks.llmedge
 
-import android.util.Log
-import io.mockk.*
+import io.aatricks.llmedge.image.diffusion.StableDiffusionLoadSupport
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -9,10 +8,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
-import kotlin.reflect.full.declaredFunctions
-import kotlin.reflect.full.callSuspend
-import kotlin.reflect.jvm.isAccessible
-import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 class MetadataInferenceTest {
@@ -217,20 +212,13 @@ class MetadataInferenceTest {
         } catch (_: Throwable) {
             // If we couldn't create the file at the path, fallback to a proper temp file
         }
-
-        // Mock Log.d to avoid logging in tests, ensuring we always unmock in finally
-        mockkStatic(Log::class)
-        every { Log.d(any(), any()) } returns 0
-
-        val companion = StableDiffusion.Companion
-        val function = companion::class.declaredFunctions.first { it.name == "inferVideoModelMetadata" }
-        function.isAccessible = true
-        // callSuspend is available via kotlin.reflect to invoke suspend functions
         try {
-            val result = function.callSuspend(companion, resolvedModelPath, modelId, explicitFilename) as VideoModelMetadata
-            return result
+            return StableDiffusionLoadSupport.inferVideoModelMetadata(
+                resolvedModelPath = resolvedModelPath,
+                modelId = modelId,
+                explicitFilename = explicitFilename,
+            )
         } finally {
-            try { io.mockk.unmockkStatic(Log::class) } catch (_: Throwable) {}
             try { file.delete() } catch (_: Throwable) {}
         }
     }

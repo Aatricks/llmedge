@@ -106,7 +106,7 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
         }
 
         val request = candidateRequest(options)
-        BackendCandidateResolver.blacklist(request.subsystem, backend)
+        RuntimeLoadPolicy.recordBackendFailureIfNeeded(request, backend)
         cache.remove(RuntimeCacheKeyBuilder.withBackend(cacheKeyPrefix(spec, options), backend))
         return true
     }
@@ -115,7 +115,7 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
         prefix: String,
         request: BackendCandidateResolver.Request,
     ): TRuntime? {
-        for (backend in BackendCandidateResolver.candidates(request)) {
+        for (backend in RuntimeLoadPolicy.candidates(request)) {
             cache.get(RuntimeCacheKeyBuilder.withBackend(prefix, backend))?.let { return it }
         }
         return null
@@ -130,7 +130,7 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
         cacheLoadedRuntime: Boolean,
     ): AcquireResult<TRuntime> {
         var lastError: Throwable? = null
-        for (backendCandidate in BackendCandidateResolver.candidates(request)) {
+        for (backendCandidate in RuntimeLoadPolicy.candidates(request)) {
             val loadStartNanos = System.nanoTime()
             try {
                 val runtime = loadRuntime(spec, options, backendCandidate)
@@ -156,7 +156,7 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
                 if (backendCandidate == ComputeBackend.CPU) {
                     throw error
                 }
-                BackendCandidateResolver.blacklist(request.subsystem, backendCandidate)
+                RuntimeLoadPolicy.recordBackendFailureIfNeeded(request, backendCandidate)
             }
         }
         throw lastError ?: IllegalStateException("Runtime load failed without a reported cause")

@@ -2,31 +2,16 @@
 
 LLMEDGE_NATIVE_TARGETS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LLMEDGE_TARGETS_CMAKE_FILE="$LLMEDGE_NATIVE_TARGETS_SCRIPT_DIR/../llmedge/src/main/cpp/cmake/llmedge-targets.cmake"
+LLMEDGE_NATIVE_TARGETS_GENERATOR="$LLMEDGE_NATIVE_TARGETS_SCRIPT_DIR/generate_native_target_names.sh"
+LLMEDGE_GENERATED_TARGETS_FILE="$LLMEDGE_NATIVE_TARGETS_SCRIPT_DIR/../llmedge/build/generated/source/nativeTargetNames/main/shell/native-targets.sh"
+LLMEDGE_GENERATED_KOTLIN_TARGETS_FILE="$LLMEDGE_NATIVE_TARGETS_SCRIPT_DIR/../llmedge/build/generated/source/nativeTargetNames/main/kotlin/io/aatricks/llmedge/core/NativeTargetNames.kt"
 
-llmedge_read_cmake_target_var() {
-    local var_name="$1"
-    sed -nE "s/^set\\(${var_name} \"([^\"]+)\"\\)$/\\1/p" "$LLMEDGE_TARGETS_CMAKE_FILE" | head -n 1
-}
+if [[ ! -f "$LLMEDGE_GENERATED_TARGETS_FILE" || "$LLMEDGE_TARGETS_CMAKE_FILE" -nt "$LLMEDGE_GENERATED_TARGETS_FILE" || "$LLMEDGE_NATIVE_TARGETS_GENERATOR" -nt "$LLMEDGE_GENERATED_TARGETS_FILE" ]]; then
+    bash "$LLMEDGE_NATIVE_TARGETS_GENERATOR" "$LLMEDGE_GENERATED_KOTLIN_TARGETS_FILE" "$LLMEDGE_GENERATED_TARGETS_FILE" >/dev/null
+fi
 
-llmedge_read_cmake_list_var() {
-    local var_name="$1"
-    local raw
-    raw="$(llmedge_read_cmake_target_var "$var_name")"
-    if [[ -z "$raw" ]]; then
-        return 0
-    fi
-    tr ';' '\n' <<<"$raw"
-}
-
-readonly LLMEDGE_TARGET_SMOLLM="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_SMOLLM)"
-readonly LLMEDGE_TARGET_SMOLLM_V7A="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_SMOLLM_V7A)"
-readonly LLMEDGE_TARGET_SMOLLM_V8="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_SMOLLM_V8)"
-readonly LLMEDGE_TARGET_SDCPP="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_SDCPP)"
-readonly LLMEDGE_TARGET_WHISPER_JNI="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_WHISPER_JNI)"
-readonly LLMEDGE_TARGET_BARK_JNI="$(llmedge_read_cmake_target_var LLMEDGE_TARGET_BARK_JNI)"
-
-mapfile -t LLMEDGE_DESKTOP_TARGETS < <(llmedge_read_cmake_list_var LLMEDGE_DESKTOP_TARGETS)
-mapfile -t LLMEDGE_CI_TARGETS < <(llmedge_read_cmake_list_var LLMEDGE_CI_TARGETS)
+# shellcheck disable=SC1090
+source "$LLMEDGE_GENERATED_TARGETS_FILE"
 
 llmedge_is_known_native_target() {
     local target="${1:-}"

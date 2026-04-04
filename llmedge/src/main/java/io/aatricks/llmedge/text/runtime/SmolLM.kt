@@ -35,131 +35,42 @@ class SmolLM internal constructor(
 ) : AutoCloseable {
     constructor(useVulkan: Boolean = true) : this(useVulkan, SmolLMCompanionSupport.currentNativeLibrarySupport())
 
-    internal interface NativeBridge {
-        fun loadModel(
-                instance: SmolLM,
-                modelPath: String,
-                minP: Float,
-                temperature: Float,
-                storeChats: Boolean,
-                contextSize: Long,
-                chatTemplate: String,
-                nThreads: Int,
-                useMmap: Boolean,
-                useMlock: Boolean,
-                useVulkan: Boolean,
-                useFlashAttn: Boolean,
-                kvCacheTypeK: Int = -1,
-                kvCacheTypeV: Int = -1,
-                nGpuLayers: Int = 99,
-        ): Long
-
-        fun setReasoningOptions(
-                instance: SmolLM,
-                modelPtr: Long,
-                disableThinking: Boolean,
-                reasoningBudget: Int
-        )
-        fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String)
-        fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float
-        fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long
-        fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long
-        fun getLastGenerationMetrics(instance: SmolLM, modelPtr: Long): GenerationMetrics {
-            val elapsedMicros = getResponseGenerationDurationMicros(instance, modelPtr)
-            val tokenCount = getResponseGeneratedTokenCount(instance, modelPtr)
-            val tokensPerSecond =
-                if (elapsedMicros <= 0L || tokenCount <= 0L) {
-                    0f
-                } else {
-                    getResponseGenerationSpeed(instance, modelPtr)
-                }
-            return GenerationMetrics(
-                tokensPerSecond = tokensPerSecond,
-                tokenCount = tokenCount,
-                elapsedMicros = elapsedMicros,
-            )
-        }
-        fun configureThreading(
+    internal interface NativeBridge : SmolLMNativeBridgeContract {
+        override fun getLastGenerationMetrics(
             instance: SmolLM,
             modelPtr: Long,
-            generationThreads: Int,
-            promptThreads: Int,
-        ) = Unit
-        fun getEstimatedNativeMemoryBytes(instance: SmolLM, modelPtr: Long): Long = 0L
-        fun getEstimatedStateMemoryBytes(instance: SmolLM, modelPtr: Long): Long = 0L
-        fun clearMessages(instance: SmolLM, modelPtr: Long) = Unit
-        fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int
-        fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long
-        fun nativeDecodePreparedEmbeddings(
-                instance: SmolLM,
-                modelPtr: Long,
-                embdPath: String,
-                metaPath: String,
-                nBatch: Int
-        ): Boolean
-        fun nativeDecodeEmbeddingsBuffer(
-                instance: SmolLM,
-                modelPtr: Long,
-                embeddings: FloatArray,
-                nTokens: Int,
-                nx: Int,
-                ny: Int,
-                embdDim: Int,
-                useMrope: Boolean,
-                useNonCausal: Boolean,
-                nBatch: Int
-        ): Boolean = false
-        fun nativePrimeImageBuffer(
-                instance: SmolLM,
-                modelPtr: Long,
-                projectorNativePtr: Long,
-                imageData: ByteArray,
-                nBatch: Int
-        ): Boolean = false
-        fun getStateBytes(instance: SmolLM, modelPtr: Long): ByteArray? = null
-        fun setStateBytes(instance: SmolLM, modelPtr: Long, state: ByteArray): Boolean = false
-        fun getSequenceStateBytes(instance: SmolLM, modelPtr: Long, seqId: Int): ByteArray? = null
-        fun setSequenceStateBytes(instance: SmolLM, modelPtr: Long, seqId: Int, state: ByteArray): Boolean = false
-        fun close(instance: SmolLM, modelPtr: Long)
-        fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String)
-        fun completionLoop(instance: SmolLM, modelPtr: Long): String
-        fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String
-        /** Batched completion returning raw UTF-8 bytes to avoid per-call NewStringUTF overhead. */
-        fun completionLoopBatchBytes(instance: SmolLM, modelPtr: Long, maxTokens: Int): ByteArray? = null
-        fun stopCompletion(instance: SmolLM, modelPtr: Long)
-        fun clearKvCache(instance: SmolLM, modelPtr: Long)
-        fun hasVulkanBackendSupport(instance: SmolLM): Boolean = true
+        ): GenerationMetrics = super<SmolLMNativeBridgeContract>.getLastGenerationMetrics(instance, modelPtr)
     }
     companion object {
         /** Device-aware batch size: scales with P-core count for optimal JNI throughput. */
-        val DEFAULT_BLOCKING_BATCH_SIZE: Int = SmolLMStaticApiSupport.defaultBlockingBatchSize
+        val DEFAULT_BLOCKING_BATCH_SIZE: Int = SmolLMCompanionSupport.defaultBlockingBatchSize
 
         @JvmStatic
         fun isOpenClAvailable(): Boolean =
-            SmolLMStaticApiSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
+            SmolLMCompanionSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
 
         @JvmStatic
         fun isVulkanBackendAvailable(): Boolean =
-            SmolLMStaticApiSupport.isVulkanBackendAvailable(::nativeIsVulkanAvailable)
+            SmolLMCompanionSupport.isVulkanBackendAvailable(::nativeIsVulkanAvailable)
 
         internal fun overrideNativeBridgeForTests(provider: (SmolLM) -> NativeBridge) {
-            SmolLMStaticApiSupport.overrideNativeBridgeForTests(provider)
+            SmolLMCompanionSupport.overrideNativeBridgeForTests(provider)
         }
 
         internal fun resetNativeBridgeForTests() {
-            SmolLMStaticApiSupport.resetNativeBridgeForTests()
+            SmolLMCompanionSupport.resetNativeBridgeForTests()
         }
 
         internal fun overrideNativeLibrarySupportForTests(support: SmolLMNativeLibrarySupport) {
-            SmolLMStaticApiSupport.overrideNativeLibrarySupportForTests(support)
+            SmolLMCompanionSupport.overrideNativeLibrarySupportForTests(support)
         }
 
         internal fun resetNativeLibrarySupportForTests() {
-            SmolLMStaticApiSupport.resetNativeLibrarySupportForTests()
+            SmolLMCompanionSupport.resetNativeLibrarySupportForTests()
         }
 
         internal fun currentNativeLibrarySupport(): SmolLMNativeLibrarySupport =
-            SmolLMStaticApiSupport.currentNativeLibrarySupport()
+            SmolLMCompanionSupport.currentNativeLibrarySupport()
 
         @JvmStatic
         private external fun nativeIsOpenClAvailable(): Boolean
@@ -171,11 +82,11 @@ class SmolLM internal constructor(
             nativePtr: Long,
             useVulkan: Boolean = false,
             loadedParams: InferenceParams = InferenceParams(),
-        ): SmolLM = SmolLMStaticApiSupport.createLoadedForTests(nativePtr, useVulkan, loadedParams)
+        ): SmolLM = SmolLMCompanionSupport.createLoadedForTests(nativePtr, useVulkan, loadedParams)
 
-        internal fun logDebug(message: String) = SmolLMStaticApiSupport.logDebug(message)
+        internal fun logDebug(message: String) = SmolLMCompanionSupport.logDebug(message)
 
-        internal fun logWarning(message: String) = SmolLMStaticApiSupport.logWarning(message)
+        internal fun logWarning(message: String) = SmolLMCompanionSupport.logWarning(message)
 
         internal fun isOpenClBackendAvailable(): Boolean = isOpenClAvailable()
 

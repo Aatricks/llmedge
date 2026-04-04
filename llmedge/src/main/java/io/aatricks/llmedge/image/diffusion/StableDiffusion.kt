@@ -27,6 +27,7 @@ import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionExecutor
+import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionLoader
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlin.jvm.JvmName
 
@@ -47,154 +48,7 @@ class StableDiffusion internal constructor(
     private val cancellationRequested = runtimeState.cancellationRequested
     private var cachedProgressCallback: VideoProgressCallback? = null
 
-    internal interface NativeBridge {
-        fun txt2img(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                vaeTiling: Boolean,
-                easyCacheEnabled: Boolean,
-                easyCacheReuseThreshold: Float,
-                easyCacheStartPercent: Float,
-                easyCacheEndPercent: Float,
-        ): ByteArray?
-
-        /** Fast path: returns ARGB_8888 pixels directly, avoiding Kotlin RGB→ARGB conversion */
-        fun txt2imgArgb(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                vaeTiling: Boolean,
-                easyCacheEnabled: Boolean,
-                easyCacheReuseThreshold: Float,
-                easyCacheStartPercent: Float,
-                easyCacheEndPercent: Float,
-        ): IntArray? = null
-
-        fun txt2vid(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                videoFrames: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                sampleMethod: SampleMethod,
-                scheduler: Scheduler,
-                strength: Float,
-                initImage: ByteArray?,
-                initWidth: Int,
-                initHeight: Int,
-                vaceStrength: Float,
-                easyCacheEnabled: Boolean,
-                easyCacheReuseThreshold: Float,
-                easyCacheStartPercent: Float,
-                easyCacheEndPercent: Float,
-        ): Array<ByteArray>?
-
-        fun precomputeCondition(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                clipSkip: Int
-        ): PrecomputedCondition? = null
-
-        fun txt2vidWithPrecomputedCondition(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                videoFrames: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                sampleMethod: SampleMethod,
-                scheduler: Scheduler,
-                strength: Float,
-                initImage: ByteArray?,
-                initWidth: Int,
-                initHeight: Int,
-                cond: PrecomputedCondition?,
-                uncond: PrecomputedCondition?,
-                vaceStrength: Float,
-                easyCacheEnabled: Boolean,
-                easyCacheReuseThreshold: Float,
-                easyCacheStartPercent: Float,
-                easyCacheEndPercent: Float,
-        ): Array<ByteArray>? =
-                txt2vid(
-                        handle,
-                        prompt,
-                        negative,
-                        width,
-                        height,
-                        videoFrames,
-                        steps,
-                        cfg,
-                        seed,
-                        sampleMethod,
-                        scheduler,
-                        strength,
-                        initImage,
-                        initWidth,
-                        initHeight,
-                        vaceStrength,
-                        easyCacheEnabled,
-                        easyCacheReuseThreshold,
-                        easyCacheStartPercent,
-                        easyCacheEndPercent
-                )
-
-        fun setProgressCallback(handle: Long, callback: VideoProgressCallback?)
-        fun cancelGeneration(handle: Long)
-
-        fun txt2ImgWithPrecomputedCondition(
-                handle: Long,
-                prompt: String,
-                negative: String,
-                width: Int,
-                height: Int,
-                steps: Int,
-                cfg: Float,
-                seed: Long,
-                cond: PrecomputedCondition?,
-                uncond: PrecomputedCondition?,
-                easyCacheEnabled: Boolean,
-                easyCacheReuseThreshold: Float,
-                easyCacheStartPercent: Float,
-                easyCacheEndPercent: Float,
-        ): ByteArray? =
-                txt2img(
-                        handle,
-                        prompt,
-                        negative,
-                        width,
-                        height,
-                        steps,
-                        cfg,
-                        seed,
-                        true,
-                        easyCacheEnabled,
-                        easyCacheReuseThreshold,
-                        easyCacheStartPercent,
-                        easyCacheEndPercent
-                )
-    }
+    internal interface NativeBridge : StableDiffusionNativeBridgeContract
 
     /** Generates an image from text. */
     fun txt2img(
@@ -309,7 +163,7 @@ class StableDiffusion internal constructor(
     companion object {
         private const val BYTES_IN_MB = 1024L * 1024L
         private const val MEMORY_PRESSURE_THRESHOLD = 0.85f
-        val diffusionDispatcher: CoroutineDispatcher = StableDiffusionStaticApiSupport.diffusionDispatcher
+        val diffusionDispatcher: CoroutineDispatcher = StableDiffusionCompanionSupport.diffusionDispatcher
 
         // Kept as a reflective seam for heuristic tests that validate the combined load policy.
         @JvmStatic
@@ -320,7 +174,7 @@ class StableDiffusion internal constructor(
             preferPerformanceMode: Boolean,
             activityManagerOverride: android.app.ActivityManager?,
         ): Pair<Boolean, Long> =
-            StableDiffusionStaticApiSupport.computeEffectiveSequentialLoad(
+            StableDiffusionCompanionSupport.computeEffectiveSequentialLoad(
                 context = context,
                 resolvedModelPath = resolvedModelPath,
                 sequentialLoad = sequentialLoad,
@@ -335,19 +189,19 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun isNativeLibraryLoaded(): Boolean {
-            return StableDiffusionStaticApiSupport.isNativeLibraryLoaded(::nativeCheckBindings)
+            return StableDiffusionCompanionSupport.isNativeLibraryLoaded(::nativeCheckBindings)
         }
 
         internal fun enableNativeBridgeForTests() {
-            StableDiffusionStaticApiSupport.enableNativeBridgeForTests()
+            StableDiffusionCompanionSupport.enableNativeBridgeForTests()
         }
 
         internal fun overrideNativeBridgeForTests(provider: (StableDiffusion) -> NativeBridge) {
-            StableDiffusionStaticApiSupport.overrideNativeBridgeForTests(provider)
+            StableDiffusionCompanionSupport.overrideNativeBridgeForTests(provider)
         }
 
         internal fun resetNativeBridgeForTests() {
-            StableDiffusionStaticApiSupport.resetNativeBridgeForTests()
+            StableDiffusionCompanionSupport.resetNativeBridgeForTests()
         }
 
         /**
@@ -356,7 +210,7 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun getVulkanDeviceCount(): Int {
-            return StableDiffusionStaticApiSupport.getVulkanDeviceCount(::nativeGetVulkanDeviceCount)
+            return StableDiffusionCompanionSupport.getVulkanDeviceCount(::nativeGetVulkanDeviceCount)
         }
 
         /**
@@ -366,7 +220,7 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun getVulkanDeviceMemory(deviceIndex: Int = 0): LongArray? {
-            return StableDiffusionStaticApiSupport.getVulkanDeviceMemory {
+            return StableDiffusionCompanionSupport.getVulkanDeviceMemory {
                 nativeGetVulkanDeviceMemory(deviceIndex)
             }
         }
@@ -376,7 +230,7 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun getVulkanDeviceDescription(deviceIndex: Int = 0): String? {
-            return StableDiffusionStaticApiSupport.getVulkanDeviceDescription {
+            return StableDiffusionCompanionSupport.getVulkanDeviceDescription {
                 nativeGetVulkanDeviceDescription(deviceIndex)
             }
         }
@@ -389,19 +243,19 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun estimateModelParamsMemoryBytes(modelPath: String, deviceIndex: Int = 0): Long {
-            return StableDiffusionStaticApiSupport.estimateModelParamsMemoryBytes {
+            return StableDiffusionCompanionSupport.estimateModelParamsMemoryBytes {
                 nativeEstimateModelParamsMemory(modelPath, deviceIndex)
             }
         }
 
         @JvmStatic
         fun checkBindings(): Boolean {
-            return StableDiffusionStaticApiSupport.checkBindings(::nativeCheckBindings)
+            return StableDiffusionCompanionSupport.checkBindings(::nativeCheckBindings)
         }
 
         @JvmStatic
         fun isOpenClAvailable(): Boolean {
-            return StableDiffusionStaticApiSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
+            return StableDiffusionCompanionSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
         }
 
         internal fun supportNativeCreate(
@@ -421,23 +275,22 @@ class StableDiffusion internal constructor(
             loraModelDir: String?,
             loraApplyMode: Int,
         ): Long =
-            StableDiffusionStaticApiSupport.supportNativeCreate(
-                modelPath = modelPath,
-                vaePath = vaePath,
-                t5xxlPath = t5xxlPath,
-                taesdPath = taesdPath,
-                nThreads = nThreads,
-                enableOpenCl = enableOpenCl,
-                useVulkan = useVulkan,
-                offloadToCpu = offloadToCpu,
-                keepClipOnCpu = keepClipOnCpu,
-                keepVaeOnCpu = keepVaeOnCpu,
-                flashAttn = flashAttn,
-                vaeDecodeOnly = vaeDecodeOnly,
-                flowShift = flowShift,
-                loraModelDir = loraModelDir,
-                loraApplyMode = loraApplyMode,
-                nativeCreate = ::nativeCreate,
+            nativeCreate(
+                modelPath,
+                vaePath,
+                t5xxlPath,
+                taesdPath,
+                nThreads,
+                enableOpenCl,
+                useVulkan,
+                offloadToCpu,
+                keepClipOnCpu,
+                keepVaeOnCpu,
+                flashAttn,
+                vaeDecodeOnly,
+                flowShift,
+                loraModelDir,
+                loraApplyMode,
             )
 
         @JvmStatic
@@ -486,33 +339,6 @@ class StableDiffusion internal constructor(
         @JvmStatic
         private external fun nativeIsOpenClAvailable(): Boolean
 
-        private suspend fun inferVideoModelMetadata(
-                resolvedModelPath: String,
-                modelId: String?,
-                explicitFilename: String?,
-        ): VideoModelMetadata =
-            StableDiffusionMetadataSupport.inferVideoModelMetadata(
-                resolvedModelPath = resolvedModelPath,
-                modelId = modelId,
-                explicitFilename = explicitFilename,
-            )
-
-        private fun validateResolvedAssets(
-            modelPath: String,
-            vaePath: String?,
-            t5xxlPath: String?,
-            taesdPath: String?,
-            loraModelDir: String?,
-        ) {
-            StableDiffusionLoadHeuristics.validateResolvedAssets(
-                modelPath = modelPath,
-                vaePath = vaePath,
-                t5xxlPath = t5xxlPath,
-                taesdPath = taesdPath,
-                loraModelDir = loraModelDir,
-            )
-        }
-
         suspend fun load(
                 context: Context,
                 modelId: String? = null,
@@ -537,7 +363,7 @@ class StableDiffusion internal constructor(
                 loraModelDir: String? = null,
                 loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
         ): StableDiffusion =
-            StableDiffusionStaticApiSupport.load(
+            StableDiffusionLoader.load(
                 context = context,
                 modelId = modelId,
                 filename = filename,
@@ -585,7 +411,7 @@ class StableDiffusion internal constructor(
                 loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
                 preferredBackend: ComputeBackend,
         ): StableDiffusion =
-            StableDiffusionStaticApiSupport.loadWithRuntimeBackend(
+            StableDiffusionLoader.loadWithRuntimeBackend(
                 context = context,
                 modelId = modelId,
                 filename = filename,
@@ -632,7 +458,7 @@ class StableDiffusion internal constructor(
                 loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
                 onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)? = null,
         ): StableDiffusion =
-            StableDiffusionStaticApiSupport.loadFromHuggingFace(
+            StableDiffusionLoader.loadFromHuggingFace(
                 context = context,
                 modelId = modelId,
                 filename = filename,

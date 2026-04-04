@@ -6,6 +6,7 @@ import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeLibraryCatalog
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
+import io.aatricks.llmedge.core.runtime.RuntimeLoadPolicy
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.model.ModelFileValidator
 import io.aatricks.llmedge.runtime.ComputeBackend
@@ -99,15 +100,14 @@ internal object WhisperCompanionSupport {
         onGpuLoadFailure: (ComputeBackend) -> Unit,
     ): Whisper {
         val validatedModel = ModelFileValidator.requireReadableFile(modelPath, "Whisper model")
-        val candidates =
-            BackendCandidateResolver.candidates(
-                BackendCandidateResolver.Request(
-                    subsystem = ComputeSubsystem.WHISPER,
-                    allowGpu = useGpu,
-                    openClAvailable = isOpenClAvailable(staticInvoker, openClAvailabilityOverride),
-                    vulkanAvailable = isVulkanBackendAvailable(staticInvoker, vulkanAvailabilityOverride),
-                ),
+        val loadRequest =
+            BackendCandidateResolver.Request(
+                subsystem = ComputeSubsystem.WHISPER,
+                allowGpu = useGpu,
+                openClAvailable = isOpenClAvailable(staticInvoker, openClAvailabilityOverride),
+                vulkanAvailable = isVulkanBackendAvailable(staticInvoker, vulkanAvailabilityOverride),
             )
+        val candidates = RuntimeLoadPolicy.candidates(loadRequest)
         var lastError: Throwable? = null
         for (backend in candidates) {
             try {
@@ -132,8 +132,7 @@ internal object WhisperCompanionSupport {
                 throw e
             } catch (e: Throwable) {
                 lastError = e
-                if (backend != ComputeBackend.CPU) {
-                    BackendCandidateResolver.blacklist(ComputeSubsystem.WHISPER, backend)
+                if (RuntimeLoadPolicy.recordBackendFailureIfNeeded(loadRequest, backend)) {
                     onGpuLoadFailure(backend)
                 }
             }

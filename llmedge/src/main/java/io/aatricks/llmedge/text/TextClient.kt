@@ -7,8 +7,7 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
-import io.aatricks.llmedge.core.createFeatureClientForTesting
-import io.aatricks.llmedge.core.createOwnedFeatureClient
+import io.aatricks.llmedge.core.featureClientFactory
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -66,6 +65,7 @@ class TextClient internal constructor(
         private const val LOG_TAG = "TextClient"
         /** Cap for chat state snapshots — skip snapshotting if state exceeds 64 MB. */
         private const val MAX_CHAT_STATE_BYTES = 64L * 1024L * 1024L
+        private val FACTORY = featureClientFactory(::TextClient)
 
         @JvmStatic
         @JvmOverloads
@@ -74,7 +74,7 @@ class TextClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): TextClient = createOwnedFeatureClient(context, scope, config, modelRepository, ::TextClient)
+        ): TextClient = FACTORY.create(context, scope, config, modelRepository, Unit)
 
         @JvmSynthetic
         internal fun forTesting(
@@ -84,7 +84,7 @@ class TextClient internal constructor(
             modelResolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): TextClient =
-            createFeatureClientForTesting(context, scope, config, modelResolver, ownedBootstrap, ::TextClient)
+            FACTORY.forTesting(context, scope, config, modelResolver, Unit, ownedBootstrap)
     }
 
     @Volatile

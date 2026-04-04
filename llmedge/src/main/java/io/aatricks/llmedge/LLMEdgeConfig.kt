@@ -54,10 +54,24 @@ data class ImageRuntimeConfig(
     val preferPerformanceMode: Boolean = false,
 )
 
+data class VisionRuntimeConfig(
+    val cache: RuntimeCacheConfig = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 2048),
+    val useVulkan: Boolean = true,
+    val promptThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
+    val generationThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.TOKEN_GENERATION),
+    val useFlashAttention: Boolean = true,
+) {
+    init {
+        require(promptThreads > 0) { "Vision prompt threads must be positive." }
+        require(generationThreads > 0) { "Vision generation threads must be positive." }
+    }
+}
+
 data class LLMEdgeConfig(
     val execution: ExecutionConfig = ExecutionConfig(),
     val models: ModelRegistry = ModelRegistry(),
     val text: TextRuntimeConfig = TextRuntimeConfig(),
     val speech: SpeechRuntimeConfig = SpeechRuntimeConfig(),
     val image: ImageRuntimeConfig = ImageRuntimeConfig(),
+    val vision: VisionRuntimeConfig = VisionRuntimeConfig(),
 )

@@ -7,6 +7,8 @@ import io.aatricks.llmedge.runtime.ComputeBackend
 
 internal object WhisperRuntimeSupport {
     private const val LOG_TAG = "Whisper"
+    const val SAMPLE_RATE: Int = 16000
+    const val CHUNK_SIZE_SECONDS: Int = 30
 
     internal val staticInvoker by lazy { Whisper(0L, ComputeBackend.CPU) }
 

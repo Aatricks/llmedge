@@ -12,6 +12,60 @@ internal data class FeatureContext(
     val modelRepository: ModelRepository,
 )
 
+internal class FeatureClientFactory<T, TDependencies>(
+    private val build: (FeatureContext, ClientBootstrapContext?, TDependencies) -> T,
+) {
+    fun create(
+        context: Context,
+        scope: CoroutineScope,
+        config: LLMEdgeConfig,
+        modelRepository: ModelRepository,
+        dependencies: TDependencies,
+    ): T =
+        createOwnedClient(context, scope, config) { bootstrap ->
+            build(
+                FeatureContext(
+                    appContext = bootstrap.appContext,
+                    edgeScope = bootstrap.edgeScope,
+                    config = config,
+                    modelRepository = modelRepository,
+                ),
+                bootstrap,
+                dependencies,
+            )
+        }
+
+    fun forTesting(
+        context: Context,
+        scope: LLMEdgeScope,
+        config: LLMEdgeConfig,
+        modelRepository: ModelRepository,
+        dependencies: TDependencies,
+        ownedBootstrap: ClientBootstrapContext? = null,
+    ): T =
+        build(
+            featureContextForTesting(
+                context = context,
+                scope = scope,
+                config = config,
+                modelRepository = modelRepository,
+            ),
+            ownedBootstrap,
+            dependencies,
+        )
+}
+
+internal fun <T> featureClientFactory(
+    build: (FeatureContext, ClientBootstrapContext?) -> T,
+): FeatureClientFactory<T, Unit> =
+    FeatureClientFactory { featureContext, bootstrap, _ ->
+        build(featureContext, bootstrap)
+    }
+
+internal fun <T, TDependencies> featureClientFactory(
+    build: (FeatureContext, ClientBootstrapContext?, TDependencies) -> T,
+): FeatureClientFactory<T, TDependencies> = FeatureClientFactory(build)
+
 internal fun featureContextForTesting(
     context: Context,
     scope: LLMEdgeScope,
@@ -24,64 +78,6 @@ internal fun featureContextForTesting(
         config = config,
         modelRepository = modelRepository,
     )
-
-internal inline fun <T> createFeatureForTesting(
-    context: Context,
-    scope: LLMEdgeScope,
-    config: LLMEdgeConfig,
-    modelRepository: ModelRepository,
-    ownedBootstrap: ClientBootstrapContext? = null,
-    build: (FeatureContext, ClientBootstrapContext?) -> T,
-): T =
-    build(
-        featureContextForTesting(
-            context = context,
-            scope = scope,
-            config = config,
-            modelRepository = modelRepository,
-        ),
-        ownedBootstrap,
-    )
-
-internal inline fun <T> createOwnedFeature(
-    context: Context,
-    scope: CoroutineScope,
-    config: LLMEdgeConfig,
-    modelRepository: ModelRepository,
-    build: (FeatureContext, ClientBootstrapContext) -> T,
-): T =
-    createOwnedClient(context, scope, config) { bootstrap ->
-        build(
-            FeatureContext(
-                appContext = bootstrap.appContext,
-                edgeScope = bootstrap.edgeScope,
-                config = config,
-                modelRepository = modelRepository,
-            ),
-            bootstrap,
-        )
-    }
-
-internal inline fun <T> createOwnedFeatureClient(
-    context: Context,
-    scope: CoroutineScope,
-    config: LLMEdgeConfig,
-    modelRepository: ModelRepository,
-    build: (FeatureContext, ClientBootstrapContext?) -> T,
-): T =
-    createOwnedFeature(context, scope, config, modelRepository) { featureContext, bootstrap ->
-        build(featureContext, bootstrap)
-    }
-
-internal inline fun <T> createFeatureClientForTesting(
-    context: Context,
-    scope: LLMEdgeScope,
-    config: LLMEdgeConfig,
-    modelRepository: ModelRepository,
-    ownedBootstrap: ClientBootstrapContext? = null,
-    build: (FeatureContext, ClientBootstrapContext?) -> T,
-): T =
-    createFeatureForTesting(context, scope, config, modelRepository, ownedBootstrap, build)
 
 abstract class OwnedFeatureClient internal constructor(
     featureContext: FeatureContext,

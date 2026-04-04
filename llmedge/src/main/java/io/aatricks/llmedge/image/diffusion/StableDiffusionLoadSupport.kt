@@ -6,6 +6,7 @@ import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryCatalog
 import io.aatricks.llmedge.core.UnsupportedModelException
+import io.aatricks.llmedge.core.runtime.RuntimeLoadPolicy
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.huggingface.WanModelEntry
 import io.aatricks.llmedge.huggingface.WanModelRegistry
@@ -333,26 +334,8 @@ internal object StableDiffusionLoadSupport {
         var effectiveKeepClipOnCpu = loadPlan.effectiveKeepClipOnCpu
         var effectiveKeepVaeOnCpu = loadPlan.effectiveKeepVaeOnCpu
 
-        var handle =
-            nativeCreateOrThrow(
-                modelPath = resolved.modelPath,
-                vaePath = resolved.vaePath,
-                t5xxlPath = resolved.t5xxlPath,
-                taesdPath = taesdPath,
-                nThreads = nThreads,
-                enableOpenCl = loadPlan.chosenBackend == ComputeBackend.OPENCL,
-                useVulkan = loadPlan.chosenBackend == ComputeBackend.VULKAN,
-                offloadToCpu = effectiveOffloadToCpu,
-                keepClipOnCpu = effectiveKeepClipOnCpu,
-                keepVaeOnCpu = effectiveKeepVaeOnCpu,
-                flashAttn = flashAttn,
-                vaeDecodeOnly = vaeDecodeOnly,
-                flowShift = flowShift,
-                loraModelDir = loraModelDir,
-                loraApplyMode = loraApplyMode,
-            )
-        if (handle == 0L && allowBackendFallbackToCpu && loadPlan.chosenBackend != ComputeBackend.CPU) {
-            AndroidLogAdapter.w(LOG_TAG, "nativeCreate failed on ${loadPlan.chosenBackend}; retrying with CPU backend")
+        var handle = 0L
+        for (backend in RuntimeLoadPolicy.candidates(loadPlan.chosenBackend, allowBackendFallbackToCpu)) {
             handle =
                 nativeCreateOrThrow(
                     modelPath = resolved.modelPath,
@@ -360,8 +343,8 @@ internal object StableDiffusionLoadSupport {
                     t5xxlPath = resolved.t5xxlPath,
                     taesdPath = taesdPath,
                     nThreads = nThreads,
-                    enableOpenCl = false,
-                    useVulkan = false,
+                    enableOpenCl = backend == ComputeBackend.OPENCL,
+                    useVulkan = backend == ComputeBackend.VULKAN,
                     offloadToCpu = effectiveOffloadToCpu,
                     keepClipOnCpu = effectiveKeepClipOnCpu,
                     keepVaeOnCpu = effectiveKeepVaeOnCpu,
@@ -371,6 +354,12 @@ internal object StableDiffusionLoadSupport {
                     loraModelDir = loraModelDir,
                     loraApplyMode = loraApplyMode,
                 )
+            if (handle != 0L) {
+                break
+            }
+            if (backend != ComputeBackend.CPU) {
+                AndroidLogAdapter.w(LOG_TAG, "nativeCreate failed on $backend; retrying with CPU backend")
+            }
         }
         if (handle == 0L && !effectiveOffloadToCpu) {
             AndroidLogAdapter.w(LOG_TAG, "nativeCreate failed on CPU backend; retrying with CPU offload")

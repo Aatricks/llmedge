@@ -15,6 +15,7 @@ internal enum class ComputeSubsystem {
     IMAGE,
     VIDEO,
     TEXT,
+    VISION,
     WHISPER,
 }
 

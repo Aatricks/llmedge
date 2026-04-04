@@ -7,7 +7,7 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
-import io.aatricks.llmedge.core.createOwnedFeatureClient
+import io.aatricks.llmedge.core.featureClientFactory
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -28,10 +28,22 @@ data class VisionRequest(
 class VisionClient internal constructor(
     featureContext: FeatureContext,
     private val pipeline: VisionPipeline,
-    config: LLMEdgeConfig,
     private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : OwnedFeatureClient(featureContext, ownedBootstrap) {
     companion object {
+        private data class Dependencies(
+            val pipelineFactory: (FeatureContext) -> VisionPipeline,
+        )
+
+        private val FACTORY =
+            featureClientFactory<VisionClient, Dependencies> { featureContext, bootstrap, dependencies ->
+                VisionClient(
+                    featureContext = featureContext,
+                    pipeline = dependencies.pipelineFactory(featureContext),
+                    ownedBootstrap = bootstrap,
+                )
+            }
+
         @JvmStatic
         @JvmOverloads
         fun create(
@@ -39,15 +51,7 @@ class VisionClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): VisionClient =
-            createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
-                VisionClient(
-                    featureContext = featureContext,
-                    pipeline = VisionPipeline(featureContext),
-                    config = featureContext.config,
-                    ownedBootstrap = bootstrap,
-                )
-            }
+        ): VisionClient = FACTORY.create(context, scope, config, modelRepository, Dependencies(::VisionPipeline))
 
         @JvmSynthetic
         internal fun forTesting(
@@ -58,18 +62,20 @@ class VisionClient internal constructor(
             pipeline: VisionPipeline,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): VisionClient =
-            VisionClient(
-                featureContext = FeatureContext(context, scope, config, modelRepository),
-                pipeline = pipeline,
+            FACTORY.forTesting(
+                context = context,
+                scope = scope,
                 config = config,
+                modelRepository = modelRepository,
+                dependencies = Dependencies { pipeline },
                 ownedBootstrap = ownedBootstrap,
             )
     }
 
     private val defaultModel: ModelSpec = config.models.vision.model
     private val defaultProjector: ModelSpec = config.models.vision.projector
-    private val defaultPromptThreads: Int = config.text.promptThreads
-    private val defaultGenerationThreads: Int = config.text.generationThreads
+    private val defaultPromptThreads: Int = config.vision.promptThreads
+    private val defaultGenerationThreads: Int = config.vision.generationThreads
     @Volatile
     private var lastRuntimeMemory: VisionRuntimeMemory? = null
 

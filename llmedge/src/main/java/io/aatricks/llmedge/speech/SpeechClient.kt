@@ -6,8 +6,7 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
-import io.aatricks.llmedge.core.createFeatureClientForTesting
-import io.aatricks.llmedge.core.createOwnedFeatureClient
+import io.aatricks.llmedge.core.featureClientFactory
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -52,6 +51,8 @@ class SpeechClient internal constructor(
     private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : OwnedFeatureClient(featureContext, ownedBootstrap) {
     companion object {
+        private val FACTORY = featureClientFactory(::SpeechClient)
+
         @JvmStatic
         @JvmOverloads
         fun create(
@@ -59,7 +60,7 @@ class SpeechClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): SpeechClient = createOwnedFeatureClient(context, scope, config, modelRepository, ::SpeechClient)
+        ): SpeechClient = FACTORY.create(context, scope, config, modelRepository, Unit)
 
         @JvmSynthetic
         internal fun forTesting(
@@ -69,7 +70,7 @@ class SpeechClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): SpeechClient =
-            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap, ::SpeechClient)
+            FACTORY.forTesting(context, scope, config, resolver, Unit, ownedBootstrap)
     }
 
     private val whisperPool = createWhisperRuntimePool(appContext, edgeScope, config, modelRepository)

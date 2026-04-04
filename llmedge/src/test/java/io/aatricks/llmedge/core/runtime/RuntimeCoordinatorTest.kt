@@ -80,6 +80,27 @@ class RuntimeCoordinatorTest {
         assertEquals(1, closeCalls)
     }
 
+    @Test
+    fun `pooled runtime loading tries opencl then vulkan before cpu`() = runTest {
+        val attemptedBackends = mutableListOf<ComputeBackend>()
+        val coordinator = createCoordinator { _, _, backend ->
+            attemptedBackends += backend
+            if (backend == ComputeBackend.OPENCL) {
+                throw IllegalStateException("opencl init failed")
+            }
+            FakeRuntime(backend)
+        }
+
+        val runtime =
+            coordinator.acquire(
+                "model",
+                FakeOptions(allowGpu = true, openClAvailable = true, vulkanAvailable = true),
+            )
+
+        assertEquals(listOf(ComputeBackend.OPENCL, ComputeBackend.VULKAN), attemptedBackends)
+        assertEquals(ComputeBackend.VULKAN, runtime.backend)
+    }
+
     private fun createCoordinator(
         loader: suspend (String, FakeOptions, ComputeBackend) -> FakeRuntime,
     ): RuntimeCoordinator<String, FakeOptions, FakeRuntime> =

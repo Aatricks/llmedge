@@ -172,16 +172,21 @@ apply(from = rootProject.file("gradle/llmedge-jacoco.gradle"))
 
 val generateNativeTargetNames by tasks.registering(Exec::class) {
     group = "build setup"
-    description = "Generates Kotlin native target constants from CMake target declarations."
-    val outputFile =
+    description = "Generates Kotlin and shell native target metadata from CMake target declarations."
+    val kotlinOutputFile =
         layout.buildDirectory.file(
             "generated/source/nativeTargetNames/main/kotlin/io/aatricks/llmedge/core/NativeTargetNames.kt",
         )
-    outputs.file(outputFile)
+    val shellOutputFile =
+        layout.buildDirectory.file(
+            "generated/source/nativeTargetNames/main/shell/native-targets.sh",
+        )
+    outputs.files(kotlinOutputFile, shellOutputFile)
     commandLine(
         "bash",
         "${rootProject.projectDir}/scripts/generate_native_target_names.sh",
-        outputFile.get().asFile.absolutePath,
+        kotlinOutputFile.get().asFile.absolutePath,
+        shellOutputFile.get().asFile.absolutePath,
     )
 }
 

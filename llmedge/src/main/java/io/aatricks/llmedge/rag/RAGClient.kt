@@ -7,8 +7,7 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
-import io.aatricks.llmedge.core.createFeatureClientForTesting
-import io.aatricks.llmedge.core.createOwnedFeatureClient
+import io.aatricks.llmedge.core.featureClientFactory
 import io.aatricks.llmedge.text.TextModelOptions
 import io.aatricks.llmedge.text.ManagedTextModel
 import io.aatricks.llmedge.text.createTextRuntimePool
@@ -49,6 +48,8 @@ class RAGClient internal constructor(
     private val ownedBootstrap: ClientBootstrapContext? = null,
 ) : OwnedFeatureClient(featureContext, ownedBootstrap) {
     companion object {
+        private val FACTORY = featureClientFactory(::RAGClient)
+
         @JvmStatic
         @JvmOverloads
         fun create(
@@ -56,7 +57,7 @@ class RAGClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): RAGClient = createOwnedFeatureClient(context, scope, config, modelRepository, ::RAGClient)
+        ): RAGClient = FACTORY.create(context, scope, config, modelRepository, Unit)
 
         @JvmSynthetic
         internal fun forTesting(
@@ -66,7 +67,7 @@ class RAGClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): RAGClient =
-            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap, ::RAGClient)
+            FACTORY.forTesting(context, scope, config, resolver, Unit, ownedBootstrap)
     }
 
     private val runtimePool = createTextRuntimePool(appContext, edgeScope, config, modelRepository)

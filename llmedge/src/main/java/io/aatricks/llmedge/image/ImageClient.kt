@@ -7,8 +7,7 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
-import io.aatricks.llmedge.core.createFeatureClientForTesting
-import io.aatricks.llmedge.core.createOwnedFeatureClient
+import io.aatricks.llmedge.core.featureClientFactory
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
@@ -73,6 +72,7 @@ class ImageClient internal constructor(
 ) : OwnedFeatureClient(featureContext, ownedBootstrap) {
     companion object {
         private const val LOG_TAG = "ImageClient"
+        private val FACTORY = featureClientFactory(::ImageClient)
 
         @JvmStatic
         @JvmOverloads
@@ -81,7 +81,7 @@ class ImageClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): ImageClient = createOwnedFeatureClient(context, scope, config, modelRepository, ::ImageClient)
+        ): ImageClient = FACTORY.create(context, scope, config, modelRepository, Unit)
 
         @JvmSynthetic
         internal fun forTesting(
@@ -91,7 +91,7 @@ class ImageClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): ImageClient =
-            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap, ::ImageClient)
+            FACTORY.forTesting(context, scope, config, resolver, Unit, ownedBootstrap)
 
         internal fun resetVideoVulkanBlacklistForTests() {
             BackendRuntimePolicy.resetForTests()

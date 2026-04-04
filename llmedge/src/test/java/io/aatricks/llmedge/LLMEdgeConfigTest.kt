@@ -27,6 +27,14 @@ class LLMEdgeConfigTest {
                         cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 8192),
                         preferPerformanceMode = true,
                     ),
+                vision =
+                    VisionRuntimeConfig(
+                        cache = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 1536),
+                        useVulkan = false,
+                        promptThreads = 5,
+                        generationThreads = 3,
+                        useFlashAttention = false,
+                    ),
             )
 
         assertEquals(7, config.execution.inferenceThreads)
@@ -40,6 +48,11 @@ class LLMEdgeConfigTest {
         assertFalse(config.text.useFlashAttention)
         assertEquals(8192L, config.image.cache.maxMemoryMb)
         assertTrue(config.image.preferPerformanceMode)
+        assertEquals(1536L, config.vision.cache.maxMemoryMb)
+        assertFalse(config.vision.useVulkan)
+        assertEquals(5, config.vision.promptThreads)
+        assertEquals(3, config.vision.generationThreads)
+        assertFalse(config.vision.useFlashAttention)
     }
 
     @Test

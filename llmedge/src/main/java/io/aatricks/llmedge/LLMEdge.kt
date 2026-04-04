@@ -61,7 +61,6 @@ class LLMEdge private constructor(
         VisionClient(
             featureContext = featureContext,
             pipeline = VisionPipeline(featureContext),
-            config = config,
         )
     }
     private val ragDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {

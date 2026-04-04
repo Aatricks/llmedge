@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.TextRuntimeConfig
+import io.aatricks.llmedge.VisionRuntimeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -31,7 +32,11 @@ class VisionPipelineTest {
     fun `prepare caches runtime and analyze reuses it`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val resolver = mockk<ModelRepository>()
-        val config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = false, promptThreads = 4, generationThreads = 2))
+        val config =
+            LLMEdgeConfig(
+                text = TextRuntimeConfig(useVulkan = false, promptThreads = 4, generationThreads = 2),
+                vision = VisionRuntimeConfig(useVulkan = false, promptThreads = 4, generationThreads = 2),
+            )
         val smol = mockk<SmolLM>(relaxed = true)
         val projector = mockk<Projector>(relaxed = true)
         val model = mockk<ModelSpec>()
@@ -74,6 +79,8 @@ class VisionPipelineTest {
                         prompt = "Describe the image",
                         model = model,
                         projector = projectorSpec,
+                        numThreads = 4,
+                        generationThreads = 2,
                     ),
                 )
 
@@ -93,7 +100,11 @@ class VisionPipelineTest {
     fun `prepare uses config-backed runtime defaults`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val resolver = mockk<ModelRepository>()
-        val config = LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = true, promptThreads = 7, generationThreads = 3, useFlashAttention = false))
+        val config =
+            LLMEdgeConfig(
+                text = TextRuntimeConfig(useVulkan = false, promptThreads = 7, generationThreads = 3, useFlashAttention = true),
+                vision = VisionRuntimeConfig(useVulkan = true, promptThreads = 7, generationThreads = 3, useFlashAttention = false),
+            )
         val smol = mockk<SmolLM>(relaxed = true)
         val projector = mockk<Projector>(relaxed = true)
         val model = mockk<ModelSpec>()
@@ -126,7 +137,12 @@ class VisionPipelineTest {
             )
 
         try {
-            pipeline.prepare(model = model, projector = projectorSpec, numThreads = 7, generationThreads = 3)
+            pipeline.prepare(
+                model = model,
+                projector = projectorSpec,
+                numThreads = config.vision.promptThreads,
+                generationThreads = config.vision.generationThreads,
+            )
 
             assertEquals(7, paramsSlot.captured.numThreads)
             assertEquals(3, paramsSlot.captured.generationThreads)

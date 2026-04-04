@@ -114,8 +114,9 @@ internal class VisionPipeline(
             runtimePool.acquire(
                 VisionRuntimeSpec(model = model, projector = projector),
                 VisionLoadOptions(
-                    numThreads = (numThreads ?: featureContext.config.text.promptThreads).coerceAtLeast(1),
-                    generationThreads = (generationThreads ?: numThreads ?: featureContext.config.text.generationThreads).coerceAtLeast(1),
+                    numThreads = (numThreads ?: featureContext.config.vision.promptThreads).coerceAtLeast(1),
+                    generationThreads =
+                        (generationThreads ?: numThreads ?: featureContext.config.vision.generationThreads).coerceAtLeast(1),
                 ),
             )
         logStage("runtime", "acquire", loadStartedNs)

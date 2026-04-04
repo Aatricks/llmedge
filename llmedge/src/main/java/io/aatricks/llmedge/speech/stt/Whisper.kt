@@ -27,7 +27,6 @@ import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.speech.stt.internal.WhisperCompanionSupport
 import io.aatricks.llmedge.speech.stt.internal.WhisperCallbackSupport
 import io.aatricks.llmedge.speech.stt.internal.WhisperInferenceOperations
-import io.aatricks.llmedge.speech.stt.internal.WhisperStaticApiSupport
 import io.aatricks.llmedge.speech.stt.internal.WhisperStreamingState
 import io.aatricks.llmedge.speech.stt.internal.WhisperSubtitleSupport
 import io.aatricks.llmedge.runtime.ComputeBackend
@@ -130,20 +129,7 @@ class Whisper internal constructor(
     private var progressCallback: ProgressCallback? = null
     private var segmentCallback: SegmentCallback? = null
 
-    // Internal bridge interface for testing
-    internal interface NativeBridge {
-        fun transcribe(
-                handle: Long,
-                samples: FloatArray,
-                params: TranscribeParams,
-                progressCallback: ProgressCallback?,
-                segmentCallback: SegmentCallback?
-        ): Array<TranscriptionSegment>?
-
-        fun detectLanguage(handle: Long, samples: FloatArray, nThreads: Int): Int
-        fun getFullText(handle: Long): String
-        fun close(handle: Long)
-    }
+    internal interface NativeBridge : WhisperNativeBridgeContract
 
     /** Set a callback to receive progress updates during transcription. */
     fun setProgressCallback(callback: ProgressCallback?) {
@@ -439,55 +425,52 @@ class Whisper internal constructor(
 
     companion object {
         /** Whisper expects audio at 16kHz sample rate */
-        const val SAMPLE_RATE = WhisperStaticApiSupport.SAMPLE_RATE
+        const val SAMPLE_RATE = WhisperRuntimeSupport.SAMPLE_RATE
 
         /** Whisper processes audio in 30-second chunks */
-        const val CHUNK_SIZE_SECONDS = WhisperStaticApiSupport.CHUNK_SIZE_SECONDS
+        const val CHUNK_SIZE_SECONDS = WhisperRuntimeSupport.CHUNK_SIZE_SECONDS
 
-        internal interface LoadBridge {
-            fun create(
-                modelPath: String,
-                backend: ComputeBackend,
-                flashAttn: Boolean,
-                gpuDevice: Int,
-            ): Long
-        }
+        internal interface LoadBridge : WhisperLoadBridgeContract
 
         init {
-            WhisperStaticApiSupport.initialize()
+            WhisperRuntimeSupport.ensureNativeLibraryLoaded()
         }
 
         internal fun overrideLoadBridgeForTests(provider: () -> LoadBridge) {
-            WhisperStaticApiSupport.overrideLoadBridgeForTests(provider)
+            WhisperRuntimeSupport.overrideLoadBridgeForTests(provider)
         }
 
         internal fun resetLoadBridgeForTests() {
-            WhisperStaticApiSupport.resetLoadBridgeForTests()
+            WhisperRuntimeSupport.resetLoadBridgeForTests()
         }
 
         internal fun overrideBackendAvailabilityForTests(
             openClAvailable: Boolean? = null,
             vulkanAvailable: Boolean? = null,
         ) {
-            WhisperStaticApiSupport.overrideBackendAvailabilityForTests(openClAvailable, vulkanAvailable)
+            WhisperRuntimeSupport.overrideBackendAvailabilityForTests(openClAvailable, vulkanAvailable)
         }
 
         internal fun resetBackendAvailabilityForTests() {
-            WhisperStaticApiSupport.resetBackendAvailabilityForTests()
+            WhisperRuntimeSupport.resetBackendAvailabilityForTests()
         }
 
         /** Check if native bindings are available. */
         @JvmStatic
-        fun checkBindings(): Boolean = WhisperStaticApiSupport.checkBindings()
+        fun checkBindings(): Boolean =
+            WhisperCompanionSupport.checkBindings(WhisperRuntimeSupport.staticInvoker)
 
         /** Get the whisper.cpp version string. */
-        @JvmStatic fun getVersion(): String = WhisperStaticApiSupport.getVersion()
+        @JvmStatic fun getVersion(): String =
+            WhisperCompanionSupport.getVersion(WhisperRuntimeSupport.staticInvoker)
 
         /** Get system information string. */
-        @JvmStatic fun getSystemInfo(): String = WhisperStaticApiSupport.getSystemInfo()
+        @JvmStatic fun getSystemInfo(): String =
+            WhisperCompanionSupport.getSystemInfo(WhisperRuntimeSupport.staticInvoker)
 
         /** Get the maximum language ID supported. */
-        @JvmStatic fun getMaxLanguageId(): Int = WhisperStaticApiSupport.getMaxLanguageId()
+        @JvmStatic fun getMaxLanguageId(): Int =
+            WhisperCompanionSupport.getMaxLanguageId(WhisperRuntimeSupport.staticInvoker)
 
         /**
          * Get the language ID for a language code or name.
@@ -495,7 +478,8 @@ class Whisper internal constructor(
          * @param lang Language code (e.g., "en") or name (e.g., "english")
          * @return Language ID or -1 if not found
          */
-        @JvmStatic fun getLanguageId(lang: String): Int = WhisperStaticApiSupport.getLanguageId(lang)
+        @JvmStatic fun getLanguageId(lang: String): Int =
+            WhisperCompanionSupport.getLanguageId(WhisperRuntimeSupport.staticInvoker, lang)
 
         /**
          * Get the language code for a language ID.
@@ -503,13 +487,22 @@ class Whisper internal constructor(
          * @param langId Language ID
          * @return Language code (e.g., "en") or empty string if not found
          */
-        @JvmStatic fun getLanguageString(langId: Int): String = WhisperStaticApiSupport.getLanguageString(langId)
+        @JvmStatic fun getLanguageString(langId: Int): String =
+            WhisperCompanionSupport.getLanguageString(WhisperRuntimeSupport.staticInvoker, langId)
 
         @JvmStatic
-        fun isOpenClAvailable(): Boolean = WhisperStaticApiSupport.isOpenClAvailable()
+        fun isOpenClAvailable(): Boolean =
+            WhisperCompanionSupport.isOpenClAvailable(
+                WhisperRuntimeSupport.staticInvoker,
+                WhisperRuntimeSupport.openClAvailabilityOverride(),
+            )
 
         @JvmStatic
-        fun isVulkanBackendAvailable(): Boolean = WhisperStaticApiSupport.isVulkanBackendAvailable()
+        fun isVulkanBackendAvailable(): Boolean =
+            WhisperCompanionSupport.isVulkanBackendAvailable(
+                WhisperRuntimeSupport.staticInvoker,
+                WhisperRuntimeSupport.vulkanAvailabilityOverride(),
+            )
 
         /**
          * Load a Whisper model from a file path.
@@ -526,14 +519,35 @@ class Whisper internal constructor(
                 useGpu: Boolean = false,
                 flashAttn: Boolean = true,
                 gpuDevice: Int = 0
-        ): Whisper = WhisperStaticApiSupport.load(modelPath, useGpu, flashAttn, gpuDevice)
+        ): Whisper =
+            WhisperCompanionSupport.load(
+                modelPath = modelPath,
+                useGpu = useGpu,
+                flashAttn = flashAttn,
+                gpuDevice = gpuDevice,
+                staticInvoker = WhisperRuntimeSupport.staticInvoker,
+                createHandle = { path, backend, useFlashAttn, device ->
+                    WhisperRuntimeSupport.createLoadBridge().create(path, backend, useFlashAttn, device)
+                },
+                openClAvailabilityOverride = WhisperRuntimeSupport.openClAvailabilityOverride(),
+                vulkanAvailabilityOverride = WhisperRuntimeSupport.vulkanAvailabilityOverride(),
+                onGpuLoadFailure = WhisperRuntimeSupport::logGpuFallback,
+            )
 
         internal fun load(
             modelPath: String,
             backend: ComputeBackend,
             flashAttn: Boolean = true,
             gpuDevice: Int = 0,
-        ): Whisper = WhisperStaticApiSupport.loadOnBackend(modelPath, backend, flashAttn, gpuDevice)
+        ): Whisper =
+            WhisperCompanionSupport.loadOnBackend(
+                modelPath = modelPath,
+                backend = backend,
+                flashAttn = flashAttn,
+                gpuDevice = gpuDevice,
+            ) { path, chosenBackend, useFlashAttn, device ->
+                WhisperRuntimeSupport.createLoadBridge().create(path, chosenBackend, useFlashAttn, device)
+            }
 
         /**
          * Load a Whisper model with Android Context support. This allows loading models from app
@@ -553,7 +567,15 @@ class Whisper internal constructor(
                 useGpu: Boolean = false,
                 flashAttn: Boolean = true,
                 gpuDevice: Int = 0
-        ): Whisper = WhisperStaticApiSupport.load(context, modelPath, useGpu, flashAttn, gpuDevice)
+        ): Whisper =
+            WhisperCompanionSupport.load(
+                context = context,
+                modelPath = modelPath,
+                useGpu = useGpu,
+                flashAttn = flashAttn,
+                gpuDevice = gpuDevice,
+                loadFromPath = ::load,
+            )
 
         /**
          * Download and load a Whisper model from Hugging Face Hub.
@@ -577,7 +599,7 @@ class Whisper internal constructor(
                 gpuDevice: Int = 0,
                 token: String? = null
         ): Whisper =
-            WhisperStaticApiSupport.loadFromHuggingFace(
+            WhisperCompanionSupport.loadFromHuggingFace(
                 context = context,
                 modelId = modelId,
                 modelFile = modelFile,
@@ -585,6 +607,7 @@ class Whisper internal constructor(
                 flashAttn = flashAttn,
                 gpuDevice = gpuDevice,
                 token = token,
+                loadFromPath = ::load,
             )
     }
 }

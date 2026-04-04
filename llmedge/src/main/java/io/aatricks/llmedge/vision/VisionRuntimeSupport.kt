@@ -2,7 +2,6 @@ package io.aatricks.llmedge.vision
 
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.RuntimeCacheConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
@@ -61,7 +60,7 @@ internal fun createVisionRuntimePool(
         scope = scope,
         profile =
             runtimePoolProfile(
-                cacheConfig = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = config.text.cache.maxMemoryMb),
+                cacheConfig = config.vision.cache,
                 cacheKeyPrefix = { spec, options ->
                     RuntimeCacheKeyBuilder.prefix(
                         spec.model.cacheKey,
@@ -92,7 +91,7 @@ internal fun createVisionRuntimePool(
                                 contextSize = null,
                                 storeChats = false,
                                 temperature = 0.0f,
-                                useFlashAttn = config.text.useFlashAttention,
+                                useFlashAttn = config.vision.useFlashAttention,
                                 thinkingMode = SmolLM.ThinkingMode.DEFAULT,
                             ),
                         preferredBackend = backend,
@@ -113,8 +112,8 @@ internal fun createVisionRuntimePool(
                 activeBackend = { it.smol.getActiveBackend() },
                 candidateRequest = {
                     BackendCandidateResolver.Request(
-                        subsystem = io.aatricks.llmedge.runtime.ComputeSubsystem.TEXT,
-                        allowGpu = config.text.useVulkan,
+                        subsystem = io.aatricks.llmedge.runtime.ComputeSubsystem.VISION,
+                        allowGpu = config.vision.useVulkan,
                         openClAvailable = SmolLM.isOpenClAvailable(),
                         vulkanAvailable = SmolLM.isVulkanBackendAvailable(),
                     )
