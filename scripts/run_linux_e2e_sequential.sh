@@ -82,9 +82,9 @@ elif [[ -d "$PREBUILT_BIN_DIR" && -f "$PREBUILT_BIN_DIR/$NATIVE_LIB_NAME" ]]; th
     cp "$PREBUILT_BIN_DIR/$DEP_LIB_NAME" "$LLMEDGE_NATIVE_DIR/$DEP_LIB_NAME"
   fi
 else
-  echo "Native library not found. Building with scripts/build_sdcpp_linux.sh..."
-  if [[ -f "$ROOT_DIR/scripts/build_sdcpp_linux.sh" ]]; then
-    "$ROOT_DIR/scripts/build_sdcpp_linux.sh"
+  echo "Native library not found. Building with scripts/build_native_linux.sh sdcpp..."
+  if [[ -f "$ROOT_DIR/scripts/build_native_linux.sh" ]]; then
+    "$ROOT_DIR/scripts/build_native_linux.sh" sdcpp
   else
     echo "ERROR: No build script found. Please build libsdcpp for host."
     exit 1

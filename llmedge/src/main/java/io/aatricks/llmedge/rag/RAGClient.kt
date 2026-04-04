@@ -3,9 +3,10 @@ package io.aatricks.llmedge.rag
 import android.content.Context
 import android.net.Uri
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.core.ClientBootstrap
 import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.OwnedClient
+import io.aatricks.llmedge.core.createOwnedClient
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -47,7 +48,7 @@ class RAGClient internal constructor(
     private val config: LLMEdgeConfig,
     private val resolver: ModelRepository,
     private val ownedBootstrap: ClientBootstrapContext? = null,
-) : AutoCloseable {
+) : OwnedClient(ownedBootstrap) {
     companion object {
         @JvmStatic
         @JvmOverloads
@@ -57,7 +58,7 @@ class RAGClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): RAGClient =
-            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+            createOwnedClient(context, scope, config.text.promptThreads) { bootstrap ->
                 RAGClient(
                     context = bootstrap.appContext,
                     scope = bootstrap.edgeScope,
@@ -93,7 +94,7 @@ class RAGClient internal constructor(
     }
 
     override fun close() {
-        ClientBootstrap.close(ownedBootstrap) {
+        closeOwned {
             runtimePool.close()
         }
     }

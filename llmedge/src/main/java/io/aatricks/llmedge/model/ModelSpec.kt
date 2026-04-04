@@ -5,9 +5,18 @@ import java.io.File
 
 sealed interface ModelSpec {
     val cacheKey: String
+    val hints: ModelHints
 
-    data class LocalFile(val file: File) : ModelSpec {
-        override val cacheKey: String = "file://${file.absolutePath}"
+    data class LocalFile(
+        val file: File,
+        override val hints: ModelHints = ModelHints(),
+    ) : ModelSpec {
+        override val cacheKey: String =
+            listOf(
+                "file://${file.absolutePath}",
+                "artifact=${hints.artifactKind.name}",
+                "capabilities=${hints.capabilities.map(ModelCapability::name).sorted().joinToString(",")}",
+            ).joinToString("|")
     }
 
     data class HuggingFace(
@@ -18,6 +27,7 @@ sealed interface ModelSpec {
         val token: String? = null,
         val forceDownload: Boolean = false,
         val preferSystemDownloader: Boolean = true,
+        override val hints: ModelHints = ModelHints(),
     ) : ModelSpec {
         override val cacheKey: String =
             listOf(
@@ -27,15 +37,25 @@ sealed interface ModelSpec {
                 filename.orEmpty(),
                 preferredQuantizations.joinToString(","),
                 forceDownload.toString(),
+                "artifact=${hints.artifactKind.name}",
+                "capabilities=${hints.capabilities.map(ModelCapability::name).sorted().joinToString(",")}",
             ).joinToString("|")
     }
 
     companion object {
         @JvmStatic
-        fun localFile(path: String): ModelSpec = LocalFile(File(path))
+        @JvmOverloads
+        fun localFile(
+            path: String,
+            hints: ModelHints = ModelHints(),
+        ): ModelSpec = LocalFile(File(path), hints)
 
         @JvmStatic
-        fun localFile(file: File): ModelSpec = LocalFile(file)
+        @JvmOverloads
+        fun localFile(
+            file: File,
+            hints: ModelHints = ModelHints(),
+        ): ModelSpec = LocalFile(file, hints)
 
         @JvmStatic
         @JvmOverloads
@@ -47,6 +67,7 @@ sealed interface ModelSpec {
             token: String? = null,
             forceDownload: Boolean = false,
             preferSystemDownloader: Boolean = true,
+            hints: ModelHints = ModelHints(),
         ): ModelSpec =
             HuggingFace(
                 repoId = repoId,
@@ -56,6 +77,7 @@ sealed interface ModelSpec {
                 token = token,
                 forceDownload = forceDownload,
                 preferSystemDownloader = preferSystemDownloader,
+                hints = hints,
             )
     }
 }

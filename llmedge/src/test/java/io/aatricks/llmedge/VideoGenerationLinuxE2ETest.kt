@@ -23,7 +23,7 @@ import io.aatricks.llmedge.image.diffusion.VideoGenerateParams
  *
  * Requirements to run:
  * - Build the native sdcpp library for Linux and place as llmedge/build/native/linux-x86_64/libsdcpp.so
- *   (There is a script at scripts/build_sdcpp_linux.sh to help).
+ *   (Use scripts/build_native_linux.sh sdcpp).
  * - Provide a small test model suitable for testing via environment variable
  *   LLMEDGE_TEST_MODEL_PATH (path to a .gguf model). If not set, the test will be skipped.
  *

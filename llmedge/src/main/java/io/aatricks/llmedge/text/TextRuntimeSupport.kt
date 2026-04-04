@@ -5,7 +5,7 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.BackendPolicy
 import io.aatricks.llmedge.core.runtime.CachedRuntimeDescriptor
-import io.aatricks.llmedge.core.runtime.ManagedRuntime
+import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
 import io.aatricks.llmedge.core.runtime.RuntimeLoader
 import io.aatricks.llmedge.core.runtime.RuntimePool
@@ -16,18 +16,11 @@ import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.text.runtime.SmolLM
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import java.util.concurrent.atomic.AtomicBoolean
 
 internal class ManagedTextModel(
     val fileSizeBytes: Long,
     val model: SmolLM,
-) : ManagedRuntime {
-    override val mutex: Mutex = Mutex()
-    private val closed = AtomicBoolean(false)
-
+) : ManagedRuntimeBase() {
     private fun estimatedNativeMemoryBytes(): Long =
         maxOf(
             model.getEstimatedNativeMemoryBytes().takeIf { it > 0L } ?: 0L,
@@ -38,18 +31,11 @@ internal class ManagedTextModel(
     override fun estimatedSizeBytes(): Long = estimatedNativeMemoryBytes()
 
     fun ensureOpen() {
-        check(!closed.get()) { "Text runtime has been closed" }
+        ensureOpen("Text runtime")
     }
 
     override fun close() {
-        if (!closed.compareAndSet(false, true)) {
-            return
-        }
-        runBlocking {
-            mutex.withLock {
-                model.close()
-            }
-        }
+        closeOnce(model::close)
     }
 }
 

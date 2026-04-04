@@ -3,9 +3,10 @@ package io.aatricks.llmedge.vision
 import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.core.ClientBootstrap
 import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.OwnedClient
+import io.aatricks.llmedge.core.createOwnedClient
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -28,7 +29,7 @@ class VisionClient internal constructor(
     private val pipeline: VisionPipeline,
     config: LLMEdgeConfig,
     private val ownedBootstrap: ClientBootstrapContext? = null,
-) : AutoCloseable {
+) : OwnedClient(ownedBootstrap) {
     companion object {
         @JvmStatic
         @JvmOverloads
@@ -38,7 +39,7 @@ class VisionClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): VisionClient =
-            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+            createOwnedClient(context, scope, config.text.promptThreads) { bootstrap ->
                 VisionClient(
                     context = bootstrap.appContext,
                     pipeline = VisionPipeline(bootstrap.appContext, bootstrap.edgeScope, modelRepository, config),
@@ -130,7 +131,7 @@ class VisionClient internal constructor(
     fun getLastRuntimeMemory(): VisionRuntimeMemory? = lastRuntimeMemory
 
     override fun close() {
-        ClientBootstrap.close(ownedBootstrap) {
+        closeOwned {
             pipeline.close()
         }
     }

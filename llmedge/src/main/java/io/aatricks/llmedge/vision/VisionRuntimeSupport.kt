@@ -7,7 +7,7 @@ import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.BackendPolicy
 import io.aatricks.llmedge.core.runtime.CachedRuntimeDescriptor
-import io.aatricks.llmedge.core.runtime.ManagedRuntime
+import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
 import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
 import io.aatricks.llmedge.core.runtime.RuntimeLoader
@@ -18,7 +18,6 @@ import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.text.runtime.SmolLM
-import kotlinx.coroutines.sync.Mutex
 
 internal data class VisionRuntimeSpec(
     val model: ModelSpec,
@@ -34,9 +33,7 @@ internal class ManagedVisionRuntime(
     private val fileSizeBytes: Long,
     val smol: SmolLM,
     val projector: Projector,
-) : ManagedRuntime {
-    override val mutex: Mutex = Mutex()
-
+) : ManagedRuntimeBase() {
     override fun estimatedSizeBytes(): Long =
         maxOf(
             fileSizeBytes,
@@ -45,10 +42,12 @@ internal class ManagedVisionRuntime(
         )
 
     override fun close() {
-        try {
-            projector.close()
-        } finally {
-            smol.close()
+        closeOnce {
+            try {
+                projector.close()
+            } finally {
+                smol.close()
+            }
         }
     }
 }
@@ -92,6 +91,15 @@ internal class VisionRuntimeLoader(
     ): ManagedVisionRuntime {
         val modelFile = resolver.resolve(context, spec.model)
         val projectorFile = resolver.resolve(context, spec.projector)
+        check(
+            VisionPromptSupport.isReadyForMultimodalInference(spec.model, spec.projector) ||
+                VisionPromptSupport.isReadyForMultimodalInference(
+                    modelFile.absolutePath,
+                    projectorFile.absolutePath,
+                ),
+        ) {
+            VisionPromptSupport.unsupportedReason(spec.model, spec.projector)
+        }
         val smol = smolLmFactory(backend == ComputeBackend.VULKAN)
         smol.load(
             modelPath = modelFile.absolutePath,

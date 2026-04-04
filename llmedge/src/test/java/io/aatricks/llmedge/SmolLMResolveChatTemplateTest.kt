@@ -2,11 +2,25 @@ package io.aatricks.llmedge
 
 import io.aatricks.llmedge.runtime.GGUFReader
 import io.mockk.*
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Test
 import io.aatricks.llmedge.text.runtime.SmolLM
 
 class SmolLMResolveChatTemplateTest {
+    @Before
+    fun setUp() {
+        System.setProperty("llmedge.disableNativeLoad", "true")
+    }
+
+    @After
+    fun tearDown() {
+        System.clearProperty("llmedge.disableNativeLoad")
+        SmolLM.resetNativeBridgeForTests()
+        SmolLM.resetNativeLibrarySupportForTests()
+    }
+
     @Test
     fun `explicit template takes precedence`() {
         val smol = SmolLM()

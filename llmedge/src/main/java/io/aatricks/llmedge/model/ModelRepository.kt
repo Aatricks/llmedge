@@ -57,6 +57,18 @@ class BoundModelRepository internal constructor(
 }
 
 private fun ModelSpec.HuggingFace.shouldResolveAsRepoFile(): Boolean {
+    when (hints.artifactKind) {
+        ModelArtifactKind.REPO_FILE,
+        ModelArtifactKind.PROJECTOR,
+        ModelArtifactKind.DIFFUSION_MODEL,
+        ModelArtifactKind.VAE,
+        ModelArtifactKind.TEXT_ENCODER,
+        ModelArtifactKind.TAEHV,
+            -> return true
+
+        ModelArtifactKind.GGUF_MODEL -> return false
+        ModelArtifactKind.AUTO -> Unit
+    }
     val explicitFilename = filename ?: return false
     return !explicitFilename.endsWith(".gguf", ignoreCase = true)
 }

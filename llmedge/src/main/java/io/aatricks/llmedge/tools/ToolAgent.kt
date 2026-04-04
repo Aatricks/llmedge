@@ -20,7 +20,12 @@ class ToolAgent internal constructor(
     private val policy: ToolPolicy,
 ) {
     private val support = ConversationSessionSupport(client, model, options, memory)
-    private val toolsByName = tools.associateBy(Tool::name)
+    private val invocationExecutor =
+        ToolInvocationExecutor(
+            tools = tools,
+            policy = policy,
+            conversationPreview = ::persistentConversationPreview,
+        )
     private val toolSystemPrompt by lazy { ToolPromptGenerator.generateSystemPrompt(tools, systemPrompt) }
 
     suspend fun prepare() {
@@ -56,11 +61,11 @@ class ToolAgent internal constructor(
                 support.withRuntime {
                     val streamTurnLoop =
                         createTurnLoop { prompt, _, stepBatchSize ->
-                            val chunks = mutableListOf<String>()
+                            val collector = StreamingToolResponseCollector { emit(ToolAgentEvent.TextChunk(it)) }
                             streamCompletion(prompt, toolSystemPrompt, stepBatchSize).collect { chunk ->
-                                chunks += chunk
+                                collector.append(chunk)
                             }
-                            chunks.joinToString("")
+                            collector.finish()
                         }
                     val result =
                         streamTurnLoop.run(
@@ -76,7 +81,6 @@ class ToolAgent internal constructor(
                                     onToolResultReceived = { call, result ->
                                         emit(ToolAgentEvent.ToolResultReceived(call, result))
                                     },
-                                    onTextChunk = { emit(ToolAgentEvent.TextChunk(it)) },
                                 ),
                         )
                     emit(ToolAgentEvent.Completed(result))
@@ -95,89 +99,8 @@ class ToolAgent internal constructor(
         call: ToolCall,
         working: MutableList<ToolPromptMessage>,
         callbacks: ToolAgentTurnCallbacks = ToolAgentTurnCallbacks(),
-    ): ToolStepResult {
-        working += ToolPromptMessage(ToolPromptRole.ASSISTANT, rawModelOutput)
-        val tool = toolsByName[call.tool]
-
-        if (tool == null) {
-            val result =
-                ToolResult.error(
-                    "Tool '${call.tool}' is not registered.",
-                    toolErrorData("unknown_tool", "Tool '${call.tool}' is not registered."),
-                )
-            working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
-            callbacks.onToolResultReceived(call, result)
-            return ToolStepResult(
-                ToolAgentTraceStep(
-                    step = step,
-                    rawModelOutput = rawModelOutput,
-                    toolCall = call,
-                    toolResult = result,
-                ),
-            )
-        }
-
-        val validationErrors = tool.schema.validate(call.arguments)
-        if (validationErrors.isNotEmpty()) {
-            val result =
-                ToolResult.error(
-                    validationErrors.joinToString(" "),
-                    toolErrorData("invalid_arguments", validationErrors.joinToString(" ")),
-                )
-            working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
-            callbacks.onToolResultReceived(call, result)
-            return ToolStepResult(
-                ToolAgentTraceStep(
-                    step = step,
-                    rawModelOutput = rawModelOutput,
-                    toolCall = call,
-                    toolResult = result,
-                ),
-            )
-        }
-
-        if (tool.kind == ToolKind.ACTION) {
-            when (val decision = policy.evaluate(ToolCallRequest(tool, call.arguments, persistentConversationPreview(message), step))) {
-                ToolDecision.Allow -> callbacks.onToolApproved(call)
-                is ToolDecision.Deny -> {
-                    val result = ToolResult.error(decision.reason, toolErrorData("action_denied", decision.reason))
-                    working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
-                    callbacks.onToolDenied(call, decision.reason)
-                    callbacks.onToolResultReceived(call, result)
-                    return ToolStepResult(
-                        ToolAgentTraceStep(
-                            step = step,
-                            rawModelOutput = rawModelOutput,
-                            toolCall = call,
-                            toolResult = result,
-                            toolDeniedReason = decision.reason,
-                        ),
-                    )
-                }
-            }
-        }
-
-        callbacks.onToolExecuting(call)
-        val result =
-            runCatching { tool.handler(call.arguments) }
-                .getOrElse { error ->
-                    ToolResult.error(
-                        "Error executing tool '${tool.name}': ${error.message ?: "Unknown error."}",
-                        toolErrorData("execution_failed", error.message ?: "Unknown error."),
-                    )
-                }
-
-        working += ToolPromptMessage(ToolPromptRole.TOOL, formatToolResultMessage(call.tool, result))
-        callbacks.onToolResultReceived(call, result)
-        return ToolStepResult(
-            ToolAgentTraceStep(
-                step = step,
-                rawModelOutput = rawModelOutput,
-                toolCall = call,
-                toolResult = result,
-            ),
-        )
-    }
+    ): ToolStepResult =
+        invocationExecutor.handle(message, step, rawModelOutput, call, working, callbacks)
 
     private fun seedWorkingTranscript(message: String): MutableList<ToolPromptMessage> =
         support

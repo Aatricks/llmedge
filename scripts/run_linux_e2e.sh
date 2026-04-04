@@ -43,9 +43,9 @@ else
       cp "$PREBUILT_BIN_DIR/$DEP_LIB_NAME" "$LLMEDGE_NATIVE_DIR/$DEP_LIB_NAME"
     fi
   else
-    echo "Prebuilt libs not found. Attempting to build with scripts/build_sdcpp_linux.sh"
-    if [[ -f "$ROOT_DIR/scripts/build_sdcpp_linux.sh" ]]; then
-      "$ROOT_DIR/scripts/build_sdcpp_linux.sh"
+    echo "Prebuilt libs not found. Attempting to build with scripts/build_native_linux.sh sdcpp"
+    if [[ -f "$ROOT_DIR/scripts/build_native_linux.sh" ]]; then
+      "$ROOT_DIR/scripts/build_native_linux.sh" sdcpp
     else
       echo "No build script found; please build libsdcpp for host and place it in $LLMEDGE_NATIVE_DIR"
       exit 1

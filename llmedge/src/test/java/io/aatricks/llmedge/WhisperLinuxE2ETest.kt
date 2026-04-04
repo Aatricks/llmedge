@@ -18,7 +18,7 @@ import io.aatricks.llmedge.speech.stt.Whisper
  *
  * Requirements to run:
  * - Build the native whisper library for Linux and place as llmedge/build/native/linux-x86_64/libwhisper_jni.so
- *   (There is a script at scripts/build_whisper_linux.sh to help).
+ *   (Use scripts/build_native_linux.sh whisper).
  * - Provide a test model via environment variable LLMEDGE_TEST_WHISPER_MODEL_PATH
  *   (path to a ggml whisper model file). If not set, the test will be skipped.
  *

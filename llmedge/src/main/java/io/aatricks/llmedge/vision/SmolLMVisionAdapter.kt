@@ -17,48 +17,43 @@
 package io.aatricks.llmedge.vision
 
 import android.content.Context
-import io.aatricks.llmedge.text.runtime.SmolLM
 import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.model.ModelArtifactKind
+import io.aatricks.llmedge.model.ModelCapability
+import io.aatricks.llmedge.model.ModelHints
+import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.text.runtime.SmolLM
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
- * Adapter that exposes SmolLM as a VisionModelAnalyzer implementation.
+ * Compatibility adapter for callers that still hold a preloaded [SmolLM] instance.
  *
- * This adapter currently implements a compatibility layer: it loads a regular
- * text model and, if prepared embeddings are present, replays them into the
- * model's KV cache so the model can answer image-grounded prompts.
- *
- * @property context Android context for file operations
- * @property smolLM The SmolLM instance to adapt
+ * The authoritative multimodal path is [VisionPipeline]. This adapter now reuses the same input
+ * preparation and generation helpers instead of keeping a second end-to-end implementation.
  */
 class SmolLMVisionAdapter(
     private val context: Context,
-    private val smolLM: SmolLM
+    private val smolLM: SmolLM,
 ) : VisionModelAnalyzer {
-    
     companion object {
         private const val TAG = "SmolLMVision"
-        private val VISION_GENERATION_BATCH_SIZE = SmolLM.DEFAULT_BLOCKING_BATCH_SIZE
+        private const val JPEG_QUALITY = 90
     }
-    
-    // These will be set when loading a vision model
+
+    private val inputPreparer = VisionInputPreparer(context, JPEG_QUALITY)
+    private val runtimeExecutor = VisionRuntimeExecutor()
+
     private var modelPath: String? = null
     private var mmprojPath: String? = null
     private var hasVisionSupport = false
-    
-    /**
-     * Load a vision-capable model with mmproj support.
-     * 
-     * @param modelPath Path to the vision-capable GGUF model (e.g., LLaVA)
-     * @param mmprojPath Path to the mmproj file for CLIP vision encoder
-     * @param params Optional inference parameters
-     */
+    private var projector: Projector? = null
+
     suspend fun loadVisionModel(
         modelPath: String,
         mmprojPath: String? = null,
-        params: SmolLM.InferenceParams = SmolLM.InferenceParams()
+        params: SmolLM.InferenceParams = SmolLM.InferenceParams(),
     ) = withContext(Dispatchers.IO) {
         val capabilityMessage = VisionPromptSupport.unsupportedReason(modelPath, mmprojPath)
         if (!checkVisionSupport(modelPath, mmprojPath)) {
@@ -70,146 +65,102 @@ class SmolLMVisionAdapter(
         }
 
         try {
+            closeProjector()
             this@SmolLMVisionAdapter.modelPath = modelPath
             this@SmolLMVisionAdapter.mmprojPath = mmprojPath
 
             smolLM.load(modelPath, params)
+
+            val projectorPathValue =
+                requireNotNull(mmprojPath) {
+                    "Vision analysis requires a projector/mmproj file."
+                }
+            projector =
+                Projector().also { loadedProjector ->
+                    loadedProjector.init(projectorPathValue, smolLM.getNativeModelPointer())
+                    check(loadedProjector.isReady()) {
+                        "Native projector initialization failed for ${File(projectorPathValue).name}."
+                    }
+                }
             hasVisionSupport = true
 
             AndroidLogAdapter.d(TAG, "Loaded vision model: $modelPath")
-            if (mmprojPath != null) {
-                AndroidLogAdapter.d(TAG, "With mmproj: $mmprojPath")
-            }
+            AndroidLogAdapter.d(TAG, "With mmproj: $projectorPathValue")
         } catch (e: Exception) {
             hasVisionSupport = false
+            closeProjector()
             AndroidLogAdapter.e(TAG, "Failed to load vision model", e)
             throw e
         }
     }
-    
+
     override suspend fun analyze(
         image: ImageSource,
         prompt: String,
-        params: VisionParams
-    ): VisionResult = withContext(Dispatchers.IO) {
-        if (!hasVisionCapabilities()) {
-            throw UnsupportedOperationException(
-                VisionPromptSupport.unsupportedReason(
-                    modelPath = modelPath ?: "unknown",
-                    projectorPath = mmprojPath,
-                ),
-            )
-        }
+        params: VisionParams,
+    ): VisionResult =
+        withContext(Dispatchers.IO) {
+            if (!hasVisionCapabilities()) {
+                throw UnsupportedOperationException(
+                    VisionPromptSupport.unsupportedReason(
+                        modelPath = modelPath ?: "unknown",
+                        projectorPath = mmprojPath,
+                    ),
+                )
+            }
 
-        val startTime = System.currentTimeMillis()
-
-        try {
-            val imageFile = ImageUtils.imageToFile(context, image, "vision_input.jpg")
-            val embdFile = File(imageFile.parentFile, "${imageFile.nameWithoutExtension}.bin")
-            val metaFile = File(embdFile.absolutePath + ".meta.json")
-            val usingPreparedEmbeddings = imageFile.extension.equals("bin", ignoreCase = true)
-
-            if (!usingPreparedEmbeddings) {
-                val projectorPathValue = mmprojPath
-                if (!projectorPathValue.isNullOrBlank()) {
-                    val projector = Projector()
-                    try {
-                        projector.init(projectorPathValue, smolLM.getNativeModelPointer())
-                        check(projector.isReady()) {
-                            "Native projector initialization failed for ${File(projectorPathValue).name}."
-                        }
-                        val primed = smolLM.primeImageBuffer(projector.nativeHandle(), imageFile.readBytes(), params.nBatch ?: 1)
-                        check(primed) {
-                            "The current runtime could not prime multimodal context for ${File(projectorPathValue).name}."
-                        }
-
-                        val finalPrompt =
-                            params.systemPrompt
-                                ?.takeUnless(String::isBlank)
-                                ?.let { systemPrompt -> "$systemPrompt\n\n$prompt" }
-                                ?: prompt
-                        val response =
-                            smolLM.getResponse(
-                                query = finalPrompt,
+            val startTime = System.currentTimeMillis()
+            try {
+                val finalPrompt =
+                    params.systemPrompt
+                        ?.takeUnless(String::isBlank)
+                        ?.let { systemPrompt -> "$systemPrompt\n\n$prompt" }
+                        ?: prompt
+                val preparedTurn = prepareTurn(image, finalPrompt)
+                try {
+                    val pipelineResult =
+                        preparedTurn.request?.let { request ->
+                            runtimeExecutor.execute(
+                                request = request,
+                                runtime = loadedRuntime(),
+                                preparedInput = preparedTurn.preparedInput,
+                                onStatus = null,
+                                logStage = { _, _, _ -> },
                                 maxTokens = params.maxTokens,
-                                batchSize = VISION_GENERATION_BATCH_SIZE,
                             )
-                        val duration = System.currentTimeMillis() - startTime
-
-                        val tokensIn = estimateTokens(finalPrompt)
-                        val tokensOut = estimateTokens(response)
-
-                        return@withContext VisionResult(
-                            text = response,
-                            durationMs = duration,
-                            modelId = getModelId(),
-                            tokensIn = tokensIn,
-                            tokensOut = tokensOut,
+                        } ?: runtimeExecutor.execute(
+                            prompt = finalPrompt,
+                            runtime = loadedRuntime(allowPlaceholderProjector = true),
+                            preparedInput = preparedTurn.preparedInput,
+                            onStatus = null,
+                            logStage = { _, _, _ -> },
+                            maxTokens = params.maxTokens,
                         )
-                    } finally {
-                        projector.close()
-                    }
+                    val duration = System.currentTimeMillis() - startTime
+                    VisionResult(
+                        text = pipelineResult.text,
+                        durationMs = duration,
+                        modelId = getModelId(),
+                        tokensIn = estimateTokens(finalPrompt),
+                        tokensOut = estimateTokens(pipelineResult.text),
+                    )
+                } finally {
+                    preparedTurn.preparedInput.close()
+                }
+            } catch (e: Exception) {
+                AndroidLogAdapter.e(TAG, "Vision analysis failed", e)
+                when (e) {
+                    is IllegalStateException,
+                    is UnsupportedOperationException -> throw e
+                    else -> throw IllegalStateException("Vision analysis failed: ${e.message}", e)
                 }
             }
-
-            val visionPrompt = prompt
-            if (!embdFile.exists() || !metaFile.exists()) {
-                throw IllegalStateException(
-                    "Prepared multimodal embeddings are missing. Ensure the projector mmproj file matches the model and native projector support is available.",
-                )
-            }
-
-            AndroidLogAdapter.d(TAG, "Decoding prepared embeddings from ${embdFile.absolutePath}")
-            val decodeOk =
-                smolLM.decodePreparedEmbeddings(
-                    embdFile.absolutePath,
-                    metaFile.absolutePath,
-                    params.nBatch ?: 1,
-                )
-            if (!decodeOk) {
-                throw IllegalStateException(
-                    "The current runtime could not decode prepared image embeddings for this model/projector combination.",
-                )
-            }
-
-            val finalPrompt =
-                params.systemPrompt
-                    ?.takeUnless(String::isBlank)
-                    ?.let { systemPrompt -> "$systemPrompt\n\n$visionPrompt" }
-                    ?: visionPrompt
-            val response =
-                smolLM.getResponse(
-                    query = finalPrompt,
-                    maxTokens = params.maxTokens,
-                    batchSize = VISION_GENERATION_BATCH_SIZE,
-                )
-            val duration = System.currentTimeMillis() - startTime
-
-            val tokensIn = estimateTokens(finalPrompt)
-            val tokensOut = estimateTokens(response)
-
-            VisionResult(
-                text = response,
-                durationMs = duration,
-                modelId = getModelId(),
-                tokensIn = tokensIn,
-                tokensOut = tokensOut
-            )
-        } catch (e: Exception) {
-            AndroidLogAdapter.e(TAG, "Vision analysis failed", e)
-            when (e) {
-                is IllegalStateException,
-                is UnsupportedOperationException -> throw e
-                else -> throw IllegalStateException("Vision analysis failed: ${e.message}", e)
-            }
         }
-    }
-    
-    /**
-     * Decode pre-computed vision embeddings directly from memory into the KV cache, avoiding
-     * all file I/O. Returns true on success.
-     */
-    fun decodeEmbeddingsBuffer(embeddings: VisionEmbeddings, nBatch: Int = 1): Boolean {
+
+    fun decodeEmbeddingsBuffer(
+        embeddings: VisionEmbeddings,
+        nBatch: Int = 1,
+    ): Boolean {
         if (!hasVisionCapabilities()) return false
         return try {
             smolLM.decodeEmbeddingsBuffer(embeddings, nBatch)
@@ -219,58 +170,128 @@ class SmolLMVisionAdapter(
         }
     }
 
-    override fun hasVisionCapabilities(): Boolean {
-        // This will check native vision support when implemented
-        return hasVisionSupport
-    }
-    
-    override fun getModelId(): String {
-        return modelPath?.let { File(it).nameWithoutExtension } ?: "unknown"
-    }
-    
-    /**
-     * Check if a model file supports vision capabilities.
-     * This is a placeholder that will read actual model metadata.
-     */
-    private fun checkVisionSupport(modelPath: String): Boolean {
-        return VisionPromptSupport.appearsVisionCapable(modelPath)
+    override fun hasVisionCapabilities(): Boolean = hasVisionSupport
+
+    override fun getModelId(): String = modelPath?.let { File(it).nameWithoutExtension } ?: "unknown"
+
+    private fun checkVisionSupport(modelPath: String): Boolean =
+        VisionPromptSupport.appearsVisionCapable(modelPath)
+
+    private fun checkVisionSupport(
+        modelPath: String,
+        mmprojPath: String?,
+    ): Boolean = VisionPromptSupport.isReadyForMultimodalInference(modelPath, mmprojPath)
+
+    private fun formatVisionPrompt(
+        prompt: String,
+        imageFile: File,
+    ): String = VisionPromptSupport.formatVisionPrompt(prompt, imageFile)
+
+    private fun estimateTokens(text: String): Int = VisionPromptSupport.estimateTokens(text)
+
+    private suspend fun prepareTurn(
+        image: ImageSource,
+        prompt: String,
+    ): PreparedVisionTurn {
+        val preparedEmbeddings = image.asPreparedEmbeddings()
+        if (preparedEmbeddings != null) {
+            return PreparedVisionTurn(
+                request = null,
+                preparedInput = preparedEmbeddings,
+            )
+        }
+
+        val bitmap = ImageUtils.imageToBitmap(context, image)
+        val request = buildRequest(prompt, bitmap)
+        val preparedInput =
+            inputPreparer.prepare(
+                request = request,
+                runtime = loadedRuntime(),
+                onStatus = null,
+                logStage = { _, _, _ -> },
+            )
+        return PreparedVisionTurn(request = request, preparedInput = preparedInput)
     }
 
-    private fun checkVisionSupport(modelPath: String, mmprojPath: String?): Boolean {
-        return VisionPromptSupport.isReadyForMultimodalInference(modelPath, mmprojPath)
+    private fun ImageSource.asPreparedEmbeddings(): VisionPreparedInput.EmbeddingsFile? {
+        val embedFile = (this as? ImageSource.FileSource)?.file ?: return null
+        if (!embedFile.extension.equals("bin", ignoreCase = true)) {
+            return null
+        }
+        val metaFile = File(embedFile.absolutePath + ".meta.json")
+        check(metaFile.exists()) {
+            "Prepared multimodal embeddings are missing. Ensure the projector mmproj file matches the model and native projector support is available."
+        }
+        AndroidLogAdapter.d(TAG, "Reusing prepared embeddings from ${embedFile.absolutePath}")
+        return VisionPreparedInput.EmbeddingsFile(
+            embedFile = embedFile,
+            metaFile = metaFile,
+            imageFile = embedFile,
+            cleanupOnClose = false,
+        )
     }
-    
-    /**
-     * Format the prompt for vision models.
-     * Different models may require different formats.
-     */
-    private fun formatVisionPrompt(prompt: String, imageFile: File): String {
-        return VisionPromptSupport.formatVisionPrompt(prompt, imageFile)
+
+    private fun buildRequest(prompt: String, bitmap: android.graphics.Bitmap): VisionRequest =
+        VisionRequest(
+            image = bitmap,
+            prompt = prompt,
+            model = loadedModelSpec(),
+            projector = loadedProjectorSpec(),
+        )
+
+    private fun loadedRuntime(allowPlaceholderProjector: Boolean = false): ManagedVisionRuntime {
+        val loadedProjector =
+            projector
+                ?: if (allowPlaceholderProjector) {
+                    Projector()
+                } else {
+                    throw IllegalStateException("Vision runtime is not loaded. Call loadVisionModel(...) first.")
+                }
+        val modelFile = requireNotNull(modelPath)
+        val projectorFile = requireNotNull(mmprojPath)
+        return ManagedVisionRuntime(
+            fileSizeBytes = File(modelFile).length() + File(projectorFile).length(),
+            smol = smolLM,
+            projector = loadedProjector,
+        )
     }
-    
-    /**
-     * Estimate token count for a string.
-     * Rough approximation: ~4 characters per token.
-     */
-    private fun estimateTokens(text: String): Int {
-        return VisionPromptSupport.estimateTokens(text)
-    }
-    
-    /**
-     * Release resources.
-     */
+
+    private fun loadedModelSpec(): ModelSpec =
+        ModelSpec.localFile(
+            File(requireNotNull(modelPath)),
+            hints =
+                ModelHints(
+                    artifactKind = ModelArtifactKind.GGUF_MODEL,
+                    capabilities = setOf(ModelCapability.TEXT, ModelCapability.VISION),
+                ),
+        )
+
+    private fun loadedProjectorSpec(): ModelSpec =
+        ModelSpec.localFile(
+            File(requireNotNull(mmprojPath)),
+            hints =
+                ModelHints(
+                    artifactKind = ModelArtifactKind.PROJECTOR,
+                    capabilities = setOf(ModelCapability.PROJECTOR),
+                ),
+        )
+
     fun close() {
-        // Do not close smolLM as the caller owns the underlying model lifecycle.
-        // smolLM.close()
         hasVisionSupport = false
         modelPath = null
         mmprojPath = null
+        closeProjector()
     }
+
+    private fun closeProjector() {
+        projector?.close()
+        projector = null
+    }
+
+    private data class PreparedVisionTurn(
+        val request: VisionRequest?,
+        val preparedInput: VisionPreparedInput,
+    )
 }
 
-/**
- * Extension function to check if a SmolLM instance can be used for vision.
- */
-fun SmolLM.toVisionAdapter(context: Context): SmolLMVisionAdapter {
-    return SmolLMVisionAdapter(context, this)
-}
+fun SmolLM.toVisionAdapter(context: Context): SmolLMVisionAdapter = SmolLMVisionAdapter(context, this)

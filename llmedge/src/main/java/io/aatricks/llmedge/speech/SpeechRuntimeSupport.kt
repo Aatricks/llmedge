@@ -6,7 +6,7 @@ import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.BackendPolicy
 import io.aatricks.llmedge.core.runtime.CachedRuntimeDescriptor
-import io.aatricks.llmedge.core.runtime.ManagedRuntime
+import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
 import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
 import io.aatricks.llmedge.core.runtime.RuntimeLoader
@@ -18,31 +18,26 @@ import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.speech.tts.BarkTTS
-import kotlinx.coroutines.sync.Mutex
 
 internal class ManagedWhisperModel(
     val fileSizeBytes: Long,
     val whisper: Whisper,
-) : ManagedRuntime {
-    override val mutex: Mutex = Mutex()
-
+) : ManagedRuntimeBase() {
     override fun estimatedSizeBytes(): Long = fileSizeBytes
 
     override fun close() {
-        whisper.close()
+        closeOnce(whisper::close)
     }
 }
 
 internal class ManagedBarkModel(
     val fileSizeBytes: Long,
     val bark: BarkTTS,
-) : ManagedRuntime {
-    override val mutex: Mutex = Mutex()
-
+) : ManagedRuntimeBase() {
     override fun estimatedSizeBytes(): Long = fileSizeBytes
 
     override fun close() {
-        bark.close()
+        closeOnce(bark::close)
     }
 }
 

@@ -2,9 +2,10 @@ package io.aatricks.llmedge.speech
 
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.core.ClientBootstrap
 import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.OwnedClient
+import io.aatricks.llmedge.core.createOwnedClient
 import io.aatricks.llmedge.core.runtime.executeWithRuntimeRetry
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
@@ -56,7 +57,7 @@ class SpeechClient internal constructor(
     private val config: LLMEdgeConfig,
     private val resolver: ModelRepository,
     private val ownedBootstrap: ClientBootstrapContext? = null,
-) : AutoCloseable {
+) : OwnedClient(ownedBootstrap) {
     companion object {
         @JvmStatic
         @JvmOverloads
@@ -66,7 +67,7 @@ class SpeechClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): SpeechClient =
-            ClientBootstrap.createOwned(context, scope, config.text.promptThreads) { bootstrap ->
+            createOwnedClient(context, scope, config.text.promptThreads) { bootstrap ->
                 SpeechClient(
                     context = bootstrap.appContext,
                     scope = bootstrap.edgeScope,
@@ -244,7 +245,7 @@ class SpeechClient internal constructor(
     }
 
     override fun close() {
-        ClientBootstrap.close(ownedBootstrap) {
+        closeOwned {
             try {
                 barkPool.close()
             } finally {

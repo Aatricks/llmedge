@@ -18,7 +18,7 @@ import io.aatricks.llmedge.speech.tts.BarkTTS
  * Requirements to run:
  * - Build the native bark library for Linux and place as
  * llmedge/build/native/linux-x86_64/libbark_jni.so (There is a script at
- * scripts/build_bark_linux.sh to help).
+ * scripts/build_native_linux.sh bark to help).
  * - Provide a test model file via environment variable LLMEDGE_TEST_BARK_MODEL_PATH (path to a bark
  * ggml_weights.bin file). If not set, the test will be skipped.
  *

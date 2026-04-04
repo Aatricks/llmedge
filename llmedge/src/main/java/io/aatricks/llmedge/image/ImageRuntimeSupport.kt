@@ -8,7 +8,7 @@ import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.BackendPolicy
 import io.aatricks.llmedge.core.runtime.CachedRuntimeDescriptor
-import io.aatricks.llmedge.core.runtime.ManagedRuntime
+import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
 import io.aatricks.llmedge.core.runtime.RuntimeKeyStrategy
 import io.aatricks.llmedge.core.runtime.RuntimeLoader
@@ -21,10 +21,6 @@ import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 internal enum class DiffusionRuntimeRole {
     IMAGE,
@@ -61,21 +57,11 @@ internal class ManagedDiffusionModel(
     val backend: ComputeBackend,
     val flashAttnEnabled: Boolean,
     val model: StableDiffusion,
-) : ManagedRuntime {
-    override val mutex: Mutex = Mutex()
-    private val closed = AtomicBoolean(false)
-
+) : ManagedRuntimeBase() {
     override fun estimatedSizeBytes(): Long = fileSizeBytes
 
     override fun close() {
-        if (!closed.compareAndSet(false, true)) {
-            return
-        }
-        runBlocking {
-            mutex.withLock {
-                model.close()
-            }
-        }
+        closeOnce(model::close)
     }
 }
 

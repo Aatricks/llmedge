@@ -20,7 +20,7 @@ import org.robolectric.annotation.Config
  *
  * Requirements to run:
  * - Build the native smollm library for Linux and place as llmedge/build/native/linux-x86_64/libsmollm.so
- *   (Use scripts/build_smollm_linux.sh).
+ *   (Use scripts/build_native_linux.sh smollm).
  * - Provide a test model path via environment variable LLMEDGE_TEST_TEXT_MODEL_PATH.
  */
 @RunWith(RobolectricTestRunner::class)

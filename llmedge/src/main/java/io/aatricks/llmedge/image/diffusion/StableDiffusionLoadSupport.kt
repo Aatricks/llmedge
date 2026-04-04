@@ -2,6 +2,7 @@ package io.aatricks.llmedge.image.diffusion
 
 import android.content.Context
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
+import io.aatricks.llmedge.huggingface.WanModelEntry
 import io.aatricks.llmedge.huggingface.WanModelRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -69,6 +70,7 @@ internal object StableDiffusionLoadSupport {
                     onProgress = null,
                     validateResolvedAssets = validateResolvedAssets,
                     inferVideoModelMetadata = inferVideoModelMetadata,
+                    registryEntry = possibleWan,
                 )
             }
 
@@ -130,6 +132,7 @@ internal object StableDiffusionLoadSupport {
         onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)?,
         validateResolvedAssets: (String, String?, String?, String?, String?) -> Unit,
         inferVideoModelMetadata: suspend (String, String?, String?) -> VideoModelMetadata,
+        registryEntry: WanModelEntry? = null,
     ): StableDiffusionResolvedAssets =
         withContext(Dispatchers.IO) {
             val (modelRes, vaeRes, t5Res) =
@@ -160,7 +163,31 @@ internal object StableDiffusionLoadSupport {
                 modelPath = resolvedModelPath,
                 vaePath = resolvedVaePath,
                 t5xxlPath = resolvedT5xxlPath,
-                metadata = inferVideoModelMetadata(resolvedModelPath, modelId, filename),
+                metadata =
+                    registryEntry?.toVideoModelMetadata(resolvedModelPath.substringAfterLast('/'))
+                        ?: inferVideoModelMetadata(resolvedModelPath, modelId, filename),
             )
         }
+}
+
+private fun WanModelEntry.toVideoModelMetadata(
+    resolvedFilename: String,
+): VideoModelMetadata =
+    VideoModelMetadata(
+        architecture = architecture ?: modelId,
+        modelType = modelType,
+        parameterCount = description?.let(::extractParameterCount),
+        mobileSupported = mobileSupported,
+        tags =
+            buildSet {
+                add("wan")
+                modelType?.let { add(it) }
+                quantization?.let { add(it) }
+            },
+        filename = resolvedFilename,
+    )
+
+private fun extractParameterCount(description: String): String? {
+    val normalized = description.replace(" ", "")
+    return listOf("1.3B", "5B", "14B").firstOrNull { normalized.contains(it, ignoreCase = true) }
 }

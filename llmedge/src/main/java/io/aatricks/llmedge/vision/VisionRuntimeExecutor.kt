@@ -14,10 +14,28 @@ internal class VisionRuntimeExecutor {
         preparedInput: VisionPreparedInput,
         onStatus: ((String) -> Unit)?,
         logStage: (String, String, Long) -> Unit,
+        maxTokens: Int = -1,
+    ): VisionPipelineResult =
+        execute(
+            prompt = request.prompt,
+            runtime = runtime,
+            preparedInput = preparedInput,
+            onStatus = onStatus,
+            logStage = logStage,
+            maxTokens = maxTokens,
+        )
+
+    suspend fun execute(
+        prompt: String,
+        runtime: ManagedVisionRuntime,
+        preparedInput: VisionPreparedInput,
+        onStatus: ((String) -> Unit)?,
+        logStage: (String, String, Long) -> Unit,
+        maxTokens: Int = -1,
     ): VisionPipelineResult {
         val smol = runtime.smol
         return when (preparedInput) {
-            VisionPreparedInput.PrimedBuffer -> generateText(request.prompt, smol, onStatus, logStage)
+            VisionPreparedInput.PrimedBuffer -> generateText(prompt, smol, onStatus, logStage, maxTokens)
             is VisionPreparedInput.EmbeddingsBuffer -> {
                 onStatus?.invoke("Running vision analysis")
                 val decodeStartedNs = System.nanoTime()
@@ -26,7 +44,7 @@ internal class VisionRuntimeExecutor {
                 check(decodeOk) {
                     "Buffer-based embedding decode failed for the active vision runtime."
                 }
-                generateText(request.prompt, smol, onStatus, logStage)
+                generateText(prompt, smol, onStatus, logStage, maxTokens)
             }
 
             is VisionPreparedInput.EmbeddingsFile -> {
@@ -43,10 +61,11 @@ internal class VisionRuntimeExecutor {
                     "File-based embedding decode failed for the active vision runtime."
                 }
                 generateText(
-                    prompt = request.prompt,
+                    prompt = prompt,
                     smol = smol,
                     onStatus = onStatus,
                     logStage = logStage,
+                    maxTokens = maxTokens,
                 )
             }
         }
@@ -57,12 +76,14 @@ internal class VisionRuntimeExecutor {
         smol: SmolLM,
         onStatus: ((String) -> Unit)?,
         logStage: (String, String, Long) -> Unit,
+        maxTokens: Int,
     ): VisionPipelineResult {
         onStatus?.invoke("Running vision analysis")
         val generationStartedNs = System.nanoTime()
         val response =
             smol.getResponse(
                 query = prompt,
+                maxTokens = maxTokens,
                 batchSize = SmolLM.DEFAULT_BLOCKING_BATCH_SIZE,
             )
         logStage("analyze", "generation", generationStartedNs)
@@ -74,7 +95,7 @@ internal class VisionRuntimeExecutor {
 
     private fun runtimeMemoryOf(smol: SmolLM): VisionRuntimeMemory =
         VisionRuntimeMemory(
-            nativeBytes = smol.getEstimatedNativeMemoryBytes(),
-            stateBytes = smol.getEstimatedStateMemoryBytes(),
+            nativeBytes = runCatching { smol.getEstimatedNativeMemoryBytes() }.getOrDefault(0L),
+            stateBytes = runCatching { smol.getEstimatedStateMemoryBytes() }.getOrDefault(0L),
         )
 }

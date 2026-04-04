@@ -30,9 +30,9 @@ mkdir -p "$LLMEDGE_NATIVE_DIR"
 if [[ -f "$LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME" ]]; then
   echo "Found native library at $LLMEDGE_NATIVE_DIR/$NATIVE_LIB_NAME"
 else
-  echo "Native lib not found. Attempting to build with scripts/build_smollm_linux.sh"
-  if [[ -f "$ROOT_DIR/scripts/build_smollm_linux.sh" ]]; then
-    "$ROOT_DIR/scripts/build_smollm_linux.sh"
+  echo "Native lib not found. Attempting to build with scripts/build_native_linux.sh smollm"
+  if [[ -f "$ROOT_DIR/scripts/build_native_linux.sh" ]]; then
+    "$ROOT_DIR/scripts/build_native_linux.sh" smollm
   else
     echo "No build script found."
     exit 1

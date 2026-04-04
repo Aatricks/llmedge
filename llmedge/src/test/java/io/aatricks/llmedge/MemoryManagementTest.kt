@@ -8,15 +8,23 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.After
+import org.junit.Before
 import java.lang.reflect.Method
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 
 class MemoryManagementTest {
+    @Before
+    fun setUp() {
+        System.setProperty("llmedge.disableNativeLoad", "true")
+    }
+
     @After
     fun tearDown() {
         // Unmock static mocks to avoid interfering with other tests (Robolectric environment, etc.)
         try { io.mockk.unmockkStatic(Debug::class) } catch (_: Throwable) {}
         try { io.mockk.unmockkStatic(Runtime::class) } catch (_: Throwable) {}
+        System.clearProperty("llmedge.disableNativeLoad")
+        StableDiffusion.resetNativeBridgeForTests()
     }
 
     @Test
