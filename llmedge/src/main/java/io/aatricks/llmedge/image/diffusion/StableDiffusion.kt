@@ -24,16 +24,11 @@ import android.graphics.Bitmap
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.AndroidLogAdapter
-import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
-import io.aatricks.llmedge.core.NativeLibraryLoader
 import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionExecutor
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionLoader
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,17 +39,17 @@ internal fun interface StableDiffusionNativeLibrarySupport {
 
 class StableDiffusion internal constructor(
     private val handle: Long,
-    private val nativeLibrarySupport: StableDiffusionNativeLibrarySupport = currentNativeLibrarySupport(),
+    private val nativeLibrarySupport: StableDiffusionNativeLibrarySupport = StableDiffusionCompanionSupport.currentNativeLibrarySupport(),
 ) : AutoCloseable {
     // Preserve the legacy reflective test seam while routing through explicit native loading.
-    private constructor(handle: Long) : this(handle, currentNativeLibrarySupport())
+    private constructor(handle: Long) : this(handle, StableDiffusionCompanionSupport.currentNativeLibrarySupport())
 
     init {
         nativeLibrarySupport.ensureLoaded()
     }
 
     private val runtimeState = StableDiffusionState(handle)
-    private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider.create(this)
+    private val nativeBridge: NativeBridge = StableDiffusionCompanionSupport.createNativeBridge(this)
     // Legacy reflective tests still reach into these fields directly, so keep thin mirrors.
     private val cancellationRequested = runtimeState.cancellationRequested
     private var cachedProgressCallback: VideoProgressCallback? = null
@@ -319,23 +314,9 @@ class StableDiffusion internal constructor(
     }
 
     companion object {
-        private const val LOG_TAG = "StableDiffusion"
         private const val BYTES_IN_MB = 1024L * 1024L
         private const val MEMORY_PRESSURE_THRESHOLD = 0.85f
-        private const val DIFFUSION_DISPATCHER_THREADS = 2
-
-        /**
-         * Dedicated dispatcher for diffusion workloads. Use a small fixed pool instead of a
-         * single thread so one wedged native generation cannot block every later image/video
-         * request in the process. Per-model generation is still serialized separately by mutexes.
-         */
-        private val diffusionWorkerIds = AtomicInteger(0)
-
-        val diffusionDispatcher: CoroutineDispatcher =
-            Executors.newFixedThreadPool(DIFFUSION_DISPATCHER_THREADS) {
-                val workerId = diffusionWorkerIds.incrementAndGet()
-                Thread(it, "llmedge-diffusion-$workerId").apply { isDaemon = true }
-            }.asCoroutineDispatcher()
+        val diffusionDispatcher: CoroutineDispatcher = StableDiffusionCompanionSupport.diffusionDispatcher
 
         // Kept as a reflective seam for heuristic tests that validate the combined load policy.
         @JvmStatic
@@ -346,54 +327,13 @@ class StableDiffusion internal constructor(
             preferPerformanceMode: Boolean,
             activityManagerOverride: android.app.ActivityManager?,
         ): Pair<Boolean, Long> =
-            StableDiffusionLoadHeuristics.computeEffectiveSequentialLoad(
+            StableDiffusionCompanionSupport.computeEffectiveSequentialLoad(
                 context = context,
                 resolvedModelPath = resolvedModelPath,
                 sequentialLoad = sequentialLoad,
                 preferPerformanceMode = preferPerformanceMode,
                 activityManagerOverride = activityManagerOverride,
             )
-
-        private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
-
-        private fun logI(tag: String, message: String) = AndroidLogAdapter.i(tag, message)
-
-        private fun logW(tag: String, message: String) = AndroidLogAdapter.w(tag, message)
-
-        private fun logE(tag: String, message: String, throwable: Throwable? = null) =
-            AndroidLogAdapter.e(tag, message, throwable)
-
-        @Volatile private var isNativeLibraryAvailable: Boolean = false
-        // Flag set by tests when overriding the native bridge to a test mock so we avoid
-        // calling actual JNI functions like nativeDestroy during Android instrumentation tests.
-        private var nativeBridgeOverriddenForTests: Boolean = false
-        private val defaultNativeLibrarySupport =
-            StableDiffusionNativeLibrarySupport {
-                val disableNativeLoad = java.lang.Boolean.getBoolean("llmedge.disableNativeLoad")
-                isNativeLibraryAvailable = !disableNativeLoad
-                if (disableNativeLoad) {
-                    logI(LOG_TAG, "Native load disabled via llmedge.disableNativeLoad=true")
-                } else {
-                    NativeLibraryLoader.ensureStableDiffusionLoaded(
-                        required = true,
-                        onDebug = { message -> logD(LOG_TAG, message) },
-                        onError = { message, throwable -> logE(LOG_TAG, message, throwable) },
-                        verifyBindings = ::nativeCheckBindings,
-                    )
-                }
-            }
-        private val noOpNativeLibrarySupport = StableDiffusionNativeLibrarySupport { }
-
-        @Volatile
-        private var nativeLibrarySupportOverride: StableDiffusionNativeLibrarySupport? = null
-
-        private val defaultNativeBridgeProvider: (StableDiffusion) -> NativeBridge =
-            StableDiffusionNativeBridgeSupport.defaultProvider()
-
-        private val nativeBridgeProvider = NativeBridgeProvider(defaultNativeBridgeProvider)
-
-        internal fun currentNativeLibrarySupport(): StableDiffusionNativeLibrarySupport =
-            nativeLibrarySupportOverride ?: defaultNativeLibrarySupport
 
         /**
          * Helper for tests and runtime checks to verify whether the native sdcpp library is
@@ -402,29 +342,19 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun isNativeLibraryLoaded(): Boolean {
-            return try {
-                nativeCheckBindings()
-            } catch (t: Throwable) {
-                false
-            }
+            return StableDiffusionCompanionSupport.isNativeLibraryLoaded(::nativeCheckBindings)
         }
 
         internal fun enableNativeBridgeForTests() {
-            if (!isNativeLibraryAvailable) {
-                isNativeLibraryAvailable = true
-            }
+            StableDiffusionCompanionSupport.enableNativeBridgeForTests()
         }
 
         internal fun overrideNativeBridgeForTests(provider: (StableDiffusion) -> NativeBridge) {
-            nativeBridgeProvider.override(provider)
-            nativeBridgeOverriddenForTests = true
-            nativeLibrarySupportOverride = noOpNativeLibrarySupport
+            StableDiffusionCompanionSupport.overrideNativeBridgeForTests(provider)
         }
 
         internal fun resetNativeBridgeForTests() {
-            nativeBridgeProvider.reset()
-            nativeBridgeOverriddenForTests = false
-            nativeLibrarySupportOverride = null
+            StableDiffusionCompanionSupport.resetNativeBridgeForTests()
         }
 
         /**
@@ -433,12 +363,7 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun getVulkanDeviceCount(): Int {
-            return try {
-                currentNativeLibrarySupport().ensureLoaded()
-                nativeGetVulkanDeviceCount()
-            } catch (e: Throwable) {
-                0
-            }
+            return StableDiffusionCompanionSupport.getVulkanDeviceCount(::nativeGetVulkanDeviceCount)
         }
 
         /**
@@ -448,11 +373,8 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun getVulkanDeviceMemory(deviceIndex: Int = 0): LongArray? {
-            return try {
-                currentNativeLibrarySupport().ensureLoaded()
+            return StableDiffusionCompanionSupport.getVulkanDeviceMemory {
                 nativeGetVulkanDeviceMemory(deviceIndex)
-            } catch (e: Throwable) {
-                null
             }
         }
 
@@ -461,11 +383,8 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun getVulkanDeviceDescription(deviceIndex: Int = 0): String? {
-            return try {
-                currentNativeLibrarySupport().ensureLoaded()
+            return StableDiffusionCompanionSupport.getVulkanDeviceDescription {
                 nativeGetVulkanDeviceDescription(deviceIndex)
-            } catch (_: Throwable) {
-                null
             }
         }
 
@@ -477,32 +396,19 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun estimateModelParamsMemoryBytes(modelPath: String, deviceIndex: Int = 0): Long {
-            return try {
-                currentNativeLibrarySupport().ensureLoaded()
+            return StableDiffusionCompanionSupport.estimateModelParamsMemoryBytes {
                 nativeEstimateModelParamsMemory(modelPath, deviceIndex)
-            } catch (t: Throwable) {
-                0L
             }
         }
 
         @JvmStatic
         fun checkBindings(): Boolean {
-            return try {
-                currentNativeLibrarySupport().ensureLoaded()
-                nativeCheckBindings()
-            } catch (t: Throwable) {
-                false
-            }
+            return StableDiffusionCompanionSupport.checkBindings(::nativeCheckBindings)
         }
 
         @JvmStatic
         fun isOpenClAvailable(): Boolean {
-            return try {
-                currentNativeLibrarySupport().ensureLoaded()
-                nativeIsOpenClAvailable()
-            } catch (_: Throwable) {
-                false
-            }
+            return StableDiffusionCompanionSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
         }
 
         internal fun supportNativeCreate(
@@ -753,18 +659,20 @@ class StableDiffusion internal constructor(
             onProgress = onProgress,
         )
 
-        internal fun supportLogWarning(message: String) = logW(LOG_TAG, message)
+        internal fun supportLogWarning(message: String) = AndroidLogAdapter.w("StableDiffusion", message)
 
-        internal fun supportIsNativeLibraryAvailable(): Boolean = isNativeLibraryAvailable
+        internal fun supportIsNativeLibraryAvailable(): Boolean =
+            StableDiffusionCompanionSupport.supportIsNativeLibraryAvailable()
 
-        internal fun supportNativeBridgeOverriddenForTests(): Boolean = nativeBridgeOverriddenForTests
+        internal fun supportNativeBridgeOverriddenForTests(): Boolean =
+            StableDiffusionCompanionSupport.supportNativeBridgeOverriddenForTests()
 
     }
 
     internal fun updateModelMetadata(metadata: VideoModelMetadata?) {
         runtimeState.modelMetadata = metadata
         runtimeState.easyCacheSupported =
-            if (!Companion.isNativeLibraryAvailable || Companion.nativeBridgeOverriddenForTests) {
+            if (!supportIsNativeLibraryAvailable() || supportNativeBridgeOverriddenForTests()) {
                 metadata?.let(StableDiffusionMetadataSupport::supportsEasyCache)
             } else {
                 null
@@ -884,7 +792,7 @@ class StableDiffusion internal constructor(
         // If tests have overridden the native bridge, the JNI library may not be loaded
         // so avoid calling nativeDestroy to prevent UnsatisfiedLinkError. See override
         // helpers in the companion object.
-        if (!Companion.nativeBridgeOverriddenForTests && isNativeLibraryAvailable && handle != 0L) {
+        if (!supportNativeBridgeOverriddenForTests() && supportIsNativeLibraryAvailable() && handle != 0L) {
             nativeDestroy(handle)
         }
         runtimeState.cancellationRequested.set(false)
@@ -1078,7 +986,7 @@ class StableDiffusion internal constructor(
 
     private fun warnIfLowMemory(estimatedAdditionalBytes: Long) {
         StableDiffusionOutputSupport.warnIfLowMemory(
-            logTag = LOG_TAG,
+            logTag = "StableDiffusion",
             estimatedAdditionalBytes = estimatedAdditionalBytes,
             bytesInMb = BYTES_IN_MB,
             memoryPressureThreshold = MEMORY_PRESSURE_THRESHOLD,

@@ -22,10 +22,7 @@ import io.aatricks.llmedge.runtime.GGUFReader
 
 import android.content.Context
 import io.aatricks.llmedge.core.InvalidModelStateException
-import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeBindingException
-import io.aatricks.llmedge.core.NativeLibraryLoader
-import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.text.runtime.internal.SmolLMCompletionSupport
 import io.aatricks.llmedge.text.runtime.internal.SmolLMLoader
@@ -44,11 +41,11 @@ internal fun interface SmolLMNativeLibrarySupport {
     fun ensureLoaded()
 }
 
-class SmolLM private constructor(
+class SmolLM internal constructor(
     useVulkan: Boolean,
     private val nativeLibrarySupport: SmolLMNativeLibrarySupport,
 ) : AutoCloseable {
-    constructor(useVulkan: Boolean = true) : this(useVulkan, currentNativeLibrarySupport())
+    constructor(useVulkan: Boolean = true) : this(useVulkan, SmolLMCompanionSupport.currentNativeLibrarySupport())
 
     internal interface NativeBridge {
         fun loadModel(
@@ -146,7 +143,6 @@ class SmolLM private constructor(
         fun hasVulkanBackendSupport(instance: SmolLM): Boolean = true
     }
     companion object {
-        private const val LOG_TAG = "SmolLM"
         private const val DEFAULT_CONTEXT_SIZE_CAP: Long = 8_192L
         private const val MIN_CONTEXT_SIZE: Long = 1_024L
         private const val DEFAULT_REASONING_BUDGET: Int = -1
@@ -169,76 +165,34 @@ class SmolLM private constructor(
                 151 to "Q8_KV",
             )
         /** Device-aware batch size: scales with P-core count for optimal JNI throughput. */
-        val DEFAULT_BLOCKING_BATCH_SIZE: Int =
-            CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.TOKEN_GENERATION)
-                .coerceIn(4, 16)
-
-        private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
-
-        private fun logI(tag: String, message: String) = AndroidLogAdapter.i(tag, message)
-
-        private fun logW(tag: String, message: String) = AndroidLogAdapter.w(tag, message)
-
-        private fun logE(tag: String, message: String, throwable: Throwable? = null) =
-            AndroidLogAdapter.e(tag, message, throwable)
-
-        private val defaultNativeLibrarySupport =
-            SmolLMNativeLibrarySupport {
-                NativeLibraryLoader.ensureSmolLMLoaded(
-                    required = true,
-                    onDebug = { message -> logD(LOG_TAG, message) },
-                    onError = { message, throwable -> logE(LOG_TAG, message, throwable) },
-                )
-            }
-
-        private val noOpNativeLibrarySupport = SmolLMNativeLibrarySupport { }
-
-        @Volatile
-        private var nativeLibrarySupportOverride: SmolLMNativeLibrarySupport? = null
+        val DEFAULT_BLOCKING_BATCH_SIZE: Int = SmolLMCompanionSupport.defaultBlockingBatchSize
 
         @JvmStatic
         fun isOpenClAvailable(): Boolean =
-            try {
-                currentNativeLibrarySupport().ensureLoaded()
-                nativeIsOpenClAvailable()
-            } catch (_: Throwable) {
-                false
-            }
+            SmolLMCompanionSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
 
         @JvmStatic
         fun isVulkanBackendAvailable(): Boolean =
-            try {
-                currentNativeLibrarySupport().ensureLoaded()
-                nativeIsVulkanAvailable()
-            } catch (_: Throwable) {
-                true
-            }
-
-        private val defaultNativeBridgeProvider: (SmolLM) -> NativeBridge =
-            SmolLMNativeBridgeSupport.defaultProvider()
-
-        private val nativeBridgeProvider = NativeBridgeProvider(defaultNativeBridgeProvider)
+            SmolLMCompanionSupport.isVulkanBackendAvailable(::nativeIsVulkanAvailable)
 
         internal fun overrideNativeBridgeForTests(provider: (SmolLM) -> NativeBridge) {
-            nativeBridgeProvider.override(provider)
-            nativeLibrarySupportOverride = noOpNativeLibrarySupport
+            SmolLMCompanionSupport.overrideNativeBridgeForTests(provider)
         }
 
         internal fun resetNativeBridgeForTests() {
-            nativeBridgeProvider.reset()
-            nativeLibrarySupportOverride = null
+            SmolLMCompanionSupport.resetNativeBridgeForTests()
         }
 
         internal fun overrideNativeLibrarySupportForTests(support: SmolLMNativeLibrarySupport) {
-            nativeLibrarySupportOverride = support
+            SmolLMCompanionSupport.overrideNativeLibrarySupportForTests(support)
         }
 
         internal fun resetNativeLibrarySupportForTests() {
-            nativeLibrarySupportOverride = null
+            SmolLMCompanionSupport.resetNativeLibrarySupportForTests()
         }
 
         internal fun currentNativeLibrarySupport(): SmolLMNativeLibrarySupport =
-            nativeLibrarySupportOverride ?: defaultNativeLibrarySupport
+            SmolLMCompanionSupport.currentNativeLibrarySupport()
 
         @JvmStatic
         private external fun nativeIsOpenClAvailable(): Boolean
@@ -250,17 +204,11 @@ class SmolLM private constructor(
             nativePtr: Long,
             useVulkan: Boolean = false,
             loadedParams: InferenceParams = InferenceParams(),
-        ): SmolLM {
-            val s = SmolLM(useVulkan, nativeLibrarySupport = noOpNativeLibrarySupport)
-            s.state.nativePtr = nativePtr
-            s.state.loadedInferenceParams = loadedParams
-            s.state.selectedBackend = if (useVulkan) ComputeBackend.VULKAN else ComputeBackend.CPU
-            return s
-        }
+        ): SmolLM = SmolLMCompanionSupport.createLoadedForTests(nativePtr, useVulkan, loadedParams)
 
-        internal fun logDebug(message: String) = logD(LOG_TAG, message)
+        internal fun logDebug(message: String) = SmolLMCompanionSupport.logDebug(message)
 
-        internal fun logWarning(message: String) = logW(LOG_TAG, message)
+        internal fun logWarning(message: String) = SmolLMCompanionSupport.logWarning(message)
 
         internal fun isOpenClBackendAvailable(): Boolean = isOpenClAvailable()
 
@@ -272,7 +220,7 @@ class SmolLM private constructor(
     }
 
     private val runtimeState = SmolLMState(useVulkan, DEFAULT_REASONING_BUDGET)
-    private val nativeBridge: NativeBridge = Companion.nativeBridgeProvider.create(this)
+    private val nativeBridge: NativeBridge = SmolLMCompanionSupport.createNativeBridge(this)
     internal val loadedInferenceParams: InferenceParams?
         get() = runtimeState.loadedInferenceParams
 
@@ -923,8 +871,7 @@ class SmolLM private constructor(
             minContextSize = MIN_CONTEXT_SIZE,
             defaultContextSizeCap = DEFAULT_CONTEXT_SIZE_CAP,
         ) { desired, clamped, heapMb ->
-            logW(
-                LOG_TAG,
+            SmolLMCompanionSupport.logWarning(
                 "Context window $desired→$clamped tokens to fit heap (${heapMb}MB max). " +
                     "Override via InferenceParams(contextSize=...).",
             )

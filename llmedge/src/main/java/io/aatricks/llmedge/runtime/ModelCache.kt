@@ -154,34 +154,21 @@ class ModelCache<T : AutoCloseable>(
     /** Check if we should evict based on cache size and memory limits */
     private fun shouldEvict(newSizeBytes: Long): Boolean {
         refreshAllEntrySizes()
-        if (cache.size >= maxCacheSize) return true
-
-        val currentMemoryMB = totalCachedBytes / 1024 / 1024
-        val newMemoryMB = currentMemoryMB + (newSizeBytes / 1024 / 1024)
-
-        // If we have a system memory provider, be conservative and cap cache size to a fraction
-        // of currently available system memory (e.g., reserve 10% of whatever is free)
-        val effectiveMax = systemMemoryProvider?.let { provider ->
-            val avail = provider()
-            // Ensure we keep at least 10% of the available system memory for OS/other apps
-            val reserved = (avail * 0.1).toLong()
-            val budget = (avail - reserved).coerceAtMost(maxMemoryMB)
-            // Avoid tiny budgets that cause immediate eviction; keep at least a conservative
-            // lower bound so the cache can still hold large models when needed.
-            val minBudget = (maxMemoryMB / 4).coerceAtLeast(256L)
-            val finalBudget = budget.coerceAtLeast(minBudget)
-            finalBudget
-        } ?: maxMemoryMB
-
-        return newMemoryMB > effectiveMax
+        return ModelCacheBudgetPolicy.shouldEvict(
+            entryCount = cache.size,
+            maxCacheSize = maxCacheSize,
+            totalCachedBytes = totalCachedBytes,
+            newSizeBytes = newSizeBytes,
+            maxMemoryMB = maxMemoryMB,
+            systemMemoryProvider = systemMemoryProvider,
+        )
     }
 
     private fun logOversizedInsertIfNeeded(
         key: String,
         resolvedSizeBytes: Long,
     ) {
-        val configuredLimitBytes = maxMemoryMB * 1024L * 1024L
-        if (resolvedSizeBytes > configuredLimitBytes) {
+        if (ModelCacheBudgetPolicy.shouldLogOversizedInsert(resolvedSizeBytes, maxMemoryMB)) {
             AndroidLogAdapter.w(
                 TAG,
                 "Caching '$key' even though it exceeds the configured cache budget " +

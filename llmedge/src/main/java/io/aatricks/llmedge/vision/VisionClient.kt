@@ -6,7 +6,7 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.OwnedClient
-import io.aatricks.llmedge.core.createOwnedFeature
+import io.aatricks.llmedge.core.createOwnedFeatureClient
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -39,7 +39,7 @@ class VisionClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): VisionClient =
-            createOwnedFeature(context, scope, config, modelRepository) { featureContext, bootstrap ->
+            createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
                 VisionClient(
                     context = featureContext.appContext,
                     pipeline = VisionPipeline(featureContext),

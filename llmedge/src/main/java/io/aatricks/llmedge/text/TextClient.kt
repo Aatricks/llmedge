@@ -7,8 +7,8 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
-import io.aatricks.llmedge.core.createFeatureForTesting
-import io.aatricks.llmedge.core.createOwnedFeature
+import io.aatricks.llmedge.core.createFeatureClientForTesting
+import io.aatricks.llmedge.core.createOwnedFeatureClient
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -75,7 +75,7 @@ class TextClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): TextClient =
-            createOwnedFeature(context, scope, config, modelRepository) { featureContext, bootstrap ->
+            createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
                 TextClient(
                     featureContext = featureContext,
                     ownedBootstrap = bootstrap,
@@ -90,7 +90,7 @@ class TextClient internal constructor(
             modelResolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): TextClient =
-            createFeatureForTesting(context, scope, config, modelResolver, ownedBootstrap) { featureContext, bootstrap ->
+            createFeatureClientForTesting(context, scope, config, modelResolver, ownedBootstrap) { featureContext, bootstrap ->
                 TextClient(featureContext = featureContext, ownedBootstrap = bootstrap)
             }
     }
@@ -102,7 +102,7 @@ class TextClient internal constructor(
     private val runtimeSession = TextRuntimeSession(edgeScope, config, ::updateGenerationMetrics)
     private val requestExecutor =
         TextRequestExecutor(
-            runtimeExecutor = io.aatricks.llmedge.core.runtime.ManagedRuntimeExecutor(runtimePool),
+            runtimePool = runtimePool,
             runtimeSession = runtimeSession,
             config = config,
             logTag = LOG_TAG,

@@ -6,8 +6,8 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
-import io.aatricks.llmedge.core.createFeatureForTesting
-import io.aatricks.llmedge.core.createOwnedFeature
+import io.aatricks.llmedge.core.createFeatureClientForTesting
+import io.aatricks.llmedge.core.createOwnedFeatureClient
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -60,7 +60,7 @@ class SpeechClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): SpeechClient =
-            createOwnedFeature(context, scope, config, modelRepository) { featureContext, bootstrap ->
+            createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
                 SpeechClient(
                     featureContext = featureContext,
                     ownedBootstrap = bootstrap,
@@ -75,7 +75,7 @@ class SpeechClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): SpeechClient =
-            createFeatureForTesting(context, scope, config, resolver, ownedBootstrap) { featureContext, bootstrap ->
+            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap) { featureContext, bootstrap ->
                 SpeechClient(featureContext = featureContext, ownedBootstrap = bootstrap)
             }
     }

@@ -2,7 +2,6 @@ package io.aatricks.llmedge.vision
 
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.FeatureContext
-import io.aatricks.llmedge.core.runtime.ManagedRuntimeExecutor
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.text.runtime.SmolLM
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +45,6 @@ internal class VisionPipeline(
             smolLmFactory = smolLmFactory,
             projectorFactory = projectorFactory,
         )
-    private val managedRuntimeExecutor = ManagedRuntimeExecutor(runtimePool)
     private val inputPreparer = VisionInputPreparer(featureContext.appContext, JPEG_QUALITY)
     private val pipelineExecutor = VisionRuntimeExecutor()
 
@@ -83,7 +81,7 @@ internal class VisionPipeline(
                     numThreads = request.numThreads,
                     generationThreads = request.generationThreads,
                 )
-            managedRuntimeExecutor.withExclusiveRuntime(runtime) {
+            runtimePool.withExclusiveRuntime(runtime) {
                 val preparedInput =
                     inputPreparer.prepare(
                         request = request,
@@ -113,7 +111,7 @@ internal class VisionPipeline(
     ): ManagedVisionRuntime {
         val loadStartedNs = System.nanoTime()
         val runtime =
-            managedRuntimeExecutor.acquire(
+            runtimePool.acquire(
                 VisionRuntimeSpec(model = model, projector = projector),
                 VisionLoadOptions(
                     numThreads = (numThreads ?: featureContext.config.text.promptThreads).coerceAtLeast(1),
@@ -130,6 +128,6 @@ internal class VisionPipeline(
     }
 
     override fun close() {
-        managedRuntimeExecutor.close()
+        runtimePool.close()
     }
 }

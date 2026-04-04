@@ -4,14 +4,14 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.runtime.BackendFailureClassifier
-import io.aatricks.llmedge.core.runtime.ManagedRuntimeExecutor
+import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.model.ModelSpec
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 
 internal class TextRequestExecutor(
-    private val runtimeExecutor: ManagedRuntimeExecutor<ModelSpec, TextModelOptions, ManagedTextModel>,
+    private val runtimePool: RuntimePool<ModelSpec, TextModelOptions, ManagedTextModel>,
     private val runtimeSession: TextRuntimeSession,
     private val config: LLMEdgeConfig,
     private val logTag: String,
@@ -21,7 +21,7 @@ internal class TextRequestExecutor(
         model: ModelSpec,
         options: TextModelOptions,
     ) {
-        runtimeExecutor.prepare(model, options)
+        runtimePool.prepare(model, options)
     }
 
     suspend fun generate(request: TextGenerationRequest): String {
@@ -36,7 +36,7 @@ internal class TextRequestExecutor(
     fun stream(request: TextGenerationRequest): Flow<TextStreamEvent> =
             flow {
                 emit(TextStreamEvent.Started(request.prompt))
-            val runtime = runtimeExecutor.acquire(request.model, request.options)
+            val runtime = runtimePool.acquire(request.model, request.options)
             resetMetrics()
             val response = StringBuilder()
             try {
@@ -61,22 +61,22 @@ internal class TextRequestExecutor(
     suspend fun acquire(
         model: ModelSpec,
         options: TextModelOptions,
-    ): ManagedTextModel = runtimeExecutor.acquire(model, options)
+    ): ManagedTextModel = runtimePool.acquire(model, options)
 
     fun invalidate(
         model: ModelSpec,
         options: TextModelOptions,
     ) {
-        runtimeExecutor.invalidate(model, options)
+        runtimePool.invalidate(model, options)
     }
 
     suspend fun loadDetached(
         model: ModelSpec,
         options: TextModelOptions,
-    ): ManagedTextModel = runtimeExecutor.loadDetached(model, options)
+    ): ManagedTextModel = runtimePool.loadDetached(model, options)
 
     private suspend fun generateWithRuntimeRetry(request: TextGenerationRequest): String =
-        runtimeExecutor.executeWithRetry(
+        runtimePool.executeWithRetry(
             spec = request.model,
             options = request.options,
             onRetry = { _, _ ->
@@ -125,7 +125,7 @@ internal class TextRequestExecutor(
         runtime: ManagedTextModel,
         error: InferenceFailedException,
     ) {
-        val blacklisted = runtimeExecutor.recordBackendFailureIfNeeded(model, options, runtime, error)
+        val blacklisted = runtimePool.recordBackendFailureIfNeeded(model, options, runtime, error)
         if (!blacklisted) {
             return
         }

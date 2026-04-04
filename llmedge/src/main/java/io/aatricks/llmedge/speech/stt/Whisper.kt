@@ -62,7 +62,6 @@ class Whisper internal constructor(
     private val handle: Long,
     internal val activeBackend: ComputeBackend = ComputeBackend.CPU,
 ) : AutoCloseable {
-
     /** Represents a transcribed segment with timing information. */
     data class TranscriptionSegment(
             val index: Int,
@@ -398,7 +397,7 @@ class Whisper internal constructor(
     private external fun nativeGetLanguageString(langId: Int): String
     private external fun nativeIsOpenClAvailable(): Boolean
     private external fun nativeIsVulkanAvailable(): Boolean
-    private external fun nativeCreate(
+    internal external fun nativeCreate(
             modelPath: String,
             backendId: Int,
             flashAttn: Boolean,
@@ -451,31 +450,11 @@ class Whisper internal constructor(
     internal fun supportIsVulkanAvailable(): Boolean = nativeIsVulkanAvailable()
 
     companion object {
-        private const val LOG_TAG = "Whisper"
-
         /** Whisper expects audio at 16kHz sample rate */
         const val SAMPLE_RATE = 16000
 
         /** Whisper processes audio in 30-second chunks */
         const val CHUNK_SIZE_SECONDS = 30
-
-        private fun logD(tag: String, message: String) = AndroidLogAdapter.d(tag, message)
-
-        private fun logI(tag: String, message: String) = AndroidLogAdapter.i(tag, message)
-
-        private fun logW(tag: String, message: String) = AndroidLogAdapter.w(tag, message)
-
-        private fun logE(tag: String, message: String, throwable: Throwable? = null) =
-            AndroidLogAdapter.e(tag, message, throwable)
-
-        // Native library loading - similar to SmolLM
-        init {
-            NativeLibraryLoader.ensureWhisperLoaded(
-                required = false,
-                onDebug = { message -> logD(LOG_TAG, message) },
-                onError = { message, throwable -> logE(LOG_TAG, message, throwable) },
-            )
-        }
 
         internal interface LoadBridge {
             fun create(
@@ -486,62 +465,44 @@ class Whisper internal constructor(
             ): Long
         }
 
-        // Dummy instance used to invoke static native methods that are now at the class level.
-        internal val staticInvoker by lazy { Whisper(0L, ComputeBackend.CPU) }
-        internal val loadBridgeProvider =
-            NativeBridgeProvider<Unit, LoadBridge> { _ ->
-                object : LoadBridge {
-                    override fun create(
-                        modelPath: String,
-                        backend: ComputeBackend,
-                        flashAttn: Boolean,
-                        gpuDevice: Int,
-                    ): Long =
-                        staticInvoker.nativeCreate(
-                            modelPath,
-                            backend.id,
-                            flashAttn,
-                            gpuDevice,
-                        )
-                }
-            }
-
-        internal var openClAvailabilityOverrideForTests: Boolean? = null
-        internal var vulkanAvailabilityOverrideForTests: Boolean? = null
+        init {
+            WhisperRuntimeSupport.ensureNativeLibraryLoaded()
+        }
 
         internal fun overrideLoadBridgeForTests(provider: () -> LoadBridge) {
-            loadBridgeProvider.override { _ -> provider() }
+            WhisperRuntimeSupport.overrideLoadBridgeForTests(provider)
         }
 
         internal fun resetLoadBridgeForTests() {
-            loadBridgeProvider.reset()
+            WhisperRuntimeSupport.resetLoadBridgeForTests()
         }
 
         internal fun overrideBackendAvailabilityForTests(
             openClAvailable: Boolean? = null,
             vulkanAvailable: Boolean? = null,
         ) {
-            openClAvailabilityOverrideForTests = openClAvailable
-            vulkanAvailabilityOverrideForTests = vulkanAvailable
+            WhisperRuntimeSupport.overrideBackendAvailabilityForTests(
+                openClAvailable = openClAvailable,
+                vulkanAvailable = vulkanAvailable,
+            )
         }
 
         internal fun resetBackendAvailabilityForTests() {
-            openClAvailabilityOverrideForTests = null
-            vulkanAvailabilityOverrideForTests = null
+            WhisperRuntimeSupport.resetBackendAvailabilityForTests()
         }
 
         /** Check if native bindings are available. */
         @JvmStatic
-        fun checkBindings(): Boolean = WhisperCompanionSupport.checkBindings(staticInvoker)
+        fun checkBindings(): Boolean = WhisperCompanionSupport.checkBindings(WhisperRuntimeSupport.staticInvoker)
 
         /** Get the whisper.cpp version string. */
-        @JvmStatic fun getVersion(): String = WhisperCompanionSupport.getVersion(staticInvoker)
+        @JvmStatic fun getVersion(): String = WhisperCompanionSupport.getVersion(WhisperRuntimeSupport.staticInvoker)
 
         /** Get system information string. */
-        @JvmStatic fun getSystemInfo(): String = WhisperCompanionSupport.getSystemInfo(staticInvoker)
+        @JvmStatic fun getSystemInfo(): String = WhisperCompanionSupport.getSystemInfo(WhisperRuntimeSupport.staticInvoker)
 
         /** Get the maximum language ID supported. */
-        @JvmStatic fun getMaxLanguageId(): Int = WhisperCompanionSupport.getMaxLanguageId(staticInvoker)
+        @JvmStatic fun getMaxLanguageId(): Int = WhisperCompanionSupport.getMaxLanguageId(WhisperRuntimeSupport.staticInvoker)
 
         /**
          * Get the language ID for a language code or name.
@@ -549,7 +510,8 @@ class Whisper internal constructor(
          * @param lang Language code (e.g., "en") or name (e.g., "english")
          * @return Language ID or -1 if not found
          */
-        @JvmStatic fun getLanguageId(lang: String): Int = WhisperCompanionSupport.getLanguageId(staticInvoker, lang)
+        @JvmStatic fun getLanguageId(lang: String): Int =
+            WhisperCompanionSupport.getLanguageId(WhisperRuntimeSupport.staticInvoker, lang)
 
         /**
          * Get the language code for a language ID.
@@ -558,15 +520,21 @@ class Whisper internal constructor(
          * @return Language code (e.g., "en") or empty string if not found
          */
         @JvmStatic fun getLanguageString(langId: Int): String =
-            WhisperCompanionSupport.getLanguageString(staticInvoker, langId)
+            WhisperCompanionSupport.getLanguageString(WhisperRuntimeSupport.staticInvoker, langId)
 
         @JvmStatic
         fun isOpenClAvailable(): Boolean =
-            WhisperCompanionSupport.isOpenClAvailable(staticInvoker, openClAvailabilityOverrideForTests)
+            WhisperCompanionSupport.isOpenClAvailable(
+                WhisperRuntimeSupport.staticInvoker,
+                WhisperRuntimeSupport.openClAvailabilityOverride(),
+            )
 
         @JvmStatic
         fun isVulkanBackendAvailable(): Boolean =
-            WhisperCompanionSupport.isVulkanBackendAvailable(staticInvoker, vulkanAvailabilityOverrideForTests)
+            WhisperCompanionSupport.isVulkanBackendAvailable(
+                WhisperRuntimeSupport.staticInvoker,
+                WhisperRuntimeSupport.vulkanAvailabilityOverride(),
+            )
 
         /**
          * Load a Whisper model from a file path.
@@ -589,15 +557,14 @@ class Whisper internal constructor(
                 useGpu = useGpu,
                 flashAttn = flashAttn,
                 gpuDevice = gpuDevice,
-                staticInvoker = staticInvoker,
+                staticInvoker = WhisperRuntimeSupport.staticInvoker,
                 createHandle = { path, backend, useFlashAttn, device ->
-                    loadBridgeProvider.create(Unit).create(path, backend, useFlashAttn, device)
+                    WhisperRuntimeSupport.createLoadBridge().create(path, backend, useFlashAttn, device)
                 },
-                openClAvailabilityOverride = openClAvailabilityOverrideForTests,
-                vulkanAvailabilityOverride = vulkanAvailabilityOverrideForTests,
-            ) { backend ->
-                logW(LOG_TAG, "Failed to load Whisper on $backend; retrying with the next backend")
-            }
+                openClAvailabilityOverride = WhisperRuntimeSupport.openClAvailabilityOverride(),
+                vulkanAvailabilityOverride = WhisperRuntimeSupport.vulkanAvailabilityOverride(),
+                onGpuLoadFailure = WhisperRuntimeSupport::logGpuFallback,
+            )
 
         internal fun load(
             modelPath: String,
@@ -611,7 +578,7 @@ class Whisper internal constructor(
                 flashAttn = flashAttn,
                 gpuDevice = gpuDevice,
             ) { path, chosenBackend, useFlashAttn, device ->
-                loadBridgeProvider.create(Unit).create(path, chosenBackend, useFlashAttn, device)
+                WhisperRuntimeSupport.createLoadBridge().create(path, chosenBackend, useFlashAttn, device)
             }
 
         /**

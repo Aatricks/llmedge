@@ -62,6 +62,27 @@ internal inline fun <T> createOwnedFeature(
         )
     }
 
+internal inline fun <T> createOwnedFeatureClient(
+    context: Context,
+    scope: CoroutineScope,
+    config: LLMEdgeConfig,
+    modelRepository: ModelRepository,
+    build: (FeatureContext, ClientBootstrapContext?) -> T,
+): T =
+    createOwnedFeature(context, scope, config, modelRepository) { featureContext, bootstrap ->
+        build(featureContext, bootstrap)
+    }
+
+internal inline fun <T> createFeatureClientForTesting(
+    context: Context,
+    scope: LLMEdgeScope,
+    config: LLMEdgeConfig,
+    modelRepository: ModelRepository,
+    ownedBootstrap: ClientBootstrapContext? = null,
+    build: (FeatureContext, ClientBootstrapContext?) -> T,
+): T =
+    createFeatureForTesting(context, scope, config, modelRepository, ownedBootstrap, build)
+
 abstract class OwnedFeatureClient internal constructor(
     featureContext: FeatureContext,
     ownedBootstrap: ClientBootstrapContext?,

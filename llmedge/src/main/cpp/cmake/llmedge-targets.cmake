@@ -13,3 +13,7 @@ set(LLMEDGE_TARGET_GGUF_READER "ggufreader")
 set(LLMEDGE_TARGET_SDCPP "sdcpp")
 set(LLMEDGE_TARGET_WHISPER_JNI "whisper_jni")
 set(LLMEDGE_TARGET_BARK_JNI "bark_jni")
+
+# Shared logical target groups consumed by desktop build/test scripts.
+set(LLMEDGE_DESKTOP_TARGETS "smollm;whisper;sdcpp;bark")
+set(LLMEDGE_CI_TARGETS "whisper;sdcpp;smollm")

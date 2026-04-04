@@ -7,8 +7,8 @@ import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.OwnedFeatureClient
-import io.aatricks.llmedge.core.createFeatureForTesting
-import io.aatricks.llmedge.core.createOwnedFeature
+import io.aatricks.llmedge.core.createFeatureClientForTesting
+import io.aatricks.llmedge.core.createOwnedFeatureClient
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
@@ -82,7 +82,7 @@ class ImageClient internal constructor(
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): ImageClient =
-            createOwnedFeature(context, scope, config, modelRepository) { featureContext, bootstrap ->
+            createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
                 ImageClient(
                     featureContext = featureContext,
                     ownedBootstrap = bootstrap,
@@ -97,7 +97,7 @@ class ImageClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): ImageClient =
-            createFeatureForTesting(context, scope, config, resolver, ownedBootstrap) { featureContext, bootstrap ->
+            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap) { featureContext, bootstrap ->
                 ImageClient(featureContext = featureContext, ownedBootstrap = bootstrap)
             }
 
