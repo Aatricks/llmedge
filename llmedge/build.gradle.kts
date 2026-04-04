@@ -112,6 +112,10 @@ android {
             }
         }
     }
+
+    sourceSets {
+        getByName("main").java.srcDir(layout.buildDirectory.dir("generated/source/nativeTargetNames/main/kotlin"))
+    }
 }
 
 dependencies {
@@ -169,7 +173,16 @@ apply(from = rootProject.file("gradle/llmedge-jacoco.gradle"))
 val generateNativeTargetNames by tasks.registering(Exec::class) {
     group = "build setup"
     description = "Generates Kotlin native target constants from CMake target declarations."
-    commandLine("bash", "${rootProject.projectDir}/scripts/generate_native_target_names.sh")
+    val outputFile =
+        layout.buildDirectory.file(
+            "generated/source/nativeTargetNames/main/kotlin/io/aatricks/llmedge/core/NativeTargetNames.kt",
+        )
+    outputs.file(outputFile)
+    commandLine(
+        "bash",
+        "${rootProject.projectDir}/scripts/generate_native_target_names.sh",
+        outputFile.get().asFile.absolutePath,
+    )
 }
 
 tasks.named("preBuild") {

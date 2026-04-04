@@ -61,6 +61,18 @@ class FullPhonePathCatTest {
                     else f1.absolutePath
                 }
             }
+
+        val requiredModelFiles =
+            buildList {
+                add(File(MODEL_PATH))
+                add(File(T5_PATH))
+                add(if (useTaehv) File(TAEHV_PATH) else File(VAE_PATH))
+            }
+        val missingFiles = requiredModelFiles.filterNot(File::exists)
+        Assume.assumeTrue(
+            "Required local test assets are missing: ${missingFiles.joinToString { it.absolutePath }}",
+            missingFiles.isEmpty(),
+        )
         
         println("[FullPhonePathCatTest] MODEL_PATH: $MODEL_PATH, exists=${File(MODEL_PATH).exists()}")
         println("[FullPhonePathCatTest] VAE_PATH: $VAE_PATH, exists=${File(VAE_PATH).exists()}")

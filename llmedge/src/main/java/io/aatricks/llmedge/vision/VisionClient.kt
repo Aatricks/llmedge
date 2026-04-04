@@ -5,7 +5,8 @@ import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
-import io.aatricks.llmedge.core.OwnedClient
+import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.OwnedFeatureClient
 import io.aatricks.llmedge.core.createOwnedFeatureClient
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
@@ -25,11 +26,11 @@ data class VisionRequest(
 )
 
 class VisionClient internal constructor(
-    private val context: Context,
+    featureContext: FeatureContext,
     private val pipeline: VisionPipeline,
     config: LLMEdgeConfig,
     private val ownedBootstrap: ClientBootstrapContext? = null,
-) : OwnedClient(ownedBootstrap) {
+) : OwnedFeatureClient(featureContext, ownedBootstrap) {
     companion object {
         @JvmStatic
         @JvmOverloads
@@ -41,12 +42,28 @@ class VisionClient internal constructor(
         ): VisionClient =
             createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
                 VisionClient(
-                    context = featureContext.appContext,
+                    featureContext = featureContext,
                     pipeline = VisionPipeline(featureContext),
-                    config = config,
+                    config = featureContext.config,
                     ownedBootstrap = bootstrap,
                 )
             }
+
+        @JvmSynthetic
+        internal fun forTesting(
+            context: Context,
+            scope: LLMEdgeScope,
+            config: LLMEdgeConfig,
+            modelRepository: ModelRepository,
+            pipeline: VisionPipeline,
+            ownedBootstrap: ClientBootstrapContext? = null,
+        ): VisionClient =
+            VisionClient(
+                featureContext = FeatureContext(context, scope, config, modelRepository),
+                pipeline = pipeline,
+                config = config,
+                ownedBootstrap = ownedBootstrap,
+            )
     }
 
     private val defaultModel: ModelSpec = config.models.vision.model
@@ -120,7 +137,7 @@ class VisionClient internal constructor(
      * This is independent from VLM-based analysis and works without loading a vision-language model.
      */
     suspend fun extractText(image: Bitmap): String {
-        val engine = MlKitOcrEngine(context)
+        val engine = MlKitOcrEngine(appContext)
         try {
             return engine.extractText(ImageSource.BitmapSource(image)).text
         } finally {

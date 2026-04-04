@@ -24,22 +24,10 @@ import android.content.Context
 import io.aatricks.llmedge.core.InvalidModelStateException
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
-import io.aatricks.llmedge.text.runtime.internal.SmolLMCompletionSupport
 import io.aatricks.llmedge.text.runtime.internal.SmolLMLoader
 import io.aatricks.llmedge.text.runtime.internal.SmolLMRuntimeConfigSupport
-import io.aatricks.llmedge.text.runtime.internal.SmolLMStateSupport
-import io.aatricks.llmedge.text.runtime.internal.SmolLMVisionInterop
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-
-/**
- * Kotlin wrapper for the native LLM runtime. Handles loading models and providing a simple API for
- * running completions and managing model state.
- */
-internal fun interface SmolLMNativeLibrarySupport {
-    fun ensureLoaded()
-}
 
 class SmolLM internal constructor(
     useVulkan: Boolean,
@@ -143,56 +131,35 @@ class SmolLM internal constructor(
         fun hasVulkanBackendSupport(instance: SmolLM): Boolean = true
     }
     companion object {
-        private const val DEFAULT_CONTEXT_SIZE_CAP: Long = 8_192L
-        private const val MIN_CONTEXT_SIZE: Long = 1_024L
-        private const val DEFAULT_REASONING_BUDGET: Int = -1
-        private val GGUF_FILE_TYPE_NAMES =
-            mapOf(
-                138 to "IQ2_K",
-                139 to "IQ3_K",
-                140 to "IQ4_K",
-                141 to "IQ5_K",
-                142 to "IQ6_K",
-                149 to "Q8_KV",
-            )
-        private val GGUF_TENSOR_TYPE_NAMES =
-            mapOf(
-                137 to "IQ2_K",
-                138 to "IQ3_K",
-                139 to "IQ4_K",
-                140 to "IQ5_K",
-                141 to "IQ6_K",
-                151 to "Q8_KV",
-            )
         /** Device-aware batch size: scales with P-core count for optimal JNI throughput. */
-        val DEFAULT_BLOCKING_BATCH_SIZE: Int = SmolLMCompanionSupport.defaultBlockingBatchSize
+        val DEFAULT_BLOCKING_BATCH_SIZE: Int = SmolLMStaticApiSupport.defaultBlockingBatchSize
 
         @JvmStatic
         fun isOpenClAvailable(): Boolean =
-            SmolLMCompanionSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
+            SmolLMStaticApiSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
 
         @JvmStatic
         fun isVulkanBackendAvailable(): Boolean =
-            SmolLMCompanionSupport.isVulkanBackendAvailable(::nativeIsVulkanAvailable)
+            SmolLMStaticApiSupport.isVulkanBackendAvailable(::nativeIsVulkanAvailable)
 
         internal fun overrideNativeBridgeForTests(provider: (SmolLM) -> NativeBridge) {
-            SmolLMCompanionSupport.overrideNativeBridgeForTests(provider)
+            SmolLMStaticApiSupport.overrideNativeBridgeForTests(provider)
         }
 
         internal fun resetNativeBridgeForTests() {
-            SmolLMCompanionSupport.resetNativeBridgeForTests()
+            SmolLMStaticApiSupport.resetNativeBridgeForTests()
         }
 
         internal fun overrideNativeLibrarySupportForTests(support: SmolLMNativeLibrarySupport) {
-            SmolLMCompanionSupport.overrideNativeLibrarySupportForTests(support)
+            SmolLMStaticApiSupport.overrideNativeLibrarySupportForTests(support)
         }
 
         internal fun resetNativeLibrarySupportForTests() {
-            SmolLMCompanionSupport.resetNativeLibrarySupportForTests()
+            SmolLMStaticApiSupport.resetNativeLibrarySupportForTests()
         }
 
         internal fun currentNativeLibrarySupport(): SmolLMNativeLibrarySupport =
-            SmolLMCompanionSupport.currentNativeLibrarySupport()
+            SmolLMStaticApiSupport.currentNativeLibrarySupport()
 
         @JvmStatic
         private external fun nativeIsOpenClAvailable(): Boolean
@@ -204,11 +171,11 @@ class SmolLM internal constructor(
             nativePtr: Long,
             useVulkan: Boolean = false,
             loadedParams: InferenceParams = InferenceParams(),
-        ): SmolLM = SmolLMCompanionSupport.createLoadedForTests(nativePtr, useVulkan, loadedParams)
+        ): SmolLM = SmolLMStaticApiSupport.createLoadedForTests(nativePtr, useVulkan, loadedParams)
 
-        internal fun logDebug(message: String) = SmolLMCompanionSupport.logDebug(message)
+        internal fun logDebug(message: String) = SmolLMStaticApiSupport.logDebug(message)
 
-        internal fun logWarning(message: String) = SmolLMCompanionSupport.logWarning(message)
+        internal fun logWarning(message: String) = SmolLMStaticApiSupport.logWarning(message)
 
         internal fun isOpenClBackendAvailable(): Boolean = isOpenClAvailable()
 
@@ -219,7 +186,7 @@ class SmolLM internal constructor(
         nativeLibrarySupport.ensureLoaded()
     }
 
-    private val runtimeState = SmolLMState(useVulkan, DEFAULT_REASONING_BUDGET)
+    private val runtimeState = SmolLMState(useVulkan, SmolLMRuntimeDefaults.DEFAULT_REASONING_BUDGET)
     private val nativeBridge: NativeBridge = SmolLMCompanionSupport.createNativeBridge(this)
     internal val loadedInferenceParams: InferenceParams?
         get() = runtimeState.loadedInferenceParams
@@ -254,9 +221,8 @@ class SmolLM internal constructor(
      * file.
      */
     object DefaultInferenceParams {
-        val contextSize: Long = 1024L
-        val chatTemplate: String =
-                "{% for message in messages %}{% if loop.first and messages[0]['role'] != 'system' %}{{ '<|im_start|>system You are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|> ' }}{% endif %}{{'<|im_start|>' + message['role'] + ' ' + message['content'] + '<|im_end|>' + ' '}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant ' }}{% endif %}"
+        val contextSize: Long = SmolLMRuntimeDefaults.DefaultInferenceParams.contextSize
+        val chatTemplate: String = SmolLMRuntimeDefaults.DefaultInferenceParams.chatTemplate
     }
 
     enum class ThinkingMode {
@@ -267,7 +233,7 @@ class SmolLM internal constructor(
             get() = this == DISABLED
 
         internal val reasoningBudget: Int
-            get() = if (this == DISABLED) 0 else DEFAULT_REASONING_BUDGET
+            get() = if (this == DISABLED) 0 else SmolLMRuntimeDefaults.DEFAULT_REASONING_BUDGET
     }
 
     enum class KvCacheType(internal val nativeCode: Int) {
@@ -467,25 +433,16 @@ class SmolLM internal constructor(
      * @param message The user's message.
      * @throws IllegalStateException if the model is not loaded.
      */
-    fun addUserMessage(message: String) {
-        val nativePtr = requireLoadedHandle()
-        bridge.addChatMessage(this, nativePtr, message, "user")
-    }
+    fun addUserMessage(message: String) = SmolLMFacadeOperations.addUserMessage(this, message)
 
     /** Adds the system prompt for the LLM */
-    fun addSystemPrompt(prompt: String) {
-        val nativePtr = requireLoadedHandle()
-        bridge.addChatMessage(this, nativePtr, prompt, "system")
-    }
+    fun addSystemPrompt(prompt: String) = SmolLMFacadeOperations.addSystemPrompt(this, prompt)
 
     /**
      * Adds the assistant message for LLM inference An assistant message is the response given by
      * the LLM for a previous query in the conversation
      */
-    fun addAssistantMessage(message: String) {
-        val nativePtr = requireLoadedHandle()
-        bridge.addChatMessage(this, nativePtr, message, "assistant")
-    }
+    fun addAssistantMessage(message: String) = SmolLMFacadeOperations.addAssistantMessage(this, message)
 
     fun getThinkingMode(): ThinkingMode = runtimeState.currentThinkingMode
 
@@ -495,7 +452,7 @@ class SmolLM internal constructor(
 
     fun setThinkingMode(mode: ThinkingMode) {
         requireLoadedHandle()
-        val targetBudget = if (mode.disableReasoning) 0 else DEFAULT_REASONING_BUDGET
+        val targetBudget = if (mode.disableReasoning) 0 else SmolLMRuntimeDefaults.DEFAULT_REASONING_BUDGET
         applyReasoningState(mode, targetBudget)
     }
 
@@ -513,38 +470,23 @@ class SmolLM internal constructor(
      * Returns the rate (in tokens per second) at which the LLM generated its last response via
      * `getResponse()`
      */
-    fun getResponseGenerationSpeed(): Float {
-        val nativePtr = requireLoadedHandle()
-        return bridge.getResponseGenerationSpeed(this, nativePtr)
-    }
+    fun getResponseGenerationSpeed(): Float = SmolLMFacadeOperations.getResponseGenerationSpeed(this)
 
     /**
      * Returns throughput information for the last completed response. The metrics are reset on the
      * next call to [getResponse] or [getResponseAsFlow].
      */
-    fun getLastGenerationMetrics(): GenerationMetrics {
-        val nativePtr = requireLoadedHandle()
-        return bridge.getLastGenerationMetrics(this, nativePtr)
-    }
+    fun getLastGenerationMetrics(): GenerationMetrics = SmolLMFacadeOperations.getLastGenerationMetrics(this)
 
-    fun getEstimatedNativeMemoryBytes(): Long {
-        val nativePtr = requireLoadedHandle()
-        return bridge.getEstimatedNativeMemoryBytes(this, nativePtr)
-    }
+    fun getEstimatedNativeMemoryBytes(): Long = SmolLMFacadeOperations.getEstimatedNativeMemoryBytes(this)
 
-    fun getEstimatedStateMemoryBytes(): Long {
-        val nativePtr = requireLoadedHandle()
-        return bridge.getEstimatedStateMemoryBytes(this, nativePtr)
-    }
+    fun getEstimatedStateMemoryBytes(): Long = SmolLMFacadeOperations.getEstimatedStateMemoryBytes(this)
 
     /**
      * Returns the number of tokens consumed by the LLM's context window The context of the LLM is
      * roughly the output of, tokenize(apply_chat_template(messages_in_conversation))
      */
-    fun getContextLengthUsed(): Int {
-        val nativePtr = requireLoadedHandle()
-        return bridge.getContextSizeUsed(this, nativePtr)
-    }
+    fun getContextLengthUsed(): Int = SmolLMFacadeOperations.getContextLengthUsed(this)
 
     /**
      * Return the LLM response to the given query as an async Flow. This is useful for streaming the
@@ -559,16 +501,16 @@ class SmolLM internal constructor(
      * ```
      * if the model is not loaded.
      */
-    fun getResponseAsFlow(query: String): Flow<String> = getResponseAsFlow(query, Dispatchers.IO)
+    fun getResponseAsFlow(query: String): Flow<String> = SmolLMFacadeOperations.getResponseAsFlow(this, query)
 
     fun getResponseAsFlow(query: String, dispatcher: CoroutineDispatcher): Flow<String> =
-            getResponseAsFlow(query, dispatcher, 1)
+        SmolLMFacadeOperations.getResponseAsFlow(this, query, dispatcher)
 
     fun getResponseAsFlow(
         query: String,
         dispatcher: CoroutineDispatcher,
         batchSize: Int,
-    ): Flow<String> = SmolLMCompletionSupport.getResponseAsFlow(this, query, dispatcher, batchSize)
+    ): Flow<String> = SmolLMFacadeOperations.getResponseAsFlow(this, query, dispatcher, batchSize)
 
     /**
      * Returns the LLM response to the given query as a String. This function is blocking and will
@@ -586,12 +528,10 @@ class SmolLM internal constructor(
         query: String,
         maxTokens: Int = -1,
         batchSize: Int = DEFAULT_BLOCKING_BATCH_SIZE,
-    ): String = SmolLMCompletionSupport.getResponse(this, query, maxTokens, batchSize)
+    ): String = SmolLMFacadeOperations.getResponse(this, query, maxTokens, batchSize)
 
     /** Public helper to stop a currently running completion loop (best effort). */
-    fun stopCompletion() {
-        SmolLMCompletionSupport.stopCompletion(this)
-    }
+    fun stopCompletion() = SmolLMFacadeOperations.stopCompletion(this)
 
     /**
      * Unloads the LLM model and releases resources. This method should be called when the SmolLM
@@ -602,7 +542,7 @@ class SmolLM internal constructor(
         if (nativePtr != 0L) {
             bridge.close(this, nativePtr)
         }
-        runtimeState.reset(DEFAULT_REASONING_BUDGET)
+        runtimeState.reset(SmolLMRuntimeDefaults.DEFAULT_REASONING_BUDGET)
     }
 
     private fun verifyHandle() {
@@ -640,15 +580,19 @@ class SmolLM internal constructor(
         params = params,
         fileType = fileType,
         dominantTensorType = dominantTensorType,
-        ggufFileTypeNames = GGUF_FILE_TYPE_NAMES,
-        ggufTensorTypeNames = GGUF_TENSOR_TYPE_NAMES,
+        ggufFileTypeNames = SmolLMRuntimeDefaults.ggufFileTypeNames,
+        ggufTensorTypeNames = SmolLMRuntimeDefaults.ggufTensorTypeNames,
     )
 
     internal fun applyReasoningStateForLoad(mode: ThinkingMode, budget: Int) =
         SmolLMRuntimeConfigSupport.applyReasoningState(this, mode, budget)
 
     internal fun resolvedReasoningBudgetForLoad(mode: ThinkingMode, override: Int?): Int =
-        SmolLMRuntimeConfigSupport.resolvedReasoningBudget(mode, override, DEFAULT_REASONING_BUDGET)
+        SmolLMRuntimeConfigSupport.resolvedReasoningBudget(
+            mode,
+            override,
+            SmolLMRuntimeDefaults.DEFAULT_REASONING_BUDGET,
+        )
 
     internal fun setThreadAffinityForLoad(modelPtr: Long, coreMask: Long) =
         setThreadAffinity(modelPtr, coreMask)
@@ -721,10 +665,7 @@ class SmolLM internal constructor(
      * advanced integrations (e.g., native projector) and should NOT be used to free or modify the
      * native model directly.
      */
-    fun getNativeModelPointer(): Long {
-        val nativePtr = requireLoadedHandle()
-        return bridge.getNativeModelPtr(this, nativePtr)
-    }
+    fun getNativeModelPointer(): Long = SmolLMFacadeOperations.getNativeModelPointer(this)
 
     // Decode embeddings prepared by the projector (raw floats) without loading mmproj
     @JvmName("nativeDecodePreparedEmbeddings")
@@ -775,63 +716,50 @@ class SmolLM internal constructor(
      * replay the required llama.decode steps using the current loaded model/context so the image
      * embeddings are present in the KV cache for subsequent generation. Returns true on success.
      */
-    fun decodePreparedEmbeddings(embdPath: String, metaPath: String, nBatch: Int = 1): Boolean {
-        return SmolLMVisionInterop.decodePreparedEmbeddings(this, embdPath, metaPath, nBatch)
-    }
+    fun decodePreparedEmbeddings(embdPath: String, metaPath: String, nBatch: Int = 1): Boolean =
+        SmolLMFacadeOperations.decodePreparedEmbeddings(this, embdPath, metaPath, nBatch)
 
     /**
      * Decode vision embeddings directly from an in-memory buffer, avoiding temporary file I/O.
      * The embeddings should have been produced by [io.aatricks.llmedge.vision.Projector.encodeImageBuffer].
      * Returns true on success.
      */
-    fun decodeEmbeddingsBuffer(embeddings: io.aatricks.llmedge.vision.VisionEmbeddings, nBatch: Int = 1): Boolean {
-        return SmolLMVisionInterop.decodeEmbeddingsBuffer(this, embeddings, nBatch)
-    }
+    fun decodeEmbeddingsBuffer(embeddings: io.aatricks.llmedge.vision.VisionEmbeddings, nBatch: Int = 1): Boolean =
+        SmolLMFacadeOperations.decodeEmbeddingsBuffer(this, embeddings, nBatch)
 
-    internal fun primeImageBuffer(projectorNativePtr: Long, imageData: ByteArray, nBatch: Int = 1): Boolean {
-        return SmolLMVisionInterop.primeImageBuffer(this, projectorNativePtr, imageData, nBatch)
-    }
+    internal fun primeImageBuffer(projectorNativePtr: Long, imageData: ByteArray, nBatch: Int = 1): Boolean =
+        SmolLMFacadeOperations.primeImageBuffer(this, projectorNativePtr, imageData, nBatch)
 
     /**
      * Capture the full model state (including KV cache) as a byte array.
      * Returns null on failure.
      */
-    fun getStateBytes(): ByteArray? {
-        return SmolLMStateSupport.getStateBytes(this)
-    }
+    fun getStateBytes(): ByteArray? = SmolLMFacadeOperations.getStateBytes(this)
 
     /**
      * Restore the full model state (including KV cache) from a byte array.
      */
-    fun setStateBytes(state: ByteArray): Boolean {
-        return SmolLMStateSupport.setStateBytes(this, state)
-    }
+    fun setStateBytes(state: ByteArray): Boolean = SmolLMFacadeOperations.setStateBytes(this, state)
 
     /**
      * Export a single sequence (seq_id) state blob which contains the KV cache for that sequence.
      */
-    fun getSequenceStateBytes(seqId: Int = 0): ByteArray? {
-        return SmolLMStateSupport.getSequenceStateBytes(this, seqId)
-    }
+    fun getSequenceStateBytes(seqId: Int = 0): ByteArray? =
+        SmolLMFacadeOperations.getSequenceStateBytes(this, seqId)
 
     /**
      * Import a single sequence (seq_id) state blob which contains the KV cache for that sequence.
      */
-    fun setSequenceStateBytes(seqId: Int, state: ByteArray): Boolean {
-        return SmolLMStateSupport.setSequenceStateBytes(this, seqId, state)
-    }
+    fun setSequenceStateBytes(seqId: Int, state: ByteArray): Boolean =
+        SmolLMFacadeOperations.setSequenceStateBytes(this, seqId, state)
 
     /**
      * Clears the KV cache stored in the model context.
      */
-    fun clearKvCache() {
-        SmolLMStateSupport.clearKvCache(this)
-    }
+    fun clearKvCache() = SmolLMFacadeOperations.clearKvCache(this)
 
     /** Clears any native chat/system messages stored on this runtime. */
-    fun clearMessages() {
-        SmolLMStateSupport.clearMessages(this)
-    }
+    fun clearMessages() = SmolLMFacadeOperations.clearMessages(this)
 
     @JvmName("close")
     internal external fun close(modelPtr: Long)
@@ -861,15 +789,19 @@ class SmolLM internal constructor(
     }
 
     private fun resolvedReasoningBudget(mode: ThinkingMode, override: Int?): Int {
-        return SmolLMRuntimeConfigSupport.resolvedReasoningBudget(mode, override, DEFAULT_REASONING_BUDGET)
+        return SmolLMRuntimeConfigSupport.resolvedReasoningBudget(
+            mode,
+            override,
+            SmolLMRuntimeDefaults.DEFAULT_REASONING_BUDGET,
+        )
     }
 
     private fun resolveContextSize(requested: Long?, modelContextSize: Long): Long {
         return SmolLMRuntimeConfigSupport.resolveContextSize(
             requested = requested,
             modelContextSize = modelContextSize,
-            minContextSize = MIN_CONTEXT_SIZE,
-            defaultContextSizeCap = DEFAULT_CONTEXT_SIZE_CAP,
+            minContextSize = SmolLMRuntimeDefaults.MIN_CONTEXT_SIZE,
+            defaultContextSizeCap = SmolLMRuntimeDefaults.DEFAULT_CONTEXT_SIZE_CAP,
         ) { desired, clamped, heapMb ->
             SmolLMCompanionSupport.logWarning(
                 "Context window $desired→$clamped tokens to fit heap (${heapMb}MB max). " +

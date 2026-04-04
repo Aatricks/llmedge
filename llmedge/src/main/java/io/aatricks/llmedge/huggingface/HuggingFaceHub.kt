@@ -21,38 +21,6 @@ import java.io.File
 
 /** High-level helper to discover and download GGUF models from Hugging Face. */
 object HuggingFaceHub {
-    internal sealed interface ArtifactRequest {
-        val modelId: String
-        val revision: String
-        val token: String?
-        val forceDownload: Boolean
-        val preferSystemDownloader: Boolean
-        val onProgress: ((downloaded: Long, total: Long?) -> Unit)?
-
-        data class Model(
-            override val modelId: String,
-            override val revision: String = "main",
-            val preferredQuantizations: List<String> = DEFAULT_QUANTIZATION_PRIORITIES,
-            val filename: String? = null,
-            override val token: String? = null,
-            override val forceDownload: Boolean = false,
-            override val preferSystemDownloader: Boolean = false,
-            override val onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
-        ) : ArtifactRequest
-
-        data class RepoFile(
-            override val modelId: String,
-            override val revision: String = "main",
-            val filename: String? = null,
-            val allowedExtensions: List<String> =
-                listOf(".safetensors", ".pt", ".ckpt", ".gguf", ".bin"),
-            override val token: String? = null,
-            override val forceDownload: Boolean = false,
-            override val preferSystemDownloader: Boolean = false,
-            override val onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
-        ) : ArtifactRequest
-    }
-
     data class ModelDownloadResult(
         val requestedModelId: String,
         val requestedRevision: String,
@@ -80,21 +48,21 @@ object HuggingFaceHub {
         forceDownload: Boolean = false,
         preferSystemDownloader: Boolean = false,
         onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
-    ): ModelDownloadResult = ensureArtifactOnDisk(
-        destinationRoot = HFDownloadSupport.defaultModelsRoot(context),
-        request =
-            ArtifactRequest.Model(
-                modelId = modelId,
-                revision = revision,
-                preferredQuantizations = preferredQuantizations,
-                filename = filename,
-                token = token,
-                forceDownload = forceDownload,
-                preferSystemDownloader = preferSystemDownloader,
-                onProgress = onProgress,
-            ),
-        systemDownloadContext = HFDownloadSupport.systemDownloadContext(context, preferSystemDownloader),
-    )
+    ): ModelDownloadResult {
+        val downloadContext = HFArtifactRequestSupport.artifactDownloadContext(context, preferSystemDownloader)
+        return ensureModelOnDisk(
+            destinationRoot = downloadContext.destinationRoot,
+            modelId = modelId,
+            revision = revision,
+            preferredQuantizations = preferredQuantizations,
+            filename = filename,
+            token = token,
+            forceDownload = forceDownload,
+            preferSystemDownloader = preferSystemDownloader,
+            systemDownloadContext = downloadContext.systemDownloadContext,
+            onProgress = onProgress,
+        )
+    }
 
     suspend fun ensureModelOnDisk(
         destinationRoot: File,
@@ -109,17 +77,16 @@ object HuggingFaceHub {
         onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
     ): ModelDownloadResult = ensureArtifactOnDisk(
         destinationRoot = destinationRoot,
-        request =
-            ArtifactRequest.Model(
-                modelId = modelId,
-                revision = revision,
-                preferredQuantizations = preferredQuantizations,
-                filename = filename,
-                token = token,
-                forceDownload = forceDownload,
-                preferSystemDownloader = preferSystemDownloader,
-                onProgress = onProgress,
-            ),
+        request = HFArtifactRequestSupport.modelArtifactRequest(
+            modelId = modelId,
+            revision = revision,
+            preferredQuantizations = preferredQuantizations,
+            filename = filename,
+            token = token,
+            forceDownload = forceDownload,
+            preferSystemDownloader = preferSystemDownloader,
+            onProgress = onProgress,
+        ),
         systemDownloadContext = systemDownloadContext,
     )
 
@@ -167,21 +134,21 @@ object HuggingFaceHub {
         forceDownload: Boolean = false,
         preferSystemDownloader: Boolean = false,
         onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
-    ): ModelDownloadResult = ensureArtifactOnDisk(
-        destinationRoot = HFDownloadSupport.defaultModelsRoot(context),
-        request =
-            ArtifactRequest.RepoFile(
-                modelId = modelId,
-                revision = revision,
-                filename = filename,
-                allowedExtensions = allowedExtensions,
-                token = token,
-                forceDownload = forceDownload,
-                preferSystemDownloader = preferSystemDownloader,
-                onProgress = onProgress,
-            ),
-        systemDownloadContext = HFDownloadSupport.systemDownloadContext(context, preferSystemDownloader),
-    )
+    ): ModelDownloadResult {
+        val downloadContext = HFArtifactRequestSupport.artifactDownloadContext(context, preferSystemDownloader)
+        return ensureRepoFileOnDisk(
+            destinationRoot = downloadContext.destinationRoot,
+            modelId = modelId,
+            revision = revision,
+            filename = filename,
+            allowedExtensions = allowedExtensions,
+            token = token,
+            forceDownload = forceDownload,
+            preferSystemDownloader = preferSystemDownloader,
+            systemDownloadContext = downloadContext.systemDownloadContext,
+            onProgress = onProgress,
+        )
+    }
 
     suspend fun ensureRepoFileOnDisk(
         destinationRoot: File,
@@ -197,29 +164,30 @@ object HuggingFaceHub {
         onProgress: ((downloaded: Long, total: Long?) -> Unit)? = null,
     ): ModelDownloadResult = ensureArtifactOnDisk(
         destinationRoot = destinationRoot,
-        request =
-            ArtifactRequest.RepoFile(
-                modelId = modelId,
-                revision = revision,
-                filename = filename,
-                allowedExtensions = allowedExtensions,
-                token = token,
-                forceDownload = forceDownload,
-                preferSystemDownloader = preferSystemDownloader,
-                onProgress = onProgress,
-            ),
+        request = HFArtifactRequestSupport.repoFileArtifactRequest(
+            modelId = modelId,
+            revision = revision,
+            filename = filename,
+            allowedExtensions = allowedExtensions,
+            token = token,
+            forceDownload = forceDownload,
+            preferSystemDownloader = preferSystemDownloader,
+            onProgress = onProgress,
+        ),
         systemDownloadContext = systemDownloadContext,
     )
 
     internal suspend fun ensureArtifactOnDisk(
         context: Context,
         request: ArtifactRequest,
-    ): ModelDownloadResult =
-        ensureArtifactOnDisk(
-            destinationRoot = HFDownloadSupport.defaultModelsRoot(context),
+    ): ModelDownloadResult {
+        val downloadContext = HFArtifactRequestSupport.artifactDownloadContext(context, request.preferSystemDownloader)
+        return ensureArtifactOnDisk(
+            destinationRoot = downloadContext.destinationRoot,
             request = request,
-            systemDownloadContext = HFDownloadSupport.systemDownloadContext(context, request.preferSystemDownloader),
+            systemDownloadContext = downloadContext.systemDownloadContext,
         )
+    }
 
     internal suspend fun ensureArtifactOnDisk(
         destinationRoot: File,

@@ -2,6 +2,7 @@ package io.aatricks.llmedge.text
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.aatricks.llmedge.DesktopNativeTestSupport
 import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.TextRuntimeConfig
@@ -48,13 +49,9 @@ class ChatSessionLinuxE2ETest {
         Assume.assumeTrue("No text test model specified in $MODEL_PATH_ENV", !modelPath.isNullOrBlank())
 
         val libPath =
-            System.getenv(LIB_PATH_ENV)
-                ?: System.getProperty(LIB_PATH_ENV)
-                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsmollm.so"
-        Assume.assumeTrue("Native library not found at $libPath", File(libPath).exists())
-        Assume.assumeTrue(
-            "Native loading is disabled",
-            System.getProperty("llmedge.disableNativeLoad") != "true"
+            DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+                envName = LIB_PATH_ENV,
+                defaultRelativePath = "llmedge/build/native/linux-x86_64/libsmollm.so",
         )
 
         val context = ApplicationProvider.getApplicationContext<Context>()

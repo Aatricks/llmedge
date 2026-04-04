@@ -27,15 +27,8 @@ import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionExecutor
-import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionLoader
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
-internal fun interface StableDiffusionNativeLibrarySupport {
-    fun ensureLoaded()
-}
+import kotlin.jvm.JvmName
 
 class StableDiffusion internal constructor(
     private val handle: Long,
@@ -316,7 +309,7 @@ class StableDiffusion internal constructor(
     companion object {
         private const val BYTES_IN_MB = 1024L * 1024L
         private const val MEMORY_PRESSURE_THRESHOLD = 0.85f
-        val diffusionDispatcher: CoroutineDispatcher = StableDiffusionCompanionSupport.diffusionDispatcher
+        val diffusionDispatcher: CoroutineDispatcher = StableDiffusionStaticApiSupport.diffusionDispatcher
 
         // Kept as a reflective seam for heuristic tests that validate the combined load policy.
         @JvmStatic
@@ -327,7 +320,7 @@ class StableDiffusion internal constructor(
             preferPerformanceMode: Boolean,
             activityManagerOverride: android.app.ActivityManager?,
         ): Pair<Boolean, Long> =
-            StableDiffusionCompanionSupport.computeEffectiveSequentialLoad(
+            StableDiffusionStaticApiSupport.computeEffectiveSequentialLoad(
                 context = context,
                 resolvedModelPath = resolvedModelPath,
                 sequentialLoad = sequentialLoad,
@@ -342,19 +335,19 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun isNativeLibraryLoaded(): Boolean {
-            return StableDiffusionCompanionSupport.isNativeLibraryLoaded(::nativeCheckBindings)
+            return StableDiffusionStaticApiSupport.isNativeLibraryLoaded(::nativeCheckBindings)
         }
 
         internal fun enableNativeBridgeForTests() {
-            StableDiffusionCompanionSupport.enableNativeBridgeForTests()
+            StableDiffusionStaticApiSupport.enableNativeBridgeForTests()
         }
 
         internal fun overrideNativeBridgeForTests(provider: (StableDiffusion) -> NativeBridge) {
-            StableDiffusionCompanionSupport.overrideNativeBridgeForTests(provider)
+            StableDiffusionStaticApiSupport.overrideNativeBridgeForTests(provider)
         }
 
         internal fun resetNativeBridgeForTests() {
-            StableDiffusionCompanionSupport.resetNativeBridgeForTests()
+            StableDiffusionStaticApiSupport.resetNativeBridgeForTests()
         }
 
         /**
@@ -363,7 +356,7 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun getVulkanDeviceCount(): Int {
-            return StableDiffusionCompanionSupport.getVulkanDeviceCount(::nativeGetVulkanDeviceCount)
+            return StableDiffusionStaticApiSupport.getVulkanDeviceCount(::nativeGetVulkanDeviceCount)
         }
 
         /**
@@ -373,7 +366,7 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun getVulkanDeviceMemory(deviceIndex: Int = 0): LongArray? {
-            return StableDiffusionCompanionSupport.getVulkanDeviceMemory {
+            return StableDiffusionStaticApiSupport.getVulkanDeviceMemory {
                 nativeGetVulkanDeviceMemory(deviceIndex)
             }
         }
@@ -383,7 +376,7 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun getVulkanDeviceDescription(deviceIndex: Int = 0): String? {
-            return StableDiffusionCompanionSupport.getVulkanDeviceDescription {
+            return StableDiffusionStaticApiSupport.getVulkanDeviceDescription {
                 nativeGetVulkanDeviceDescription(deviceIndex)
             }
         }
@@ -396,19 +389,19 @@ class StableDiffusion internal constructor(
          */
         @JvmStatic
         fun estimateModelParamsMemoryBytes(modelPath: String, deviceIndex: Int = 0): Long {
-            return StableDiffusionCompanionSupport.estimateModelParamsMemoryBytes {
+            return StableDiffusionStaticApiSupport.estimateModelParamsMemoryBytes {
                 nativeEstimateModelParamsMemory(modelPath, deviceIndex)
             }
         }
 
         @JvmStatic
         fun checkBindings(): Boolean {
-            return StableDiffusionCompanionSupport.checkBindings(::nativeCheckBindings)
+            return StableDiffusionStaticApiSupport.checkBindings(::nativeCheckBindings)
         }
 
         @JvmStatic
         fun isOpenClAvailable(): Boolean {
-            return StableDiffusionCompanionSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
+            return StableDiffusionStaticApiSupport.isOpenClAvailable(::nativeIsOpenClAvailable)
         }
 
         internal fun supportNativeCreate(
@@ -428,22 +421,23 @@ class StableDiffusion internal constructor(
             loraModelDir: String?,
             loraApplyMode: Int,
         ): Long =
-            nativeCreate(
-                modelPath,
-                vaePath,
-                t5xxlPath,
-                taesdPath,
-                nThreads,
-                enableOpenCl,
-                useVulkan,
-                offloadToCpu,
-                keepClipOnCpu,
-                keepVaeOnCpu,
-                flashAttn,
-                vaeDecodeOnly,
-                flowShift,
-                loraModelDir,
-                loraApplyMode,
+            StableDiffusionStaticApiSupport.supportNativeCreate(
+                modelPath = modelPath,
+                vaePath = vaePath,
+                t5xxlPath = t5xxlPath,
+                taesdPath = taesdPath,
+                nThreads = nThreads,
+                enableOpenCl = enableOpenCl,
+                useVulkan = useVulkan,
+                offloadToCpu = offloadToCpu,
+                keepClipOnCpu = keepClipOnCpu,
+                keepVaeOnCpu = keepVaeOnCpu,
+                flashAttn = flashAttn,
+                vaeDecodeOnly = vaeDecodeOnly,
+                flowShift = flowShift,
+                loraModelDir = loraModelDir,
+                loraApplyMode = loraApplyMode,
+                nativeCreate = ::nativeCreate,
             )
 
         @JvmStatic
@@ -542,30 +536,31 @@ class StableDiffusion internal constructor(
                 flowShift: Float = Float.POSITIVE_INFINITY,
                 loraModelDir: String? = null,
                 loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
-        ): StableDiffusion = StableDiffusionLoader.load(
-            context = context,
-            modelId = modelId,
-            filename = filename,
-            modelPath = modelPath,
-            vaePath = vaePath,
-            t5xxlPath = t5xxlPath,
-            taesdPath = taesdPath,
-            nThreads = nThreads,
-            offloadToCpu = offloadToCpu,
-            keepClipOnCpu = keepClipOnCpu,
-            keepVaeOnCpu = keepVaeOnCpu,
-            flashAttn = flashAttn,
-            vaeDecodeOnly = vaeDecodeOnly,
-            sequentialLoad = sequentialLoad,
-            allowVulkan = allowVulkan,
-            forceVulkan = forceVulkan,
-            preferPerformanceMode = preferPerformanceMode,
-            token = token,
-            forceDownload = forceDownload,
-            flowShift = flowShift,
-            loraModelDir = loraModelDir,
-            loraApplyMode = loraApplyMode,
-        )
+        ): StableDiffusion =
+            StableDiffusionStaticApiSupport.load(
+                context = context,
+                modelId = modelId,
+                filename = filename,
+                modelPath = modelPath,
+                vaePath = vaePath,
+                t5xxlPath = t5xxlPath,
+                taesdPath = taesdPath,
+                nThreads = nThreads,
+                offloadToCpu = offloadToCpu,
+                keepClipOnCpu = keepClipOnCpu,
+                keepVaeOnCpu = keepVaeOnCpu,
+                flashAttn = flashAttn,
+                vaeDecodeOnly = vaeDecodeOnly,
+                sequentialLoad = sequentialLoad,
+                allowVulkan = allowVulkan,
+                forceVulkan = forceVulkan,
+                preferPerformanceMode = preferPerformanceMode,
+                token = token,
+                forceDownload = forceDownload,
+                flowShift = flowShift,
+                loraModelDir = loraModelDir,
+                loraApplyMode = loraApplyMode,
+            )
 
         internal suspend fun loadWithRuntimeBackend(
                 context: Context,
@@ -589,29 +584,30 @@ class StableDiffusion internal constructor(
                 loraModelDir: String? = null,
                 loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
                 preferredBackend: ComputeBackend,
-        ): StableDiffusion = StableDiffusionLoader.loadWithRuntimeBackend(
-            context = context,
-            modelId = modelId,
-            filename = filename,
-            modelPath = modelPath,
-            vaePath = vaePath,
-            t5xxlPath = t5xxlPath,
-            taesdPath = taesdPath,
-            nThreads = nThreads,
-            offloadToCpu = offloadToCpu,
-            keepClipOnCpu = keepClipOnCpu,
-            keepVaeOnCpu = keepVaeOnCpu,
-            flashAttn = flashAttn,
-            vaeDecodeOnly = vaeDecodeOnly,
-            sequentialLoad = sequentialLoad,
-            preferPerformanceMode = preferPerformanceMode,
-            token = token,
-            forceDownload = forceDownload,
-            flowShift = flowShift,
-            loraModelDir = loraModelDir,
-            loraApplyMode = loraApplyMode,
-            preferredBackend = preferredBackend,
-        )
+        ): StableDiffusion =
+            StableDiffusionStaticApiSupport.loadWithRuntimeBackend(
+                context = context,
+                modelId = modelId,
+                filename = filename,
+                modelPath = modelPath,
+                vaePath = vaePath,
+                t5xxlPath = t5xxlPath,
+                taesdPath = taesdPath,
+                nThreads = nThreads,
+                offloadToCpu = offloadToCpu,
+                keepClipOnCpu = keepClipOnCpu,
+                keepVaeOnCpu = keepVaeOnCpu,
+                flashAttn = flashAttn,
+                vaeDecodeOnly = vaeDecodeOnly,
+                sequentialLoad = sequentialLoad,
+                preferPerformanceMode = preferPerformanceMode,
+                token = token,
+                forceDownload = forceDownload,
+                flowShift = flowShift,
+                loraModelDir = loraModelDir,
+                loraApplyMode = loraApplyMode,
+                preferredBackend = preferredBackend,
+            )
 
         suspend fun loadFromHuggingFace(
                 context: Context,
@@ -635,29 +631,30 @@ class StableDiffusion internal constructor(
                 loraModelDir: String? = null,
                 loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
                 onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)? = null,
-        ): StableDiffusion = StableDiffusionLoader.loadFromHuggingFace(
-            context = context,
-            modelId = modelId,
-            filename = filename,
-            taesdPath = taesdPath,
-            nThreads = nThreads,
-            offloadToCpu = offloadToCpu,
-            keepClipOnCpu = keepClipOnCpu,
-            keepVaeOnCpu = keepVaeOnCpu,
-            flashAttn = flashAttn,
-            vaeDecodeOnly = vaeDecodeOnly,
-            sequentialLoad = sequentialLoad,
-            allowVulkan = allowVulkan,
-            forceVulkan = forceVulkan,
-            preferPerformanceMode = preferPerformanceMode,
-            token = token,
-            forceDownload = forceDownload,
-            preferSystemDownloader = preferSystemDownloader,
-            flowShift = flowShift,
-            loraModelDir = loraModelDir,
-            loraApplyMode = loraApplyMode,
-            onProgress = onProgress,
-        )
+        ): StableDiffusion =
+            StableDiffusionStaticApiSupport.loadFromHuggingFace(
+                context = context,
+                modelId = modelId,
+                filename = filename,
+                taesdPath = taesdPath,
+                nThreads = nThreads,
+                offloadToCpu = offloadToCpu,
+                keepClipOnCpu = keepClipOnCpu,
+                keepVaeOnCpu = keepVaeOnCpu,
+                flashAttn = flashAttn,
+                vaeDecodeOnly = vaeDecodeOnly,
+                sequentialLoad = sequentialLoad,
+                allowVulkan = allowVulkan,
+                forceVulkan = forceVulkan,
+                preferPerformanceMode = preferPerformanceMode,
+                token = token,
+                forceDownload = forceDownload,
+                preferSystemDownloader = preferSystemDownloader,
+                flowShift = flowShift,
+                loraModelDir = loraModelDir,
+                loraApplyMode = loraApplyMode,
+                onProgress = onProgress,
+            )
 
         internal fun supportLogWarning(message: String) = AndroidLogAdapter.w("StableDiffusion", message)
 
@@ -679,23 +676,17 @@ class StableDiffusion internal constructor(
             }
     }
 
-    fun isVideoModel(): Boolean {
-        val metadata = runtimeState.modelMetadata ?: return false
-        return StableDiffusionMetadataSupport.isVideoModel(metadata)
-    }
+    fun isVideoModel(): Boolean = StableDiffusionFacadeOperations.isVideoModel(this)
 
     suspend fun txt2vid(
             params: VideoGenerateParams,
             onProgress: VideoProgressCallback? = null,
-        ): List<Bitmap> = StableDiffusionExecutor.txt2vid(this, params, onProgress)
+        ): List<Bitmap> = StableDiffusionFacadeOperations.txt2vid(this, params, onProgress)
 
-    fun setProgressCallback(callback: VideoProgressCallback?) {
-        StableDiffusionExecutor.setProgressCallback(this, callback)
-    }
+    fun setProgressCallback(callback: VideoProgressCallback?) =
+        StableDiffusionFacadeOperations.setProgressCallback(this, callback)
 
-    fun cancelGeneration() {
-        StableDiffusionExecutor.cancelGeneration(this)
-    }
+    fun cancelGeneration() = StableDiffusionFacadeOperations.cancelGeneration(this)
 
     fun getLastGenerationMetrics(): GenerationMetrics? = runtimeState.lastGenerationMetrics
 
@@ -705,80 +696,52 @@ class StableDiffusion internal constructor(
     internal val state: StableDiffusionState
         get() = runtimeState
 
-    internal fun beginImageRequestTrace(requestId: Long) {
-        runtimeState.beginImageTrace(requestId)
-    }
+    internal fun beginImageRequestTrace(requestId: Long) =
+        StableDiffusionFacadeOperations.beginImageRequestTrace(this, requestId)
 
     internal fun traceImagePhase(
         phase: ImageGenerationPhase,
         detail: String? = null,
         throwable: Throwable? = null,
-    ) {
-        if (phase.isTerminal() && runtimeState.currentImagePhase?.isTerminal() == true) {
-            return
-        }
-        val requestId = runtimeState.appendImageTrace(phase, detail) ?: return
-        val message =
-            buildString {
-                append("requestId=")
-                append(requestId)
-                append(", phase=")
-                append(phase.name)
-                if (!detail.isNullOrBlank()) {
-                    append(", detail=")
-                    append(detail)
-                }
-            }
-        if (throwable == null) {
-            AndroidLogAdapter.i("StableDiffusionTrace", message)
-        } else {
-            AndroidLogAdapter.e("StableDiffusionTrace", message, throwable)
-        }
-    }
+    ) = StableDiffusionFacadeOperations.traceImagePhase(this, phase, detail, throwable)
 
-    internal fun clearImageRequestTrace() {
-        runtimeState.clearImageTraceState()
-    }
+    internal fun clearImageRequestTrace() =
+        StableDiffusionFacadeOperations.clearImageRequestTrace(this)
 
     internal fun getLastImageRequestTraceForTests(): List<ImageGenerationTraceEvent> =
-        runtimeState.snapshotLastImageTrace()
+        StableDiffusionFacadeOperations.getLastImageRequestTraceForTests(this)
 
     internal fun bitmapToRgbBytesForExecution(bitmap: Bitmap): Triple<ByteArray, Int, Int> =
-        bitmapToRgbBytes(bitmap)
+        StableDiffusionFacadeOperations.bitmapToRgbBytesForExecution(this, bitmap)
 
     internal fun convertFramesToBitmapsForExecution(
         frameBytesRgb24: Array<ByteArray>,
         width: Int,
         height: Int,
-    ): List<Bitmap> = convertFramesToBitmaps(frameBytesRgb24, width, height)
+    ): List<Bitmap> =
+        StableDiffusionFacadeOperations.convertFramesToBitmapsForExecution(this, frameBytesRgb24, width, height)
 
     internal fun warnIfLowMemoryForExecution(estimatedAdditionalBytes: Long) =
-        warnIfLowMemory(estimatedAdditionalBytes)
+        StableDiffusionFacadeOperations.warnIfLowMemoryForExecution(this, estimatedAdditionalBytes)
 
     internal fun estimateFrameFootprintBytesForExecution(width: Int, height: Int, frameCount: Int): Long =
-        estimateFrameFootprintBytes(width, height, frameCount)
+        StableDiffusionFacadeOperations.estimateFrameFootprintBytesForExecution(this, width, height, frameCount)
 
-    internal fun readNativeMemoryMbForExecution(): Long = readNativeMemoryMb()
+    internal fun readNativeMemoryMbForExecution(): Long =
+        StableDiffusionFacadeOperations.readNativeMemoryMbForExecution(this)
 
     internal fun nativeIsEasyCacheSupportedForExecution(): Boolean =
-        nativeIsEasyCacheSupported(handle)
+        StableDiffusionFacadeOperations.nativeIsEasyCacheSupportedForExecution(this)
 
     internal fun updateCachedProgressCallback(callback: VideoProgressCallback?) {
         cachedProgressCallback = callback
         runtimeState.cachedProgressCallback = callback
     }
 
-    suspend fun txt2img(params: GenerateParams): Bitmap {
-        traceImagePhase(
-            ImageGenerationPhase.TXT2IMG_ENTER,
-            "StableDiffusion.txt2img entered width=${params.width} height=${params.height} steps=${params.steps}",
-        )
-        return StableDiffusionExecutor.txt2img(this, params)
-    }
+    suspend fun txt2img(params: GenerateParams): Bitmap =
+        StableDiffusionFacadeOperations.txt2img(this, params)
 
-    fun isEasyCacheSupported(): Boolean {
-        return StableDiffusionExecutor.isEasyCacheSupported(this)
-    }
+    fun isEasyCacheSupported(): Boolean = StableDiffusionFacadeOperations.isEasyCacheSupported(this)
 
     override fun close() {
         // T096: Proper cleanup - cancel any ongoing generation, destroy native context, reset state
@@ -807,6 +770,9 @@ class StableDiffusion internal constructor(
 
     private external fun nativeDestroy(handle: Long)
 
+    internal fun handleForExecution(): Long = handle
+
+    @JvmName("nativeTxt2Img")
     internal external fun nativeTxt2Img(
             handle: Long,
             prompt: String,
@@ -823,6 +789,7 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f,
     ): ByteArray?
 
+    @JvmName("nativeTxt2ImgArgb")
     internal external fun nativeTxt2ImgArgb(
             handle: Long,
             prompt: String,
@@ -839,6 +806,7 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f,
     ): IntArray?
 
+    @JvmName("nativeTxt2Vid")
     internal external fun nativeTxt2Vid(
             handle: Long,
             prompt: String,
@@ -862,13 +830,16 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f,
     ): Array<ByteArray>?
 
+    @JvmName("nativeSetProgressCallback")
     internal external fun nativeSetProgressCallback(
             handle: Long,
             callback: VideoProgressCallback?,
     )
 
+    @JvmName("nativeCancelGeneration")
     internal external fun nativeCancelGeneration(handle: Long)
 
+    @JvmName("nativePrecomputeCondition")
     internal external fun nativePrecomputeCondition(
             handle: Long,
             prompt: String,
@@ -878,6 +849,7 @@ class StableDiffusion internal constructor(
             clipSkip: Int,
     ): Array<Any?>?
 
+    @JvmName("nativeTxt2VidWithPrecomputedCondition")
     internal external fun nativeTxt2VidWithPrecomputedCondition(
             handle: Long,
             prompt: String,
@@ -903,6 +875,7 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f,
     ): Array<ByteArray>?
 
+    @JvmName("nativeTxt2ImgWithPrecomputedCondition")
     internal external fun nativeTxt2ImgWithPrecomputedCondition(
             handle: Long,
             prompt: String,
@@ -920,16 +893,19 @@ class StableDiffusion internal constructor(
             easyCacheEndPercent: Float = 0.95f
     ): ByteArray?
 
+    @JvmName("nativeIsEasyCacheSupported")
     internal external fun nativeIsEasyCacheSupported(handle: Long): Boolean
 
-    private fun bitmapToRgbBytes(bitmap: Bitmap): Triple<ByteArray, Int, Int> {
+    @JvmName("bitmapToRgbBytes")
+    internal fun bitmapToRgbBytes(bitmap: Bitmap): Triple<ByteArray, Int, Int> {
         return StableDiffusionOutputSupport.bitmapToRgbBytes(bitmap, runtimeState.rgbBytesThreadLocal)
     }
 
     private fun rgbBytesToBitmap(rgb: ByteArray, width: Int, height: Int): Bitmap =
         io.aatricks.llmedge.vision.ImageUtils.rgbBytesToBitmap(rgb, width, height)
 
-    private fun convertFramesToBitmaps(
+    @JvmName("convertFramesToBitmaps")
+    internal fun convertFramesToBitmaps(
             frameBytesRgb24: Array<ByteArray>,
             width: Int,
             height: Int,
@@ -984,7 +960,8 @@ class StableDiffusion internal constructor(
         onProgress,
     )
 
-    private fun warnIfLowMemory(estimatedAdditionalBytes: Long) {
+    @JvmName("warnIfLowMemory")
+    internal fun warnIfLowMemory(estimatedAdditionalBytes: Long) {
         StableDiffusionOutputSupport.warnIfLowMemory(
             logTag = "StableDiffusion",
             estimatedAdditionalBytes = estimatedAdditionalBytes,
@@ -993,9 +970,11 @@ class StableDiffusion internal constructor(
         )
     }
 
-    private fun estimateFrameFootprintBytes(width: Int, height: Int, frameCount: Int): Long =
+    @JvmName("estimateFrameFootprintBytes")
+    internal fun estimateFrameFootprintBytes(width: Int, height: Int, frameCount: Int): Long =
             StableDiffusionOutputSupport.estimateFrameFootprintBytes(width, height, frameCount)
 
-    private fun readNativeMemoryMb(): Long =
+    @JvmName("readNativeMemoryMb")
+    internal fun readNativeMemoryMb(): Long =
             StableDiffusionOutputSupport.readNativeMemoryMb(BYTES_IN_MB)
 }

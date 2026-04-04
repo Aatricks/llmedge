@@ -1,13 +1,13 @@
 package io.aatricks.llmedge.image
 
 import android.content.Context
-import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
+import io.aatricks.llmedge.core.runtime.RuntimeCapabilities
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
 import io.aatricks.llmedge.core.runtime.runtimePoolProfile
@@ -241,8 +241,8 @@ internal fun createDiffusionRuntimePool(
                     BackendCandidateResolver.Request(
                         subsystem = options.subsystem,
                         allowGpu = options.allowGpu,
-                        openClAvailable = StableDiffusion.isOpenClAvailable(),
-                        vulkanAvailable = LLMEdge.isVulkanAvailable(),
+                        openClAvailable = RuntimeCapabilities.isStableDiffusionOpenClAvailable(),
+                        vulkanAvailable = RuntimeCapabilities.isStableDiffusionVulkanAvailable(),
                     )
                 },
             ),

@@ -57,6 +57,8 @@ class TextInferenceLinuxE2ETest {
         if (!libFile.exists()) {
              println("[TextInferenceLinuxE2ETest] Warning: $libPath does not exist. Test might fail if not in java.library.path")
         }
+        DesktopNativeTestSupport.requireEnabled()
+        DesktopNativeTestSupport.requireAndLoadLibrary(libPath)
 
         // Use Robolectric context (though SmolLM might not strictly need it for load, loadFromHuggingFace does)
         val context = org.robolectric.RuntimeEnvironment.getApplication() as Context

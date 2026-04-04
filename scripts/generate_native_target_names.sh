@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CMAKE_TARGETS_FILE="${ROOT_DIR}/llmedge/src/main/cpp/cmake/llmedge-targets.cmake"
-OUT_FILE="${ROOT_DIR}/llmedge/src/main/java/io/aatricks/llmedge/core/NativeTargetNames.kt"
+DEFAULT_OUT_FILE="${ROOT_DIR}/llmedge/src/main/java/io/aatricks/llmedge/core/NativeTargetNames.kt"
+OUT_FILE="${1:-${DEFAULT_OUT_FILE}}"
 
 if [[ ! -f "${CMAKE_TARGETS_FILE}" ]]; then
   echo "Missing target definition file: ${CMAKE_TARGETS_FILE}" >&2
@@ -17,6 +18,8 @@ if [[ ${#target_lines[@]} -eq 0 ]]; then
   echo "No LLMEDGE_TARGET_* constants found in ${CMAKE_TARGETS_FILE}" >&2
   exit 1
 fi
+
+mkdir -p "$(dirname "${OUT_FILE}")"
 
 {
   echo "package io.aatricks.llmedge.core"

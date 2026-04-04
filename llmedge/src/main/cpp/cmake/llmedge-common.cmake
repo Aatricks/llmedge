@@ -91,6 +91,7 @@ set(SMOLLM_SOURCES
         ${LLMEDGE_COMMON_SOURCES}
 
         ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
+        ${LLMEDGE_CPP_ROOT}/llm_backend_support.cpp
         ${LLMEDGE_CPP_ROOT}/smollm.cpp
         ${LLMEDGE_CPP_ROOT}/smollm_jni_completion.cpp
         ${LLMEDGE_CPP_ROOT}/smollm_jni_embeddings.cpp

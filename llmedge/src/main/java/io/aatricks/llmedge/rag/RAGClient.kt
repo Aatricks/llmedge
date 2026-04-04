@@ -56,13 +56,7 @@ class RAGClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): RAGClient =
-            createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
-                RAGClient(
-                    featureContext = featureContext,
-                    ownedBootstrap = bootstrap,
-                )
-            }
+        ): RAGClient = createOwnedFeatureClient(context, scope, config, modelRepository, ::RAGClient)
 
         @JvmSynthetic
         internal fun forTesting(
@@ -72,9 +66,7 @@ class RAGClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): RAGClient =
-            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap) { featureContext, bootstrap ->
-                RAGClient(featureContext = featureContext, ownedBootstrap = bootstrap)
-            }
+            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap, ::RAGClient)
     }
 
     private val runtimePool = createTextRuntimePool(appContext, edgeScope, config, modelRepository)

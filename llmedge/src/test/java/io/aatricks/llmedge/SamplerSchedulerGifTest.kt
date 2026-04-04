@@ -50,11 +50,10 @@ class SamplerSchedulerGifTest {
         Assume.assumeTrue("T5 path not set", !t5Path.isNullOrBlank())
         Assume.assumeTrue("VAE path not set", !vaePath.isNullOrBlank())
 
-        val libPath = System.getenv(LIB_PATH_ENV)
-            ?: System.getProperty(LIB_PATH_ENV)
-            ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
-        Assume.assumeTrue("Native library not found", File(libPath).exists())
-        Assume.assumeTrue("Native loading disabled", System.getProperty("llmedge.disableNativeLoad") != "true")
+        DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+            envName = LIB_PATH_ENV,
+            defaultRelativePath = "llmedge/build/native/linux-x86_64/libsdcpp.so",
+        )
 
         val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
         val outputDir = File("${System.getProperty("user.dir")}/sampler_scheduler_tests")

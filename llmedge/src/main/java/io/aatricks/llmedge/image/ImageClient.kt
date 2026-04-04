@@ -81,13 +81,7 @@ class ImageClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): ImageClient =
-            createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
-                ImageClient(
-                    featureContext = featureContext,
-                    ownedBootstrap = bootstrap,
-                )
-            }
+        ): ImageClient = createOwnedFeatureClient(context, scope, config, modelRepository, ::ImageClient)
 
         @JvmSynthetic
         internal fun forTesting(
@@ -97,9 +91,7 @@ class ImageClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): ImageClient =
-            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap) { featureContext, bootstrap ->
-                ImageClient(featureContext = featureContext, ownedBootstrap = bootstrap)
-            }
+            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap, ::ImageClient)
 
         internal fun resetVideoVulkanBlacklistForTests() {
             BackendRuntimePolicy.resetForTests()

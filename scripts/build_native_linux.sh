@@ -40,7 +40,7 @@ copy_output() {
 
 prepare_sdcpp_mods() {
     local build_dir="$1"
-    local -n out_args="$2"
+    local -n out_args_ref="$2"
 
     local use_mods="${LLMEDGE_SDCPP_USE_MODS:-}"
     if [[ -z "$use_mods" ]]; then
@@ -88,19 +88,19 @@ prepare_sdcpp_mods() {
       fi
     done
 
-    out_args+=("-DSD_ROOT_OVERRIDE=$patched_root")
+    out_args_ref+=("-DSD_ROOT_OVERRIDE=$patched_root")
 }
 
 configure_target() {
     local target="$1"
     local build_dir="$2"
-    local -n out_args="$3"
+    local -n out_args_ref="$3"
 
-    out_args=(-DCMAKE_BUILD_TYPE=Release)
+    out_args_ref=(-DCMAKE_BUILD_TYPE=Release)
     case "$target" in
         sdcpp)
-            prepare_sdcpp_mods "$build_dir" out_args
-            out_args+=(
+            prepare_sdcpp_mods "$build_dir" out_args_ref
+            out_args_ref+=(
                 -DBUILD_SDCPP=ON
                 -DBUILD_SMOLLM=OFF
                 -DBUILD_BARK=OFF
@@ -113,7 +113,7 @@ configure_target() {
             )
             ;;
         smollm)
-            out_args+=(
+            out_args_ref+=(
                 -DBUILD_SDCPP=OFF
                 -DBUILD_SMOLLM=ON
                 -DBUILD_BARK=OFF
@@ -124,7 +124,7 @@ configure_target() {
             )
             ;;
         whisper)
-            out_args+=(
+            out_args_ref+=(
                 -DBUILD_SDCPP=OFF
                 -DBUILD_SMOLLM=OFF
                 -DBUILD_BARK=OFF
@@ -132,7 +132,7 @@ configure_target() {
             )
             ;;
         bark)
-            out_args+=(
+            out_args_ref+=(
                 -DBUILD_SDCPP=OFF
                 -DBUILD_SMOLLM=OFF
                 -DBUILD_BARK=ON

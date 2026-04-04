@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.test.core.app.ApplicationProvider
+import io.aatricks.llmedge.DesktopNativeTestSupport
 import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.TextRuntimeConfig
@@ -88,13 +89,9 @@ class VisionLinuxE2ETest {
         )
 
         val libPath =
-            System.getenv(libPathEnv)
-                ?: System.getProperty(libPathEnv)
-                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsmollm.so"
-        Assume.assumeTrue("Native library not found at $libPath", File(libPath).exists())
-        Assume.assumeTrue(
-            "Native loading is disabled",
-            System.getProperty("llmedge.disableNativeLoad") != "true",
+            DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+                envName = libPathEnv,
+                defaultRelativePath = "llmedge/build/native/linux-x86_64/libsmollm.so",
         )
 
         val context = ApplicationProvider.getApplicationContext<Context>()

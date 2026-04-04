@@ -43,6 +43,7 @@ set(WHISPER_GGML_SOURCES
 
 set(WHISPER_SOURCES
         ${WHISPER_DIR}/src/whisper.cpp
+        ${LLMEDGE_CPP_ROOT}/whisper_jni_common.cpp
         ${LLMEDGE_CPP_ROOT}/whisper_jni.cpp
 )
 

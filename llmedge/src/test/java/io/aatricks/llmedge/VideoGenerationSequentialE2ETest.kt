@@ -55,6 +55,12 @@ class VideoGenerationSequentialE2ETest {
     private val LIB_PATH_ENV = "LLMEDGE_BUILD_NATIVE_LIB_PATH"
     private val MODEL_PATH_ENV = "LLMEDGE_TEST_MODEL_PATH"
 
+    private fun requireNativeLibrary(): String =
+        DesktopNativeTestSupport.requireEnabledAndLoadLibrary(
+            envName = LIB_PATH_ENV,
+            defaultRelativePath = "llmedge/build/native/linux-x86_64/libsdcpp.so",
+        )
+
     private fun envInt(name: String, default: Int): Int {
         val raw = System.getenv(name) ?: System.getProperty(name)
         return raw?.toIntOrNull() ?: default
@@ -253,18 +259,9 @@ class VideoGenerationSequentialE2ETest {
         Assume.assumeTrue("VAE path does not exist", File(paths.vaePath).exists())
 
         // Check that native library exists
-        val libPath =
-                System.getenv(LIB_PATH_ENV)
-                        ?: System.getProperty(LIB_PATH_ENV)
-                                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
-
+        val libPath = requireNativeLibrary()
         val libFile = java.io.File(libPath)
         println("[SequentialE2E] libPath=$libPath exists=${libFile.exists()}")
-        Assume.assumeTrue("Native library not found at $libPath", libFile.exists())
-
-        // Verify native loading is enabled
-        val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        Assume.assumeTrue("Native loading is disabled", disableNativeLoad != "true")
 
         // Test parameters - same as VideoGenerationActivity defaults
         // Defaults chosen to be CPU-friendly for local Linux runs.
@@ -502,15 +499,7 @@ class VideoGenerationSequentialE2ETest {
         Assume.assumeTrue("T5 path does not exist", File(paths.t5Path).exists())
         Assume.assumeTrue("VAE path does not exist", File(paths.vaePath).exists())
 
-        val libPath =
-                System.getenv(LIB_PATH_ENV)
-                        ?: System.getProperty(LIB_PATH_ENV)
-                                ?: "${System.getProperty("user.dir")}/llmedge/build/native/linux-x86_64/libsdcpp.so"
-        Assume.assumeTrue("Native library not found", java.io.File(libPath).exists())
-        Assume.assumeTrue(
-                "Native loading disabled",
-                System.getProperty("llmedge.disableNativeLoad") != "true"
-        )
+        requireNativeLibrary()
 
         // Test parameters for I2V
         val width = envInt("LLMEDGE_TEST_WIDTH", 256)

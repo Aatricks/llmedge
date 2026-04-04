@@ -4,9 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.ImageRuntimeConfig
-import io.aatricks.llmedge.LLMEdge
 import io.aatricks.llmedge.LLMEdgeConfig
-import io.aatricks.llmedge.runtime.ComputeBackend
+import io.aatricks.llmedge.core.runtime.RuntimeCapabilities
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
 import io.aatricks.llmedge.image.diffusion.SampleMethod
@@ -16,6 +15,7 @@ import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelSpec
+import io.aatricks.llmedge.runtime.ComputeBackend
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -44,6 +44,7 @@ class ImageClientTest {
         StableDiffusion.enableNativeBridgeForTests()
         ImageClient.resetVideoVulkanBlacklistForTests()
         mockkObject(StableDiffusion.Companion)
+        mockkObject(RuntimeCapabilities)
     }
 
     @After
@@ -53,6 +54,10 @@ class ImageClientTest {
         System.clearProperty("llmedge.disableNativeLoad")
         try {
             io.mockk.unmockkObject(StableDiffusion.Companion)
+        } catch (_: Throwable) {
+        }
+        try {
+            io.mockk.unmockkObject(RuntimeCapabilities)
         } catch (_: Throwable) {
         }
         clearAllMocks()
@@ -267,9 +272,8 @@ class ImageClientTest {
                 writeBytes(byteArrayOf(0x01))
             }
 
-        mockkObject(LLMEdge.Companion)
-        every { LLMEdge.isVulkanAvailable() } returns true
-        every { StableDiffusion.isOpenClAvailable() } returns false
+        every { RuntimeCapabilities.isStableDiffusionVulkanAvailable() } returns true
+        every { RuntimeCapabilities.isStableDiffusionOpenClAvailable() } returns false
 
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
@@ -367,10 +371,6 @@ class ImageClientTest {
             client.close()
             edgeScope.close()
             StableDiffusion.resetNativeBridgeForTests()
-            try {
-                io.mockk.unmockkObject(LLMEdge.Companion)
-            } catch (_: Throwable) {
-            }
         }
     }
 
@@ -382,8 +382,7 @@ class ImageClientTest {
         val vaeFile = java.io.File.createTempFile("wan-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
         val t5File = java.io.File.createTempFile("umt5", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
 
-        mockkObject(LLMEdge.Companion)
-        every { LLMEdge.isVulkanAvailable() } returns true
+        every { RuntimeCapabilities.isStableDiffusionVulkanAvailable() } returns true
 
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
@@ -500,10 +499,6 @@ class ImageClientTest {
             client.close()
             edgeScope.close()
             StableDiffusion.resetNativeBridgeForTests()
-            try {
-                io.mockk.unmockkObject(LLMEdge.Companion)
-            } catch (_: Throwable) {
-            }
         }
     }
 
@@ -515,8 +510,7 @@ class ImageClientTest {
         val vaeFile = java.io.File.createTempFile("wan-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
         val t5File = java.io.File.createTempFile("umt5", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
 
-        mockkObject(LLMEdge.Companion)
-        every { LLMEdge.isVulkanAvailable() } returns true
+        every { RuntimeCapabilities.isStableDiffusionVulkanAvailable() } returns true
 
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
@@ -649,10 +643,6 @@ class ImageClientTest {
             edgeScope1.close()
             edgeScope2.close()
             StableDiffusion.resetNativeBridgeForTests()
-            try {
-                io.mockk.unmockkObject(LLMEdge.Companion)
-            } catch (_: Throwable) {
-            }
         }
     }
 
@@ -1051,9 +1041,8 @@ class ImageClientTest {
                 writeBytes(byteArrayOf(0x01))
             }
 
-        mockkObject(LLMEdge.Companion)
-        every { LLMEdge.isVulkanAvailable() } returns true
-        every { StableDiffusion.isOpenClAvailable() } returns false
+        every { RuntimeCapabilities.isStableDiffusionVulkanAvailable() } returns true
+        every { RuntimeCapabilities.isStableDiffusionOpenClAvailable() } returns false
 
         StableDiffusion.overrideNativeBridgeForTests {
             object : StableDiffusion.NativeBridge {
@@ -1157,10 +1146,6 @@ class ImageClientTest {
             client.close()
             edgeScope.close()
             StableDiffusion.resetNativeBridgeForTests()
-            try {
-                io.mockk.unmockkObject(LLMEdge.Companion)
-            } catch (_: Throwable) {
-            }
         }
     }
 

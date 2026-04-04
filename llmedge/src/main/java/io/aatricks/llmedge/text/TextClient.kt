@@ -74,13 +74,7 @@ class TextClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): TextClient =
-            createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
-                TextClient(
-                    featureContext = featureContext,
-                    ownedBootstrap = bootstrap,
-                )
-            }
+        ): TextClient = createOwnedFeatureClient(context, scope, config, modelRepository, ::TextClient)
 
         @JvmSynthetic
         internal fun forTesting(
@@ -90,9 +84,7 @@ class TextClient internal constructor(
             modelResolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): TextClient =
-            createFeatureClientForTesting(context, scope, config, modelResolver, ownedBootstrap) { featureContext, bootstrap ->
-                TextClient(featureContext = featureContext, ownedBootstrap = bootstrap)
-            }
+            createFeatureClientForTesting(context, scope, config, modelResolver, ownedBootstrap, ::TextClient)
     }
 
     @Volatile

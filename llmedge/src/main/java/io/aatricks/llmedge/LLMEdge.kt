@@ -5,8 +5,8 @@ import io.aatricks.llmedge.core.ClientBootstrap
 import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
 import io.aatricks.llmedge.core.LLMEdgeScope
+import io.aatricks.llmedge.core.runtime.RuntimeCapabilities
 import io.aatricks.llmedge.image.ImageClient
-import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.model.BoundModelRepository
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
@@ -59,7 +59,7 @@ class LLMEdge private constructor(
     }
     private val visionDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         VisionClient(
-            context = appContext,
+            featureContext = featureContext,
             pipeline = VisionPipeline(featureContext),
             config = config,
         )
@@ -136,34 +136,12 @@ class LLMEdge private constructor(
             }
 
         @JvmStatic
-        fun isVulkanAvailable(): Boolean {
-            val deviceCount = StableDiffusion.getVulkanDeviceCount()
-            if (deviceCount <= 0) {
-                return false
-            }
-            val memory = StableDiffusion.getVulkanDeviceMemory(0) ?: return false
-            return memory.size >= 2
-        }
+        fun isVulkanAvailable(): Boolean = RuntimeCapabilities.isStableDiffusionVulkanAvailable()
 
         @JvmStatic
-        fun isOpenClAvailable(): Boolean = StableDiffusion.isOpenClAvailable()
+        fun isOpenClAvailable(): Boolean = RuntimeCapabilities.isStableDiffusionOpenClAvailable()
 
         @JvmStatic
-        fun getVulkanDeviceInfo(): VulkanDeviceInfo? {
-            val deviceCount = StableDiffusion.getVulkanDeviceCount()
-            if (deviceCount <= 0) {
-                return null
-            }
-            val memory = StableDiffusion.getVulkanDeviceMemory(0) ?: return null
-            if (memory.size < 2) {
-                return null
-            }
-            return VulkanDeviceInfo(
-                deviceCount = deviceCount,
-                freeMemoryMB = memory[0] / (1024 * 1024),
-                totalMemoryMB = memory[1] / (1024 * 1024),
-                deviceIndex = 0,
-            )
-        }
+        fun getVulkanDeviceInfo(): VulkanDeviceInfo? = RuntimeCapabilities.getStableDiffusionVulkanDeviceInfo()
     }
 }

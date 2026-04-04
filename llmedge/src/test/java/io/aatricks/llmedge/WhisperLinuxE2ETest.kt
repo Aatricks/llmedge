@@ -65,15 +65,8 @@ class WhisperLinuxE2ETest {
         val libFile = File(libPath)
         println("[WhisperLinuxE2ETest] libPath=$libPath libExists=${libFile.exists()}")
         println("[WhisperLinuxE2ETest] java.library.path=${System.getProperty("java.library.path")}")
-        Assume.assumeTrue("Native library not found at $libPath", libFile.exists())
-
-        // Verify native library loading is enabled
-        val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        println("[WhisperLinuxE2ETest] llmedge.disableNativeLoad=$disableNativeLoad")
-        Assume.assumeTrue(
-            "Native loading is disabled. Run with LLMEDGE_BUILD_WHISPER_LIB_PATH env var set.",
-            disableNativeLoad != "true"
-        )
+        DesktopNativeTestSupport.requireEnabled()
+        DesktopNativeTestSupport.requireAndLoadLibrary(libPath)
 
         // Check if model file exists
         val modelFile = File(modelPath)
@@ -139,7 +132,9 @@ class WhisperLinuxE2ETest {
     fun `whisper version and system info`() {
         // This test doesn't require a model, just the native library
         val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        Assume.assumeTrue("Native loading is disabled", disableNativeLoad != "true")
+        DesktopNativeTestSupport.requireEnabled()
+        val libPath = resolveLibraryPath()
+        DesktopNativeTestSupport.requireAndLoadLibrary(libPath)
 
         try {
             val version = Whisper.getVersion()
@@ -158,7 +153,9 @@ class WhisperLinuxE2ETest {
     @Test
     fun `whisper language utilities`() {
         val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        Assume.assumeTrue("Native loading is disabled", disableNativeLoad != "true")
+        DesktopNativeTestSupport.requireEnabled()
+        val libPath = resolveLibraryPath()
+        DesktopNativeTestSupport.requireAndLoadLibrary(libPath)
 
         try {
             val maxLangId = Whisper.getMaxLanguageId()
@@ -189,7 +186,9 @@ class WhisperLinuxE2ETest {
         Assume.assumeTrue("Audio file not found", audioFile.exists())
 
         val disableNativeLoad = System.getProperty("llmedge.disableNativeLoad")
-        Assume.assumeTrue("Native loading is disabled", disableNativeLoad != "true")
+        DesktopNativeTestSupport.requireEnabled()
+        val libPath = resolveLibraryPath()
+        DesktopNativeTestSupport.requireAndLoadLibrary(libPath)
 
         println("[WhisperLinuxE2ETest] Testing with real audio file: $audioPath")
 
@@ -230,4 +229,10 @@ class WhisperLinuxE2ETest {
 
         assertTrue("Expected at least one segment", result.isNotEmpty())
     }
+
+    private fun resolveLibraryPath(): String =
+        DesktopNativeTestSupport.resolveLibraryPath(
+            envName = LIB_PATH_ENV,
+            defaultRelativePath = "llmedge/build/native/linux-x86_64/libwhisper_jni.so",
+        )
 }

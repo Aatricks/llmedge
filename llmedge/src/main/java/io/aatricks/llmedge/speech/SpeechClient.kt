@@ -59,13 +59,7 @@ class SpeechClient internal constructor(
             scope: CoroutineScope,
             config: LLMEdgeConfig = LLMEdgeConfig(),
             modelRepository: ModelRepository = DefaultModelRepository(),
-        ): SpeechClient =
-            createOwnedFeatureClient(context, scope, config, modelRepository) { featureContext, bootstrap ->
-                SpeechClient(
-                    featureContext = featureContext,
-                    ownedBootstrap = bootstrap,
-                )
-            }
+        ): SpeechClient = createOwnedFeatureClient(context, scope, config, modelRepository, ::SpeechClient)
 
         @JvmSynthetic
         internal fun forTesting(
@@ -75,9 +69,7 @@ class SpeechClient internal constructor(
             resolver: ModelRepository,
             ownedBootstrap: ClientBootstrapContext? = null,
         ): SpeechClient =
-            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap) { featureContext, bootstrap ->
-                SpeechClient(featureContext = featureContext, ownedBootstrap = bootstrap)
-            }
+            createFeatureClientForTesting(context, scope, config, resolver, ownedBootstrap, ::SpeechClient)
     }
 
     private val whisperPool = createWhisperRuntimePool(appContext, edgeScope, config, modelRepository)

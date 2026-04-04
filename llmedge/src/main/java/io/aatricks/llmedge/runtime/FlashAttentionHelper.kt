@@ -1,6 +1,7 @@
 package io.aatricks.llmedge.runtime
 
 import android.util.Log
+import io.aatricks.llmedge.core.runtime.RuntimeCapabilities
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 
 /**
@@ -13,7 +14,7 @@ object FlashAttentionHelper {
     // Cache Vulkan availability to avoid expensive JNI query on every call
     private val hasVulkanSupport: Boolean by lazy {
         try {
-            StableDiffusion.getVulkanDeviceCount() > 0
+            RuntimeCapabilities.isStableDiffusionVulkanAvailable()
         } catch (_: Exception) {
             false
         }
