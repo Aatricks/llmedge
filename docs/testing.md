@@ -36,7 +36,12 @@ Prerequisites:
 
 - Build the host JNI library:
   ```bash
-  ./scripts/build_smollm_linux.sh
+  ./scripts/build_native_linux.sh smollm
+  ```
+- Or use the helper scripts, which reuse `scripts/native_test_support.sh` to build/copy the right host library automatically:
+  ```bash
+  ./scripts/run_text_e2e.sh
+  ./scripts/run_whisper_e2e.sh
   ```
 - Point the tests at local models:
   ```bash
