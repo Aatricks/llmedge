@@ -6,6 +6,14 @@ import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import java.io.File
 
 interface ModelRepository {
+    /**
+     * Resolve a [ModelSpec] to a readable local file.
+     *
+     * Preferred application path: `LLMEdge.create(...).models.resolve(...)` or
+     * `edge.models.prefetch(...)`. Implement this interface when you need a custom acquisition
+     * policy; call `HuggingFaceHub` directly only for advanced workflows that genuinely need
+     * artifact-level control.
+     */
     suspend fun resolve(
         context: Context,
         spec: ModelSpec,
@@ -45,6 +53,7 @@ class BoundModelRepository internal constructor(
     private val context: Context,
     private val repository: ModelRepository,
 ) {
+    /** Facade-scoped model access path used by `LLMEdge.create(...).models`. */
     suspend fun resolve(
         spec: ModelSpec,
         onProgress: ((ProgressEvent.Downloading) -> Unit)? = null,

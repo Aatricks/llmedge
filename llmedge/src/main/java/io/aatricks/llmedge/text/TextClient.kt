@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 
 data class TextModelOptions(
     val contextSize: Long? = null,
+    val chatTemplate: String? = null,
     val numThreads: Int? = null,
     val generationThreads: Int? = null,
     val minP: Float? = null,
@@ -48,6 +49,7 @@ internal fun TextModelOptions.toInferenceParams(config: LLMEdgeConfig): SmolLM.I
         temperature = temperature ?: config.text.temperature,
         storeChats = false,
         contextSize = contextSize ?: config.text.contextSize,
+        chatTemplate = chatTemplate,
         numThreads = numThreads ?: config.text.promptThreads,
         generationThreads = generationThreads ?: numThreads ?: config.text.generationThreads,
         useMmap = useMmap ?: config.text.useMmap,
@@ -67,6 +69,9 @@ class TextClient internal constructor(
         private const val MAX_CHAT_STATE_BYTES = 64L * 1024L * 1024L
         private val FACTORY = featureClientFactory(::TextClient)
 
+        @Deprecated(
+            message = "Prefer LLMEdge.create(...).text in new app code. This factory remains available for advanced construction and tests.",
+        )
         @JvmStatic
         @JvmOverloads
         fun create(

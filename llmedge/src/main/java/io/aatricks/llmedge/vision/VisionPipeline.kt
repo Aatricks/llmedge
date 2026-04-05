@@ -51,7 +51,7 @@ internal class VisionPipeline(
     suspend fun prepare(
         model: ModelSpec,
         projector: ModelSpec,
-        numThreads: Int,
+        promptThreads: Int,
         generationThreads: Int,
         onStatus: ((String) -> Unit)? = null,
     ) {
@@ -59,7 +59,7 @@ internal class VisionPipeline(
             acquireRuntime(
                 model = model,
                 projector = projector,
-                numThreads = numThreads,
+                promptThreads = promptThreads,
                 generationThreads = generationThreads,
             )
             AndroidLogAdapter.d(
@@ -78,7 +78,7 @@ internal class VisionPipeline(
                 acquireRuntime(
                     model = request.model,
                     projector = request.projector,
-                    numThreads = request.numThreads,
+                    promptThreads = request.promptThreads,
                     generationThreads = request.generationThreads,
                 )
             runtimePool.withExclusiveRuntime(runtime) {
@@ -106,7 +106,7 @@ internal class VisionPipeline(
     private suspend fun acquireRuntime(
         model: ModelSpec,
         projector: ModelSpec,
-        numThreads: Int?,
+        promptThreads: Int?,
         generationThreads: Int?,
     ): ManagedVisionRuntime {
         val loadStartedNs = System.nanoTime()
@@ -114,9 +114,9 @@ internal class VisionPipeline(
             runtimePool.acquire(
                 VisionRuntimeSpec(model = model, projector = projector),
                 VisionLoadOptions(
-                    numThreads = (numThreads ?: featureContext.config.vision.promptThreads).coerceAtLeast(1),
+                    promptThreads = (promptThreads ?: featureContext.config.vision.promptThreads).coerceAtLeast(1),
                     generationThreads =
-                        (generationThreads ?: numThreads ?: featureContext.config.vision.generationThreads).coerceAtLeast(1),
+                        (generationThreads ?: promptThreads ?: featureContext.config.vision.generationThreads).coerceAtLeast(1),
                 ),
             )
         logStage("runtime", "acquire", loadStartedNs)

@@ -20,7 +20,7 @@ internal data class VisionRuntimeSpec(
 )
 
 internal data class VisionLoadOptions(
-    val numThreads: Int,
+    val promptThreads: Int,
     val generationThreads: Int,
 )
 
@@ -65,7 +65,7 @@ internal fun createVisionRuntimePool(
                     RuntimeCacheKeyBuilder.prefix(
                         spec.model.cacheKey,
                         spec.projector.cacheKey,
-                        "threads=${options.numThreads}",
+                        "threads=${options.promptThreads}",
                         "genThreads=${options.generationThreads}",
                     )
                 },
@@ -86,7 +86,7 @@ internal fun createVisionRuntimePool(
                         modelPath = modelFile.absolutePath,
                         params =
                             SmolLM.InferenceParams(
-                                numThreads = options.numThreads.coerceAtLeast(1),
+                                numThreads = options.promptThreads.coerceAtLeast(1),
                                 generationThreads = options.generationThreads.coerceAtLeast(1),
                                 contextSize = null,
                                 storeChats = false,

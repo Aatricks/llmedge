@@ -1,5 +1,15 @@
 schema: ai-context/v1
 deferred_cleanup:
+  - id: "diffusion-load-parameter-plumbing"
+    status: "resolved"
+    files:
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/diffusion/StableDiffusion.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/diffusion/StableDiffusionLoadRequest.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/diffusion/StableDiffusionLoadSupport.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/diffusion/internal/StableDiffusionLoader.kt"
+    issue: "Diffusion asset/runtime/backend load flags were threaded through repeated long positional parameter lists across the public wrapper, loader, and load-support helpers."
+    consequence: "Resolved: StableDiffusionAssetRequest, StableDiffusionLoadRequest, and StableDiffusionNativeLoadRequest now centralize the internal load contract so new flags are added in one place and convenience overloads only build request objects."
+    recommended_cut: "Keep future diffusion load changes request-first; avoid adding new multi-layer positional plumbing unless it terminates directly at the JNI boundary."
   - id: "feature-client-wiring-duplication"
     status: "resolved"
     files:
@@ -97,3 +107,4 @@ recommended_next_cuts:
   - "Continue moving wrapper-companion/native-load state out of remaining runtime facades when new engines are added so the public wrappers stay thin."
   - "Expose backend details consistently across all runtime traces and user-facing diagnostics for easier fallback debugging."
   - "Keep the shell, generated Kotlin constants, and CMake native target metadata aligned through llmedge-targets.cmake if new engines, aliases, host outputs, or logical target groups are introduced."
+  - "Continue trimming example-app activity orchestration, especially tool and video demos, by moving workflow code into controllers/support files instead of growing activity classes."

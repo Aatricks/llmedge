@@ -42,6 +42,9 @@ import kotlinx.coroutines.withContext
  * - Progress tracking during generation
  * - WAV file output
  *
+ * Advanced API: most application code should prefer `LLMEdge.create(...).speech` unless it needs
+ * to hold a Bark runtime directly.
+ *
  * Example usage:
  * ```kotlin
  * val tts = BarkTTS.load(context, "path/to/bark/model")

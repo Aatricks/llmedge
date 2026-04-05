@@ -6,6 +6,7 @@ import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeLibraryCatalog
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.RuntimeLoadPolicy
+import io.aatricks.llmedge.core.runtime.runBackendAttempts
 import io.aatricks.llmedge.model.ModelFileValidator
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
@@ -70,71 +71,68 @@ internal object SmolLMLoader {
                 includeCpuFallback = preferredBackend == null && instance.state.requestedLoadBackend == null,
             )
 
-        var lastLoadError: Throwable? = null
         instance.state.nativePtr = 0L
-        for (backend in backendCandidates) {
-            instance.state.requestedLoadBackend = backend
-            try {
-                val candidateHandle =
-                    NativeCall.binding(
-                        NativeLibraryCatalog.SMOLLM,
-                        "SmolLM JNI bindings are unavailable.",
-                    ) {
-                        instance.bridge.loadModel(
-                            instance,
+        try {
+            val selectedBackend =
+                runBackendAttempts(
+                    candidates = backendCandidates,
+                    onFailure = { backend, error ->
+                        if (RuntimeLoadPolicy.recordBackendFailureIfNeeded(loadRequest, backend, preferredBackend)) {
+                            val detail = error?.message?.let { ": $it" } ?: ""
+                            SmolLM.logWarning("Failed to load SmolLM on $backend; retrying with the next backend$detail")
+                        }
+                    },
+                    exhaustedError = { lastLoadError ->
+                        lastLoadError
+                            ?: ModelLoadException(
+                                validatedModel.absolutePath,
+                                "The native SmolLM loader returned an invalid handle.",
+                            )
+                    },
+                ) { backend ->
+                    instance.state.requestedLoadBackend = backend
+                    try {
+                        val candidateHandle =
+                            NativeCall.binding(
+                                NativeLibraryCatalog.SMOLLM,
+                                "SmolLM JNI bindings are unavailable.",
+                            ) {
+                                instance.bridge.loadModel(
+                                    instance,
+                                    validatedModel.absolutePath,
+                                    params.minP,
+                                    params.temperature,
+                                    storeChats,
+                                    resolvedContextSize,
+                                    resolvedChatTemplate,
+                                    promptThreads,
+                                    params.useMmap,
+                                    params.useMlock,
+                                    backend == ComputeBackend.VULKAN,
+                                    params.useFlashAttn,
+                                    params.kvCacheTypeK.nativeCode,
+                                    params.kvCacheTypeV.nativeCode,
+                                    params.nGpuLayers,
+                                )
+                            }
+                        instance.state.nativePtr =
+                            NativeCall.requireHandle(
+                                candidateHandle,
+                                validatedModel.absolutePath,
+                                "The native SmolLM loader returned an invalid handle.",
+                            )
+                        backend
+                    } catch (error: IllegalStateException) {
+                        throw ModelLoadException(
                             validatedModel.absolutePath,
-                            params.minP,
-                            params.temperature,
-                            storeChats,
-                            resolvedContextSize,
-                            resolvedChatTemplate,
-                            promptThreads,
-                            params.useMmap,
-                            params.useMlock,
-                            backend == ComputeBackend.VULKAN,
-                            params.useFlashAttn,
-                            params.kvCacheTypeK.nativeCode,
-                            params.kvCacheTypeV.nativeCode,
-                            params.nGpuLayers,
+                            error.message ?: "The native SmolLM loader reported an unknown error.",
+                            error,
                         )
                     }
-                instance.state.nativePtr =
-                    NativeCall.requireHandle(
-                        candidateHandle,
-                        validatedModel.absolutePath,
-                        "The native SmolLM loader returned an invalid handle.",
-                    )
-                instance.state.selectedBackend = backend
-                break
-            } catch (e: NativeBindingException) {
-                instance.state.requestedLoadBackend = null
-                throw e
-            } catch (e: IllegalStateException) {
-                lastLoadError =
-                    ModelLoadException(
-                        validatedModel.absolutePath,
-                        e.message ?: "The native SmolLM loader reported an unknown error.",
-                        e,
-                    )
-            } catch (e: ModelLoadException) {
-                lastLoadError = e
-            }
-
-            if (RuntimeLoadPolicy.recordBackendFailureIfNeeded(loadRequest, backend, preferredBackend)) {
-                SmolLM.logWarning(
-                    "Failed to load SmolLM on $backend; retrying with the next backend",
-                )
-            }
-        }
-        instance.state.requestedLoadBackend = null
-        if (instance.state.nativePtr == 0L) {
-            throw (
-                lastLoadError
-                    ?: ModelLoadException(
-                        validatedModel.absolutePath,
-                        "The native SmolLM loader returned an invalid handle.",
-                    )
-                )
+                } ?: error("SmolLM backend attempts exhausted without an error")
+            instance.state.selectedBackend = selectedBackend
+        } finally {
+            instance.state.requestedLoadBackend = null
         }
 
         val generationThreads = (params.generationThreads ?: promptThreads).coerceAtLeast(1)

@@ -5,8 +5,10 @@ import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeCall
 import io.aatricks.llmedge.core.NativeLibraryCatalog
+import io.aatricks.llmedge.core.NativeProbeSupport
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.RuntimeLoadPolicy
+import io.aatricks.llmedge.core.runtime.runBackendAttempts
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.model.ModelFileValidator
 import io.aatricks.llmedge.runtime.ComputeBackend
@@ -17,51 +19,39 @@ import kotlinx.coroutines.withContext
 
 internal object WhisperCompanionSupport {
     fun checkBindings(staticInvoker: Whisper): Boolean =
-        try {
+        NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = false) {
             staticInvoker.supportCheckBindings()
-        } catch (_: UnsatisfiedLinkError) {
-            false
         }
 
     fun getVersion(staticInvoker: Whisper): String =
-        try {
+        NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = "unknown") {
             staticInvoker.supportGetVersion()
-        } catch (_: UnsatisfiedLinkError) {
-            "unknown"
         }
 
     fun getSystemInfo(staticInvoker: Whisper): String =
-        try {
+        NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = "unknown") {
             staticInvoker.supportGetSystemInfo()
-        } catch (_: UnsatisfiedLinkError) {
-            "unknown"
         }
 
     fun getMaxLanguageId(staticInvoker: Whisper): Int =
-        try {
+        NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = 0) {
             staticInvoker.supportGetMaxLanguageId()
-        } catch (_: UnsatisfiedLinkError) {
-            0
         }
 
     fun getLanguageId(
         staticInvoker: Whisper,
         lang: String,
     ): Int =
-        try {
+        NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = -1) {
             staticInvoker.supportGetLanguageId(lang)
-        } catch (_: UnsatisfiedLinkError) {
-            -1
         }
 
     fun getLanguageString(
         staticInvoker: Whisper,
         langId: Int,
     ): String =
-        try {
+        NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = "unknown") {
             staticInvoker.supportGetLanguageString(langId)
-        } catch (_: UnsatisfiedLinkError) {
-            "unknown"
         }
 
     fun isOpenClAvailable(
@@ -69,11 +59,8 @@ internal object WhisperCompanionSupport {
         overrideValue: Boolean?,
     ): Boolean =
         overrideValue
-            ?:
-            try {
+            ?: NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = false) {
                 staticInvoker.supportIsOpenClAvailable()
-            } catch (_: UnsatisfiedLinkError) {
-                false
             }
 
     fun isVulkanBackendAvailable(
@@ -81,11 +68,8 @@ internal object WhisperCompanionSupport {
         overrideValue: Boolean?,
     ): Boolean =
         overrideValue
-            ?:
-            try {
+            ?: NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = false) {
                 staticInvoker.supportIsVulkanAvailable()
-            } catch (_: UnsatisfiedLinkError) {
-                false
             }
 
     fun load(
@@ -107,42 +91,39 @@ internal object WhisperCompanionSupport {
                 openClAvailable = isOpenClAvailable(staticInvoker, openClAvailabilityOverride),
                 vulkanAvailable = isVulkanBackendAvailable(staticInvoker, vulkanAvailabilityOverride),
             )
-        val candidates = RuntimeLoadPolicy.candidates(loadRequest)
-        var lastError: Throwable? = null
-        for (backend in candidates) {
-            try {
-                val handle =
-                    NativeCall.requireHandle(
-                        NativeCall.binding(
-                            NativeLibraryCatalog.WHISPER_JNI,
-                            "Whisper JNI bindings are unavailable.",
-                        ) {
-                            createHandle(
-                                validatedModel.absolutePath,
-                                backend,
-                                flashAttn,
-                                gpuDevice,
-                            )
-                        },
-                        validatedModel.absolutePath,
-                        "The native Whisper loader returned an invalid handle.",
-                    )
-                return Whisper(handle, backend)
-            } catch (e: NativeBindingException) {
-                throw e
-            } catch (e: Throwable) {
-                lastError = e
+        return runBackendAttempts(
+            candidates = RuntimeLoadPolicy.candidates(loadRequest),
+            onFailure = { backend, _ ->
                 if (RuntimeLoadPolicy.recordBackendFailureIfNeeded(loadRequest, backend)) {
                     onGpuLoadFailure(backend)
                 }
-            }
-        }
-
-        throw ModelLoadException(
-            validatedModel.absolutePath,
-            lastError?.message ?: "The native Whisper loader returned an invalid handle.",
-            lastError,
-        )
+            },
+            exhaustedError = { lastError ->
+                ModelLoadException(
+                    validatedModel.absolutePath,
+                    lastError?.message ?: "The native Whisper loader returned an invalid handle.",
+                    lastError,
+                )
+            },
+        ) { backend ->
+            val handle =
+                NativeCall.requireHandle(
+                    NativeCall.binding(
+                        NativeLibraryCatalog.WHISPER_JNI,
+                        "Whisper JNI bindings are unavailable.",
+                    ) {
+                        createHandle(
+                            validatedModel.absolutePath,
+                            backend,
+                            flashAttn,
+                            gpuDevice,
+                        )
+                    },
+                    validatedModel.absolutePath,
+                    "The native Whisper loader returned an invalid handle.",
+                )
+            Whisper(handle, backend)
+        } ?: error("Whisper backend attempts exhausted without an error")
     }
 
     fun loadOnBackend(

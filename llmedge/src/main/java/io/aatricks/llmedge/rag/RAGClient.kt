@@ -50,6 +50,9 @@ class RAGClient internal constructor(
     companion object {
         private val FACTORY = featureClientFactory(::RAGClient)
 
+        @Deprecated(
+            message = "Prefer LLMEdge.create(...).rag in new app code. This factory remains available for advanced construction and tests.",
+        )
         @JvmStatic
         @JvmOverloads
         fun create(

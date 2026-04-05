@@ -84,7 +84,7 @@ class VisionClientTest {
             pipeline.prepare(
                 model = model,
                 projector = projector,
-                numThreads = 6,
+                promptThreads = 6,
                 generationThreads = 3,
                 onStatus = null,
             )

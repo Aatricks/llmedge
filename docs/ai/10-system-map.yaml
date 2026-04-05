@@ -4,7 +4,8 @@ runtime_surfaces:
     owner: "llmedge/src/main/java/io/aatricks/llmedge"
     entrypoints:
       - "LLMEdge.create(context, scope, config, resolver)"
-      - "expert runtimes under text.runtime, image.diffusion, speech.stt, speech.tts, runtime.GGUFReader"
+      - "LLMEdge.getTextBackendAvailability()/getSpeechBackendAvailability()/getImageBackendAvailability()/getVisionBackendAvailability()"
+      - "advanced expert runtimes under text.runtime, image.diffusion, speech.stt, speech.tts, runtime.GGUFReader"
     manifest: "llmedge/src/main/AndroidManifest.xml"
     manifest_contract: "empty manifest; library defines no activities, providers, or permissions"
   example_app:
@@ -36,7 +37,7 @@ process_singletons_and_globals:
     purpose: "process-wide GPU backend blacklist per ComputeSubsystem"
   - name: "RuntimeCapabilities"
     owner: "llmedge/src/main/java/io/aatricks/llmedge/core/runtime/RuntimeCapabilities.kt"
-    purpose: "shared Stable Diffusion/OpenCL/Vulkan capability probes used by facade and feature stacks"
+    purpose: "shared per-subsystem OpenCL/Vulkan capability probes used by facade and feature stacks"
   - name: "NativeBridgeProvider overrides"
     owner: "llmedge/src/main/java/io/aatricks/llmedge/core/NativeBridgeProvider.kt"
     purpose: "test-only bridge injection for GGUFReader and native wrappers"

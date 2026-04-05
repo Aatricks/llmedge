@@ -47,6 +47,9 @@ import kotlinx.coroutines.withContext
  * - Subtitle generation with timestamps
  * - Language detection
  *
+ * Advanced API: most application code should prefer `LLMEdge.create(...).speech` unless it needs
+ * direct control over a live Whisper runtime.
+ *
  * Example usage:
  * ```kotlin
  * val whisper = Whisper.load(context, "path/to/ggml-base.bin")

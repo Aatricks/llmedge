@@ -21,6 +21,7 @@ modules:
       - "LLMEdgeConfig.execution sizes the shared LLMEdgeScope; text and vision runtime defaults are configured independently under config.text and config.vision."
       - "ClientBootstrap.createOwned/close are the shared seams for feature-client owned-scope setup and teardown."
       - "FeatureContext/createOwnedFeature/OwnedFeatureClient keep feature clients on one shared dependency shape; FeatureClientFactory-backed create/forTesting helpers are the preferred companion pattern."
+      - "LLMEdge is the canonical public entrypoint; direct feature-client create(...) helpers are advanced construction paths, not the primary docs path."
       - "Public signature changes require example app validation."
   - name: "core-runtime"
     owner_module: "runtime orchestration"
@@ -61,7 +62,7 @@ modules:
     boundaries:
       - "All persistent model downloads land under context.filesDir/hf-models."
       - "DefaultModelCatalog is the declarative source for built-in model presets consumed by ModelRegistry."
-      - "HuggingFaceHub is a facade; selection, download, and Wan side-asset resolution live in focused helpers."
+      - "HuggingFaceHub is an advanced facade; selection, download, and Wan side-asset resolution live in focused helpers."
       - "HuggingFaceHub routes GGUF and repo-file downloads through one ArtifactRequest pipeline; non-.gguf filenames remain repo-file resolutions."
       - "HFArtifactRequestSupport owns internal artifact-request and download-context wiring so HuggingFaceHub stays focused on the public entrypoints."
   - name: "text-stack"
@@ -123,6 +124,7 @@ modules:
     boundaries:
       - "SpeechRequestExecutor owns facade-level execution policy through RuntimePool; BarkTTS and Whisper stay focused on runtime wrappers."
       - "SpeechThreadingSupport is the shared thread-count policy for Bark and Whisper wrappers."
+      - "SpeechClient request-object overloads are the canonical facade path (prepare/transcribe/detectLanguage/streaming/synthesize); legacy convenience overloads remain compatibility adapters and should delegate inward rather than grow new parallel wiring."
       - "WhisperRuntimeSupport plus WhisperCompanionSupport own native-load policy, load-bridge overrides, backend availability overrides, and backend fallback so Whisper stays focused on runtime behavior."
       - "WhisperCallbackSupport owns callback bridge wiring; no extra pass-through static layer remains."
       - "JNI-facing Kotlin externals must use stable exported JVM names so host/desktop native libraries do not drift from wrapper method visibility."
@@ -148,6 +150,7 @@ modules:
       - "ImageClient serializes image/video generation with generationMutex."
       - "ImageRuntimeRequestPlanner owns image/video runtime-spec construction and low-memory sequential-load heuristics."
       - "DiffusionRequestExecutor + RuntimePool own runtime acquire/retry/active-model plumbing; ImageGenerationExecutor owns txt2img tracing/metrics; VideoGenerationExecutor executes a planner-produced DiffusionExecutionPlan (direct or sequential)."
+      - "StableDiffusionAssetRequest/StableDiffusionLoadRequest are the internal source of truth for diffusion asset/runtime/backend load plumbing; add new load flags there before threading them across helper boundaries."
       - "StableDiffusionCompanionSupport plus StableDiffusionLoader/StableDiffusionLoadSupport own diffusion dispatcher, native-load policy, direct expert-load fallback, and bridge override state so StableDiffusion stays focused on runtime behavior."
       - "StableDiffusion metadata detection should prefer GGUF/native metadata and treat filename heuristics as fallback only."
       - "Video path has distinct direct and sequential-load flows; do not merge casually."
@@ -170,6 +173,7 @@ modules:
     boundaries:
       - "OCR is independent and should keep working even when VLM/projector flow is unavailable."
       - "VisionPipeline/VisionRuntimeExecutor are the only multimodal execution path; runtime acquire/exclusive execution should stay routed through RuntimePool instead of parallel adapters."
+      - "Vision request APIs accept legacy numThreads naming, but promptThreads is the preferred naming for new request shapes and prepare flows."
       - "VisionRuntimeConfig owns vision cache/thread/flash-attention/GPU defaults instead of borrowing text runtime settings."
       - "Prepared embedding .meta.json shape is native-owned; Kotlin only requires existence."
       - "GIF export internals are split across ImageGifEncoderSupport, GifEncoder, GifColorQuantizer, and GifLzwEncoder instead of one support-file monolith."
@@ -230,3 +234,4 @@ modules:
     boundaries:
       - "Activities stay thin; view binding, request parsing, file/export helpers, and controller logic belong in demo/common support files."
       - "RAG, image, video, and tools demos should keep async workflow/state orchestration in dedicated controller/support files instead of growing activities."
+      - "Example-app demo flows should prefer LLMEdge facade clients plus edge.models over direct expert runtime loads or direct HuggingFaceHub calls."

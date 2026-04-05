@@ -19,7 +19,13 @@ package io.aatricks.llmedge.huggingface
 import android.content.Context
 import java.io.File
 
-/** High-level helper to discover and download GGUF models from Hugging Face. */
+/**
+ * Advanced helper to discover and download artifacts from Hugging Face.
+ *
+ * Most application code should prefer `LLMEdge.create(...).models` or `ModelRepository`. Use this
+ * object directly only when you need low-level control over artifact selection, direct cache
+ * inspection, or custom download policy outside the facade-managed path.
+ */
 object HuggingFaceHub {
     data class ModelDownloadResult(
         val requestedModelId: String,

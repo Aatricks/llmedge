@@ -135,7 +135,7 @@ val response = edge.text.generate(
         repoId = "unsloth/Qwen3-0.6B-GGUF",
         filename = "Qwen3-0.6B-Q4_K_M.gguf",
     ),
-    params = SmolLM.InferenceParams(thinkingMode = SmolLM.ThinkingMode.DISABLED),
+    options = TextModelOptions(thinkingMode = SmolLM.ThinkingMode.DISABLED),
 )
 ```
 
@@ -261,10 +261,18 @@ val edge = LLMEdge.create(context, lifecycleScope)
 val bmp = ImageUtils.imageToBitmap(context, uri)
 val scaledBmp = ImageUtils.preprocessImage(bmp, correctOrientation = true, maxDimension = 1024)
 
-// 2. Run OCR (Optional grounding)
+// 2. Warm the configured vision stack
+edge.vision.prepare(
+    VisionPrepareRequest(
+        model = edge.config.models.vision.model,
+        projector = edge.config.models.vision.projector,
+    ),
+)
+
+// 3. Run OCR (Optional grounding)
 val ocrText = edge.vision.extractText(scaledBmp)
 
-// 3. Build Prompt (e.g. ChatML format for Phi-3)
+// 4. Build Prompt (e.g. ChatML format for Phi-3)
 val prompt = """
     <|system|>You are a helpful assistant.<|end|>
     <|user|>
@@ -274,8 +282,15 @@ val prompt = """
     <|assistant|>
 """.trimIndent()
 
-// 4. Run Vision Analysis
-val result = edge.vision.analyze(scaledBmp, prompt)
+// 5. Run Vision Analysis
+val result = edge.vision.analyze(
+    VisionRequest(
+        image = scaledBmp,
+        prompt = prompt,
+        model = edge.config.models.vision.model,
+        projector = edge.config.models.vision.projector,
+    ),
+)
 ```
 
 **Status**: Uses `LLMEdge` to orchestrate the experimental vision pipeline (loading projector, encoding image, running inference).
@@ -300,7 +315,13 @@ Demonstrates text-to-speech synthesis using Bark via `LLMEdge`.
 val edge = LLMEdge.create(context, lifecycleScope)
 
 // Generate speech (model auto-downloads on first use)
-val audio = edge.speech.synthesize("Hello, world!")
+val audio =
+    edge.speech.synthesize(
+        SpeechSynthesisRequest(
+            text = "Hello, world!",
+            model = edge.config.models.textToSpeech,
+        ),
+    )
 
 // Play the generated audio
 val audioTrack = AudioTrack.Builder()

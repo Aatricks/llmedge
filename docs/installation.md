@@ -61,7 +61,8 @@ cd llmedge-examples
 
 #### Hugging Face integration
 - The `io.aatricks.llmedge.huggingface` package can download models from the Hugging Face Hub.
-- Use `SmolLM.loadFromHuggingFace()` for automatic download and loading.
+- For normal app code, prefer `LLMEdge.create(...).models.prefetch(...)` or `edge.models.resolve(...)`.
+- Use `SmolLM.loadFromHuggingFace()` and similar expert helpers only when you intentionally want to own the runtime directly.
 - Optionally provide an HF token for private repositories via the `token` parameter.
 
 ### Troubleshooting

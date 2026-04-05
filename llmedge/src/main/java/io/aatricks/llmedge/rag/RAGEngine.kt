@@ -28,6 +28,10 @@ import java.io.File
  * - Embeddings via Sentence-Embeddings
  * - Vector search (cosine)
  * - Prompt building and answer via SmolLM
+ *
+ * Advanced API: most application code should prefer `LLMEdge.create(...).rag` and
+ * `RAGClient.createSession()` so lifecycle and runtime ownership stay consistent with the rest of
+ * the library.
  */
 class RAGEngine(
     private val context: Context,

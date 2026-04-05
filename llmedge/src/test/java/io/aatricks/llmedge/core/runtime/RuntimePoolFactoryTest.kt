@@ -42,21 +42,24 @@ class RuntimePoolFactoryTest {
                 createCachedRuntimePool(
                     context = context,
                     scope = edgeScope,
-                    cacheConfig = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 256),
-                    cacheKeyPrefix = { spec: String, options: Int -> "$spec:$options" },
-                    loadRuntime = { spec, options, _ ->
-                        loads += spec to options
-                        FakeRuntime()
-                    },
-                    activeBackend = { ComputeBackend.CPU },
-                    candidateRequest = {
-                        BackendCandidateResolver.Request(
-                            subsystem = null,
-                            allowGpu = false,
-                            openClAvailable = false,
-                            vulkanAvailable = false,
-                        )
-                    },
+                    profile =
+                        runtimePoolProfile(
+                            cacheConfig = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 256),
+                            cacheKeyPrefix = { spec: String, options: Int -> "$spec:$options" },
+                            loadRuntime = { spec, options, _ ->
+                                loads += spec to options
+                                FakeRuntime()
+                            },
+                            activeBackend = { ComputeBackend.CPU },
+                            candidateRequest = {
+                                BackendCandidateResolver.Request(
+                                    subsystem = null,
+                                    allowGpu = false,
+                                    openClAvailable = false,
+                                    vulkanAvailable = false,
+                                )
+                            },
+                        ),
                 )
 
             val first = pool.coordinator.acquire("model", 1)

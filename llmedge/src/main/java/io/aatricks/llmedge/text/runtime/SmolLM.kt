@@ -29,6 +29,12 @@ import io.aatricks.llmedge.text.runtime.internal.SmolLMRuntimeConfigSupport
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Advanced direct wrapper around the llama.cpp-backed text runtime.
+ *
+ * Most application code should prefer `LLMEdge` / `TextClient`; use `SmolLM` directly only when
+ * you need to own a live runtime instance or call lower-level runtime controls yourself.
+ */
 class SmolLM internal constructor(
     useVulkan: Boolean,
     private val nativeLibrarySupport: SmolLMNativeLibrarySupport,
@@ -157,6 +163,9 @@ class SmolLM internal constructor(
 
     /**
      * Data class to hold the inference parameters for the LLM.
+     *
+     * Advanced API: most application code should prefer `LLMEdge` and `TextClient`, then use
+     * `TextModelOptions` / `TextRuntimeConfig` instead of talking to `SmolLM` directly.
      *
      * @property minP The minimum probability for a token to be considered.
      * ```

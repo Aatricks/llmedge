@@ -47,6 +47,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
    - [Stable Diffusion (image generation)](#stable-diffusion-image-generation)
    - [Video Generation](#video-generation)
    - [On-device RAG](#on-device-rag)
+   - [Expert APIs](#expert-apis)
 3. [Building](#building)
 4. [Architecture](#architecture)
 5. [Technologies](#technologies)
@@ -93,6 +94,13 @@ viewModelScope.launch {
 
 Low-level wrappers like `SmolLM`, `StableDiffusion`, `Whisper`, and `BarkTTS` remain available for expert workflows, but new code should prefer `LLMEdge`.
 
+The intended acquisition path for application code is:
+
+- `edge.models.prefetch(...)` when you want explicit downloads
+- feature clients like `edge.text`, `edge.speech`, `edge.image`, and `edge.vision` when you want inference
+
+Direct `HuggingFaceHub` calls and expert runtime `loadFromHuggingFace(...)` helpers are still supported, but they are advanced APIs for callers that need artifact-level control.
+
 By default, `edge.text.generate(...)` uses batched native decoding for lower JNI overhead, while
 `edge.text.stream(...)` uses smaller batched chunks so UI updates stay responsive without paying a
 JNI crossing per token.
@@ -126,32 +134,27 @@ Log.d("llmedge", "Cached ${modelFile.name} at ${modelFile.parent}")
 
 - Large downloads use Android's DownloadManager when `preferSystemDownloader = true` to keep transfers out of the Dalvik heap.
 
-- Advanced users can still call `HuggingFaceHub.ensureModelOnDisk()` directly when they want full control.
+- Direct `HuggingFaceHub` downloads remain available for expert workflows, but most app code should stay on the facade/model-repository path.
 
 ### Reasoning Controls
 
-`SmolLM` lets you disable or re-enable "thinking" traces produced by reasoning-aware models through the `ThinkingMode` enum and the optional `reasoningBudget` parameter. The default configuration keeps thinking enabled (`ThinkingMode.DEFAULT`, reasoning budget `-1`). To start a session with thinking disabled (equivalent to passing `--no-think` or `--reasoning-budget 0`), specify it when loading the model:
+Reasoning-aware models can be controlled from the facade through `TextModelOptions`. The default configuration keeps thinking enabled (`ThinkingMode.DEFAULT`, reasoning budget `-1`). To disable thinking for a request or session, pass the options explicitly:
 
 ```kotlin
-val smol = SmolLM()
+val edge = LLMEdge.create(context, viewModelScope)
 
-val params = SmolLM.InferenceParams(
-    thinkingMode = SmolLM.ThinkingMode.DISABLED,
-    reasoningBudget = 0, // explicit override, optional when the mode is DISABLED
+val reply = edge.text.generate(
+    prompt = "Solve this step by step, then give only the final answer.",
+    options = TextModelOptions(
+        thinkingMode = SmolLM.ThinkingMode.DISABLED,
+        reasoningBudget = 0,
+    ),
 )
-smol.load(modelPath, params)
 ```
 
-At runtime you can flip the behaviour without reloading the model:
+The same options work with `edge.text.session(...)` and `edge.text.toolAgent(...)`.
 
-```kotlin
-smol.setThinkingEnabled(true)              // restore the default
-smol.setReasoningBudget(0)                 // force-disable thoughts again
-val budget = smol.getReasoningBudget()     // inspect the current budget
-val mode = smol.getThinkingMode()          // inspect the current mode
-```
-
-Setting the budget to `0` always disables thinking, while `-1` leaves it unrestricted. If you omit `reasoningBudget`, the library chooses `0` when the mode is `DISABLED` and `-1` otherwise. The API also injects the `/no_think` tag automatically when thinking is disabled, so you do not need to modify prompts manually.
+Setting the budget to `0` always disables thinking, while `-1` leaves it unrestricted. If you omit `reasoningBudget`, the library chooses `0` when the mode is `DISABLED` and `-1` otherwise. The API also injects the `/no_think` tag automatically when thinking is disabled, so you do not need to modify prompts manually. If you need to flip reasoning state on a live expert runtime without reloading, see [Expert APIs](#expert-apis).
 
 ### Managed Chat Sessions
 
@@ -214,6 +217,23 @@ viewModelScope.launch {
 ```
 
 Tool calls use a structured JSON envelope internally: `{"tool":"name","arguments":{...}}`. The parser also accepts the legacy `tool_name` field for robustness, but new prompts only emit the `tool` shape.
+
+### Speech Request Objects
+
+Speech APIs now support request-first calls in addition to the existing convenience overloads:
+
+```kotlin
+val result = edge.speech.transcribe(
+    SpeechToTextRequest(
+        audioSamples = samples,
+        model = edge.config.models.speechToText,
+        params = Whisper.TranscribeParams(language = "en"),
+        runtime = WhisperRuntimeRequest(gpuEnabled = false, flashAttention = true),
+    ),
+)
+```
+
+This keeps new speech entrypoints aligned with the request-first style already used by text and image generation, while preserving the older parameter-list overloads for compatibility.
 
 ### Text Generation Performance Tuning
 
@@ -369,7 +389,7 @@ session.stop()
 - `keepMs`: Overlap with previous window (default: 200ms). Helps maintain context.
 - `useVad`: Voice Activity Detection - skips silent audio (default: true).
 
-For low-level control, see [Whisper Low-Level API](docs/usage.md#speech-to-text-whisper-low-level).
+Direct `Whisper` access remains available for expert workflows, but the namespaced speech client is the standard integration path.
 
 **Recommended models:**
 - `ggml-tiny.bin` (~75MB) - Fast, lower accuracy
@@ -396,7 +416,7 @@ viewModelScope.launch {
 }
 ```
 
-For low-level control, see [Bark Low-Level API](docs/usage.md#text-to-speech-bark-low-level).
+Direct `BarkTTS` access remains available for expert workflows, but the namespaced speech client is the standard integration path.
 
 ### Stable Diffusion (image generation)
 
@@ -423,7 +443,7 @@ imageView.setImageBitmap(bitmap)
 - **Flash Attention**: Automatically enabled for compatible image dimensions.
 - **LoRA**: Apply fine-tuned weights on the fly without merging models.
 
-For advanced usage (custom models, explicit memory control), you can still use the `StableDiffusion` class directly as shown in the `llmedge-examples` repository.
+For explicit runtime ownership or custom native-load experiments, the `StableDiffusion` class remains available in the expert API layer.
 
 ### Video Generation
 
@@ -491,7 +511,7 @@ The library includes a minimal on-device RAG pipeline, similar to Android-Doc-QA
 - Sentence embeddings (ONNX)
 - Whitespace `TextSplitter`
 - In-memory cosine `VectorStore` with JSON persistence
-- `SmolLM` for context-aware responses
+- `SmolLM` for context-aware responses through the facade-managed RAG session
 
 ### Setup
 
@@ -513,17 +533,40 @@ llmedge/src/main/assets/embeddings/all-minilm-l6-v2/tokenizer.json
 3. Use in your application
 
 ```kotlin
-    val smol = SmolLM()
-    val rag = RAGEngine(context = this, smolLM = smol)
+val edge = LLMEdge.create(this, lifecycleScope)
+val rag = edge.rag.createSession()
 
-    CoroutineScope(Dispatchers.IO).launch {
-        rag.init()
-        val count = rag.indexPdf(pdfUri)
-        val answer = rag.ask("What are the key points?")
-        withContext(Dispatchers.Main) {
-            // render answer
-        }
-    }
+lifecycleScope.launch {
+    rag.init()
+    val count = rag.indexPdf(pdfUri)
+    val answer = rag.ask("What are the key points?")
+    // render answer
+}
+```
+
+Direct `RAGEngine` construction remains available for expert workflows, but new app code should prefer `edge.rag.createSession()` so runtime ownership and teardown stay aligned with the rest of the library.
+
+### Expert APIs
+
+`SmolLM`, `StableDiffusion`, `Whisper`, `BarkTTS`, `RAGEngine`, and direct `HuggingFaceHub` access are still available when you need to hold a native runtime directly or override low-level loading behavior. They are intentionally secondary to the facade APIs.
+
+Examples:
+
+```kotlin
+// Direct model download when you need full control over artifact selection.
+val download = HuggingFaceHub.ensureModelOnDisk(
+    context = context,
+    modelId = "unsloth/Qwen3-0.6B-GGUF",
+    filename = "Qwen3-0.6B-Q4_K_M.gguf",
+)
+
+// Expert text runtime with live reasoning-state control.
+val smol = SmolLM()
+smol.load(download.file.absolutePath)
+smol.setThinkingEnabled(false)
+
+// Expert RAG wiring when you want to own both the runtime and the pipeline yourself.
+val ragEngine = RAGEngine(context = context, smolLM = smol)
 ```
 
 ## Building
@@ -581,14 +624,14 @@ Notes about headers and toolchain
 Runtime verification
 - To verify GPU capability at runtime:
     - Run the app on an Android 11+ device.
-    - Use `LLMEdge.isOpenClAvailable()` and `LLMEdge.isVulkanAvailable()` to inspect which GPU backends the build can see on that device.
+    - Use the per-subsystem capability APIs to inspect the engines you care about, for example `LLMEdge.getTextBackendAvailability()`, `LLMEdge.getSpeechBackendAvailability()`, `LLMEdge.getImageBackendAvailability()`, and `LLMEdge.getVisionBackendAvailability()`.
     - Inspect runtime logs for the selected backend and any fallback reason. Example:
 
 ```bash
 adb logcat -s SmolSD:* | sed -n '1,200p'
 ```
 
-    Look for messages indicating OpenCL or Vulkan initialization. `SmolLM(useVulkan = true)` and `LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = true))` mean "allow a supported GPU backend", not "force Vulkan".
+    Look for messages indicating OpenCL or Vulkan initialization. `LLMEdgeConfig(text = TextRuntimeConfig(useVulkan = true))` means "allow a supported GPU backend", not "force Vulkan".
 
 Troubleshooting
 - If you see "Vulkan 1.2 required" or linker errors for Vulkan symbols, confirm `minSdk` is set to 30 or higher in `llmedge/build.gradle.kts` and that your NDK provides the expected Vulkan headers.
@@ -609,8 +652,8 @@ The Kotlin side is now organized around a few explicit layers instead of one eag
 1. `LLMEdge` is a thin convenience shell that lazy-creates domain clients (`text`, `speech`, `image`, `vision`, `rag`) on first access.
 2. `ModelRepository` owns model acquisition and validation for local files and Hugging Face downloads.
 3. `RuntimePool` and `RuntimeCoordinator` provide shared runtime caching, backend selection, and failure blacklisting.
-4. `CachedRuntimeDescriptor` lets each domain describe cache sizing, keying, loading, and backend policy without duplicating pool boilerplate.
-5. `TextClient`, `SpeechClient`, `ImageClient`, `VisionClient`, and `RAGClient` are independently constructible entry points; they do not have to be reached through `LLMEdge`.
+4. `RuntimePoolProfile` lets each domain describe cache sizing, keying, loading, and backend policy without duplicating pool boilerplate.
+5. `TextClient`, `SpeechClient`, `ImageClient`, `VisionClient`, and `RAGClient` remain independently constructible for advanced use, but `LLMEdge` is the canonical public entrypoint.
 6. `ConversationSessionSupport` centralizes transcript state and runtime access for chat sessions and tool agents.
 7. `VisionInputPreparer` and `VisionRuntimeExecutor` split image preprocessing/embedding from generation execution.
 8. `RAGIndexer`, `RAGRetriever`, and `RAGAnswerer` separate document ingestion, retrieval, and answer generation.
@@ -636,10 +679,6 @@ You can measure RAM usage at runtime:
 ```kotlin
 val snapshot = MemoryMetrics.snapshot(context)
 Log.d("Memory", snapshot.toPretty(context))
-
-val smol = SmolLM()
-smol.load(modelPath)
-Log.d("Memory", "native=${smol.getEstimatedNativeMemoryBytes()} state=${smol.getEstimatedStateMemoryBytes()}")
 ```
 
 Typical measurement points:
@@ -657,14 +696,12 @@ Typical measurement points:
 - `otherPssKb`: Miscellaneous memory.
 
 Monitor `nativePssKb` closely during model loading and inference to understand LLM memory footprint.
-Use `SmolLM.getEstimatedNativeMemoryBytes()` for the model-plus-state estimate and
-`SmolLM.getEstimatedStateMemoryBytes()` when you specifically want to watch KV/runtime state
-growth over time.
+Expert runtimes such as `SmolLM` also expose native/state-specific memory estimates when you need lower-level instrumentation.
 
 ## Notes
 
 - `VULKAN_SDK` may still be required when you are building the Vulkan path on the host.
-- Check Android GPU capability with `LLMEdge.isOpenClAvailable()` and `LLMEdge.isVulkanAvailable()`.
+- Check Android GPU capability with the explicit per-subsystem helpers such as `LLMEdge.getTextBackendAvailability()` and `LLMEdge.getImageBackendAvailability()`.
 
 ### ProGuard/R8 Configuration
 
