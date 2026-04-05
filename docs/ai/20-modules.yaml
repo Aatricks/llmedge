@@ -233,3 +233,4 @@ modules:
     boundaries:
       - "Activities stay thin; view binding, request parsing, file/export helpers, and controller logic belong in demo/common support files."
       - "RAG, image, video, and tools demos should keep async workflow/state orchestration in dedicated controller/support files instead of growing activities."
+      - "Example-app demo flows should prefer LLMEdge facade clients plus edge.models over direct expert runtime loads or direct HuggingFaceHub calls."

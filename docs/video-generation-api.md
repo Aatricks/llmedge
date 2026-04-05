@@ -16,7 +16,7 @@ Complete reference for on-device video generation using Wan models in llmedge.
 
 ## Overview
 
-llmedge provides on-device video generation through the `StableDiffusion` class, using Wan models. Generate short video clips (4-64 frames) entirely on Android devices.
+llmedge provides on-device video generation through the high-level `edge.image` client and, for expert workflows, the lower-level `StableDiffusion` class. For most Android app code, prefer `LLMEdge.create(...).image.generateVideo(...)` and let the facade own model resolution, sequential loading, and cleanup.
 
 **⚠️ Hardware Requirements**:
 
@@ -76,6 +76,33 @@ All three components are required and must be explicitly downloaded:
 ---
 
 ## API Reference
+
+### Recommended High-Level Path
+
+```kotlin
+val edge = LLMEdge.create(context, lifecycleScope)
+
+val request =
+    VideoGenerationRequest(
+        prompt = "A robot dancing in the rain",
+        videoFrames = 16,
+        width = 512,
+        height = 512,
+        steps = 20,
+        cfgScale = 7.0f,
+        flowShift = 3.0f,
+        forceSequentialLoad = true,
+    )
+
+edge.image.generateVideo(request).collect { event ->
+    when (event) {
+        is GenerationStreamEvent.Progress -> updateProgress(event.update.message)
+        is GenerationStreamEvent.Completed -> showPreview(event.frames.first())
+    }
+}
+```
+
+Use the lower-level `StableDiffusion` APIs below only when you need to hold a warmed runtime directly or override asset loading behavior manually.
 
 ### Loading Models
 
