@@ -83,7 +83,7 @@ repositories {
 }
 
 dependencies {
-    implementation("io.github.aatricks:llmedge:0.3.8")
+    implementation("io.github.aatricks:llmedge:0.3.9")
 }
 ```
 
@@ -103,7 +103,7 @@ repositories {
 }
 
 dependencies {
-    implementation("io.github.aatricks:llmedge:0.3.8")
+    implementation("io.github.aatricks:llmedge:0.3.9")
 }
 ```
 
