@@ -765,7 +765,7 @@
 </ul>
 <hr />
 <h2 id="overview">Overview</h2>
-<p>llmedge provides on-device video generation through the <code>StableDiffusion</code> class, using Wan models. Generate short video clips (4-64 frames) entirely on Android devices.</p>
+<p>llmedge provides on-device video generation through the high-level <code>edge.image</code> client and, for expert workflows, the lower-level <code>StableDiffusion</code> class. For most Android app code, prefer <code>LLMEdge.create(...).image.generateVideo(...)</code> and let the facade own model resolution, sequential loading, and cleanup.</p>
 <p><strong>⚠️ Hardware Requirements</strong>:</p>
 <ul>
 <li><strong>Minimum RAM</strong>: 12GB recommended for Wan 2.1 T2V-1.3B</li>
@@ -802,7 +802,7 @@
 <ul>
 <li><strong>RAM</strong>: 12GB+ (9.7GB minimum + overhead)</li>
 <li><strong>Storage</strong>: 6GB free space for downloads</li>
-<li><strong>OS</strong>: Android 11+ recommended (Vulkan acceleration)</li>
+<li><strong>OS</strong>: Android 11+ (API 30). GPU backends are optional.</li>
 </ul>
 <p><strong>Known Limitations</strong>:</p>
 <ul>
@@ -812,12 +812,37 @@
     used, the client precomputes text-conditioning with the T5 encoder and then loads the
     diffusion model without reloading the T5 encoder to avoid duplicating memory usage.
     Note: For best results with sequential loading, avoid GPU-heavy settings that increase
-    peak memory usage on constrained devices.</li>
+    peak memory usage on constrained devices. When GPU support is allowed, Android prefers
+    OpenCL first, then Vulkan.</li>
 <li>No disk streaming - models must fit in RAM</li>
 <li>8GB RAM devices cannot run Wan models (architectural constraint)</li>
 </ul>
 <hr />
 <h2 id="api-reference">API Reference</h2>
+<h3 id="recommended-high-level-path">Recommended High-Level Path</h3>
+<pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, lifecycleScope)
+
+val request =
+    VideoGenerationRequest(
+        prompt = &quot;A robot dancing in the rain&quot;,
+        videoFrames = 16,
+        width = 512,
+        height = 512,
+        steps = 20,
+        cfgScale = 7.0f,
+        flowShift = 3.0f,
+        forceSequentialLoad = true,
+    )
+
+edge.image.generateVideo(request).collect { event -&gt;
+    when (event) {
+        is GenerationStreamEvent.Progress -&gt; updateProgress(event.update.message)
+        is GenerationStreamEvent.Completed -&gt; showPreview(event.frames.first())
+    }
+}
+</code></pre>
+
+<p>Use the lower-level <code>StableDiffusion</code> APIs below only when you need to hold a warmed runtime directly or override asset loading behavior manually.</p>
 <h3 id="loading-models">Loading Models</h3>
 <h4 id="stablediffusionload"><code>StableDiffusion.load()</code></h4>
 <p>Load a video generation model with explicit paths to all three required components.</p>
@@ -1344,7 +1369,7 @@ val params = VideoGenerateParams(
 <li>Use 1.3B model instead of 5B</li>
 <li>Reduce resolution</li>
 <li>Reduce steps (15-20 is usually sufficient)</li>
-<li>Enable Vulkan if on Android 11+</li>
+<li>Allow GPU backends if on Android 11+</li>
 <li>Close background apps</li>
 </ol>
 <pre class="codehilite"><code class="language-kotlin">// Fast generation configuration
@@ -1493,15 +1518,18 @@ sd.close()
 </code></pre>
 
 <hr />
-<h3 id="vulkan-acceleration">Vulkan Acceleration</h3>
-<p><strong>Enable Vulkan on Android 11+</strong>:</p>
-<p>Build library with Vulkan support:</p>
-<pre class="codehilite"><code class="language-bash">./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs=&quot;-DGGML_VULKAN=ON -DSD_VULKAN=ON&quot;
+<h3 id="gpu-backends">GPU Backends</h3>
+<p>When GPU support is compiled in and allowed for the request, Android video generation prefers OpenCL first, then Vulkan, then CPU. OpenCL is experimental and only supported on <code>arm64-v8a</code> Android builds. If a GPU backend fails to initialize or loses the device, llmedge blacklists that backend for video for the rest of the process and retries once on the next backend.</p>
+<p>Build library with Android GPU support:</p>
+<pre class="codehilite"><code class="language-bash">./gradlew :llmedge:assembleRelease \
+  -PllmedgeAndroidOpencl=ON \
+  -Pandroid.jniCmakeArgs=&quot;-DGGML_VULKAN=ON -DSD_VULKAN=ON&quot;
 </code></pre>
 
-<p><strong>Verify Vulkan at runtime</strong>:</p>
-<pre class="codehilite"><code class="language-kotlin">// Vulkan status is logged during initialization
-// Check logcat for: &quot;Vulkan initialized successfully&quot;
+<p><strong>Verify GPU capability at runtime</strong>:</p>
+<pre class="codehilite"><code class="language-kotlin">val openClAvailable = LLMEdge.isOpenClAvailable()
+val vulkanAvailable = LLMEdge.isVulkanAvailable()
+// The selected backend is logged during model load.
 </code></pre>
 
 <hr />
@@ -1677,6 +1705,12 @@ sd.close()
         </a>
         
         
+        <a href="#recommended-high-level-path"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Recommended High-Level Path
+        </a>
+        
         <a href="#loading-models"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
@@ -1819,10 +1853,10 @@ sd.close()
             Background Processing
         </a>
         
-        <a href="#vulkan-acceleration"
+        <a href="#gpu-backends"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
-            Vulkan Acceleration
+            GPU Backends
         </a>
         
         

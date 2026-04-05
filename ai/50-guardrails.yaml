@@ -1,0 +1,182 @@
+schema: ai-context/v1
+invariants:
+  api_and_packaging:
+    - "The root Gradle build includes only :llmedge; llmedge-examples stays a separate composite-build consumer."
+    - "The library AndroidManifest remains empty; permissions/providers/activities belong to llmedge-examples."
+    - "Deprecated typealiases in Deprecated.kt preserve old import paths for renamed public classes."
+  native_build:
+    - "Each engine is built as a separate shared library with its own bundled ggml to avoid symbol collisions."
+    - "Native library names in CMake must stay aligned with NativeLibraryLoader candidate lists."
+    - "llmedge-targets.cmake is the native target-name and logical target-group source of truth; scripts/generate_native_target_names.sh must keep generated shell/Kotlin metadata aligned with it when target names or output names change."
+    - "stable-diffusion.cpp overlays, when enabled, are applied to a copied tree rather than editing the upstream submodule in place."
+  runtime_behavior:
+    - "Runtime cache identity includes backend suffix; invalidation must remove all backend variants for a logical runtime."
+    - "CPU backend is never blacklisted."
+    - "RuntimeEnvironmentHolder is the default process-wide owner for backend-blacklist and native-library-load state."
+    - "RuntimeLoadPolicy is the shared candidate-order and optional CPU-fallback seam for pooled runtimes and direct expert loaders."
+    - "RuntimeCoordinator owns pooled-runtime backend candidate iteration; loaders should not duplicate backend blacklist loops."
+    - "RuntimePool owns cache lifecycle while RuntimeCoordinator owns runtime policy; avoid duplicating coordinator policy loops in pool-facing adapters."
+    - "RuntimeCapabilities is the shared capability-probe seam; route Stable Diffusion/OpenCL/Vulkan checks through it instead of cross-feature facade calls."
+    - "ClientBootstrap.createOwned/close remain the shared ownership seam for feature-client factory methods and teardown."
+    - "FeatureContext/createOwnedFeature/OwnedFeatureClient are the shared feature dependency wiring path; test construction should flow through createFeatureClientForTesting-backed forTesting helpers instead of bespoke constructors."
+    - "OwnedClient and ManagedRuntimeBase remain the shared lifecycle helpers for feature clients and pooled runtimes."
+    - "RuntimePool is the shared acquire/retry/exclusive-execution surface for feature request executors; prefer extending it over duplicating pool + runExclusive plumbing."
+    - "Direct expert loaders should reuse the shared backend-attempt helper for candidate iteration and blacklist bookkeeping instead of open-coding new fallback loops."
+    - "Runtime pool setup should flow through RuntimePoolProfile/runtimePoolProfile helpers so cache key, loader, active-backend, and candidate-request wiring remain uniform across features."
+    - "Vision runtime defaults live under config.vision; do not route vision cache/thread/flash-attention/GPU policy through config.text."
+    - "TextClient non-session calls clear messages and KV cache before/after generation."
+    - "TextRequestExecutor owns request-level retries; TextRuntimeSession owns prompt execution against a live SmolLM runtime."
+    - "ChatSession snapshot restore is valid only when the trimmed window grew by exactly one message."
+    - "Streaming chat/tool flows do not preserve native state snapshots."
+    - "ImageClient serializes image and video generation through one generationMutex."
+    - "ToolAgent.reply and ToolAgent.stream must share one turn loop; new behavior differences belong in callbacks or response producers, not duplicated state machines."
+    - "ModelSpec.hints is authoritative when present; filename heuristics are fallback-only."
+    - "StableDiffusion asset/runtime/backend load flags should flow through StableDiffusionAssetRequest/StableDiffusionLoadRequest rather than re-expanding long positional parameter lists across helper layers."
+    - "Stable Diffusion JNI LoRA directory handling is wrapper-owned; keep it in `SdHandle`/prompt preprocessing unless the tracked upstream `sd_ctx_params_t` API adds the field."
+    - "VisionClient.extractText must keep working without a VLM or projector."
+    - "JNI-facing Kotlin external methods must keep stable JVM names; do not depend on internal visibility suffixes for native symbol resolution."
+  persistence:
+    - "Downloaded model files persist under context.filesDir/hf-models."
+    - "RAG index persists under context.filesDir/rag_store/index.json."
+    - "EmbeddingProvider copies asset models into context.filesDir/embedding_models."
+    - "Vision temp files live in cacheDir and must be deleted after file-based analysis."
+  domain_rules:
+    - "Video frame count rounds to (videoFrames - 1) / 4 * 4 + 1."
+    - "Image generation should stay on the direct path unless forceSequentialLoad was explicitly requested."
+    - "Wan/non-GGUF assets may require VAE and T5 side files; generic ModelSpec resolution alone is insufficient for that flow."
+blast_radius:
+  high:
+    - area: "llmedge/src/main/cpp and llmedge/src/main/cpp/cmake"
+      impacts:
+        - "AAR buildability"
+        - "desktop E2E scripts"
+        - "runtime availability of native bindings"
+    - area: "llmedge/src/main/java/io/aatricks/llmedge/core/runtime"
+      impacts:
+        - "all runtime acquisition"
+        - "backend fallback"
+        - "cache reuse and invalidation"
+    - area: "llmedge/src/main/java/io/aatricks/llmedge/model and huggingface"
+      impacts:
+        - "all feature model resolution"
+        - "download cache layout"
+        - "example app first-run behavior"
+  medium:
+    - area: "vision stack"
+      impacts:
+        - "projector path only"
+        - "OCR path should remain isolated"
+    - area: "tools stack"
+      impacts:
+        - "tool-calling prompts, parser, and policy"
+        - "example tool demo"
+must_retest_if_changed:
+  - paths:
+      - "llmedge/src/main/java/io/aatricks/llmedge/LLMEdge.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/LLMEdgeConfig.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/Deprecated.kt"
+    required_checks:
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*LLMEdgeTest'"
+      - "bash scripts/validate_examples.sh"
+  - paths:
+      - "llmedge/src/main/java/io/aatricks/llmedge/core"
+      - "llmedge/src/main/java/io/aatricks/llmedge/core/runtime"
+      - "llmedge/src/main/java/io/aatricks/llmedge/runtime"
+    required_checks:
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*Runtime*Test'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*ModelCacheTest'"
+  - paths:
+      - "scripts/build_native_linux.sh"
+      - "scripts/native_targets.sh"
+      - "scripts/native_test_support.sh"
+      - "scripts/run_native_e2e.sh"
+      - "scripts/run_text_e2e.sh"
+      - "scripts/run_whisper_e2e.sh"
+      - "scripts/run_linux_e2e.sh"
+      - "scripts/run_linux_e2e_sequential.sh"
+      - ".github/workflows/ci.yml"
+      - "llmedge/src/main/cpp/cmake/llmedge-targets.cmake"
+    required_checks:
+      - "bash scripts/run_native_e2e.sh text"
+      - "bash scripts/run_native_e2e.sh whisper"
+      - "./gradlew :llmedge:testDebugUnitTest"
+  - paths:
+      - "llmedge/src/main/java/io/aatricks/llmedge/text"
+      - "llmedge/src/main/java/io/aatricks/llmedge/text/runtime"
+      - "llmedge/src/main/cpp/smollm.cpp"
+      - "llmedge/src/main/cpp/smollm_jni_*.cpp"
+      - "llmedge/src/main/cpp/LLMInference.cpp"
+      - "llmedge/src/main/cpp/cmake/llmedge-smollm.cmake"
+    required_checks:
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*TextClientTest'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*ConversationWindowTest'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*ToolAgentTest'"
+      - "bash scripts/run_text_e2e.sh"
+  - paths:
+      - "llmedge/src/main/java/io/aatricks/llmedge/tools"
+    required_checks:
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*ToolCallParserTest'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*ToolAgentTest'"
+      - "manual tool-demo smoke in llmedge-examples"
+  - paths:
+      - "llmedge/src/main/java/io/aatricks/llmedge/speech"
+      - "llmedge/src/main/cpp/whisper_jni.cpp"
+      - "llmedge/src/main/cpp/bark_jni.cpp"
+      - "llmedge/src/main/cpp/cmake/llmedge-whisper.cmake"
+      - "llmedge/src/main/cpp/cmake/llmedge-bark.cmake"
+    required_checks:
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*WhisperTest'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*BarkTTSTest'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*SpeechClientLinuxE2ETest'"
+  - paths:
+      - "llmedge/src/main/java/io/aatricks/llmedge/image"
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/diffusion"
+      - "llmedge/src/main/cpp/sdcpp_jni*.cpp"
+      - "llmedge/src/main/cpp/cmake/llmedge-stable-diffusion.cmake"
+      - "mods"
+    required_checks:
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*ImageClientTest'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*VideoGenerationTest'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*StableDiffusion*Test'"
+      - "./gradlew :llmedge:pixel6api33DebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.ImageGenerationTest,io.aatricks.llmedge.PerformanceOptimizationTest"
+  - paths:
+      - "llmedge/src/main/java/io/aatricks/llmedge/vision"
+      - "llmedge/src/main/java/io/aatricks/llmedge/text/runtime/internal/SmolLMVisionInterop.kt"
+      - "llmedge/src/main/cpp/smollm_jni_embeddings.cpp"
+    required_checks:
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*Vision*Test'"
+      - "./gradlew :llmedge:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=io.aatricks.llmedge.VisionSmokeTest"
+  - paths:
+      - "llmedge/src/main/java/io/aatricks/llmedge/rag"
+    required_checks:
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*RAG*'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*TextSplitterTest'"
+  - paths:
+      - "llmedge/src/main/java/io/aatricks/llmedge/model"
+      - "llmedge/src/main/java/io/aatricks/llmedge/huggingface"
+      - "llmedge/src/main/assets/wan-models/model-registry.json"
+    required_checks:
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*HuggingFace*'"
+      - "./gradlew :llmedge:testDebugUnitTest --tests '*WanModelRegistryTest'"
+      - "manual Hugging Face Demo smoke if defaults or filenames changed"
+  - paths:
+      - "llmedge-examples"
+      - "scripts/validate_examples.sh"
+    required_checks:
+      - "bash scripts/validate_examples.sh"
+risky_change_areas:
+  - "Native load names, candidate order, and binding verification"
+  - "Process-wide backend blacklist and cache invalidation"
+  - "Shared client bootstrap ownership and close semantics"
+  - "Vision prepared-embedding fallback path and temp-file cleanup"
+  - "Sequential-vs-direct video generation heuristics"
+  - "Model download destination layout and cache validation"
+  - "Tool parser and action-policy semantics"
+refactor_rules:
+  - "Refactor shared helpers first, orchestrators second, docs last."
+  - "Do not move or rename shared-library targets without editing llmedge-targets.cmake, keeping scripts/native_targets.sh and NativeTargetNames.kt derivation intact, and updating NativeLibraryLoader/NativeLibraryCatalog."
+  - "Do not move generated NativeTargetNames.kt or the generated native-targets.sh shell metadata back into src/main; keep build-time generation under build/generated so normal builds do not dirty tracked source."
+  - "Host E2E verification should load exact native library paths when available; avoid reintroducing fragile ambient-only loader assumptions in desktop tests."
+  - "Do not change persistent file roots without documenting migration or deliberate cache invalidation."
+  - "Preserve separate ggml compilation per engine unless you are intentionally redesigning the native isolation model."
+  - "When changing example-app-facing APIs, validate the composite build before claiming compatibility."

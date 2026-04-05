@@ -781,7 +781,11 @@ current Kotlin facade and the low-level engines end-to-end.</p>
 <ul>
 <li>Build the host JNI library:
   <code>bash
-  ./scripts/build_smollm_linux.sh</code></li>
+  ./scripts/build_native_linux.sh smollm</code></li>
+<li>Or use the helper scripts, which reuse <code>scripts/native_test_support.sh</code> to build/copy the right host library automatically:
+  <code>bash
+  ./scripts/run_text_e2e.sh
+  ./scripts/run_whisper_e2e.sh</code></li>
 <li>Point the tests at local models:
   <code>bash
   export LLMEDGE_BUILD_NATIVE_LIB_PATH="$PWD/llmedge/build/native/linux-x86_64/libsmollm.so"
@@ -809,7 +813,7 @@ current Kotlin facade and the low-level engines end-to-end.</p>
 <li><code>text/ChatSessionLinuxE2ETest</code> — current <code>LLMEdge.text.session(...)</code> multi-turn facade on Linux</li>
 <li><code>speech/SpeechClientLinuxE2ETest</code> — current <code>LLMEdge.speech.transcribe(...)</code> facade on Linux</li>
 <li><code>WhisperLinuxE2ETest</code> — low-level Whisper STT pipeline on Linux</li>
-<li><code>ToolCallingE2ETest</code> — tool-calling loop using a stronger local model (<code>LLMEDGE_TEST_TOOL_MODEL_PATH</code>)</li>
+<li><code>ToolCallingE2ETest</code> — <code>LLMEdge.text.toolAgent(...)</code> loop using a stronger local model (<code>LLMEDGE_TEST_TOOL_MODEL_PATH</code>)</li>
 <li><code>BarkLinuxE2ETest</code> — Bark JNI bindings on Linux, plus full TTS generation when a Bark model is supplied</li>
 <li><code>ConversationWindowTest</code> / <code>PromptRendererTest</code> — Kotlin-managed chat-window trimming, prompt replay, and <code>&lt;think&gt;</code> stripping logic</li>
 </ul>
@@ -947,9 +951,9 @@ LLMEDGE_EXAMPLES_GRADLE_TASKS=':app:assembleDebug :app:assembleRelease' \
 <li>
 <p>Example validation nuances:</p>
 </li>
-<li><code>scripts/validate_examples.sh</code> copies the freshly built release AAR into <code>llmedge-examples/app/libs/</code></li>
+<li><code>scripts/validate_examples.sh</code> builds <code>:llmedge</code> first, then builds <code>llmedge-examples</code> through its composite-build substitution</li>
 <li>
-<p>If you are working in the <code>llmedge-examples</code> submodule directly, revert <code>app/libs/llmedge-release.aar</code> after validation if you do not want a binary diff in your workspace</p>
+<p>If you are working in the <code>llmedge-examples</code> submodule directly, keep its <code>settings.gradle.kts</code> pointed at the parent checkout so the local <code>:llmedge</code> project is substituted correctly</p>
 </li>
 <li>
 <p>Native JNI is skipped in most tests:</p>

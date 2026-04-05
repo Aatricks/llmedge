@@ -753,6 +753,7 @@
   </div>
   <div class="typography w-full flex-1 *:data-[slot=alert]:first:mt-0">
     <p>This guide covers installing and building <code>llmedge</code> for local development and integrating the library into an Android project.</p>
+<p><code>llmedge</code> currently targets Android 11+ (<code>minSdk 30</code>).</p>
 <h3 id="prerequisites">Prerequisites</h3>
 <ul>
 <li>JDK 17+ (for Gradle Kotlin DSL)</li>
@@ -789,10 +790,10 @@ git submodule update --init --recursive
 </code></pre>
 
 <ul>
-<li>Build the example app (separate Gradle build):</li>
+<li>Build the example app (separate Gradle build):
+  The example app uses <code>includeBuild("..")</code> to substitute the local <code>:llmedge</code> project.</li>
 </ul>
 <pre class="codehilite"><code class="language-fish">./gradlew :llmedge:assembleRelease
-cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
 cd llmedge-examples
 ./gradlew :app:assembleDebug
 </code></pre>
@@ -802,6 +803,7 @@ cd llmedge-examples
 <li>The native code resides in <code>llmedge/src/main/cpp</code> and uses JNI bindings and <code>llama.cpp</code>-style readers.</li>
 <li>If you run into issues with the C++ toolchain, verify <code>ANDROID_NDK_HOME</code> and <code>ANDROID_SDK_ROOT</code> in <code>local.properties</code> or environment variables.</li>
 <li>Vulkan is enabled by default on Linux/macOS hosts. On Windows hosts the Gradle build defaults Vulkan to <code>OFF</code> because the upstream shader generator is still unreliable under the Android cross-build toolchain; explicitly pass <code>-DSD_VULKAN=ON -DGGML_VULKAN=ON</code> only when your environment is known-good.</li>
+<li>Experimental Android OpenCL is disabled by default. Enable it with <code>-PllmedgeAndroidOpencl=ON</code> or <code>LLMEDGE_ANDROID_OPENCL=ON</code>. When GPU use is allowed at runtime, Android prefers OpenCL first, then Vulkan, then CPU. Bark remains CPU-only.</li>
 </ul>
 <h4 id="ggufmodel-files">GGUF/Model files</h4>
 <ul>
@@ -810,7 +812,8 @@ cd llmedge-examples
 <h4 id="hugging-face-integration">Hugging Face integration</h4>
 <ul>
 <li>The <code>io.aatricks.llmedge.huggingface</code> package can download models from the Hugging Face Hub.</li>
-<li>Use <code>SmolLM.loadFromHuggingFace()</code> for automatic download and loading.</li>
+<li>For normal app code, prefer <code>LLMEdge.create(...).models.prefetch(...)</code> or <code>edge.models.resolve(...)</code>.</li>
+<li>Use <code>SmolLM.loadFromHuggingFace()</code> and similar expert helpers only when you intentionally want to own the runtime directly.</li>
 <li>Optionally provide an HF token for private repositories via the <code>token</code> parameter.</li>
 </ul>
 <h3 id="troubleshooting">Troubleshooting</h3>

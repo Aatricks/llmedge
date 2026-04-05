@@ -16,7 +16,7 @@ Complete reference for on-device video generation using Wan models in llmedge.
 
 ## Overview
 
-llmedge provides on-device video generation through the `StableDiffusion` class, using Wan models. Generate short video clips (4-64 frames) entirely on Android devices.
+llmedge provides on-device video generation through the high-level `edge.image` client and, for expert workflows, the lower-level `StableDiffusion` class. For most Android app code, prefer `LLMEdge.create(...).image.generateVideo(...)` and let the facade own model resolution, sequential loading, and cleanup.
 
 **⚠️ Hardware Requirements**:
 
@@ -58,7 +58,7 @@ All three components are required and must be explicitly downloaded:
 
 - **RAM**: 12GB+ (9.7GB minimum + overhead)
 - **Storage**: 6GB free space for downloads
-- **OS**: Android 11+ recommended (Vulkan acceleration)
+- **OS**: Android 11+ (API 30). GPU backends are optional.
 
 **Known Limitations**:
 
@@ -68,13 +68,41 @@ All three components are required and must be explicitly downloaded:
     used, the client precomputes text-conditioning with the T5 encoder and then loads the
     diffusion model without reloading the T5 encoder to avoid duplicating memory usage.
     Note: For best results with sequential loading, avoid GPU-heavy settings that increase
-    peak memory usage on constrained devices.
+    peak memory usage on constrained devices. When GPU support is allowed, Android prefers
+    OpenCL first, then Vulkan.
 - No disk streaming - models must fit in RAM
 - 8GB RAM devices cannot run Wan models (architectural constraint)
 
 ---
 
 ## API Reference
+
+### Recommended High-Level Path
+
+```kotlin
+val edge = LLMEdge.create(context, lifecycleScope)
+
+val request =
+    VideoGenerationRequest(
+        prompt = "A robot dancing in the rain",
+        videoFrames = 16,
+        width = 512,
+        height = 512,
+        steps = 20,
+        cfgScale = 7.0f,
+        flowShift = 3.0f,
+        forceSequentialLoad = true,
+    )
+
+edge.image.generateVideo(request).collect { event ->
+    when (event) {
+        is GenerationStreamEvent.Progress -> updateProgress(event.update.message)
+        is GenerationStreamEvent.Completed -> showPreview(event.frames.first())
+    }
+}
+```
+
+Use the lower-level `StableDiffusion` APIs below only when you need to hold a warmed runtime directly or override asset loading behavior manually.
 
 ### Loading Models
 
@@ -725,7 +753,7 @@ val params = VideoGenerateParams(
 1. Use 1.3B model instead of 5B
 2. Reduce resolution
 3. Reduce steps (15-20 is usually sufficient)
-4. Enable Vulkan if on Android 11+
+4. Allow GPU backends if on Android 11+
 5. Close background apps
 
 ```kotlin
@@ -908,21 +936,24 @@ class VideoGenerationWorker(context: Context, params: WorkerParameters)
 
 ---
 
-### Vulkan Acceleration
+### GPU Backends
 
-**Enable Vulkan on Android 11+**:
+When GPU support is compiled in and allowed for the request, Android video generation prefers OpenCL first, then Vulkan, then CPU. OpenCL is experimental and only supported on `arm64-v8a` Android builds. If a GPU backend fails to initialize or loses the device, llmedge blacklists that backend for video for the rest of the process and retries once on the next backend.
 
-Build library with Vulkan support:
+Build library with Android GPU support:
 
 ```bash
-./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs="-DGGML_VULKAN=ON -DSD_VULKAN=ON"
+./gradlew :llmedge:assembleRelease \
+  -PllmedgeAndroidOpencl=ON \
+  -Pandroid.jniCmakeArgs="-DGGML_VULKAN=ON -DSD_VULKAN=ON"
 ```
 
-**Verify Vulkan at runtime**:
+**Verify GPU capability at runtime**:
 
 ```kotlin
-// Vulkan status is logged during initialization
-// Check logcat for: "Vulkan initialized successfully"
+val openClAvailable = LLMEdge.isOpenClAvailable()
+val vulkanAvailable = LLMEdge.isVulkanAvailable()
+// The selected backend is logged during model load.
 ```
 
 ---

@@ -37,7 +37,7 @@ This section documents known quirks, limitations, and troubleshooting steps for 
 **Download issues:**
 
 - HF rate-limits: downloads may fail if you exceed rate limits; retry or provide a token
-- For private repositories, pass `token` parameter to `loadFromHuggingFace()`
+- For private repositories, pass `token` in `ModelSpec.huggingFace(...)` when using `edge.models` or a facade client. Use `loadFromHuggingFace()` only for expert runtime flows.
 - Large files: always use `preferSystemDownloader = true` to avoid heap pressure
 
 **Troubleshooting:**
@@ -119,10 +119,10 @@ Caching details:
 
 **Memory management:**
 
-- Always call `.close()` on SmolLM, StableDiffusion, and OcrEngine instances
+- Always call `.close()` on `LLMEdge` when you use the facade, or on direct expert runtimes (`SmolLM`, `StableDiffusion`, `Whisper`, `BarkTTS`) when you own them directly
 - Use `MemoryMetrics` to track native heap growth
 - `nativePssKb` shows native memory (model + KV cache)
-- Consider using a single global SmolLM instance instead of creating/destroying frequently
+- Prefer a shared `LLMEdge` instance per screen or feature before falling back to a globally managed direct runtime
 
 ### Debugging JNI
 
@@ -134,7 +134,7 @@ adb logcat -s SmolLM:* SmolSD:* llama:*
 **Common native errors:**
 
 - "Failed to load model": Check file path and permissions
-- "ggml_init_cublas: failed": Vulkan/GPU initialization failed (falls back to CPU)
+- "ggml_init_cublas: failed" or similar backend-init errors: a GPU backend (OpenCL or Vulkan) failed and the runtime fell back to CPU
 - Crashes without logs: Use `ndk-stack` with symbolicated stack traces
 
 **Debugging steps:**
@@ -143,7 +143,7 @@ adb logcat -s SmolLM:* SmolSD:* llama:*
 2. Verify model file exists and is readable
 3. Test with a known-good tiny model first
 4. Check available memory before loading
-5. Try disabling Vulkan: `SmolLM(useVulkan = false)`
+5. Try forcing CPU: `SmolLM(useVulkan = false)`
 
 **Stack traces:**
 ```fish

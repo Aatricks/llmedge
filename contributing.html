@@ -736,7 +736,7 @@
 <li>Android SDK &amp; NDK r27+ (for native builds)</li>
 <li>CMake 3.22+ and Ninja</li>
 <li>Git with submodule support</li>
-<li>(Optional) VULKAN_SDK for Vulkan builds</li>
+<li>(Optional) <code>VULKAN_SDK</code> if you are building the Vulkan path on the host</li>
 </ul>
 <h3 id="initial-setup">Initial Setup</h3>
 <ol>
@@ -757,15 +757,14 @@
    <code>fish
    ./gradlew :llmedge:assembleDebug
    ./gradlew :llmedge:assembleRelease
-   cp llmedge/build/outputs/aar/llmedge-release.aar llmedge-examples/app/libs/llmedge-release.aar
    cd llmedge-examples &amp;&amp; ./gradlew :app:assembleDebug</code></p>
 </li>
 <li>
 <p><strong>Run examples on a device or emulator</strong> to verify setup</p>
 </li>
 </ol>
-<p>The root Gradle build only includes <code>:llmedge</code>. The example app is a separate Gradle build that consumes the generated AAR, so validate it separately after library changes. For a one-command check from the repository root, run <code>bash scripts/validate_examples.sh</code>.</p>
-<p>If you have already built <code>llmedge/build/outputs/aar/llmedge-release.aar</code> and only want to re-check the example app against that artifact, reuse it with:</p>
+<p>The root Gradle build only includes <code>:llmedge</code>. The example app is a separate Gradle build wired in through a composite build, so validate it separately after library changes. For a one-command check from the repository root, run <code>bash scripts/validate_examples.sh</code>.</p>
+<p>If you have already built <code>:llmedge</code> and only want to re-check the example app without rebuilding the library first, reuse the existing outputs with:</p>
 <pre class="codehilite"><code class="language-fish">LLMEDGE_SKIP_LIBRARY_BUILD=true bash scripts/validate_examples.sh
 </code></pre>
 
@@ -1038,14 +1037,18 @@ Related to #456
 <pre class="codehilite"><code class="language-fish"># Clean native builds
 rm -rf llmedge/.cxx
 
-# Rebuild with Vulkan
-./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs=&quot;-DGGML_VULKAN=ON -DSD_VULKAN=ON&quot;
+# Rebuild with Android GPU backends
+./gradlew :llmedge:assembleRelease \
+  -PllmedgeAndroidOpencl=ON \
+  -Pandroid.jniCmakeArgs=&quot;-DGGML_VULKAN=ON -DSD_VULKAN=ON&quot;
 </code></pre>
 
 <p>On Linux/macOS hosts the Gradle build enables Vulkan by default. On Windows hosts it now defaults
 to <code>OFF</code> because the upstream shader-generator step is still fragile under the Android cross-build
 toolchain; opt back in explicitly with <code>-DGGML_VULKAN=ON -DSD_VULKAN=ON</code> only when that path is
-known to work in your environment.</p>
+known to work in your environment. Experimental OpenCL is Android-only, <code>arm64-v8a</code>-only, and
+opt-in through <code>-PllmedgeAndroidOpencl=ON</code>. At runtime, llmedge prefers OpenCL first, then Vulkan,
+then CPU for text, Whisper, and image/video requests.</p>
 <h3 id="debugging-native-code">Debugging Native Code</h3>
 <ol>
 <li>

@@ -1,0 +1,182 @@
+schema: ai-context/v1
+repo:
+  name: llmedge
+  kind: android-library-with-native-engines
+  root_gradle_module: ":llmedge"
+  examples_workspace: "llmedge-examples"
+  primary_languages:
+    - Kotlin
+    - C++
+    - CMake
+    - Gradle Kotlin DSL
+summary:
+  one_line: "Android AAR that wraps llama.cpp, stable-diffusion.cpp, whisper.cpp, and bark.cpp behind Kotlin clients with a facade-first LLMEdge API and advanced expert runtimes."
+  primary_entrypoint: "llmedge/src/main/java/io/aatricks/llmedge/LLMEdge.kt"
+  public_surfaces:
+    - "LLMEdge facade, LLMEdgeConfig, and per-subsystem backend availability helpers"
+    - "feature clients: text, speech, image, vision, rag"
+    - "advanced expert runtimes: SmolLM, StableDiffusion, Whisper, BarkTTS, GGUFReader"
+read_order:
+  required:
+    - "docs/ai/00-index.yaml"
+    - "docs/ai/05-admin.yaml"
+    - "docs/ai/10-system-map.yaml"
+    - "docs/ai/30-contracts.yaml"
+  then_for_code:
+    - "llmedge/src/main/java/io/aatricks/llmedge/LLMEdge.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/LLMEdgeConfig.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/core/ClientBootstrap.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/core/FeatureClientSupport.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/tools/ToolAgentTurnLoop.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/image/ImageRuntimeRequestPlanner.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/model/DefaultModelCatalog.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/model/ModelRegistry.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/core/runtime/RuntimePool.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/core/runtime/RuntimeCoordinator.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/core/runtime/RuntimeLoadPolicy.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/core/runtime/RuntimeExecution.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/core/runtime/RuntimeCapabilities.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/text/TextClient.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/text/TextRequestExecutor.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/text/TextRuntimeSession.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/text/runtime/SmolLMCompanionSupport.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/text/runtime/internal/SmolLMLoader.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/speech/SpeechClient.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/speech/stt/WhisperRuntimeSupport.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/speech/stt/internal/WhisperCompanionSupport.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/image/ImageClient.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/image/ImageGenerationExecutor.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/image/VideoGenerationExecutor.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/image/diffusion/StableDiffusionCompanionSupport.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/image/diffusion/internal/StableDiffusionLoader.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/vision/VisionPipeline.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/rag/RAGEngine.kt"
+    - "llmedge/src/main/cpp/CMakeLists.txt"
+repo_shape:
+  authoritative_code_paths:
+    - "llmedge/src/main/java/io/aatricks/llmedge"
+    - "llmedge/src/main/cpp"
+    - "gradle"
+    - "scripts"
+    - ".github/workflows"
+  companion_and_consumer_paths:
+    - "llmedge-examples/app/src/main/java/com/example/llmedgeexample"
+  upstream_vendor_paths:
+    - "llama.cpp"
+    - "stable-diffusion.cpp"
+    - "whisper.cpp"
+    - "bark.cpp"
+  overlay_paths:
+    - "mods/llama.cpp"
+    - "mods/whisper.cpp"
+    - "mods/ggml"
+source_of_truth:
+  public_api:
+    - "llmedge/src/main/java/io/aatricks/llmedge/LLMEdge.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/Deprecated.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/text/TextClient.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/speech/SpeechClient.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/image/ImageClient.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/vision/VisionClient.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/rag/RAGClient.kt"
+  runtime_and_cache_policy:
+    - "llmedge/src/main/java/io/aatricks/llmedge/core/runtime"
+    - "llmedge/src/main/java/io/aatricks/llmedge/core/FeatureClientSupport.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/runtime/ModelCache.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/runtime/ComputeBackend.kt"
+  model_resolution_and_storage:
+    - "llmedge/src/main/java/io/aatricks/llmedge/model"
+    - "llmedge/src/main/java/io/aatricks/llmedge/model/DefaultModelCatalog.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/huggingface"
+    - "llmedge/src/main/java/io/aatricks/llmedge/rag/EmbeddingProvider.kt"
+    - "llmedge/src/main/java/io/aatricks/llmedge/rag/RAGEngine.kt"
+  native_build_graph:
+    - "llmedge/src/main/cpp/CMakeLists.txt"
+    - "llmedge/src/main/cpp/cmake/llmedge-common.cmake"
+    - "llmedge/src/main/cpp/cmake/llmedge-vulkan.cmake"
+    - "llmedge/src/main/cpp/cmake/llmedge-opencl.cmake"
+    - "llmedge/src/main/cpp/cmake/llmedge-smollm-targets.cmake"
+    - "llmedge/src/main/cpp/cmake/llmedge-smollm.cmake"
+    - "llmedge/src/main/cpp/cmake/llmedge-stable-diffusion.cmake"
+    - "llmedge/src/main/cpp/cmake/llmedge-whisper.cmake"
+    - "llmedge/src/main/cpp/cmake/llmedge-bark.cmake"
+  smoke_and_consumer_validation:
+    - "llmedge-examples/app/src/main/java/com/example/llmedgeexample/app/MainActivity.kt"
+    - "scripts/validate_examples.sh"
+    - "scripts/run_native_e2e.sh"
+    - ".github/workflows/ci.yml"
+    - ".github/workflows/android-smoke.yml"
+hot_paths:
+  - name: "Facade startup"
+    files:
+      - "llmedge/src/main/java/io/aatricks/llmedge/LLMEdge.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/core/ClientBootstrap.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/core/FeatureClientSupport.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/core/LLMEdgeScope.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/lifecycle/LLMEdgeLifecycle.kt"
+  - name: "Text generation and chat/session replay"
+    files:
+      - "llmedge/src/main/java/io/aatricks/llmedge/text/TextClient.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/text/TextRequestExecutor.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/text/TextRuntimeSession.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/text/ChatSession.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/core/runtime/RuntimeExecution.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/text/runtime/SmolLM.kt"
+  - name: "Model download and cache reuse"
+    files:
+      - "llmedge/src/main/java/io/aatricks/llmedge/model/ModelRepository.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/huggingface/HuggingFaceHub.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/huggingface/HFDownloadSupport.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/huggingface/HFFileSelectionSupport.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/huggingface/HFModelDownload.kt"
+  - name: "Image and video generation"
+    files:
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/ImageClient.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/ImageGenerationExecutor.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/VideoGenerationExecutor.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/ImageRuntimeRequestPlanner.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/ImageRuntimeSupport.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/core/runtime/RuntimeExecution.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/image/diffusion/StableDiffusion.kt"
+  - name: "Vision runtime and projector bridge"
+    files:
+      - "llmedge/src/main/java/io/aatricks/llmedge/vision/VisionPipeline.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/vision/VisionRuntimeExecutor.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/vision/VisionRuntimeSupport.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/vision/Projector.kt"
+  - name: "RAG persistence"
+    files:
+      - "llmedge/src/main/java/io/aatricks/llmedge/rag/RAGClient.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/rag/RAGEngine.kt"
+      - "llmedge/src/main/java/io/aatricks/llmedge/rag/EmbeddingProvider.kt"
+update_rules:
+  always_update_ai_docs_when:
+    - "public entrypoints, feature clients, or config defaults change"
+    - "storage roots, file contracts, or cache key composition change"
+    - "native library names, CMake include order, or backend selection logic change"
+    - "example app smoke paths or CI validation commands change"
+  docs_to_touch_by_change_type:
+    api_or_module_boundary:
+      - "docs/ai/00-index.yaml"
+      - "docs/ai/20-modules.yaml"
+      - "docs/ai/50-guardrails.yaml"
+    runtime_or_persistence_contract:
+      - "docs/ai/10-system-map.yaml"
+      - "docs/ai/30-contracts.yaml"
+      - "docs/ai/40-flows.yaml"
+    native_build_or_ci:
+      - "docs/ai/10-system-map.yaml"
+      - "docs/ai/40-flows.yaml"
+      - "docs/ai/50-guardrails.yaml"
+      - "docs/ai/project-structure.txt"
+non_authoritative_or_generated:
+  ignore_by_default:
+    - "build"
+    - ".gradle"
+    - ".kotlin"
+    - "llmedge/build"
+    - "llmedge/.cxx"
+    - "artifacts"
+    - "site"
+  caveat:
+    - "Example app and test artifacts can demonstrate expected behavior, but Kotlin/C++ sources and Gradle/CMake wiring remain authoritative."

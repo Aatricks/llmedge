@@ -1,0 +1,212 @@
+schema: ai-context/v1
+runtime_messages:
+  ProgressEvent:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/core/ProgressEvent.kt"
+    variants:
+      - "Downloading(model: ModelSpec, downloadedBytes: Long, totalBytes: Long?)"
+      - "Status(message: String)"
+      - "Step(message: String, current: Int, total: Int)"
+  TextStreamEvent:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/text/TextStreamEvent.kt"
+    variants:
+      - "Started(prompt: String)"
+      - "Chunk(value: String)"
+      - "Completed(fullText: String)"
+  AudioStreamEvent:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/speech/AudioStreamEvent.kt"
+    variants:
+      - "Started"
+      - "Progress(step: BarkTTS.EncodingStep, percent: Int)"
+      - "Result(audio: BarkTTS.AudioResult)"
+      - "Completed"
+  GenerationStreamEvent:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/image/GenerationStreamEvent.kt"
+    variants:
+      - "Progress(update: ProgressEvent.Step)"
+      - "Completed(frames: List<Bitmap>)"
+  ToolAgentEvent:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/tools/Tool.kt"
+    variants:
+      - "Started(message)"
+      - "ToolCallRequested(call)"
+      - "ToolApproved(call)"
+      - "ToolDenied(call, reason)"
+      - "ToolExecuting(call)"
+      - "ToolResultReceived(call, result)"
+      - "TextChunk(value)"
+      - "Completed(result)"
+      - "Failed(message, cause)"
+tool_call_contracts:
+  model_output_envelope:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/tools/ToolCallParser.kt"
+    required_shape:
+      tool: "string"
+      arguments: "object (optional; defaults to empty object)"
+    accepted_legacy_shape:
+      tool_name: "string"
+    parser_behavior:
+      - "searches fenced JSON, balanced objects, then full text"
+      - "returns FinalText when no tool key is present"
+      - "rejects non-string tool names and non-object arguments"
+  Tool:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/tools/Tool.kt"
+    shape:
+      name: "string"
+      description: "string"
+      kind: "READ_ONLY | ACTION"
+      schema: "ToolSchema(parameters: Map<String, ToolParameter>)"
+      handler: "suspend (JsonObject) -> ToolResult"
+  ToolResult:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/tools/Tool.kt"
+    shape:
+      text: "string"
+      data: "JsonObject"
+      isError: "boolean"
+conversation_contracts:
+  ConversationMessage:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/text/ConversationMessage.kt"
+    shape:
+      role: "SYSTEM | USER | ASSISTANT | TOOL"
+      content: "string"
+  ConversationWindow:
+    invariants:
+      - "maxTurns > 0"
+      - "maxTokens > 0"
+      - "trim keeps last maxTurns*2 messages, then drops oldest until estimated tokens <= maxTokens"
+      - "assistant think blocks are stripped on trim when stripThinkTags=true"
+      - "token estimate is ceil(char_count / 4) + 4 per message"
+  PromptRenderer:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/text/PromptRenderer.kt"
+    contract:
+      prefix: "Continue the following conversation and reply as the assistant to the final user message."
+      labels: ["System", "User", "Assistant", "Tool"]
+      note: "ChatSession full replay uses this prompt; incremental snapshot path bypasses it and sends only the new user message."
+model_and_cache_contracts:
+  ModelSpec:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/model/ModelSpec.kt"
+    variants:
+      LocalFile:
+        cacheKey: "file://<absolutePath>"
+      HuggingFace:
+        fields:
+          - "repoId"
+          - "filename?"
+          - "revision=main"
+          - "preferredQuantizations"
+          - "token?"
+          - "forceDownload"
+          - "preferSystemDownloader"
+        cacheKey: "hf|repoId|revision|filename|preferredQuantizations_csv|forceDownload"
+  runtime_cache_keys:
+    owners:
+      text: "TextRuntimeSupport.createTextRuntimePool cacheKeyPrefix lambda"
+      whisper: "SpeechRuntimeSupport.createWhisperRuntimePool cacheKeyPrefix lambda"
+      bark: "SpeechRuntimeSupport.createBarkRuntimePool cacheKeyPrefix lambda"
+      diffusion: "ImageRuntimeSupport.createDiffusionRuntimePool cacheKeyPrefix lambda"
+      vision: "VisionRuntimeSupport.createVisionRuntimePool cacheKeyPrefix lambda"
+    suffix_rule: "RuntimeCacheKeyBuilder.withBackend(prefix, backend)"
+    invariant: "Backend suffix is part of cache identity; invalidation removes all backend variants for a prefix."
+request_shapes:
+  speech:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/speech/SpeechClient.kt"
+    preferred_path:
+      - "SpeechToTextPrepareRequest"
+      - "SpeechSynthesisPrepareRequest"
+      - "SpeechToTextRequest"
+      - "SpeechLanguageDetectionRequest"
+      - "StreamingTranscriptionRequest"
+      - "SpeechSynthesisRequest"
+    note: "Legacy parameter-list overloads remain supported, but new facade usage should prefer request objects plus WhisperRuntimeRequest/BarkRuntimeRequest."
+  vision:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/vision/VisionClient.kt"
+    preferred_naming:
+      - "VisionRequest keeps numThreads for compatibility and exposes promptThreads as the preferred alias."
+      - "VisionPrepareRequest uses promptThreads/generationThreads directly."
+storage_keys:
+  files:
+    - key: "hf-models-root"
+      path: "context.filesDir/hf-models"
+      owner: "HFFileSelectionSupport.DEFAULT_MODELS_DIRECTORY"
+    - key: "hf-model-path"
+      path_template: "context.filesDir/hf-models/<sanitize(repoId)>/<revision>/<filename>"
+      owner: "HFDownloadSupport.resolveModelReference()"
+    - key: "hf-system-temp"
+      path_template: "context.getExternalFilesDir('hf-downloads')/<sanitize(remotePath)>-<timestamp>.tmp"
+      owner: "HuggingFaceHub.maybeDownloadWithSystem()"
+    - key: "hf-stream-temp"
+      path_template: "<target parent>/<target filename>.part"
+      owner: "HFModelDownload.downloadModelFile()"
+    - key: "embedding-models-root"
+      path: "context.filesDir/embedding_models"
+      owner: "EmbeddingProvider.init()"
+    - key: "rag-index"
+      path: "context.filesDir/rag_store/index.json"
+      owner: "RAGEngine"
+    - key: "wan-registry-asset"
+      path: "llmedge/src/main/assets/wan-models/model-registry.json"
+      owner: "WanModelRegistry"
+    - key: "umt5-tokenizer-asset"
+      path: "llmedge/src/main/assets/umt5_tokenizer.json"
+      owner: "video/text-encoder support"
+    - key: "vision-temp-image"
+      path_template: "context.cacheDir/vision_input*.jpg"
+      owner: "VisionPipeline"
+    - key: "vision-temp-embeddings"
+      path_template: "context.cacheDir/vision_prepared*.bin and sibling .meta.json"
+      owner: "VisionPipeline + native projector"
+ports_and_external_endpoints:
+  network:
+    - "GET https://huggingface.co/api/models/{repoId}"
+    - "GET https://huggingface.co/{repoId}/resolve/{revision}/{path}"
+  platform_services:
+    - "android.app.DownloadManager"
+  note: "No listening sockets, web server, or custom app ports exist in this repo."
+catalog_shape:
+  WanModelEntry:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/huggingface/WanModelRegistry.kt"
+    persisted_source: "llmedge/src/main/assets/wan-models/model-registry.json"
+    parsed_fields:
+      - "modelId: String"
+      - "filename: String"
+      - "architecture: String?"
+      - "modelType: String?"
+      - "mobileSupported: Boolean"
+      - "recommendedMinRAM: String?"
+      - "description: String?"
+      - "quantization: String?"
+      - "t5ModelId: String?"
+      - "t5Filename: String?"
+      - "vaeFilename: String?"
+      - "sizeBytes: Long?"
+    note: "Registry parsing now preserves the runtime-facing metadata fields used by video model selection and diagnostics."
+  HFModelTree.HFModelFile:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/huggingface/HFModelTree.kt"
+    shape:
+      type: "string? (often null from siblings endpoint)"
+      oid: "string?"
+      size: "long?"
+      path: "siblings[].rfilename"
+      lfs: "{ oid: string, size: long }?"
+panel_snapshot_shape:
+  status: "not_applicable"
+  reason: "This repo is a library plus example app; there is no panel snapshot/catalog UI state analogous to a browser extension or dashboard shell."
+active_list_invariants:
+  - name: "ResourceScope registry"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/core/ResourceScope.kt"
+    invariant: "Resources close in reverse registration order."
+  - name: "LLMEdge backend availability helpers"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/LLMEdge.kt"
+    invariant: "Per-subsystem helpers report engine-specific OpenCL/Vulkan availability; deprecated generic helpers alias the image/diffusion subsystem only."
+  - name: "SessionTranscript history"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/text/SessionTranscript.kt"
+    invariant: "commitTurn appends USER first, then ASSISTANT only when response is non-null."
+  - name: "Backend blacklist"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/runtime/ComputeBackend.kt"
+    invariant: "Blacklist keys are (ComputeSubsystem, ComputeBackend); CPU is never added."
+  - name: "ModelCache entries"
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/runtime/ModelCache.kt"
+    invariant: "LinkedHashMap is access-ordered LRU; insert may evict until under max entries/budget, but still allows a single oversized first insert."
+unknown_or_native_owned_contracts:
+  - artifact: "vision prepared embeddings .meta.json"
+    owner: "native projector implementation"
+    observed_from_kotlin: "VisionPipeline and VisionRuntimeExecutor only require file existence; field schema is not enforced in Kotlin."

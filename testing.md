@@ -36,7 +36,12 @@ Prerequisites:
 
 - Build the host JNI library:
   ```bash
-  ./scripts/build_smollm_linux.sh
+  ./scripts/build_native_linux.sh smollm
+  ```
+- Or use the helper scripts, which reuse `scripts/native_test_support.sh` to build/copy the right host library automatically:
+  ```bash
+  ./scripts/run_text_e2e.sh
+  ./scripts/run_whisper_e2e.sh
   ```
 - Point the tests at local models:
   ```bash
@@ -68,7 +73,7 @@ Coverage:
 - `text/ChatSessionLinuxE2ETest` — current `LLMEdge.text.session(...)` multi-turn facade on Linux
 - `speech/SpeechClientLinuxE2ETest` — current `LLMEdge.speech.transcribe(...)` facade on Linux
 - `WhisperLinuxE2ETest` — low-level Whisper STT pipeline on Linux
-- `ToolCallingE2ETest` — tool-calling loop using a stronger local model (`LLMEDGE_TEST_TOOL_MODEL_PATH`)
+- `ToolCallingE2ETest` — `LLMEdge.text.toolAgent(...)` loop using a stronger local model (`LLMEDGE_TEST_TOOL_MODEL_PATH`)
 - `BarkLinuxE2ETest` — Bark JNI bindings on Linux, plus full TTS generation when a Bark model is supplied
 - `ConversationWindowTest` / `PromptRendererTest` — Kotlin-managed chat-window trimming, prompt replay, and `<think>` stripping logic
 
@@ -224,8 +229,8 @@ LLMEDGE_EXAMPLES_GRADLE_TASKS=':app:assembleDebug :app:assembleRelease' \
   - Ensure system downloader is used for large files, and prefer the managed device flow to keep memory usage predictable
 
 - Example validation nuances:
-  - `scripts/validate_examples.sh` copies the freshly built release AAR into `llmedge-examples/app/libs/`
-  - If you are working in the `llmedge-examples` submodule directly, revert `app/libs/llmedge-release.aar` after validation if you do not want a binary diff in your workspace
+  - `scripts/validate_examples.sh` builds `:llmedge` first, then builds `llmedge-examples` through its composite-build substitution
+  - If you are working in the `llmedge-examples` submodule directly, keep its `settings.gradle.kts` pointed at the parent checkout so the local `:llmedge` project is substituted correctly
 
 - Native JNI is skipped in most tests:
   - Test harness sets `llmedge.disableNativeLoad=true` automatically for non‑E2E tests

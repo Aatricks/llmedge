@@ -780,12 +780,12 @@
 <li>Ensure you're on arm64-v8a architecture (check with <code>Build.SUPPORTED_ABIS[0]</code>)</li>
 <li>The library automatically selects optimized native libs based on CPU features</li>
 <li>Lower <code>temperature</code> and <code>maxTokens</code> can speed up generation</li>
-<li>Vulkan acceleration may help on supported devices</li>
+<li>OpenCL or Vulkan acceleration may help on supported Android devices</li>
 </ul>
 </details>
 <details>
-<summary>Q: How do I enable Vulkan acceleration?</summary>
-<p>A: Create SmolLM with <code>SmolLM(useVulkan = true)</code> (default). Check if enabled with <code>smol.isVulkanEnabled()</code>. Your device needs Android 11+ and Vulkan 1.2 support. See the Building section in the main README for build configuration.</p>
+<summary>Q: How do I enable GPU acceleration?</summary>
+<p>A: For text, keep <code>SmolLM(useVulkan = true)</code> or <code>TextModelOptions(useVulkan = true)</code> (both default). For Whisper, keep <code>WhisperLoadOptions(useGpu = true)</code>. Those names are legacy compatibility flags: on Android they mean "allow a supported GPU backend", not "force Vulkan". llmedge prefers OpenCL first, then Vulkan, then CPU. Check device capability with <code>LLMEdge.isOpenClAvailable()</code> and <code>LLMEdge.isVulkanAvailable()</code>. See the Building section in the main README for build configuration.</p>
 </details>
 <details>
 <summary>Q: How do vision models work?</summary>

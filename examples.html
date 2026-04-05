@@ -896,7 +896,7 @@ val response = edge.text.generate(
         repoId = &quot;unsloth/Qwen3-0.6B-GGUF&quot;,
         filename = &quot;Qwen3-0.6B-Q4_K_M.gguf&quot;,
     ),
-    params = SmolLM.InferenceParams(thinkingMode = SmolLM.ThinkingMode.DISABLED),
+    options = TextModelOptions(thinkingMode = SmolLM.ThinkingMode.DISABLED),
 )
 </code></pre>
 
@@ -1002,10 +1002,18 @@ edge.image.generateVideo(params).collect { event -&gt;
 val bmp = ImageUtils.imageToBitmap(context, uri)
 val scaledBmp = ImageUtils.preprocessImage(bmp, correctOrientation = true, maxDimension = 1024)
 
-// 2. Run OCR (Optional grounding)
+// 2. Warm the configured vision stack
+edge.vision.prepare(
+    VisionPrepareRequest(
+        model = edge.config.models.vision.model,
+        projector = edge.config.models.vision.projector,
+    ),
+)
+
+// 3. Run OCR (Optional grounding)
 val ocrText = edge.vision.extractText(scaledBmp)
 
-// 3. Build Prompt (e.g. ChatML format for Phi-3)
+// 4. Build Prompt (e.g. ChatML format for Phi-3)
 val prompt = &quot;&quot;&quot;
     &lt;|system|&gt;You are a helpful assistant.&lt;|end|&gt;
     &lt;|user|&gt;
@@ -1015,8 +1023,15 @@ val prompt = &quot;&quot;&quot;
     &lt;|assistant|&gt;
 &quot;&quot;&quot;.trimIndent()
 
-// 4. Run Vision Analysis
-val result = edge.vision.analyze(scaledBmp, prompt)
+// 5. Run Vision Analysis
+val result = edge.vision.analyze(
+    VisionRequest(
+        image = scaledBmp,
+        prompt = prompt,
+        model = edge.config.models.vision.model,
+        projector = edge.config.models.vision.projector,
+    ),
+)
 </code></pre>
 
 <p><strong>Status</strong>: Uses <code>LLMEdge</code> to orchestrate the experimental vision pipeline (loading projector, encoding image, running inference).</p>
@@ -1035,7 +1050,13 @@ val result = edge.vision.analyze(scaledBmp, prompt)
 <pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, lifecycleScope)
 
 // Generate speech (model auto-downloads on first use)
-val audio = edge.speech.synthesize(&quot;Hello, world!&quot;)
+val audio =
+    edge.speech.synthesize(
+        SpeechSynthesisRequest(
+            text = &quot;Hello, world!&quot;,
+            model = edge.config.models.textToSpeech,
+        ),
+    )
 
 // Play the generated audio
 val audioTrack = AudioTrack.Builder()

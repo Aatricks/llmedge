@@ -785,7 +785,7 @@
 <p><strong>Download issues:</strong></p>
 <ul>
 <li>HF rate-limits: downloads may fail if you exceed rate limits; retry or provide a token</li>
-<li>For private repositories, pass <code>token</code> parameter to <code>loadFromHuggingFace()</code></li>
+<li>For private repositories, pass <code>token</code> in <code>ModelSpec.huggingFace(...)</code> when using <code>edge.models</code> or a facade client. Use <code>loadFromHuggingFace()</code> only for expert runtime flows.</li>
 <li>Large files: always use <code>preferSystemDownloader = true</code> to avoid heap pressure</li>
 </ul>
 <p><strong>Troubleshooting:</strong></p>
@@ -863,10 +863,10 @@
 </ul>
 <p><strong>Memory management:</strong></p>
 <ul>
-<li>Always call <code>.close()</code> on SmolLM, StableDiffusion, and OcrEngine instances</li>
+<li>Always call <code>.close()</code> on <code>LLMEdge</code> when you use the facade, or on direct expert runtimes (<code>SmolLM</code>, <code>StableDiffusion</code>, <code>Whisper</code>, <code>BarkTTS</code>) when you own them directly</li>
 <li>Use <code>MemoryMetrics</code> to track native heap growth</li>
 <li><code>nativePssKb</code> shows native memory (model + KV cache)</li>
-<li>Consider using a single global SmolLM instance instead of creating/destroying frequently</li>
+<li>Prefer a shared <code>LLMEdge</code> instance per screen or feature before falling back to a globally managed direct runtime</li>
 </ul>
 <h3 id="debugging-jni">Debugging JNI</h3>
 <p><strong>Getting native logs:</strong></p>
@@ -876,7 +876,7 @@
 <p><strong>Common native errors:</strong></p>
 <ul>
 <li>"Failed to load model": Check file path and permissions</li>
-<li>"ggml_init_cublas: failed": Vulkan/GPU initialization failed (falls back to CPU)</li>
+<li>"ggml_init_cublas: failed" or similar backend-init errors: a GPU backend (OpenCL or Vulkan) failed and the runtime fell back to CPU</li>
 <li>Crashes without logs: Use <code>ndk-stack</code> with symbolicated stack traces</li>
 </ul>
 <p><strong>Debugging steps:</strong></p>
@@ -885,7 +885,7 @@
 <li>Verify model file exists and is readable</li>
 <li>Test with a known-good tiny model first</li>
 <li>Check available memory before loading</li>
-<li>Try disabling Vulkan: <code>SmolLM(useVulkan = false)</code></li>
+<li>Try forcing CPU: <code>SmolLM(useVulkan = false)</code></li>
 </ol>
 <p><strong>Stack traces:</strong></p>
 <pre class="codehilite"><code class="language-fish">adb logcat | ndk-stack -sym path/to/obj/local/arm64-v8a/

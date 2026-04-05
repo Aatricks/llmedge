@@ -5,9 +5,21 @@ This page explains how to use `llmedge`'s Kotlin API. The library offers two lay
 1.  **High-Level API (`LLMEdge`)**: Recommended for most use cases. It exposes instance-scoped clients for text, speech, image, vision, and RAG while keeping model resolution and cleanup explicit.
 2.  **Low-Level API (`SmolLM`, `StableDiffusion`)**: For advanced users who need fine-grained control over model lifecycle and parameters.
 
+For application code, prefer:
+
+- `LLMEdge.create(...)` for lifecycle-managed access
+- `edge.models.prefetch(...)` / `edge.models.resolve(...)` for downloads
+- `edge.text`, `edge.speech`, `edge.image`, `edge.vision`, and `edge.rag` for inference
+
+Direct `HuggingFaceHub` calls and `*.loadFromHuggingFace(...)` helpers are still supported, but they are expert APIs.
+
 Examples reference the `llmedge-examples` [repo](https://github.com/aatricks/llmedge-examples).
 
 ---
+
+## GPU Backends on Android
+
+`TextModelOptions.useVulkan`, `LLMEdgeConfig.textUseVulkan`, and `SmolLM(useVulkan = true)` keep their historical names for source compatibility. On Android, `true` now means "allow GPU acceleration": llmedge prefers OpenCL first, then Vulkan, then CPU. `WhisperLoadOptions.useGpu` follows the same rule. Bark remains CPU-only.
 
 ## High-Level API (LLMEdge)
 
@@ -62,6 +74,17 @@ edge.text.stream(
 
 Default batch sizes are currently `8` for blocking generation and `4` for streaming. Passing
 `batchSize = 0` uses the configured default for the relevant path.
+
+### Batch Size Tuning
+
+| Workload | Suggested batch size | Why |
+|---|---:|---|
+| Token-by-token UI streaming | `1-4` | keeps updates frequent and reduces perceived latency |
+| General chat replies | `4-8` | good balance between JNI overhead and responsiveness |
+| Longer offline generation | `8-16` | better throughput when intermediate updates matter less |
+
+If you are tuning on big.LITTLE devices, adjust `batchSize` together with `numThreads` and
+`generationThreads` rather than treating them in isolation.
 
 ### Image Generation
 
@@ -123,20 +146,46 @@ Analyze images using a Vision Language Model (VLM).
 
 ```kotlin
 val edge = LLMEdge.create(context, viewModelScope)
-val description = edge.vision.analyze(bitmap, "What is in this image?")
+val description =
+    edge.vision.analyze(
+        VisionRequest(
+            image = bitmap,
+            prompt = "What is in this image?",
+            model = edge.config.models.vision.model,
+            projector = edge.config.models.vision.projector,
+        ),
+    )
 ```
 
 Vision analysis also exposes separate prompt and generation thread counts for the underlying
 SmolLM runtime:
 
 ```kotlin
-val description = edge.vision.analyze(
-    image = bitmap,
-    prompt = "What is in this image?",
-    numThreads = 4,
-    generationThreads = 2,
+val description =
+    edge.vision.analyze(
+        VisionRequest(
+            image = bitmap,
+            prompt = "What is in this image?",
+            model = edge.config.models.vision.model,
+            projector = edge.config.models.vision.projector,
+            numThreads = 4,
+            generationThreads = 2,
+        ),
+    )
+```
+
+```kotlin
+edge.vision.prepare(
+    VisionPrepareRequest(
+        model = edge.config.models.vision.model,
+        projector = edge.config.models.vision.projector,
+        promptThreads = 4,
+        generationThreads = 2,
+    ),
 )
 ```
+
+The current high-level vision pipeline prioritizes isolation and predictable cleanup over manual runtime ownership.
 
 ### OCR (Text Extraction)
 
@@ -154,16 +203,34 @@ Transcribe audio using the high-level API:
 ```kotlin
 val edge = LLMEdge.create(context, viewModelScope)
 
-val text = edge.speech.transcribeToText(audioSamples)
+val text =
+    edge.speech.transcribeToText(
+        SpeechToTextRequest(
+            audioSamples = audioSamples,
+            model = edge.config.models.speechToText,
+        ),
+    )
 
 val segments =
     edge.speech.transcribe(
-        audioSamples = audioSamples,
-        params = Whisper.TranscribeParams(language = "en", translate = false),
+        SpeechToTextRequest(
+            audioSamples = audioSamples,
+            model = edge.config.models.speechToText,
+            params = Whisper.TranscribeParams(language = "en", translate = false),
+            runtime = WhisperRuntimeRequest(gpuEnabled = false),
+        ),
     )
 
-val lang = edge.speech.detectLanguage(audioSamples)
+val lang =
+    edge.speech.detectLanguage(
+        SpeechLanguageDetectionRequest(
+            audioSamples = audioSamples,
+            model = edge.config.models.speechToText,
+        ),
+    )
 ```
+
+New code should prefer the request objects so speech usage matches the request-first shape used elsewhere in the facade. The older parameter-list overloads remain supported.
 
 ### Streaming Transcription (Real-time Captioning)
 
@@ -174,12 +241,15 @@ import kotlinx.coroutines.launch
 
 val edge = LLMEdge.create(context, lifecycleScope)
 val transcriber = edge.speech.createStreamingSession(
-    params = Whisper.StreamingParams(
-        stepMs = 3000,      // Run transcription every 3 seconds
-        lengthMs = 10000,   // Use 10-second audio windows
-        keepMs = 200,       // Keep 200ms overlap for context
-        language = "en",    // null for auto-detect
-        useVad = true       // Skip silent audio
+    StreamingTranscriptionRequest(
+        model = edge.config.models.speechToText,
+        params = Whisper.StreamingParams(
+            stepMs = 3000,      // Run transcription every 3 seconds
+            lengthMs = 10000,   // Use 10-second audio windows
+            keepMs = 200,       // Keep 200ms overlap for context
+            language = "en",    // null for auto-detect
+            useVad = true       // Skip silent audio
+        ),
     )
 )
 
@@ -228,7 +298,13 @@ Generate speech using the high-level API:
 ```kotlin
 val edge = LLMEdge.create(context, viewModelScope)
 
-val audio = edge.speech.synthesize("Hello, world!")
+val audio =
+    edge.speech.synthesize(
+        SpeechSynthesisRequest(
+            text = "Hello, world!",
+            model = edge.config.models.textToSpeech,
+        ),
+    )
 audioPlayer.play(audio.samples, audio.sampleRate)
 ```
 
@@ -302,7 +378,22 @@ See [Examples](examples.md#chatsession-pattern) for a focused session snippet, o
 
 ### Downloading Models from Hugging Face
 
-Download and load models directly from Hugging Face Hub:
+For app code, prefer the facade-managed model repository:
+
+```kotlin
+val edge = LLMEdge.create(context, viewModelScope)
+
+val modelFile = edge.models.prefetch(
+    ModelSpec.huggingFace(
+        repoId = "unsloth/Qwen3-0.6B-GGUF",
+        filename = "Qwen3-0.6B-Q4_K_M.gguf",
+        preferSystemDownloader = true,
+    ),
+    onProgress = { progress -> /* update UI */ },
+)
+```
+
+Use direct runtime download helpers only when you intentionally want to own the expert runtime:
 
 ```kotlin
 val download = smol.loadFromHuggingFace(
@@ -315,7 +406,7 @@ val download = smol.loadFromHuggingFace(
 )
 ```
 
-For Wan video models (multi-asset: diffusion, VAE and encoder), use:
+For Wan video models, prefer `edge.image.generateVideo(...)`. If you need manual multi-asset runtime ownership, use:
 
 ```kotlin
 val sdWan = StableDiffusion.loadFromHuggingFace(
@@ -402,7 +493,7 @@ import io.aatricks.llmedge.Whisper
 // Load model with options
 val whisper = Whisper.load(
     modelPath = "/path/to/ggml-base.bin",
-    useGpu = false
+    useGpu = true // allow OpenCL/Vulkan when available
 )
 
 // Configure transcription parameters
@@ -427,6 +518,8 @@ val modelType = whisper.getModelType()
 
 whisper.close()
 ```
+
+Set `useGpu = false` to force CPU. At runtime, use `LLMEdge.isOpenClAvailable()` and `LLMEdge.isVulkanAvailable()` to inspect device GPU capability.
 
 **Model sources:**
 
@@ -572,6 +665,8 @@ Key methods:
 - `edge.image.generateVideo(...)` — high-level video generation
 - `edge.speech.transcribe(...)` — high-level speech-to-text
 - `edge.speech.synthesize(...)` — high-level text-to-speech
+- `SpeechToTextRequest`, `SpeechLanguageDetectionRequest`, `StreamingTranscriptionRequest`, and `SpeechSynthesisRequest` — preferred request-first speech API shapes
+- `VisionRequest` and `VisionPrepareRequest` — preferred request-first vision API shapes
 - `SmolLM.load(modelPath: String, params: InferenceParams)` — loads a GGUF model from a path
 - `SmolLM.loadFromHuggingFace(...)` — downloads and loads a model from Hugging Face
 - `SmolLM.getResponse(query: String): String` — runs blocking generation and returns complete text
@@ -591,9 +686,11 @@ Key methods:
 - `edge.speech.createStreamingSession(model?, params?, loadOptions?)` — create a reusable streaming transcriber
 - `edge.speech.synthesize(text, model?, params?, loadOptions?)` — generate speech from text
 - `edge.speech.synthesizeStream(text, model?, params?, loadOptions?)` — stream speech generation events
+- Request-first overloads are preferred for new code; parameter-list overloads remain for compatibility
+- `LLMEdge.isOpenClAvailable()` / `LLMEdge.isVulkanAvailable()` — query Android GPU backend capability
 
 **Low-Level Speech API:**
-- `Whisper.load(modelPath: String, useGpu: Boolean, flashAttn: Boolean = true, gpuDevice: Int = 0)` — loads a Whisper model
+- `Whisper.load(modelPath: String, useGpu: Boolean, flashAttn: Boolean = true, gpuDevice: Int = 0)` — loads a Whisper model; on Android, `useGpu = true` allows OpenCL first, then Vulkan, then CPU fallback
 - `Whisper.loadFromHuggingFace(...)` — downloads and loads Whisper from HuggingFace
 - `Whisper.transcribe(samples: FloatArray, params: TranscribeParams)` — transcribes audio
 - `Whisper.detectLanguage(samples: FloatArray)` — detects spoken language
