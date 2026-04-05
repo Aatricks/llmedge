@@ -66,13 +66,18 @@ jobs:
           MAVEN_SIGNING_KEY_B64: ${{ secrets.MAVEN_SIGNING_KEY_B64 }}
         run: |
           if [[ -n "${MAVEN_SIGNING_KEY_B64}" ]]; then
-            SIGNING_KEY="$(printf '%s' "${MAVEN_SIGNING_KEY_B64}" | base64 --decode)"
+            SIGNING_KEY="$(printf '%s' "${MAVEN_SIGNING_KEY_B64}" | tr -d '[:space:]' | base64 --decode)"
           else
-            SIGNING_KEY="${MAVEN_SIGNING_KEY}"
+            SIGNING_KEY="$(printf '%b' "${MAVEN_SIGNING_KEY}")"
           fi
 
           if [[ -z "${SIGNING_KEY}" ]]; then
             echo "Missing MAVEN_SIGNING_KEY or MAVEN_SIGNING_KEY_B64" >&2
+            exit 1
+          fi
+
+          if ! printf '%s' "${SIGNING_KEY}" | grep -q "BEGIN PGP PRIVATE KEY BLOCK"; then
+            echo "Decoded signing key is not an ASCII-armored PGP private key block" >&2
             exit 1
           fi
 
@@ -82,12 +87,19 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
+      - name: Validate signing key with GPG
+        env:
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ env.ORG_GRADLE_PROJECT_signingInMemoryKey }}
+        run: |
+          KEY_FILE="$(mktemp)"
+          printf '%s\n' "${ORG_GRADLE_PROJECT_signingInMemoryKey}" > "${KEY_FILE}"
+          gpg --batch --import-options show-only --dry-run --import "${KEY_FILE}" >/dev/null
+
       - name: Publish release AAR to Maven Central
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signAllPublications: "true"
-          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.MAVEN_SIGNING_KEY_ID }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_SIGNING_KEY_PASSWORD }}
         run: |
           ./gradlew --no-daemon publishAndReleaseToMavenCentral \

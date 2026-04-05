@@ -132,13 +132,11 @@ published_artifacts:
       workflow_secret_inputs:
         - "MAVEN_SIGNING_KEY_B64 (preferred)"
         - "MAVEN_SIGNING_KEY"
-        - "MAVEN_SIGNING_KEY_ID"
         - "MAVEN_SIGNING_KEY_PASSWORD"
       input_keys:
-        - "ORG_GRADLE_PROJECT_signingInMemoryKeyId"
         - "ORG_GRADLE_PROJECT_signingInMemoryKey"
         - "ORG_GRADLE_PROJECT_signingInMemoryKeyPassword"
-      invariant: "Signing is optional for Maven Local, GitHub Packages, and generic Maven publication, but Maven Central release workflow enables it explicitly through CI env and normalizes either a base64 or raw armored key into the in-memory Gradle property."
+      invariant: "Signing is optional for Maven Local, GitHub Packages, and generic Maven publication, but Maven Central release workflow enables it explicitly through CI env, strips whitespace from base64 input, validates the armored key header, and avoids relying on a separate key ID."
 request_shapes:
   speech:
     owner: "llmedge/src/main/java/io/aatricks/llmedge/speech/SpeechClient.kt"
