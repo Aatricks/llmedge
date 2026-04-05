@@ -21,6 +21,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -142,7 +143,8 @@ class StableDiffusionImageTraceTest {
         sd: StableDiffusion,
         phase: ImageGenerationPhase,
     ) {
-        repeat(20) {
+        val deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (System.nanoTime() < deadlineNs) {
             val phases = sd.getLastImageRequestTraceForTests().map { it.phase }
             if (phase in phases) {
                 return

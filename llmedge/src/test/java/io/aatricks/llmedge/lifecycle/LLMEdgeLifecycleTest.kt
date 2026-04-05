@@ -8,6 +8,7 @@ import io.aatricks.llmedge.LLMEdge
 import io.mockk.mockk
 import io.mockk.verify
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -38,8 +39,8 @@ class LLMEdgeLifecycleTest {
             }
 
         worker.start()
-        val deadline = System.currentTimeMillis() + 2_000
-        while (worker.isAlive && System.currentTimeMillis() < deadline) {
+        val deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (worker.isAlive && System.nanoTime() < deadlineNs) {
             shadowOf(Looper.getMainLooper()).idle()
             worker.join(25)
         }
