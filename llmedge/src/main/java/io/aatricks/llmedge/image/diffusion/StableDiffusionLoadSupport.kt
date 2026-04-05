@@ -27,37 +27,34 @@ internal object StableDiffusionLoadSupport {
 
     suspend fun resolveRequestedAssets(
         context: Context,
-        modelId: String?,
-        filename: String?,
-        modelPath: String?,
-        vaePath: String?,
-        t5xxlPath: String?,
-        taesdPath: String?,
-        token: String?,
-        forceDownload: Boolean,
-        loraModelDir: String?,
+        request: StableDiffusionAssetRequest,
         validateResolvedAssets: (String, String?, String?, String?, String?) -> Unit,
         inferVideoModelMetadata: suspend (String, String?, String?) -> VideoModelMetadata,
         onFallback: (String) -> Unit = {},
     ): StableDiffusionResolvedAssets =
         withContext(Dispatchers.IO) {
-            if (modelPath != null) {
+            if (request.modelPath != null) {
                 validateResolvedAssets(
-                    modelPath,
-                    vaePath,
-                    t5xxlPath,
-                    taesdPath,
-                    loraModelDir,
+                    request.modelPath,
+                    request.vaePath,
+                    request.t5xxlPath,
+                    request.taesdPath,
+                    request.loraModelDir,
                 )
                 return@withContext StableDiffusionResolvedAssets(
-                    modelPath = modelPath,
-                    vaePath = vaePath,
-                    t5xxlPath = t5xxlPath,
-                    metadata = inferVideoModelMetadata(modelPath, modelId, filename),
+                    modelPath = request.modelPath,
+                    vaePath = request.vaePath,
+                    t5xxlPath = request.t5xxlPath,
+                    metadata =
+                        inferVideoModelMetadata(
+                            request.modelPath,
+                            request.modelId,
+                            request.filename,
+                        ),
                 )
             }
 
-            val resolvedModelId = modelId ?: throw io.aatricks.llmedge.core.InvalidGenerationParametersException(
+            val resolvedModelId = request.modelId ?: throw io.aatricks.llmedge.core.InvalidGenerationParametersException(
                 "Provide either modelPath or modelId",
             )
 
@@ -70,13 +67,11 @@ internal object StableDiffusionLoadSupport {
             if (possibleWan != null) {
                 return@withContext resolveWanAssets(
                     context = context,
-                    modelId = resolvedModelId,
-                    filename = filename,
-                    taesdPath = taesdPath,
-                    token = token,
-                    forceDownload = forceDownload,
-                    preferSystemDownloader = true,
-                    loraModelDir = loraModelDir,
+                    request =
+                        request.copy(
+                            modelId = resolvedModelId,
+                            preferSystemDownloader = true,
+                        ),
                     onProgress = null,
                     validateResolvedAssets = validateResolvedAssets,
                     inferVideoModelMetadata = inferVideoModelMetadata,
@@ -91,67 +86,65 @@ internal object StableDiffusionLoadSupport {
                         modelId = resolvedModelId,
                         revision = "main",
                         preferredQuantizations = emptyList(),
-                        filename = filename,
-                        token = token,
-                        forceDownload = forceDownload,
-                        preferSystemDownloader = true,
+                        filename = request.filename,
+                        token = request.token,
+                        forceDownload = request.forceDownload,
+                        preferSystemDownloader = request.preferSystemDownloader,
                         onProgress = null,
                     ).file.absolutePath
                 } catch (error: IllegalArgumentException) {
                     onFallback(
-                        "Falling back to generic repo-file resolution for $resolvedModelId${filename?.let { " ($it)" } ?: ""}: ${error.message}",
+                        "Falling back to generic repo-file resolution for $resolvedModelId${request.filename?.let { " ($it)" } ?: ""}: ${error.message}",
                     )
                     HuggingFaceHub.ensureRepoFileOnDisk(
                         context = context,
                         modelId = resolvedModelId,
                         revision = "main",
-                        filename = filename,
+                        filename = request.filename,
                         allowedExtensions = listOf(".gguf", ".safetensors", ".ckpt", ".pt", ".bin"),
-                        token = token,
-                        forceDownload = forceDownload,
-                        preferSystemDownloader = true,
+                        token = request.token,
+                        forceDownload = request.forceDownload,
+                        preferSystemDownloader = request.preferSystemDownloader,
                         onProgress = null,
                     ).file.absolutePath
                 }
 
             validateResolvedAssets(
                 resolvedModelPath,
-                vaePath,
-                t5xxlPath,
-                taesdPath,
-                loraModelDir,
+                request.vaePath,
+                request.t5xxlPath,
+                request.taesdPath,
+                request.loraModelDir,
             )
 
             StableDiffusionResolvedAssets(
                 modelPath = resolvedModelPath,
-                vaePath = vaePath,
-                t5xxlPath = t5xxlPath,
-                metadata = inferVideoModelMetadata(resolvedModelPath, resolvedModelId, filename),
+                vaePath = request.vaePath,
+                t5xxlPath = request.t5xxlPath,
+                metadata = inferVideoModelMetadata(resolvedModelPath, resolvedModelId, request.filename),
             )
         }
 
     suspend fun resolveWanAssets(
         context: Context,
-        modelId: String,
-        filename: String?,
-        taesdPath: String?,
-        token: String?,
-        forceDownload: Boolean,
-        preferSystemDownloader: Boolean,
-        loraModelDir: String?,
+        request: StableDiffusionAssetRequest,
         onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)?,
         validateResolvedAssets: (String, String?, String?, String?, String?) -> Unit,
         inferVideoModelMetadata: suspend (String, String?, String?) -> VideoModelMetadata,
         registryEntry: WanModelEntry? = null,
     ): StableDiffusionResolvedAssets =
         withContext(Dispatchers.IO) {
+            val modelId =
+                requireNotNull(request.modelId) {
+                    "request.modelId is required when resolving Wan assets."
+                }
             val (modelRes, vaeRes, t5Res) =
                 HuggingFaceHub.ensureWanAssetsOnDisk(
                     context = context,
                     wanModelId = modelId,
-                    preferSystemDownloader = preferSystemDownloader,
-                    token = token,
-                    forceDownload = forceDownload,
+                    preferSystemDownloader = request.preferSystemDownloader,
+                    token = request.token,
+                    forceDownload = request.forceDownload,
                     onProgress = { downloaded, total ->
                         onProgress?.invoke(modelId, downloaded, total)
                     },
@@ -165,8 +158,8 @@ internal object StableDiffusionLoadSupport {
                 resolvedModelPath,
                 resolvedVaePath,
                 resolvedT5xxlPath,
-                taesdPath,
-                loraModelDir,
+                request.taesdPath,
+                request.loraModelDir,
             )
 
             StableDiffusionResolvedAssets(
@@ -175,7 +168,7 @@ internal object StableDiffusionLoadSupport {
                 t5xxlPath = resolvedT5xxlPath,
                 metadata =
                     registryEntry?.toVideoModelMetadata(resolvedModelPath.substringAfterLast('/'))
-                        ?: inferVideoModelMetadata(resolvedModelPath, modelId, filename),
+                        ?: inferVideoModelMetadata(resolvedModelPath, modelId, request.filename),
             )
         }
 
@@ -213,36 +206,20 @@ internal object StableDiffusionLoadSupport {
     fun createLoadedInstance(
         context: Context,
         resolved: StableDiffusionResolvedAssets,
-        taesdPath: String?,
-        nThreads: Int,
-        offloadToCpu: Boolean,
-        keepClipOnCpu: Boolean,
-        keepVaeOnCpu: Boolean,
-        flashAttn: Boolean,
-        vaeDecodeOnly: Boolean,
-        sequentialLoad: Boolean?,
-        allowOpenCl: Boolean,
-        allowVulkan: Boolean,
-        forceVulkan: Boolean,
-        preferPerformanceMode: Boolean,
-        flowShift: Float,
-        loraModelDir: String?,
-        loraApplyMode: LoraApplyMode,
-        preferredBackend: ComputeBackend?,
-        allowBackendFallbackToCpu: Boolean,
+        request: StableDiffusionLoadRequest,
     ): StableDiffusion {
         val loadPlan =
             StableDiffusionLoadHeuristics.planLoad(
                 context = context,
                 resolvedModelPath = resolved.modelPath,
-                sequentialLoad = sequentialLoad,
-                preferPerformanceMode = preferPerformanceMode,
-                offloadToCpu = offloadToCpu,
-                keepClipOnCpu = keepClipOnCpu,
-                keepVaeOnCpu = keepVaeOnCpu,
-                allowOpenCl = allowOpenCl,
-                allowVulkan = allowVulkan,
-                forceVulkan = forceVulkan,
+                sequentialLoad = request.runtime.sequentialLoad,
+                preferPerformanceMode = request.runtime.preferPerformanceMode,
+                offloadToCpu = request.runtime.offloadToCpu,
+                keepClipOnCpu = request.runtime.keepClipOnCpu,
+                keepVaeOnCpu = request.runtime.keepVaeOnCpu,
+                allowOpenCl = request.backend.allowOpenCl,
+                allowVulkan = request.backend.allowVulkan,
+                forceVulkan = request.backend.forceVulkan,
             )
         StableDiffusionLoadHeuristics.warnIfLargeModelOnLowRam(
             metadata = resolved.metadata,
@@ -251,30 +228,24 @@ internal object StableDiffusionLoadSupport {
 
         logLoadPlan(
             resolvedModelPath = resolved.modelPath,
-            nThreads = nThreads,
+            nThreads = request.runtime.nThreads,
             loadPlan = loadPlan,
-            flashAttn = flashAttn,
+            flashAttn = request.runtime.flashAttn,
         )
 
         val handle =
             createHandleWithBackendFallback(
                 resolved = resolved,
-                taesdPath = taesdPath,
-                nThreads = nThreads,
+                request = request,
                 loadPlan = loadPlan,
-                flashAttn = flashAttn,
-                vaeDecodeOnly = vaeDecodeOnly,
-                flowShift = flowShift,
-                loraModelDir = loraModelDir,
-                loraApplyMode = loraApplyMode,
-                allowBackendFallbackToCpu = allowBackendFallbackToCpu,
+                allowBackendFallbackToCpu = request.backend.allowBackendFallbackToCpu,
             )
         if (handle == 0L) {
             throw ModelLoadException(
                 resolved.modelPath,
                 createLoadFailureMessage(
                     resolvedModelPath = resolved.modelPath,
-                    taesdPath = taesdPath,
+                    taesdPath = request.assets.taesdPath,
                     resolvedVaePath = resolved.vaePath,
                 ),
             )
@@ -321,14 +292,8 @@ internal object StableDiffusionLoadSupport {
 
     private fun createHandleWithBackendFallback(
         resolved: StableDiffusionResolvedAssets,
-        taesdPath: String?,
-        nThreads: Int,
+        request: StableDiffusionLoadRequest,
         loadPlan: StableDiffusionLoadHeuristics.LoadPlan,
-        flashAttn: Boolean,
-        vaeDecodeOnly: Boolean,
-        flowShift: Float,
-        loraModelDir: String?,
-        loraApplyMode: LoraApplyMode,
         allowBackendFallbackToCpu: Boolean,
     ): Long {
         var effectiveOffloadToCpu = loadPlan.effectiveOffloadToCpu
@@ -346,21 +311,14 @@ internal object StableDiffusionLoadSupport {
                 },
             ) { backend ->
                 nativeCreateOrThrow(
-                    modelPath = resolved.modelPath,
-                    vaePath = resolved.vaePath,
-                    t5xxlPath = resolved.t5xxlPath,
-                    taesdPath = taesdPath,
-                    nThreads = nThreads,
-                    enableOpenCl = backend == ComputeBackend.OPENCL,
-                    useVulkan = backend == ComputeBackend.VULKAN,
-                    offloadToCpu = effectiveOffloadToCpu,
-                    keepClipOnCpu = effectiveKeepClipOnCpu,
-                    keepVaeOnCpu = effectiveKeepVaeOnCpu,
-                    flashAttn = flashAttn,
-                    vaeDecodeOnly = vaeDecodeOnly,
-                    flowShift = flowShift,
-                    loraModelDir = loraModelDir,
-                    loraApplyMode = loraApplyMode,
+                    createNativeLoadRequest(
+                        resolved = resolved,
+                        request = request,
+                        backend = backend,
+                        offloadToCpu = effectiveOffloadToCpu,
+                        keepClipOnCpu = effectiveKeepClipOnCpu,
+                        keepVaeOnCpu = effectiveKeepVaeOnCpu,
+                    ),
                 ).takeIf { it != 0L }
             } ?: 0L
         if (handle == 0L && !effectiveOffloadToCpu) {
@@ -370,61 +328,50 @@ internal object StableDiffusionLoadSupport {
             effectiveKeepVaeOnCpu = true
             handle =
                 nativeCreateOrThrow(
-                    modelPath = resolved.modelPath,
-                    vaePath = resolved.vaePath,
-                    t5xxlPath = resolved.t5xxlPath,
-                    taesdPath = taesdPath,
-                    nThreads = nThreads,
-                    enableOpenCl = false,
-                    useVulkan = false,
-                    offloadToCpu = effectiveOffloadToCpu,
-                    keepClipOnCpu = effectiveKeepClipOnCpu,
-                    keepVaeOnCpu = effectiveKeepVaeOnCpu,
-                    flashAttn = flashAttn,
-                    vaeDecodeOnly = vaeDecodeOnly,
-                    flowShift = flowShift,
-                    loraModelDir = loraModelDir,
-                    loraApplyMode = loraApplyMode,
+                    createNativeLoadRequest(
+                        resolved = resolved,
+                        request = request,
+                        backend = ComputeBackend.CPU,
+                        offloadToCpu = effectiveOffloadToCpu,
+                        keepClipOnCpu = effectiveKeepClipOnCpu,
+                        keepVaeOnCpu = effectiveKeepVaeOnCpu,
+                    ),
                 )
         }
         return handle
     }
 
-    private fun nativeCreateOrThrow(
-        modelPath: String,
-        vaePath: String?,
-        t5xxlPath: String?,
-        taesdPath: String?,
-        nThreads: Int,
-        enableOpenCl: Boolean,
-        useVulkan: Boolean,
+    private fun createNativeLoadRequest(
+        resolved: StableDiffusionResolvedAssets,
+        request: StableDiffusionLoadRequest,
+        backend: ComputeBackend,
         offloadToCpu: Boolean,
         keepClipOnCpu: Boolean,
         keepVaeOnCpu: Boolean,
-        flashAttn: Boolean,
-        vaeDecodeOnly: Boolean,
-        flowShift: Float,
-        loraModelDir: String?,
-        loraApplyMode: LoraApplyMode,
+    ): StableDiffusionNativeLoadRequest =
+        StableDiffusionNativeLoadRequest(
+            modelPath = resolved.modelPath,
+            vaePath = resolved.vaePath,
+            t5xxlPath = resolved.t5xxlPath,
+            taesdPath = request.assets.taesdPath,
+            nThreads = request.runtime.nThreads,
+            enableOpenCl = backend == ComputeBackend.OPENCL,
+            useVulkan = backend == ComputeBackend.VULKAN,
+            offloadToCpu = offloadToCpu,
+            keepClipOnCpu = keepClipOnCpu,
+            keepVaeOnCpu = keepVaeOnCpu,
+            flashAttn = request.runtime.flashAttn,
+            vaeDecodeOnly = request.runtime.vaeDecodeOnly,
+            flowShift = request.runtime.flowShift,
+            loraModelDir = request.assets.loraModelDir,
+            loraApplyMode = request.runtime.loraApplyMode,
+        )
+
+    private fun nativeCreateOrThrow(
+        request: StableDiffusionNativeLoadRequest,
     ): Long =
         try {
-            StableDiffusion.supportNativeCreate(
-                modelPath,
-                vaePath,
-                t5xxlPath,
-                taesdPath,
-                nThreads,
-                enableOpenCl,
-                useVulkan,
-                offloadToCpu,
-                keepClipOnCpu,
-                keepVaeOnCpu,
-                flashAttn,
-                vaeDecodeOnly,
-                flowShift,
-                loraModelDir,
-                loraApplyMode.id,
-            )
+            StableDiffusion.supportNativeCreate(request)
         } catch (error: UnsatisfiedLinkError) {
             throw NativeBindingException(
                 libraryName = NativeLibraryCatalog.STABLE_DIFFUSION,

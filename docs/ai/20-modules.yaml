@@ -124,7 +124,7 @@ modules:
     boundaries:
       - "SpeechRequestExecutor owns facade-level execution policy through RuntimePool; BarkTTS and Whisper stay focused on runtime wrappers."
       - "SpeechThreadingSupport is the shared thread-count policy for Bark and Whisper wrappers."
-      - "SpeechClient supports request-first facade calls (prepare/transcribe/detectLanguage/streaming/synthesize) while keeping legacy convenience overloads for compatibility."
+      - "SpeechClient request-object overloads are the canonical facade path (prepare/transcribe/detectLanguage/streaming/synthesize); legacy convenience overloads remain compatibility adapters and should delegate inward rather than grow new parallel wiring."
       - "WhisperRuntimeSupport plus WhisperCompanionSupport own native-load policy, load-bridge overrides, backend availability overrides, and backend fallback so Whisper stays focused on runtime behavior."
       - "WhisperCallbackSupport owns callback bridge wiring; no extra pass-through static layer remains."
       - "JNI-facing Kotlin externals must use stable exported JVM names so host/desktop native libraries do not drift from wrapper method visibility."
@@ -150,6 +150,7 @@ modules:
       - "ImageClient serializes image/video generation with generationMutex."
       - "ImageRuntimeRequestPlanner owns image/video runtime-spec construction and low-memory sequential-load heuristics."
       - "DiffusionRequestExecutor + RuntimePool own runtime acquire/retry/active-model plumbing; ImageGenerationExecutor owns txt2img tracing/metrics; VideoGenerationExecutor executes a planner-produced DiffusionExecutionPlan (direct or sequential)."
+      - "StableDiffusionAssetRequest/StableDiffusionLoadRequest are the internal source of truth for diffusion asset/runtime/backend load plumbing; add new load flags there before threading them across helper boundaries."
       - "StableDiffusionCompanionSupport plus StableDiffusionLoader/StableDiffusionLoadSupport own diffusion dispatcher, native-load policy, direct expert-load fallback, and bridge override state so StableDiffusion stays focused on runtime behavior."
       - "StableDiffusion metadata detection should prefer GGUF/native metadata and treat filename heuristics as fallback only."
       - "Video path has distinct direct and sequential-load flows; do not merge casually."
