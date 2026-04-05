@@ -44,6 +44,9 @@ class VisionClient internal constructor(
                 )
             }
 
+        @Deprecated(
+            message = "Prefer LLMEdge.create(...).vision in new app code. This factory remains available for advanced construction and tests.",
+        )
         @JvmStatic
         @JvmOverloads
         fun create(

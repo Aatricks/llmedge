@@ -21,6 +21,7 @@ modules:
       - "LLMEdgeConfig.execution sizes the shared LLMEdgeScope; text and vision runtime defaults are configured independently under config.text and config.vision."
       - "ClientBootstrap.createOwned/close are the shared seams for feature-client owned-scope setup and teardown."
       - "FeatureContext/createOwnedFeature/OwnedFeatureClient keep feature clients on one shared dependency shape; FeatureClientFactory-backed create/forTesting helpers are the preferred companion pattern."
+      - "LLMEdge is the canonical public entrypoint; direct feature-client create(...) helpers are advanced construction paths, not the primary docs path."
       - "Public signature changes require example app validation."
   - name: "core-runtime"
     owner_module: "runtime orchestration"
@@ -61,7 +62,7 @@ modules:
     boundaries:
       - "All persistent model downloads land under context.filesDir/hf-models."
       - "DefaultModelCatalog is the declarative source for built-in model presets consumed by ModelRegistry."
-      - "HuggingFaceHub is a facade; selection, download, and Wan side-asset resolution live in focused helpers."
+      - "HuggingFaceHub is an advanced facade; selection, download, and Wan side-asset resolution live in focused helpers."
       - "HuggingFaceHub routes GGUF and repo-file downloads through one ArtifactRequest pipeline; non-.gguf filenames remain repo-file resolutions."
       - "HFArtifactRequestSupport owns internal artifact-request and download-context wiring so HuggingFaceHub stays focused on the public entrypoints."
   - name: "text-stack"

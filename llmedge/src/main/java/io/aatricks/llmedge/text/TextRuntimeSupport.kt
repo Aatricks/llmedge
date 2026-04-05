@@ -37,6 +37,9 @@ internal class ManagedTextModel(
     }
 }
 
+private fun chatTemplateCacheToken(chatTemplate: String?): String =
+    chatTemplate?.let { "custom:${it.length}:${it.hashCode()}" } ?: "default"
+
 internal fun createTextRuntimePool(
     context: Context,
     scope: LLMEdgeScope,
@@ -53,6 +56,7 @@ internal fun createTextRuntimePool(
                     RuntimeCacheKeyBuilder.prefix(
                         spec.cacheKey,
                         "ctx=${options.contextSize ?: config.text.contextSize ?: 0L}",
+                        "chatTemplate=${chatTemplateCacheToken(options.chatTemplate)}",
                         "threads=${options.numThreads ?: config.text.promptThreads}",
                         "genThreads=${options.generationThreads ?: options.numThreads ?: config.text.generationThreads}",
                         "mmap=${options.useMmap ?: config.text.useMmap}",

@@ -1,5 +1,5 @@
 package io.aatricks.llmedge.image.diffusion
 
-internal fun interface StableDiffusionNativeLibrarySupport {
-    fun ensureLoaded()
-}
+import io.aatricks.llmedge.core.NativeLibrarySupport
+
+internal typealias StableDiffusionNativeLibrarySupport = NativeLibrarySupport

@@ -3,6 +3,7 @@ package io.aatricks.llmedge.text.runtime
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeLibraryLoader
+import io.aatricks.llmedge.core.NativeProbeSupport
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.CpuTopology
 
@@ -35,20 +36,18 @@ internal object SmolLMCompanionSupport {
         nativeLibrarySupportOverride ?: defaultNativeLibrarySupport
 
     fun isOpenClAvailable(nativeCheck: () -> Boolean): Boolean =
-        try {
-            currentNativeLibrarySupport().ensureLoaded()
-            nativeCheck()
-        } catch (_: Throwable) {
-            false
-        }
+        NativeProbeSupport.withLoadedOrDefault(
+            defaultValue = false,
+            ensureLoaded = currentNativeLibrarySupport()::ensureLoaded,
+            probe = nativeCheck,
+        )
 
     fun isVulkanBackendAvailable(nativeCheck: () -> Boolean): Boolean =
-        try {
-            currentNativeLibrarySupport().ensureLoaded()
-            nativeCheck()
-        } catch (_: Throwable) {
-            true
-        }
+        NativeProbeSupport.withLoadedOrDefault(
+            defaultValue = true,
+            ensureLoaded = currentNativeLibrarySupport()::ensureLoaded,
+            probe = nativeCheck,
+        )
 
     fun overrideNativeBridgeForTests(provider: (SmolLM) -> SmolLM.NativeBridge) {
         nativeBridgeProvider.override(provider)

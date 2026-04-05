@@ -31,6 +31,12 @@ import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionLoader
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlin.jvm.JvmName
 
+/**
+ * Advanced wrapper around the Stable Diffusion / Wan native runtime.
+ *
+ * Most application code should prefer `LLMEdge.create(...).image` so model resolution, cache
+ * ownership, backend fallback, and cancellation all stay on the standardized facade path.
+ */
 class StableDiffusion internal constructor(
     private val handle: Long,
     private val nativeLibrarySupport: StableDiffusionNativeLibrarySupport = StableDiffusionCompanionSupport.currentNativeLibrarySupport(),

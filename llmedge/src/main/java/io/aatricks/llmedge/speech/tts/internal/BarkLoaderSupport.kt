@@ -1,6 +1,7 @@
 package io.aatricks.llmedge.speech.tts.internal
 
 import android.content.Context
+import io.aatricks.llmedge.core.NativeProbeSupport
 import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.model.ModelFileValidator
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
@@ -10,11 +11,7 @@ import kotlinx.coroutines.withContext
 
 internal object BarkLoaderSupport {
     fun checkBindings(check: () -> Boolean): Boolean =
-        try {
-            check()
-        } catch (_: UnsatisfiedLinkError) {
-            false
-        }
+        NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = false, probe = check)
 
     fun loadFromPath(
         modelPath: String,

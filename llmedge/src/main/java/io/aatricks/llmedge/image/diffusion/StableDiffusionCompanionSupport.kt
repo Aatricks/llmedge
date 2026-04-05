@@ -4,6 +4,7 @@ import android.content.Context
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.NativeBridgeProvider
 import io.aatricks.llmedge.core.NativeLibraryLoader
+import io.aatricks.llmedge.core.NativeProbeSupport
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineDispatcher
@@ -72,11 +73,7 @@ internal object StableDiffusionCompanionSupport {
         nativeLibrarySupportOverride ?: defaultNativeLibrarySupport
 
     fun isNativeLibraryLoaded(checkBindings: () -> Boolean): Boolean =
-        try {
-            checkBindings()
-        } catch (_: Throwable) {
-            false
-        }
+        NativeProbeSupport.unsatisfiedLinkOrDefault(defaultValue = false, probe = checkBindings)
 
     fun enableNativeBridgeForTests() {
         if (!isNativeLibraryAvailable) {
@@ -97,52 +94,46 @@ internal object StableDiffusionCompanionSupport {
     }
 
     fun getVulkanDeviceCount(nativeCall: () -> Int): Int =
-        try {
-            currentNativeLibrarySupport().ensureLoaded()
-            nativeCall()
-        } catch (_: Throwable) {
-            0
-        }
+        NativeProbeSupport.withLoadedOrDefault(
+            defaultValue = 0,
+            ensureLoaded = currentNativeLibrarySupport()::ensureLoaded,
+            probe = nativeCall,
+        )
 
     fun getVulkanDeviceMemory(nativeCall: () -> LongArray?): LongArray? =
-        try {
-            currentNativeLibrarySupport().ensureLoaded()
-            nativeCall()
-        } catch (_: Throwable) {
-            null
-        }
+        NativeProbeSupport.withLoadedOrDefault(
+            defaultValue = null,
+            ensureLoaded = currentNativeLibrarySupport()::ensureLoaded,
+            probe = nativeCall,
+        )
 
     fun getVulkanDeviceDescription(nativeCall: () -> String?): String? =
-        try {
-            currentNativeLibrarySupport().ensureLoaded()
-            nativeCall()
-        } catch (_: Throwable) {
-            null
-        }
+        NativeProbeSupport.withLoadedOrDefault(
+            defaultValue = null,
+            ensureLoaded = currentNativeLibrarySupport()::ensureLoaded,
+            probe = nativeCall,
+        )
 
     fun estimateModelParamsMemoryBytes(nativeCall: () -> Long): Long =
-        try {
-            currentNativeLibrarySupport().ensureLoaded()
-            nativeCall()
-        } catch (_: Throwable) {
-            0L
-        }
+        NativeProbeSupport.withLoadedOrDefault(
+            defaultValue = 0L,
+            ensureLoaded = currentNativeLibrarySupport()::ensureLoaded,
+            probe = nativeCall,
+        )
 
     fun checkBindings(nativeCall: () -> Boolean): Boolean =
-        try {
-            currentNativeLibrarySupport().ensureLoaded()
-            nativeCall()
-        } catch (_: Throwable) {
-            false
-        }
+        NativeProbeSupport.withLoadedOrDefault(
+            defaultValue = false,
+            ensureLoaded = currentNativeLibrarySupport()::ensureLoaded,
+            probe = nativeCall,
+        )
 
     fun isOpenClAvailable(nativeCall: () -> Boolean): Boolean =
-        try {
-            currentNativeLibrarySupport().ensureLoaded()
-            nativeCall()
-        } catch (_: Throwable) {
-            false
-        }
+        NativeProbeSupport.withLoadedOrDefault(
+            defaultValue = false,
+            ensureLoaded = currentNativeLibrarySupport()::ensureLoaded,
+            probe = nativeCall,
+        )
 
     fun supportIsNativeLibraryAvailable(): Boolean = isNativeLibraryAvailable
 

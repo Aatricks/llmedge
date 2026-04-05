@@ -152,25 +152,3 @@ internal fun <TSpec, TOptions, TRuntime : ManagedRuntime> createCachedRuntimePoo
         activeBackend = profile.activeBackend,
         candidateRequest = profile.candidateRequest,
     )
-
-internal fun <TSpec, TOptions, TRuntime : ManagedRuntime> createCachedRuntimePool(
-    context: Context,
-    scope: LLMEdgeScope,
-    cacheConfig: RuntimeCacheConfig,
-    cacheKeyPrefix: (TSpec, TOptions) -> String,
-    loadRuntime: suspend (TSpec, TOptions, ComputeBackend) -> TRuntime,
-    activeBackend: (TRuntime) -> ComputeBackend,
-    candidateRequest: (TOptions) -> BackendCandidateResolver.Request,
-): RuntimePool<TSpec, TOptions, TRuntime> =
-    createCachedRuntimePool(
-        context = context,
-        scope = scope,
-        profile =
-            runtimePoolProfile(
-                cacheConfig = cacheConfig,
-                cacheKeyPrefix = cacheKeyPrefix,
-                loadRuntime = loadRuntime,
-                activeBackend = activeBackend,
-                candidateRequest = candidateRequest,
-            ),
-    )

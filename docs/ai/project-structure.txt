@@ -57,6 +57,8 @@ llmedge/
 │       │   └── java/io/aatricks/llmedge/
 │       │       ├── core/
 │       │       │   └── FeatureClientSupport.kt
+│       │       │   └── NativeLibrarySupport.kt
+│       │       │   └── NativeProbeSupport.kt
 │       │       ├── core/runtime/
 │       │       │   └── RuntimeLoadPolicy.kt
 │       │       ├── model/

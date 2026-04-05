@@ -53,6 +53,9 @@ class SpeechClient internal constructor(
     companion object {
         private val FACTORY = featureClientFactory(::SpeechClient)
 
+        @Deprecated(
+            message = "Prefer LLMEdge.create(...).speech in new app code. This factory remains available for advanced construction and tests.",
+        )
         @JvmStatic
         @JvmOverloads
         fun create(

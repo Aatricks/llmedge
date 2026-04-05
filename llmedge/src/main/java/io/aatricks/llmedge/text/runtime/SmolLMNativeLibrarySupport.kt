@@ -1,5 +1,5 @@
 package io.aatricks.llmedge.text.runtime
 
-internal fun interface SmolLMNativeLibrarySupport {
-    fun ensureLoaded()
-}
+import io.aatricks.llmedge.core.NativeLibrarySupport
+
+internal typealias SmolLMNativeLibrarySupport = NativeLibrarySupport

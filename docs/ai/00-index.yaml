@@ -10,12 +10,12 @@ repo:
     - CMake
     - Gradle Kotlin DSL
 summary:
-  one_line: "Android AAR that wraps llama.cpp, stable-diffusion.cpp, whisper.cpp, and bark.cpp behind Kotlin clients plus an instance-based LLMEdge facade."
+  one_line: "Android AAR that wraps llama.cpp, stable-diffusion.cpp, whisper.cpp, and bark.cpp behind Kotlin clients with a facade-first LLMEdge API and advanced expert runtimes."
   primary_entrypoint: "llmedge/src/main/java/io/aatricks/llmedge/LLMEdge.kt"
   public_surfaces:
-    - "LLMEdge facade and LLMEdgeConfig"
+    - "LLMEdge facade, LLMEdgeConfig, and per-subsystem backend availability helpers"
     - "feature clients: text, speech, image, vision, rag"
-    - "expert runtimes: SmolLM, StableDiffusion, Whisper, BarkTTS, GGUFReader"
+    - "advanced expert runtimes: SmolLM, StableDiffusion, Whisper, BarkTTS, GGUFReader"
 read_order:
   required:
     - "docs/ai/00-index.yaml"

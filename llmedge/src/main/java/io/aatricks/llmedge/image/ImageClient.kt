@@ -74,6 +74,9 @@ class ImageClient internal constructor(
         private const val LOG_TAG = "ImageClient"
         private val FACTORY = featureClientFactory(::ImageClient)
 
+        @Deprecated(
+            message = "Prefer LLMEdge.create(...).image in new app code. This factory remains available for advanced construction and tests.",
+        )
         @JvmStatic
         @JvmOverloads
         fun create(

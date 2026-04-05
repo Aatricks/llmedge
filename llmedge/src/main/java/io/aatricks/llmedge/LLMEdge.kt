@@ -134,13 +134,59 @@ class LLMEdge private constructor(
                 )
             }
 
+        /**
+         * Returns backend availability for the text/LLM stack.
+         *
+         * This probes the SmolLM runtime, not Stable Diffusion.
+         */
         @JvmStatic
-        fun isVulkanAvailable(): Boolean = RuntimeCapabilities.isStableDiffusionVulkanAvailable()
+        fun getTextBackendAvailability(): ComputeBackendAvailability =
+            RuntimeCapabilities.textBackendAvailability()
 
+        /**
+         * Returns backend availability for the speech-to-text stack.
+         *
+         * Bark remains CPU-only and is therefore excluded from this GPU probe.
+         */
         @JvmStatic
-        fun isOpenClAvailable(): Boolean = RuntimeCapabilities.isStableDiffusionOpenClAvailable()
+        fun getSpeechBackendAvailability(): ComputeBackendAvailability =
+            RuntimeCapabilities.speechBackendAvailability()
 
+        /**
+         * Returns backend availability for the image/video diffusion stack.
+         */
         @JvmStatic
-        fun getVulkanDeviceInfo(): VulkanDeviceInfo? = RuntimeCapabilities.getStableDiffusionVulkanDeviceInfo()
+        fun getImageBackendAvailability(): ComputeBackendAvailability =
+            RuntimeCapabilities.imageBackendAvailability()
+
+        /**
+         * Returns backend availability for the vision-language stack.
+         *
+         * Vision rides on the SmolLM runtime and shares its backend capabilities.
+         */
+        @JvmStatic
+        fun getVisionBackendAvailability(): ComputeBackendAvailability =
+            RuntimeCapabilities.visionBackendAvailability()
+
+        @Deprecated(
+            message = "Ambiguous subsystem name. Prefer getImageBackendAvailability().vulkanAvailable or another per-subsystem capability API.",
+            replaceWith = ReplaceWith("getImageBackendAvailability().vulkanAvailable"),
+        )
+        @JvmStatic
+        fun isVulkanAvailable(): Boolean = getImageBackendAvailability().vulkanAvailable
+
+        @Deprecated(
+            message = "Ambiguous subsystem name. Prefer getImageBackendAvailability().openClAvailable or another per-subsystem capability API.",
+            replaceWith = ReplaceWith("getImageBackendAvailability().openClAvailable"),
+        )
+        @JvmStatic
+        fun isOpenClAvailable(): Boolean = getImageBackendAvailability().openClAvailable
+
+        @Deprecated(
+            message = "Ambiguous subsystem name. Prefer getImageBackendAvailability().vulkanDeviceInfo.",
+            replaceWith = ReplaceWith("getImageBackendAvailability().vulkanDeviceInfo"),
+        )
+        @JvmStatic
+        fun getVulkanDeviceInfo(): VulkanDeviceInfo? = getImageBackendAvailability().vulkanDeviceInfo
     }
 }
