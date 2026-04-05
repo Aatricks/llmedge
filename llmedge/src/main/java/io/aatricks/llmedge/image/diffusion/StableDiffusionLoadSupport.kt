@@ -7,6 +7,7 @@ import io.aatricks.llmedge.core.NativeBindingException
 import io.aatricks.llmedge.core.NativeLibraryCatalog
 import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.core.runtime.RuntimeLoadPolicy
+import io.aatricks.llmedge.core.runtime.runBackendAttempts
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.huggingface.WanModelEntry
 import io.aatricks.llmedge.huggingface.WanModelRegistry
@@ -334,9 +335,16 @@ internal object StableDiffusionLoadSupport {
         var effectiveKeepClipOnCpu = loadPlan.effectiveKeepClipOnCpu
         var effectiveKeepVaeOnCpu = loadPlan.effectiveKeepVaeOnCpu
 
-        var handle = 0L
-        for (backend in RuntimeLoadPolicy.candidates(loadPlan.chosenBackend, allowBackendFallbackToCpu)) {
-            handle =
+        var handle =
+            runBackendAttempts(
+                candidates = RuntimeLoadPolicy.candidates(loadPlan.chosenBackend, allowBackendFallbackToCpu),
+                onFailure = { backend, error ->
+                    if (backend != ComputeBackend.CPU) {
+                        val detail = error?.message?.let { ": $it" } ?: ""
+                        AndroidLogAdapter.w(LOG_TAG, "nativeCreate failed on $backend; retrying with CPU backend$detail")
+                    }
+                },
+            ) { backend ->
                 nativeCreateOrThrow(
                     modelPath = resolved.modelPath,
                     vaePath = resolved.vaePath,
@@ -353,14 +361,8 @@ internal object StableDiffusionLoadSupport {
                     flowShift = flowShift,
                     loraModelDir = loraModelDir,
                     loraApplyMode = loraApplyMode,
-                )
-            if (handle != 0L) {
-                break
-            }
-            if (backend != ComputeBackend.CPU) {
-                AndroidLogAdapter.w(LOG_TAG, "nativeCreate failed on $backend; retrying with CPU backend")
-            }
-        }
+                ).takeIf { it != 0L }
+            } ?: 0L
         if (handle == 0L && !effectiveOffloadToCpu) {
             AndroidLogAdapter.w(LOG_TAG, "nativeCreate failed on CPU backend; retrying with CPU offload")
             effectiveOffloadToCpu = true

@@ -64,6 +64,21 @@ class VisionTest {
 
         assertEquals("Describe this image", request.prompt)
         assertEquals(6, request.numThreads)
+        assertEquals(6, request.promptThreads)
+        assertEquals(2, request.generationThreads)
+    }
+
+    @Test
+    fun `VisionPrepareRequest uses prompt thread naming`() {
+        val request =
+            VisionPrepareRequest(
+                model = mockk(),
+                projector = mockk(),
+                promptThreads = 5,
+                generationThreads = 2,
+            )
+
+        assertEquals(5, request.promptThreads)
         assertEquals(2, request.generationThreads)
     }
 

@@ -94,6 +94,13 @@ viewModelScope.launch {
 
 Low-level wrappers like `SmolLM`, `StableDiffusion`, `Whisper`, and `BarkTTS` remain available for expert workflows, but new code should prefer `LLMEdge`.
 
+The intended acquisition path for application code is:
+
+- `edge.models.prefetch(...)` when you want explicit downloads
+- feature clients like `edge.text`, `edge.speech`, `edge.image`, and `edge.vision` when you want inference
+
+Direct `HuggingFaceHub` calls and expert runtime `loadFromHuggingFace(...)` helpers are still supported, but they are advanced APIs for callers that need artifact-level control.
+
 By default, `edge.text.generate(...)` uses batched native decoding for lower JNI overhead, while
 `edge.text.stream(...)` uses smaller batched chunks so UI updates stay responsive without paying a
 JNI crossing per token.
@@ -210,6 +217,23 @@ viewModelScope.launch {
 ```
 
 Tool calls use a structured JSON envelope internally: `{"tool":"name","arguments":{...}}`. The parser also accepts the legacy `tool_name` field for robustness, but new prompts only emit the `tool` shape.
+
+### Speech Request Objects
+
+Speech APIs now support request-first calls in addition to the existing convenience overloads:
+
+```kotlin
+val result = edge.speech.transcribe(
+    SpeechToTextRequest(
+        audioSamples = samples,
+        model = edge.config.models.speechToText,
+        params = Whisper.TranscribeParams(language = "en"),
+        runtime = WhisperRuntimeRequest(gpuEnabled = false, flashAttention = true),
+    ),
+)
+```
+
+This keeps new speech entrypoints aligned with the request-first style already used by text and image generation, while preserving the older parameter-list overloads for compatibility.
 
 ### Text Generation Performance Tuning
 

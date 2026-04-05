@@ -21,6 +21,7 @@ invariants:
     - "FeatureContext/createOwnedFeature/OwnedFeatureClient are the shared feature dependency wiring path; test construction should flow through createFeatureClientForTesting-backed forTesting helpers instead of bespoke constructors."
     - "OwnedClient and ManagedRuntimeBase remain the shared lifecycle helpers for feature clients and pooled runtimes."
     - "RuntimePool is the shared acquire/retry/exclusive-execution surface for feature request executors; prefer extending it over duplicating pool + runExclusive plumbing."
+    - "Direct expert loaders should reuse the shared backend-attempt helper for candidate iteration and blacklist bookkeeping instead of open-coding new fallback loops."
     - "Runtime pool setup should flow through RuntimePoolProfile/runtimePoolProfile helpers so cache key, loader, active-backend, and candidate-request wiring remain uniform across features."
     - "Vision runtime defaults live under config.vision; do not route vision cache/thread/flash-attention/GPU policy through config.text."
     - "TextClient non-session calls clear messages and KV cache before/after generation."

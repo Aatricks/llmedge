@@ -71,7 +71,7 @@ class VisionPipelineTest {
             )
 
         try {
-            pipeline.prepare(model = model, projector = projectorSpec, numThreads = 4, generationThreads = 2)
+            pipeline.prepare(model = model, projector = projectorSpec, promptThreads = 4, generationThreads = 2)
             val result =
                 pipeline.analyze(
                     VisionRequest(
@@ -140,7 +140,7 @@ class VisionPipelineTest {
             pipeline.prepare(
                 model = model,
                 projector = projectorSpec,
-                numThreads = config.vision.promptThreads,
+                promptThreads = config.vision.promptThreads,
                 generationThreads = config.vision.generationThreads,
             )
 

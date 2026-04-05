@@ -23,6 +23,16 @@ data class VisionRequest(
     val numThreads: Int? = null,
     /** Single-token generation threads for the underlying SmolLM runtime. */
     val generationThreads: Int? = null,
+) {
+    val promptThreads: Int?
+        get() = numThreads
+}
+
+data class VisionPrepareRequest(
+    val model: ModelSpec,
+    val projector: ModelSpec,
+    val promptThreads: Int? = null,
+    val generationThreads: Int? = null,
 )
 
 class VisionClient internal constructor(
@@ -114,8 +124,21 @@ class VisionClient internal constructor(
         pipeline.prepare(
             model = model,
             projector = projector,
-            numThreads = numThreads,
+            promptThreads = numThreads,
             generationThreads = generationThreads,
+        )
+    }
+
+    suspend fun prepare(
+        request: VisionPrepareRequest,
+        onStatus: ((String) -> Unit)? = null,
+    ) {
+        pipeline.prepare(
+            model = request.model,
+            projector = request.projector,
+            promptThreads = request.promptThreads ?: defaultPromptThreads,
+            generationThreads = request.generationThreads ?: defaultGenerationThreads,
+            onStatus = onStatus,
         )
     }
 

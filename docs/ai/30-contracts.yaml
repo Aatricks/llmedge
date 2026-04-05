@@ -106,6 +106,22 @@ model_and_cache_contracts:
       vision: "VisionRuntimeSupport.createVisionRuntimePool cacheKeyPrefix lambda"
     suffix_rule: "RuntimeCacheKeyBuilder.withBackend(prefix, backend)"
     invariant: "Backend suffix is part of cache identity; invalidation removes all backend variants for a prefix."
+request_shapes:
+  speech:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/speech/SpeechClient.kt"
+    preferred_path:
+      - "SpeechToTextPrepareRequest"
+      - "SpeechSynthesisPrepareRequest"
+      - "SpeechToTextRequest"
+      - "SpeechLanguageDetectionRequest"
+      - "StreamingTranscriptionRequest"
+      - "SpeechSynthesisRequest"
+    note: "Legacy parameter-list overloads remain supported, but new facade usage should prefer request objects plus WhisperRuntimeRequest/BarkRuntimeRequest."
+  vision:
+    owner: "llmedge/src/main/java/io/aatricks/llmedge/vision/VisionClient.kt"
+    preferred_naming:
+      - "VisionRequest keeps numThreads for compatibility and exposes promptThreads as the preferred alias."
+      - "VisionPrepareRequest uses promptThreads/generationThreads directly."
 storage_keys:
   files:
     - key: "hf-models-root"

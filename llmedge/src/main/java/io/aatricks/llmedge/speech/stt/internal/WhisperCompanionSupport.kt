@@ -8,6 +8,7 @@ import io.aatricks.llmedge.core.NativeLibraryCatalog
 import io.aatricks.llmedge.core.NativeProbeSupport
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.RuntimeLoadPolicy
+import io.aatricks.llmedge.core.runtime.runBackendAttempts
 import io.aatricks.llmedge.huggingface.HuggingFaceHub
 import io.aatricks.llmedge.model.ModelFileValidator
 import io.aatricks.llmedge.runtime.ComputeBackend
@@ -90,42 +91,39 @@ internal object WhisperCompanionSupport {
                 openClAvailable = isOpenClAvailable(staticInvoker, openClAvailabilityOverride),
                 vulkanAvailable = isVulkanBackendAvailable(staticInvoker, vulkanAvailabilityOverride),
             )
-        val candidates = RuntimeLoadPolicy.candidates(loadRequest)
-        var lastError: Throwable? = null
-        for (backend in candidates) {
-            try {
-                val handle =
-                    NativeCall.requireHandle(
-                        NativeCall.binding(
-                            NativeLibraryCatalog.WHISPER_JNI,
-                            "Whisper JNI bindings are unavailable.",
-                        ) {
-                            createHandle(
-                                validatedModel.absolutePath,
-                                backend,
-                                flashAttn,
-                                gpuDevice,
-                            )
-                        },
-                        validatedModel.absolutePath,
-                        "The native Whisper loader returned an invalid handle.",
-                    )
-                return Whisper(handle, backend)
-            } catch (e: NativeBindingException) {
-                throw e
-            } catch (e: Throwable) {
-                lastError = e
+        return runBackendAttempts(
+            candidates = RuntimeLoadPolicy.candidates(loadRequest),
+            onFailure = { backend, _ ->
                 if (RuntimeLoadPolicy.recordBackendFailureIfNeeded(loadRequest, backend)) {
                     onGpuLoadFailure(backend)
                 }
-            }
-        }
-
-        throw ModelLoadException(
-            validatedModel.absolutePath,
-            lastError?.message ?: "The native Whisper loader returned an invalid handle.",
-            lastError,
-        )
+            },
+            exhaustedError = { lastError ->
+                ModelLoadException(
+                    validatedModel.absolutePath,
+                    lastError?.message ?: "The native Whisper loader returned an invalid handle.",
+                    lastError,
+                )
+            },
+        ) { backend ->
+            val handle =
+                NativeCall.requireHandle(
+                    NativeCall.binding(
+                        NativeLibraryCatalog.WHISPER_JNI,
+                        "Whisper JNI bindings are unavailable.",
+                    ) {
+                        createHandle(
+                            validatedModel.absolutePath,
+                            backend,
+                            flashAttn,
+                            gpuDevice,
+                        )
+                    },
+                    validatedModel.absolutePath,
+                    "The native Whisper loader returned an invalid handle.",
+                )
+            Whisper(handle, backend)
+        } ?: error("Whisper backend attempts exhausted without an error")
     }
 
     fun loadOnBackend(

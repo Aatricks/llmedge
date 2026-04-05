@@ -28,6 +28,71 @@ data class BarkLoadOptions(
     val verbosity: Int = 0,
 )
 
+data class WhisperRuntimeRequest(
+    val gpuEnabled: Boolean = false,
+    val flashAttention: Boolean = true,
+    val gpuDevice: Int = 0,
+) {
+    internal fun toLoadOptions(): WhisperLoadOptions =
+        WhisperLoadOptions(
+            useGpu = gpuEnabled,
+            flashAttention = flashAttention,
+            gpuDevice = gpuDevice,
+        )
+}
+
+data class BarkRuntimeRequest(
+    val seed: Int = 0,
+    val temperature: Float = 0.7f,
+    val fineTemperature: Float = 0.5f,
+    val verbosity: Int = 0,
+) {
+    internal fun toLoadOptions(): BarkLoadOptions =
+        BarkLoadOptions(
+            seed = seed,
+            temperature = temperature,
+            fineTemperature = fineTemperature,
+            verbosity = verbosity,
+        )
+}
+
+data class SpeechToTextPrepareRequest(
+    val model: ModelSpec,
+    val runtime: WhisperRuntimeRequest = WhisperRuntimeRequest(),
+)
+
+data class SpeechSynthesisPrepareRequest(
+    val model: ModelSpec,
+    val runtime: BarkRuntimeRequest = BarkRuntimeRequest(),
+)
+
+data class SpeechToTextRequest(
+    val audioSamples: FloatArray,
+    val model: ModelSpec,
+    val params: Whisper.TranscribeParams = Whisper.TranscribeParams(),
+    val runtime: WhisperRuntimeRequest = WhisperRuntimeRequest(),
+)
+
+data class SpeechLanguageDetectionRequest(
+    val audioSamples: FloatArray,
+    val model: ModelSpec,
+    val promptThreads: Int = 0,
+    val runtime: WhisperRuntimeRequest = WhisperRuntimeRequest(),
+)
+
+data class StreamingTranscriptionRequest(
+    val model: ModelSpec,
+    val params: Whisper.StreamingParams = Whisper.StreamingParams(),
+    val runtime: WhisperRuntimeRequest = WhisperRuntimeRequest(),
+)
+
+data class SpeechSynthesisRequest(
+    val text: String,
+    val model: ModelSpec,
+    val params: BarkTTS.GenerateParams = BarkTTS.GenerateParams(),
+    val runtime: BarkRuntimeRequest = BarkRuntimeRequest(),
+)
+
 class StreamingTranscriptionSession internal constructor(
     private val transcriber: Whisper.StreamingTranscriber,
 ) : AutoCloseable {
@@ -91,6 +156,12 @@ class SpeechClient internal constructor(
         requestExecutor.prepareSpeechToText(model, loadOptions)
     }
 
+    suspend fun prepareSpeechToText(
+        request: SpeechToTextPrepareRequest,
+    ) {
+        requestExecutor.prepareSpeechToText(request.model, request.runtime.toLoadOptions())
+    }
+
     /**
      * Preload a Bark model into the speech cache so later synthesis calls avoid the initial
      * model-load cost on the calling path.
@@ -100,6 +171,12 @@ class SpeechClient internal constructor(
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
     ) {
         requestExecutor.prepareTextToSpeech(model, loadOptions)
+    }
+
+    suspend fun prepareTextToSpeech(
+        request: SpeechSynthesisPrepareRequest,
+    ) {
+        requestExecutor.prepareTextToSpeech(request.model, request.runtime.toLoadOptions())
     }
 
     /**
@@ -116,6 +193,16 @@ class SpeechClient internal constructor(
     ): List<Whisper.TranscriptionSegment> =
         requestExecutor.transcribe(audioSamples, model, params, loadOptions)
 
+    suspend fun transcribe(
+        request: SpeechToTextRequest,
+    ): List<Whisper.TranscriptionSegment> =
+        requestExecutor.transcribe(
+            request.audioSamples,
+            request.model,
+            request.params,
+            request.runtime.toLoadOptions(),
+        )
+
     suspend fun transcribeToText(
         audioSamples: FloatArray,
         model: ModelSpec = config.models.speechToText,
@@ -123,12 +210,26 @@ class SpeechClient internal constructor(
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
     ): String = transcribe(audioSamples, model, params, loadOptions).joinToString(" ") { it.text.trim() }
 
+    suspend fun transcribeToText(
+        request: SpeechToTextRequest,
+    ): String = transcribe(request).joinToString(" ") { it.text.trim() }
+
     suspend fun detectLanguage(
         audioSamples: FloatArray,
         model: ModelSpec = config.models.speechToText,
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
         nThreads: Int = 0,
     ): String? = requestExecutor.detectLanguage(audioSamples, model, loadOptions, nThreads)
+
+    suspend fun detectLanguage(
+        request: SpeechLanguageDetectionRequest,
+    ): String? =
+        requestExecutor.detectLanguage(
+            request.audioSamples,
+            request.model,
+            request.runtime.toLoadOptions(),
+            request.promptThreads,
+        )
 
     /**
      * Create a reusable real-time transcription session.
@@ -141,6 +242,15 @@ class SpeechClient internal constructor(
         loadOptions: WhisperLoadOptions = WhisperLoadOptions(),
     ): StreamingTranscriptionSession =
         requestExecutor.createStreamingSession(model, params, loadOptions)
+
+    suspend fun createStreamingSession(
+        request: StreamingTranscriptionRequest,
+    ): StreamingTranscriptionSession =
+        requestExecutor.createStreamingSession(
+            request.model,
+            request.params,
+            request.runtime.toLoadOptions(),
+        )
 
     /**
      * Synthesize speech from text and return the full audio result.
@@ -155,6 +265,16 @@ class SpeechClient internal constructor(
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
     ): BarkTTS.AudioResult = requestExecutor.synthesize(text, model, params, loadOptions)
 
+    suspend fun synthesize(
+        request: SpeechSynthesisRequest,
+    ): BarkTTS.AudioResult =
+        requestExecutor.synthesize(
+            request.text,
+            request.model,
+            request.params,
+            request.runtime.toLoadOptions(),
+        )
+
     /**
      * Stream Bark synthesis progress followed by the final audio result.
      *
@@ -166,6 +286,16 @@ class SpeechClient internal constructor(
         params: BarkTTS.GenerateParams = BarkTTS.GenerateParams(),
         loadOptions: BarkLoadOptions = BarkLoadOptions(),
     ): Flow<AudioStreamEvent> = requestExecutor.synthesizeStream(text, model, params, loadOptions)
+
+    fun synthesizeStream(
+        request: SpeechSynthesisRequest,
+    ): Flow<AudioStreamEvent> =
+        requestExecutor.synthesizeStream(
+            request.text,
+            request.model,
+            request.params,
+            request.runtime.toLoadOptions(),
+        )
 
     override fun close() {
         closeOwned {

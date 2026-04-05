@@ -124,6 +124,7 @@ modules:
     boundaries:
       - "SpeechRequestExecutor owns facade-level execution policy through RuntimePool; BarkTTS and Whisper stay focused on runtime wrappers."
       - "SpeechThreadingSupport is the shared thread-count policy for Bark and Whisper wrappers."
+      - "SpeechClient supports request-first facade calls (prepare/transcribe/detectLanguage/streaming/synthesize) while keeping legacy convenience overloads for compatibility."
       - "WhisperRuntimeSupport plus WhisperCompanionSupport own native-load policy, load-bridge overrides, backend availability overrides, and backend fallback so Whisper stays focused on runtime behavior."
       - "WhisperCallbackSupport owns callback bridge wiring; no extra pass-through static layer remains."
       - "JNI-facing Kotlin externals must use stable exported JVM names so host/desktop native libraries do not drift from wrapper method visibility."
@@ -171,6 +172,7 @@ modules:
     boundaries:
       - "OCR is independent and should keep working even when VLM/projector flow is unavailable."
       - "VisionPipeline/VisionRuntimeExecutor are the only multimodal execution path; runtime acquire/exclusive execution should stay routed through RuntimePool instead of parallel adapters."
+      - "Vision request APIs accept legacy numThreads naming, but promptThreads is the preferred naming for new request shapes and prepare flows."
       - "VisionRuntimeConfig owns vision cache/thread/flash-attention/GPU defaults instead of borrowing text runtime settings."
       - "Prepared embedding .meta.json shape is native-owned; Kotlin only requires existence."
       - "GIF export internals are split across ImageGifEncoderSupport, GifEncoder, GifColorQuantizer, and GifLzwEncoder instead of one support-file monolith."
