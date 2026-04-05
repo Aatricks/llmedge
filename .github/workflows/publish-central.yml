@@ -91,6 +91,9 @@ jobs:
         env:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ env.ORG_GRADLE_PROJECT_signingInMemoryKey }}
         run: |
+          export GNUPGHOME
+          GNUPGHOME="$(mktemp -d)"
+          chmod 700 "${GNUPGHOME}"
           KEY_FILE="$(mktemp)"
           printf '%s\n' "${ORG_GRADLE_PROJECT_signingInMemoryKey}" > "${KEY_FILE}"
           gpg --batch --import-options show-only --dry-run --import "${KEY_FILE}" >/dev/null

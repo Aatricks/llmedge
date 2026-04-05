@@ -92,6 +92,7 @@ load_order_contracts:
       - "resolve GROUP / VERSION_NAME / POM_* metadata from gradle.properties or CI overrides"
       - "normalize release tags by stripping a leading `V` or `v` before passing VERSION_NAME to Gradle"
       - "normalize the signing key from either MAVEN_SIGNING_KEY_B64 or MAVEN_SIGNING_KEY into ORG_GRADLE_PROJECT_signingInMemoryKey"
+      - "validate the normalized signing key with GPG inside an isolated temporary GNUPGHOME before Gradle signing runs"
       - "assemble the Android release variant and package AAR + sources + javadocs"
       - "publish to Maven Local, Maven Central, a configured Maven repository, or GitHub Packages"
       - "sign publications only when signAllPublications and in-memory signing credentials are provided"
