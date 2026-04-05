@@ -7,6 +7,7 @@ invariants:
     - "Published coordinates and POM metadata are sourced from gradle.properties / CI overrides; do not hard-code release versions into workflow files."
     - "Maven Central credentials and signing keys must be injected through CI secrets or user Gradle properties, never committed."
     - "Release workflows must accept the repo's existing uppercase `V...` tags and normalize them to plain semantic versions before publishing."
+    - "Prefer MAVEN_SIGNING_KEY_B64 in GitHub Actions when the armored private key may be corrupted by terminal wrapping or CRLF conversion."
   native_build:
     - "Each engine is built as a separate shared library with its own bundled ggml to avoid symbol collisions."
     - "Native library names in CMake must stay aligned with NativeLibraryLoader candidate lists."

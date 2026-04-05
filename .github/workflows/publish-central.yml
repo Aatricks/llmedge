@@ -60,12 +60,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake build-essential ninja-build glslc libvulkan-dev
 
+      - name: Normalize signing key
+        env:
+          MAVEN_SIGNING_KEY: ${{ secrets.MAVEN_SIGNING_KEY }}
+          MAVEN_SIGNING_KEY_B64: ${{ secrets.MAVEN_SIGNING_KEY_B64 }}
+        run: |
+          if [[ -n "${MAVEN_SIGNING_KEY_B64}" ]]; then
+            SIGNING_KEY="$(printf '%s' "${MAVEN_SIGNING_KEY_B64}" | base64 --decode)"
+          else
+            SIGNING_KEY="${MAVEN_SIGNING_KEY}"
+          fi
+
+          if [[ -z "${SIGNING_KEY}" ]]; then
+            echo "Missing MAVEN_SIGNING_KEY or MAVEN_SIGNING_KEY_B64" >&2
+            exit 1
+          fi
+
+          {
+            echo "ORG_GRADLE_PROJECT_signingInMemoryKey<<EOF"
+            printf '%s\n' "${SIGNING_KEY}" | tr -d '\r'
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Publish release AAR to Maven Central
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signAllPublications: "true"
-          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.MAVEN_SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.MAVEN_SIGNING_KEY_ID }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_SIGNING_KEY_PASSWORD }}
         run: |
