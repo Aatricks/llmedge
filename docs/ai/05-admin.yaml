@@ -70,10 +70,23 @@ where_to_start:
       - "scripts/build_native_linux.sh"
     verify_with:
       - "./gradlew :llmedge:assembleRelease -Pandroid.jniCmakeArgs='-DGGML_VULKAN=ON -DSD_VULKAN=ON'"
+  publishing_or_repository_issues:
+    inspect:
+      - "gradle.properties"
+      - "llmedge/build.gradle.kts"
+      - ".github/workflows/publish-central.yml"
+      - ".github/workflows/publish-packages.yml"
+      - "README.md"
+    verify_with:
+      - "./gradlew publishToMavenLocal"
+      - "./gradlew publishAndReleaseToMavenCentral -m"
+      - "./gradlew publishAllPublicationsToGitHubPackagesRepository -m"
   ci_only_failures:
     inspect:
       - ".github/workflows/ci.yml"
       - ".github/workflows/android-smoke.yml"
+      - ".github/workflows/publish-central.yml"
+      - ".github/workflows/publish-packages.yml"
       - "gradle/llmedge-test-config.gradle"
       - "scripts/validate_examples.sh"
 symptom_router:
@@ -136,6 +149,7 @@ operating_notes:
     - "Start in :llmedge Kotlin/C++ wrappers before editing upstream submodules."
     - "Treat llmedge-examples as the primary human smoke harness, not the source of truth for library behavior."
     - "The root Gradle build contains only :llmedge; llmedge-examples is a separate composite build that substitutes io.aatricks:llmedge with ../:llmedge."
+    - "Release publication metadata and repository wiring live in gradle.properties, llmedge/build.gradle.kts, .github/workflows/publish-central.yml, and .github/workflows/publish-packages.yml."
   avoid:
     - "Do not start diagnosis in llmedge/build, .cxx, or generated site artifacts."
     - "Do not change native library names in CMake without updating NativeLibraryLoader candidate lists and desktop runner/build verification."

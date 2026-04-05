@@ -1,0 +1,72 @@
+name: Publish Package
+
+on:
+  push:
+    tags:
+      - "V*"
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Artifact version to publish"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  github-packages:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set publish version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            PUBLISH_VERSION="${GITHUB_REF_NAME#v}"
+            PUBLISH_VERSION="${PUBLISH_VERSION#V}"
+            echo "PUBLISH_VERSION=${PUBLISH_VERSION}" >> "$GITHUB_ENV"
+          else
+            echo "PUBLISH_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for scripts
+        run: |
+          chmod +x gradlew
+          chmod +x scripts/*.sh
+
+      - name: Install Native Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential ninja-build glslc libvulkan-dev
+
+      - name: Publish release AAR to GitHub Packages
+        env:
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./gradlew --no-daemon publishAllPublicationsToGitHubPackagesRepository \
+            -PVERSION_NAME="${PUBLISH_VERSION}"

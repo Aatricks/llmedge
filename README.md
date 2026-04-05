@@ -72,6 +72,41 @@ git submodule update --init --recursive
 
 Open the project in Android Studio. If it does not build automatically, use ***Build > Rebuild Project.***
 
+### Consume as a dependency
+
+For Maven Central:
+
+```kotlin
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation("io.github.aatricks:llmedge:0.3.8")
+}
+```
+
+For GitHub Packages:
+
+```kotlin
+repositories {
+    google()
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/Aatricks/llmedge")
+        credentials {
+            username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GITHUB_ACTOR")
+            password = providers.gradleProperty("gpr.key").orNull ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
+}
+
+dependencies {
+    implementation("io.github.aatricks:llmedge:0.3.8")
+}
+```
+
 ## Usage
 
 ### Quick Start

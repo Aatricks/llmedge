@@ -1,0 +1,73 @@
+name: Publish Central
+
+on:
+  push:
+    tags:
+      - "V*"
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Artifact version to publish"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  maven-central:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set publish version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            PUBLISH_VERSION="${GITHUB_REF_NAME#v}"
+            PUBLISH_VERSION="${PUBLISH_VERSION#V}"
+            echo "PUBLISH_VERSION=${PUBLISH_VERSION}" >> "$GITHUB_ENV"
+          else
+            echo "PUBLISH_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for scripts
+        run: |
+          chmod +x gradlew
+          chmod +x scripts/*.sh
+
+      - name: Install Native Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential ninja-build glslc libvulkan-dev
+
+      - name: Publish release AAR to Maven Central
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signAllPublications: "true"
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.MAVEN_SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.MAVEN_SIGNING_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_SIGNING_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon publishAndReleaseToMavenCentral \
+            -PVERSION_NAME="${PUBLISH_VERSION}"

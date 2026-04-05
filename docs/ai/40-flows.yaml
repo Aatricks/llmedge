@@ -104,6 +104,15 @@ startup_sequences:
         ordered_steps:
           - "VisionClient.extractText creates MlKitOcrEngine"
           - "runs OCR without loading vision-language model"
+  artifact_publication:
+    trigger: "maintainer runs a publish Gradle task or GitHub Actions publish-packages workflow"
+    ordered_steps:
+      - "resolve GROUP, VERSION_NAME, and POM_* metadata from gradle.properties or CI overrides"
+      - "if triggered from a Git tag, strip a leading `V` or `v` before setting VERSION_NAME"
+      - "assemble the Android `release` component with native libraries"
+      - "package the AAR plus sources/javadocs into the Maven publication"
+      - "publish to Maven Local, Maven Central, ConfiguredRemote, or GitHub Packages"
+      - "sign the publication only when signAllPublications and in-memory signing credentials are present"
   rag_flow:
     trigger: "RAGClient.createSession / RAGEngine.indexPdf / ask"
     ordered_steps:
@@ -181,6 +190,10 @@ manual_smoke_checks:
     trigger_for:
       - "Stable Diffusion JNI, image/video runtime, desktop native-load changes"
     command: "bash scripts/run_native_e2e.sh video"
+  - name: "publish-local-smoke"
+    trigger_for:
+      - "Gradle publication metadata or publish workflow changes"
+    command: "./gradlew publishToMavenLocal"
   - name: "rag-demo"
     trigger_for:
       - "RAG or embedding changes"

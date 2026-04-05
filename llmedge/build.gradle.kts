@@ -1,3 +1,5 @@
+import org.gradle.api.artifacts.repositories.PasswordCredentials
+
 /*
  * Copyright (C) 2024 Shubham Panchal
  *
@@ -19,7 +21,58 @@ plugins {
     alias(libs.plugins.kotlin.android)
     id("org.jetbrains.kotlin.plugin.serialization") version "2.0.0"
     id("jacoco")
+    id("com.vanniktech.maven.publish") version "0.34.0"
 }
+
+val publishingGroup = providers.gradleProperty("GROUP").orElse("io.github.aatricks")
+val publishingVersion = providers.gradleProperty("VERSION_NAME").orElse("0.1.0-SNAPSHOT")
+val pomArtifactId = providers.gradleProperty("POM_ARTIFACT_ID").orElse(project.name)
+val pomName = providers.gradleProperty("POM_NAME").orElse(project.name)
+val pomDescription =
+    providers.gradleProperty("POM_DESCRIPTION").orElse("Android on-device AI library with bundled native runtimes.")
+val pomInceptionYear = providers.gradleProperty("POM_INCEPTION_YEAR").orElse("2024")
+val pomUrl = providers.gradleProperty("POM_URL").orElse("https://github.com/Aatricks/llmedge")
+val pomLicenseName =
+    providers.gradleProperty("POM_LICENSE_NAME").orElse("The Apache License, Version 2.0")
+val pomLicenseUrl =
+    providers.gradleProperty("POM_LICENSE_URL").orElse("https://www.apache.org/licenses/LICENSE-2.0.txt")
+val pomLicenseDist = providers.gradleProperty("POM_LICENSE_DIST").orElse("repo")
+val pomScmUrl = providers.gradleProperty("POM_SCM_URL").orElse("https://github.com/Aatricks/llmedge")
+val pomScmConnection =
+    providers.gradleProperty("POM_SCM_CONNECTION")
+        .orElse("scm:git:git://github.com/Aatricks/llmedge.git")
+val pomScmDeveloperConnection =
+    providers.gradleProperty("POM_SCM_DEV_CONNECTION")
+        .orElse("scm:git:ssh://git@github.com/Aatricks/llmedge.git")
+val pomDeveloperId = providers.gradleProperty("POM_DEVELOPER_ID").orElse("aatricks")
+val pomDeveloperName = providers.gradleProperty("POM_DEVELOPER_NAME").orElse("Aatricks")
+val pomDeveloperUrl = providers.gradleProperty("POM_DEVELOPER_URL").orElse("https://github.com/Aatricks")
+val remoteRepositoryUrl =
+    providers.gradleProperty("llmedge.publish.repoUrl")
+        .orElse(providers.environmentVariable("LLMEDGE_PUBLISH_REPO_URL"))
+val remoteRepositoryUsername =
+    providers.gradleProperty("llmedge.publish.username")
+        .orElse(providers.environmentVariable("LLMEDGE_PUBLISH_USERNAME"))
+val remoteRepositoryPassword =
+    providers.gradleProperty("llmedge.publish.password")
+        .orElse(providers.environmentVariable("LLMEDGE_PUBLISH_PASSWORD"))
+val githubRepositoryFromEnv =
+    providers.environmentVariable("GITHUB_REPOSITORY").map { value -> value.substringAfter('/', "") }
+val githubPackagesOwner =
+    providers.gradleProperty("llmedge.publish.githubOwner")
+        .orElse(providers.environmentVariable("GITHUB_REPOSITORY_OWNER"))
+val githubPackagesRepository =
+    providers.gradleProperty("llmedge.publish.githubRepository")
+        .orElse(githubRepositoryFromEnv)
+val githubPackagesUsername =
+    providers.gradleProperty("llmedge.publish.githubUsername")
+        .orElse(providers.environmentVariable("GITHUB_ACTOR"))
+val githubPackagesPassword =
+    providers.gradleProperty("llmedge.publish.githubToken")
+        .orElse(providers.environmentVariable("GITHUB_TOKEN"))
+
+group = publishingGroup.get()
+version = publishingVersion.get()
 
 android {
     // Keeping the Kotlin package as-is to avoid JNI breakage; namespace can be branded separately if desired
@@ -169,6 +222,71 @@ dependencies {
 
 apply(from = rootProject.file("gradle/llmedge-test-config.gradle"))
 apply(from = rootProject.file("gradle/llmedge-jacoco.gradle"))
+
+mavenPublishing {
+    coordinates(
+        publishingGroup.get(),
+        pomArtifactId.get(),
+        publishingVersion.get(),
+    )
+    publishToMavenCentral()
+    pom {
+        name.set(pomName)
+        description.set(pomDescription)
+        inceptionYear.set(pomInceptionYear)
+        url.set(pomUrl)
+
+        licenses {
+            license {
+                name.set(pomLicenseName)
+                url.set(pomLicenseUrl)
+                distribution.set(pomLicenseDist)
+            }
+        }
+
+        developers {
+            developer {
+                id.set(pomDeveloperId)
+                name.set(pomDeveloperName)
+                url.set(pomDeveloperUrl)
+            }
+        }
+
+        scm {
+            url.set(pomScmUrl)
+            connection.set(pomScmConnection)
+            developerConnection.set(pomScmDeveloperConnection)
+        }
+    }
+}
+
+publishing {
+    repositories {
+        remoteRepositoryUrl.orNull?.let { configuredUrl ->
+            maven {
+                name = "ConfiguredRemote"
+                url = uri(configuredUrl)
+                credentials(PasswordCredentials::class) {
+                    username = remoteRepositoryUsername.orNull
+                    password = remoteRepositoryPassword.orNull
+                }
+            }
+        }
+
+        val githubOwner = githubPackagesOwner.orNull
+        val githubRepository = githubPackagesRepository.orNull
+        if (!githubOwner.isNullOrBlank() && !githubRepository.isNullOrBlank()) {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/$githubOwner/$githubRepository")
+                credentials(PasswordCredentials::class) {
+                    username = githubPackagesUsername.orNull
+                    password = githubPackagesPassword.orNull
+                }
+            }
+        }
+    }
+}
 
 val generateNativeTargetNames by tasks.registering(Exec::class) {
     group = "build setup"

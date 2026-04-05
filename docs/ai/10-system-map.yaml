@@ -25,6 +25,13 @@ runtime_surfaces:
     entrypoints:
       - ".github/workflows/ci.yml"
       - ".github/workflows/android-smoke.yml"
+  artifact_distribution:
+    owner: "Gradle publication + GitHub Actions"
+    entrypoints:
+      - "llmedge/build.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/publish-central.yml"
+      - ".github/workflows/publish-packages.yml"
 process_singletons_and_globals:
   - name: "RuntimeEnvironmentHolder.defaultEnvironment"
     owner: "llmedge/src/main/java/io/aatricks/llmedge/runtime/RuntimeEnvironment.kt"
@@ -48,7 +55,7 @@ load_order_contracts:
   build_graph:
     root_sequence:
       - "settings.gradle.kts includes only :llmedge"
-      - "llmedge/build.gradle.kts configures Android library + externalNativeBuild"
+      - "llmedge/build.gradle.kts configures Android library + externalNativeBuild + release publication metadata"
       - "llmedge/src/main/cpp/CMakeLists.txt includes llmedge-common, llmedge-targets, llmedge-smollm, llmedge-stable-diffusion, llmedge-whisper, llmedge-bark in that order"
     cmake_dependencies:
       - "llmedge-common.cmake resolves/upatches llama.cpp tree and delegates Vulkan/OpenCL/SmolLM-target wiring to llmedge-vulkan.cmake, llmedge-opencl.cmake, and llmedge-smollm-targets.cmake"
@@ -79,6 +86,19 @@ load_order_contracts:
       - "scripts/run_native_e2e.sh is the canonical host E2E runner; run_*_e2e.sh wrappers should delegate to it."
       - "Host E2E scripts reuse native_test_support.sh instead of copying native-lib discovery/build logic."
       - "Desktop JVM E2E tests prefer exact library paths (LLMEDGE_BUILD_*_LIB_PATH + System.load) over ambient java.library.path lookup when a host artifact path is provided."
+  artifact_publication:
+    owner: "Gradle Maven Publish Plugin + GitHub Actions"
+    order:
+      - "resolve GROUP / VERSION_NAME / POM_* metadata from gradle.properties or CI overrides"
+      - "normalize release tags by stripping a leading `V` or `v` before passing VERSION_NAME to Gradle"
+      - "assemble the Android release variant and package AAR + sources + javadocs"
+      - "publish to Maven Local, Maven Central, a configured Maven repository, or GitHub Packages"
+      - "sign publications only when signAllPublications and in-memory signing credentials are provided"
+    invariants:
+      - "The published artifact coordinates stay driven by GROUP, POM_ARTIFACT_ID, and VERSION_NAME."
+      - "Maven Central publication uses the Central Portal token pair exposed as mavenCentralUsername/mavenCentralPassword."
+      - "GitHub Packages publishing derives owner/repository and token from CI or Gradle properties instead of hard-coded secrets."
+      - "Maven Local publishing remains the first verification step before any remote publish."
   backend_selection:
     owner: "RuntimeLoadPolicy -> BackendCandidateResolver -> RuntimeCoordinator -> BackendRuntimePolicy"
     order: ["OPENCL", "VULKAN", "CPU"]

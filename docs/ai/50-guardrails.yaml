@@ -4,6 +4,9 @@ invariants:
     - "The root Gradle build includes only :llmedge; llmedge-examples stays a separate composite-build consumer."
     - "The library AndroidManifest remains empty; permissions/providers/activities belong to llmedge-examples."
     - "Deprecated typealiases in Deprecated.kt preserve old import paths for renamed public classes."
+    - "Published coordinates and POM metadata are sourced from gradle.properties / CI overrides; do not hard-code release versions into workflow files."
+    - "Maven Central credentials and signing keys must be injected through CI secrets or user Gradle properties, never committed."
+    - "Release workflows must accept the repo's existing uppercase `V...` tags and normalize them to plain semantic versions before publishing."
   native_build:
     - "Each engine is built as a separate shared library with its own bundled ggml to avoid symbol collisions."
     - "Native library names in CMake must stay aligned with NativeLibraryLoader candidate lists."
@@ -71,6 +74,15 @@ blast_radius:
         - "tool-calling prompts, parser, and policy"
         - "example tool demo"
 must_retest_if_changed:
+  - paths:
+      - "gradle.properties"
+      - "llmedge/build.gradle.kts"
+      - ".github/workflows/publish-central.yml"
+      - ".github/workflows/publish-packages.yml"
+      - "README.md"
+    required_checks:
+      - "./gradlew :llmedge:assembleRelease"
+      - "./gradlew publishToMavenLocal"
   - paths:
       - "llmedge/src/main/java/io/aatricks/llmedge/LLMEdge.kt"
       - "llmedge/src/main/java/io/aatricks/llmedge/LLMEdgeConfig.kt"
@@ -172,6 +184,7 @@ risky_change_areas:
   - "Sequential-vs-direct video generation heuristics"
   - "Model download destination layout and cache validation"
   - "Tool parser and action-policy semantics"
+  - "Publication coordinates, POM metadata, and CI repository credentials"
 refactor_rules:
   - "Refactor shared helpers first, orchestrators second, docs last."
   - "Do not move or rename shared-library targets without editing llmedge-targets.cmake, keeping scripts/native_targets.sh and NativeTargetNames.kt derivation intact, and updating NativeLibraryLoader/NativeLibraryCatalog."
@@ -180,3 +193,4 @@ refactor_rules:
   - "Do not change persistent file roots without documenting migration or deliberate cache invalidation."
   - "Preserve separate ggml compilation per engine unless you are intentionally redesigning the native isolation model."
   - "When changing example-app-facing APIs, validate the composite build before claiming compatibility."
+  - "Keep remote publish credentials and signing material out of tracked files; use Gradle properties or CI env injection instead."
