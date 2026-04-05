@@ -317,7 +317,6 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.vae_path = vaePath ? vaePath : "";
     p.t5xxl_path = t5xxlPath;
     p.taesd_path = taesdPath ? taesdPath : "";
-    p.lora_model_dir = loraModelDirValue.c_str();
     p.free_params_immediately = true;
     p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
     p.offload_params_to_cpu = offloadToCpu;

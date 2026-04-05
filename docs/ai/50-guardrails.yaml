@@ -32,6 +32,7 @@ invariants:
     - "ToolAgent.reply and ToolAgent.stream must share one turn loop; new behavior differences belong in callbacks or response producers, not duplicated state machines."
     - "ModelSpec.hints is authoritative when present; filename heuristics are fallback-only."
     - "StableDiffusion asset/runtime/backend load flags should flow through StableDiffusionAssetRequest/StableDiffusionLoadRequest rather than re-expanding long positional parameter lists across helper layers."
+    - "Stable Diffusion JNI LoRA directory handling is wrapper-owned; keep it in `SdHandle`/prompt preprocessing unless the tracked upstream `sd_ctx_params_t` API adds the field."
     - "VisionClient.extractText must keep working without a VLM or projector."
     - "JNI-facing Kotlin external methods must keep stable JVM names; do not depend on internal visibility suffixes for native symbol resolution."
   persistence:

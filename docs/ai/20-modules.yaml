@@ -153,6 +153,7 @@ modules:
       - "StableDiffusionAssetRequest/StableDiffusionLoadRequest are the internal source of truth for diffusion asset/runtime/backend load plumbing; add new load flags there before threading them across helper boundaries."
       - "StableDiffusionCompanionSupport plus StableDiffusionLoader/StableDiffusionLoadSupport own diffusion dispatcher, native-load policy, direct expert-load fallback, and bridge override state so StableDiffusion stays focused on runtime behavior."
       - "StableDiffusion metadata detection should prefer GGUF/native metadata and treat filename heuristics as fallback only."
+      - "Stable Diffusion prompt LoRA resolution lives in the JNI wrapper (`sdcpp_jni_shared.h` + `SdHandle.loraModelDir`); do not depend on `sd_ctx_params_t` carrying a matching upstream field."
       - "Video path has distinct direct and sequential-load flows; do not merge casually."
       - "JNI-facing Kotlin externals must keep stable JVM names; avoid coupling native symbol lookup to Kotlin internal visibility mangling."
   - name: "vision-stack"
