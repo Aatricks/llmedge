@@ -30,12 +30,14 @@ jobs:
       - name: Set publish version
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            PUBLISH_VERSION="${GITHUB_REF_NAME#v}"
-            PUBLISH_VERSION="${PUBLISH_VERSION#V}"
-            echo "PUBLISH_VERSION=${PUBLISH_VERSION}" >> "$GITHUB_ENV"
+            RAW_VERSION="${GITHUB_REF_NAME}"
           else
-            echo "PUBLISH_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+            RAW_VERSION="${{ inputs.version }}"
           fi
+
+          PUBLISH_VERSION="${RAW_VERSION#v}"
+          PUBLISH_VERSION="${PUBLISH_VERSION#V}"
+          echo "PUBLISH_VERSION=${PUBLISH_VERSION}" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

@@ -127,7 +127,7 @@ published_artifacts:
       accepted_prefixes:
         - "V"
         - "v"
-      normalization: "GitHub Actions publish workflows strip the leading prefix and pass the remaining semantic version to Gradle."
+      normalization: "GitHub Actions publish workflows strip the leading prefix from either tag names or manual workflow version inputs and pass the remaining semantic version to Gradle."
     signing:
       workflow_secret_inputs:
         - "MAVEN_SIGNING_KEY_B64 (preferred)"
