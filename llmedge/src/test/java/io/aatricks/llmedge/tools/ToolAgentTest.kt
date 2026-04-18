@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -259,6 +261,108 @@ class ToolAgentTest {
             assertTrue(invoked)
             assertEquals("Opened example.com.", result.text)
             assertTrue(result.trace.first().toolDeniedReason == null)
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
+    fun `reply denies bash tool by default`() = runTest {
+        installBridge(
+            listOf("""{"tool":"run_bash_command","arguments":{"argv":["echo","hello"]}}"""),
+            listOf("I cannot run shell commands without approval."),
+        )
+        val edge = createEdge(this)
+        val executor = RecordingBashExecutor { BashExecutionResult(exitCode = 0, stdout = "hello\n", stderr = "") }
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools =
+                    listOf(
+                        BashToolFactory.forTesting(BashToolOptions(), executor).createBashTool(),
+                    ),
+            )
+
+        try {
+            val result = agent.reply("Run echo hello", maxSteps = 2)
+
+            assertTrue(result.trace.first().toolResult?.isError == true)
+            assertTrue(result.trace.first().toolDeniedReason?.contains("explicit approval") == true)
+            assertTrue(executor.requests.isEmpty())
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
+    fun `reply executes bash tool with explicit policy`() = runTest {
+        installBridge(
+            listOf("""{"tool":"run_bash_command","arguments":{"argv":["echo","hello"]}}"""),
+            listOf("The command printed hello."),
+        )
+        val edge = createEdge(this)
+        val executor =
+            RecordingBashExecutor {
+                BashExecutionResult(exitCode = 0, stdout = "hello\n", stderr = "")
+            }
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools =
+                    listOf(
+                        BashToolFactory.forTesting(BashToolOptions(), executor).createBashTool(),
+                    ),
+                policy = ToolPolicies.ALLOW_ALL,
+            )
+
+        try {
+            val result = agent.reply("Run echo hello", maxSteps = 2)
+
+            assertEquals("The command printed hello.", result.text)
+            assertEquals(1, executor.requests.size)
+            assertEquals(listOf("echo", "hello"), executor.requests.single().argv)
+            assertTrue(result.trace.first().toolResult?.data?.toString()?.contains("hello") == true)
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
+    fun `reply executes real bash command through tool agent`() = runTest {
+        val workingDirectory = ApplicationProvider.getApplicationContext<Context>().cacheDir.absolutePath
+        installBridge(
+            listOf("""{"tool":"run_bash_command","arguments":{"command":"pwd","workingDirectory":"$workingDirectory"}}"""),
+            listOf("The command returned the requested working directory."),
+        )
+        val edge = createEdge(this)
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools =
+                    listOf(
+                        BashToolFactory(
+                            BashToolOptions(allowRawShell = true),
+                        ).createBashTool(),
+                    ),
+                policy = ToolPolicies.ALLOW_ALL,
+            )
+
+        try {
+            val result = agent.reply("Run pwd in the cache dir", maxSteps = 2)
+
+            assertEquals("The command returned the requested working directory.", result.text)
+            assertTrue(result.trace.first().toolResult?.isError == false)
+            assertEquals(
+                "$workingDirectory\n",
+                result.trace.first().toolResult?.data?.get("stdout")?.jsonPrimitive?.contentOrNull,
+            )
+            assertEquals(
+                "pwd",
+                result.trace.first().toolResult?.data?.get("command")?.jsonPrimitive?.contentOrNull,
+            )
         } finally {
             edge.close()
         }
@@ -534,6 +638,17 @@ class ToolAgentTest {
                 )
             },
         )
+
+    private class RecordingBashExecutor(
+        private val block: suspend (BashExecutionRequest) -> BashExecutionResult,
+    ) : BashCommandExecutor {
+        val requests = mutableListOf<BashExecutionRequest>()
+
+        override suspend fun run(request: BashExecutionRequest): BashExecutionResult {
+            requests += request
+            return block(request)
+        }
+    }
 
     private fun installBridge(
         vararg responses: List<String>,

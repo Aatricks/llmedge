@@ -253,6 +253,27 @@ viewModelScope.launch {
 
 Tool calls use a structured JSON envelope internally: `{"tool":"name","arguments":{...}}`. The parser also accepts the legacy `tool_name` field for robustness, but new prompts only emit the `tool` shape.
 
+For JVM or desktop hosts where `bash` is available, you can also opt into a shell-execution tool:
+
+```kotlin
+val edge = LLMEdge.create(context, viewModelScope)
+val bashTool =
+    BashToolFactory(
+        BashToolOptions(
+            allowRawShell = true, // raw `command` strings are disabled unless you opt in
+            defaultWorkingDirectory = context.filesDir.absolutePath,
+        ),
+    ).createBashTool()
+
+val agent = edge.text.toolAgent(
+    tools = listOf(bashTool),
+    systemPrompt = "Use shell commands only when necessary.",
+    policy = ToolPolicies.ALLOW_ALL, // required because run_bash_command is an action tool
+)
+```
+
+The bash tool accepts either `argv` for structured commands or `command` for raw shell strings. If `bash` is unavailable or the command fails, the tool returns a structured error result instead of claiming success.
+
 ### Speech Request Objects
 
 Speech APIs now support request-first calls in addition to the existing convenience overloads:
