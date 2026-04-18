@@ -265,6 +265,69 @@ class ToolAgentTest {
     }
 
     @Test
+    fun `reply denies bash tool by default`() = runTest {
+        installBridge(
+            listOf("""{"tool":"run_bash_command","arguments":{"argv":["echo","hello"]}}"""),
+            listOf("I cannot run shell commands without approval."),
+        )
+        val edge = createEdge(this)
+        val executor = RecordingBashExecutor { BashExecutionResult(exitCode = 0, stdout = "hello\n", stderr = "") }
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools =
+                    listOf(
+                        BashToolFactory.forTesting(BashToolOptions(), executor).createBashTool(),
+                    ),
+            )
+
+        try {
+            val result = agent.reply("Run echo hello", maxSteps = 2)
+
+            assertTrue(result.trace.first().toolResult?.isError == true)
+            assertTrue(result.trace.first().toolDeniedReason?.contains("explicit approval") == true)
+            assertTrue(executor.requests.isEmpty())
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
+    fun `reply executes bash tool with explicit policy`() = runTest {
+        installBridge(
+            listOf("""{"tool":"run_bash_command","arguments":{"argv":["echo","hello"]}}"""),
+            listOf("The command printed hello."),
+        )
+        val edge = createEdge(this)
+        val executor =
+            RecordingBashExecutor {
+                BashExecutionResult(exitCode = 0, stdout = "hello\n", stderr = "")
+            }
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools =
+                    listOf(
+                        BashToolFactory.forTesting(BashToolOptions(), executor).createBashTool(),
+                    ),
+                policy = ToolPolicies.ALLOW_ALL,
+            )
+
+        try {
+            val result = agent.reply("Run echo hello", maxSteps = 2)
+
+            assertEquals("The command printed hello.", result.text)
+            assertEquals(1, executor.requests.size)
+            assertEquals(listOf("echo", "hello"), executor.requests.single().argv)
+            assertTrue(result.trace.first().toolResult?.data?.toString()?.contains("hello") == true)
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
     fun `reply reports unknown tool and continues`() = runTest {
         installBridge(
             listOf("""{"tool":"missing_tool","arguments":{}}"""),
@@ -534,6 +597,17 @@ class ToolAgentTest {
                 )
             },
         )
+
+    private class RecordingBashExecutor(
+        private val block: suspend (BashExecutionRequest) -> BashExecutionResult,
+    ) : BashCommandExecutor {
+        val requests = mutableListOf<BashExecutionRequest>()
+
+        override suspend fun run(request: BashExecutionRequest): BashExecutionResult {
+            requests += request
+            return block(request)
+        }
+    }
 
     private fun installBridge(
         vararg responses: List<String>,

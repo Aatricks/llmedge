@@ -86,6 +86,39 @@ Default batch sizes are currently `8` for blocking generation and `4` for stream
 If you are tuning on big.LITTLE devices, adjust `batchSize` together with `numThreads` and
 `generationThreads` rather than treating them in isolation.
 
+### Tool Calling
+
+Use `edge.text.toolAgent(...)` when the model should call app-defined tools instead of only returning text.
+Read-only tools run automatically. Action tools, including the bash tool below, still require an
+explicit policy approval.
+
+```kotlin
+val edge = LLMEdge.create(context, viewModelScope)
+val agent =
+    edge.text.toolAgent(
+        tools =
+            listOf(
+                BashToolFactory(
+                    BashToolOptions(
+                        allowRawShell = true,
+                        defaultWorkingDirectory = context.filesDir.absolutePath,
+                    ),
+                ).createBashTool(),
+            ),
+        systemPrompt = "Use shell commands only when they materially help answer the user.",
+        policy = ToolPolicies.ALLOW_ALL,
+    )
+```
+
+`run_bash_command` supports two argument shapes:
+
+- `argv`: a structured array such as `["echo", "hello"]`
+- `command`: a raw shell string such as `"pwd"`; this stays disabled unless `allowRawShell = true`
+
+The tool captures `stdout`, `stderr`, exit code, timeout state, truncation state, and the executed
+command details in the returned `ToolResult.data`. If `bash` is unavailable at runtime or process
+startup fails, the tool reports that as a structured tool error.
+
 ### Image Generation
 
 Handles model resolution and memory-safe loading through the `edge.image` client.
