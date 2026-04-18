@@ -163,6 +163,30 @@ class BashToolFactoryTest {
     }
 
     @Test
+    fun `raw shell execution runs real bash process`() = runTest {
+        val workingDirectory = System.getProperty("java.io.tmpdir")
+        val tool =
+            BashToolFactory(
+                BashToolOptions(
+                    allowRawShell = true,
+                    defaultWorkingDirectory = workingDirectory,
+                ),
+            ).createBashTool()
+
+        val result =
+            tool.handler(
+                buildJsonObject {
+                    put("command", "pwd")
+                },
+            )
+
+        assertFalse(result.isError)
+        assertEquals(0, result.data["exitCode"]?.jsonPrimitive?.intOrNull)
+        assertEquals("${workingDirectory.trimEnd('/')}\n", result.data["stdout"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("pwd", result.data["command"]?.jsonPrimitive?.contentOrNull)
+    }
+
+    @Test
     fun `timeouts are reported as errors`() = runTest {
         val tool =
             BashToolFactory.forTesting(
