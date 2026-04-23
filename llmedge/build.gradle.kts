@@ -94,8 +94,10 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
         ndk {
-            // The ik_llama.cpp migration is currently validated only on arm64.
-            abiFilters += "arm64-v8a"
+            // CI instrumentation runs on x86_64 emulators hosted on x86 runners.
+            // Keep arm64-v8a for production parity, but include x86_64 so the
+            // debug/androidTest APKs can install on GitHub Actions emulators.
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
         externalNativeBuild {
             cmake {
