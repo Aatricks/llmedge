@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.TextRuntimeConfig
+import io.aatricks.llmedge.VisionRuntimeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -68,14 +69,18 @@ class VisionClientTest {
     }
 
     @Test
-    fun `prepare forwards default runtime settings to pipeline`() = runTest {
+    fun `prepare forwards vision runtime defaults to pipeline`() = runTest {
         val context = mockk<Context>(relaxed = true)
         val pipeline = mockk<VisionPipeline>(relaxed = true)
         val scope = mockk<LLMEdgeScope>(relaxed = true)
         val modelRepository = mockk<ModelRepository>()
         val model = mockk<ModelSpec>()
         val projector = mockk<ModelSpec>()
-        val config = LLMEdgeConfig(text = TextRuntimeConfig(promptThreads = 6, generationThreads = 3))
+        val config =
+            LLMEdgeConfig(
+                text = TextRuntimeConfig(promptThreads = 6, generationThreads = 3),
+                vision = VisionRuntimeConfig(promptThreads = 4, generationThreads = 2),
+            )
         val client = VisionClient.forTesting(context, scope, config, modelRepository, pipeline)
 
         client.prepare(model = model, projector = projector)
@@ -84,8 +89,8 @@ class VisionClientTest {
             pipeline.prepare(
                 model = model,
                 projector = projector,
-                promptThreads = 6,
-                generationThreads = 3,
+                promptThreads = 4,
+                generationThreads = 2,
                 onStatus = null,
             )
         }
