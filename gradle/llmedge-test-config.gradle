@@ -3,6 +3,21 @@ android {
         unitTests.all { test ->
             def testUserHome = System.getenv("LLMEDGE_TEST_USER_HOME") ?: System.getenv("HOME") ?: System.getProperty("user.home")
             test.systemProperty("user.home", testUserHome)
+            def isCi =
+                (System.getenv("CI")?.equalsIgnoreCase("true")) ||
+                    (System.getenv("GITHUB_ACTIONS")?.equalsIgnoreCase("true"))
+
+            test.testLogging {
+                events(
+                    org.gradle.api.tasks.testing.logging.TestLogEvent.FAILED,
+                    org.gradle.api.tasks.testing.logging.TestLogEvent.SKIPPED,
+                )
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                showExceptions = true
+                showCauses = true
+                showStackTraces = true
+                showStandardStreams = isCi
+            }
 
             def showTestOutput =
                 (System.getenv("LLMEDGE_SHOW_TEST_OUTPUT")?.equalsIgnoreCase("true")) ||

@@ -8,6 +8,7 @@ import io.aatricks.llmedge.text.ConversationWindow
 import io.aatricks.llmedge.text.TextModelOptions
 import io.aatricks.llmedge.text.runtime.SmolLM
 import java.io.File
+import java.nio.file.Files
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -331,7 +332,9 @@ class ToolAgentTest {
 
     @Test
     fun `reply executes real bash command through tool agent`() = runTest {
-        val workingDirectory = ApplicationProvider.getApplicationContext<Context>().cacheDir.absolutePath
+        val cacheDir = ApplicationProvider.getApplicationContext<Context>().cacheDir
+        cacheDir.mkdirs()
+        val workingDirectory = Files.createTempDirectory(cacheDir.toPath(), "bash-tool-agent-").toFile().absolutePath
         installBridge(
             listOf("""{"tool":"run_bash_command","arguments":{"command":"pwd","workingDirectory":"$workingDirectory"}}"""),
             listOf("The command returned the requested working directory."),
