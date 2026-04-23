@@ -79,7 +79,7 @@ jobs:
       with:
         api-level: 33
         target: aosp_atd
-        arch: x86_64
+        arch: arm64-v8a
         profile: pixel_6
         emulator-options: -no-snapshot -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
         disable-animations: true
