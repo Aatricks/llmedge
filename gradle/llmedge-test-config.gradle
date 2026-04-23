@@ -19,6 +19,14 @@ android {
                 showStandardStreams = isCi
             }
 
+            if (isCi) {
+                // Several tests mutate static native-bridge overrides and system properties.
+                // Isolate classes in CI so one class cannot poison another when the exact failing
+                // test is not consistently reproducible locally.
+                test.maxParallelForks = 1
+                test.forkEvery = 1
+            }
+
             def showTestOutput =
                 (System.getenv("LLMEDGE_SHOW_TEST_OUTPUT")?.equalsIgnoreCase("true")) ||
                     (project.findProperty("llmedgeShowTestOutput")?.toString()?.equalsIgnoreCase("true"))
