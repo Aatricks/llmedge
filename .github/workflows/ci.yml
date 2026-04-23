@@ -33,6 +33,11 @@ jobs:
       with:
         cache-read-only: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
 
+    - name: Run Unit Tests
+      env:
+        LLMEDGE_SKIP_E2E_IN_UNIT: "true"
+      run: ./gradlew :llmedge:testDebugUnitTest
+
     - name: Grant execute permission for scripts
       run: |
         chmod +x gradlew
@@ -62,11 +67,6 @@ jobs:
 
     - name: Download Test Models
       run: .github/scripts/download_models.sh
-
-    - name: Run Unit Tests
-      env:
-        LLMEDGE_SKIP_E2E_IN_UNIT: "true"
-      run: ./gradlew :llmedge:testDebugUnitTest
 
     - name: Enable KVM for Android Emulator
       run: |

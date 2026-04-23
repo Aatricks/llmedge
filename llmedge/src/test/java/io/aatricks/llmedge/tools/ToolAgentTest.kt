@@ -359,8 +359,8 @@ class ToolAgentTest {
             assertEquals("The command returned the requested working directory.", result.text)
             assertTrue(result.trace.first().toolResult?.isError == false)
             assertEquals(
-                "$workingDirectory\n",
-                result.trace.first().toolResult?.data?.get("stdout")?.jsonPrimitive?.contentOrNull,
+                File(workingDirectory).canonicalPath,
+                File(result.trace.first().toolResult?.data?.get("stdout")?.jsonPrimitive?.contentOrNull?.trim().orEmpty()).canonicalPath,
             )
             assertEquals(
                 "pwd",

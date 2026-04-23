@@ -10,6 +10,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -182,7 +183,10 @@ class BashToolFactoryTest {
 
         assertFalse(result.isError)
         assertEquals(0, result.data["exitCode"]?.jsonPrimitive?.intOrNull)
-        assertEquals("${workingDirectory.trimEnd('/')}\n", result.data["stdout"]?.jsonPrimitive?.contentOrNull)
+        assertEquals(
+            File(workingDirectory).canonicalPath,
+            File(result.data["stdout"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()).canonicalPath,
+        )
         assertEquals("pwd", result.data["command"]?.jsonPrimitive?.contentOrNull)
     }
 

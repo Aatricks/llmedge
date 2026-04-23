@@ -20,11 +20,17 @@ android {
             }
 
             if (isCi) {
-                // Several tests mutate static native-bridge overrides and system properties.
-                // Isolate classes in CI so one class cannot poison another when the exact failing
-                // test is not consistently reproducible locally.
                 test.maxParallelForks = 1
-                test.forkEvery = 1
+                test.beforeTest { descriptor ->
+                    println("LLMEDGE CI TEST START: ${descriptor.className} > ${descriptor.name}")
+                }
+                test.afterTest { descriptor, result ->
+                    if (result.resultType != org.gradle.api.tasks.testing.TestResult.ResultType.SUCCESS) {
+                        println(
+                            "LLMEDGE CI TEST ${result.resultType}: ${descriptor.className} > ${descriptor.name}",
+                        )
+                    }
+                }
             }
 
             def showTestOutput =
