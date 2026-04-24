@@ -220,6 +220,7 @@ if(WHISPER_DESKTOP_JNI)
         add_subdirectory(${WHISPER_ROOT} whisper.cpp)
 
         add_library(${LLMEDGE_TARGET_WHISPER_JNI} SHARED
+            ${LLMEDGE_CPP_ROOT}/whisper_jni_common.cpp
             ${LLMEDGE_CPP_ROOT}/whisper_jni.cpp
         )
 
