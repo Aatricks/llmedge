@@ -120,6 +120,7 @@ if(BUILD_SMOLLM)
         ${LLMEDGE_CPP_ROOT}/smollm_jni_embeddings.cpp
         ${LLMEDGE_CPP_ROOT}/smollm_jni_state.cpp
         ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
+        ${LLMEDGE_CPP_ROOT}/llm_backend_support.cpp
         ${LLMEDGE_CPP_ROOT}/gguf_reader_internal.cpp
         ${LLMEDGE_CPP_ROOT}/GGUFReader.cpp
     )

@@ -69,6 +69,7 @@ llmedge_native_source_paths() {
                 "$root_dir/llmedge/src/main/cpp/smollm_jni_embeddings.cpp" \
                 "$root_dir/llmedge/src/main/cpp/smollm_jni_load.cpp" \
                 "$root_dir/llmedge/src/main/cpp/smollm_jni_state.cpp" \
+                "$root_dir/scripts/jni-desktop/CMakeLists.txt" \
                 "$root_dir/llmedge/src/main/cpp/cmake/llmedge-common.cmake" \
                 "$root_dir/llmedge/src/main/cpp/cmake/llmedge-smollm.cmake"
             ;;
