@@ -66,8 +66,10 @@ target_compile_definitions(
         GGML_VERSION=""
 )
 set(_gguf_reader_cpu_flags -DGGML_USE_CPU)
-if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+if (NOT ${ANDROID_ABI} STREQUAL "armeabi-v7a")
     target_sources(${TARGET_NAME_GGUF_READER} PRIVATE ${LLMEDGE_IQK_BASE_SOURCES})
+endif()
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     target_compile_definitions(
             ${TARGET_NAME_GGUF_READER}
             PRIVATE

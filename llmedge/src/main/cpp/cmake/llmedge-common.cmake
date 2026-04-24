@@ -68,6 +68,12 @@ if ((NOT ANDROID AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
                 PROPERTIES COMPILE_DEFINITIONS "IQK_FORCE_IMPLEMENT"
         )
 endif()
+if (ANDROID AND "${ANDROID_ABI}" STREQUAL "x86_64")
+        set_source_files_properties(
+                ${LLMEDGE_IQK_BASE_SOURCES}
+                PROPERTIES COMPILE_OPTIONS "-mavx;-mavx2;-mf16c;-mfma"
+        )
+endif()
 set(LLMEDGE_GGML_CORE_SOURCES
         ${GGML_DIR}/src/ggml-alloc.c
         ${GGML_DIR}/src/ggml-backend.cpp
@@ -78,10 +84,11 @@ set(LLMEDGE_GGML_VULKAN_SOURCES)
 set(LLMEDGE_GGML_EXTRA_INCLUDES)
 set(LLMEDGE_GGML_EXTRA_LIBS)
 set(LLMEDGE_GGML_EXTRA_DEFINITIONS)
-set(LLMEDGE_GGML_ARCH_SOURCES)
-if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-        list(APPEND LLMEDGE_GGML_ARCH_SOURCES ${GGML_DIR}/src/ggml-aarch64.c)
-endif()
+# Upstream ggml always compiles ggml-aarch64.c because it now provides generic
+# quantization/repacking entry points that ggml.c references across ABIs.
+set(LLMEDGE_GGML_ARCH_SOURCES
+        ${GGML_DIR}/src/ggml-aarch64.c
+)
 set(SMOLLM_SOURCES
         ${LLMEDGE_GGML_CORE_SOURCES}
         ${LLMEDGE_GGML_ARCH_SOURCES}
