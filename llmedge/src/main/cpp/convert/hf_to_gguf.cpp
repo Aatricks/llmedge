@@ -10,6 +10,7 @@
 #include "gguf_writer.h"
 #include "nlohmann/json.hpp"
 #include "safetensors_reader.h"
+#include "tokenizer_bake.h"
 
 namespace llmedge {
 namespace convert {
@@ -121,7 +122,8 @@ std::vector<uint8_t> permute_rows(const std::vector<uint8_t>& data, int64_t out_
 
 }  // namespace
 
-size_t convert_llama_dir(const std::string& model_dir, const std::string& out_path) {
+size_t convert_llama_dir(const std::string& model_dir, const std::string& out_path,
+                         const std::string& tokenizer_pre) {
     json cfg = json::parse(read_file(model_dir + "/config.json"));
     const std::string arch = cfg.value("model_type", "");
     if (arch != "llama") throw std::runtime_error("convert v1 supports model_type=llama only, got: " + arch);
@@ -204,6 +206,8 @@ size_t convert_llama_dir(const std::string& model_dir, const std::string& out_pa
         emit(p + "input_layernorm.weight", b + "attn_norm.weight", 0);
         emit(p + "post_attention_layernorm.weight", b + "ffn_norm.weight", 0);
     }
+
+    if (!tokenizer_pre.empty()) bake_gpt2_tokenizer(w, model_dir, tokenizer_pre);
 
     w.write(out_path, 32);
     return written;
