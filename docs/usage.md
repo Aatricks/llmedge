@@ -415,7 +415,7 @@ See [Examples](examples.md#chatsession-pattern) for a focused session snippet, o
 by the bundled ik_llama.cpp runtime:
 
 ```kotlin
-// Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN_R4, ~988 MB).
+// Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN, ~988 MB).
 // The canonical chat template ships on the preset (BitNet's GGUF metadata one is wrong),
 // so this is well-formed without setting TextModelOptions.chatTemplate.
 val reply = edge.text.generate(prompt = "Hi", model = ModelPresets.bitnet)

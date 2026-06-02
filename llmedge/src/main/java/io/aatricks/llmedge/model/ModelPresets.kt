@@ -19,7 +19,7 @@ package io.aatricks.llmedge.model
  */
 object ModelPresets {
     /**
-     * Microsoft **BitNet b1.58 2B4T** — native 1-bit LLM (`IQ2_BN_R4`, ~988 MB) for the ik_llama.cpp
+     * Microsoft **BitNet b1.58 2B4T** — native 1-bit LLM (`IQ2_BN`, ~988 MB) for the ik_llama.cpp
      * runtime. The correct chat template ships on the spec ([ModelHints.chatTemplate]), so generation
      * is well-formed without manually setting `TextModelOptions.chatTemplate`.
      */

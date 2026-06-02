@@ -11,7 +11,7 @@ bundled runtime (`ikawrakow/ik_llama.cpp`) already supports, plus an optional ap
 
 | Model | Type | Quant | Size | Verdict |
 |---|---|---|---|---|
-| **Microsoft BitNet b1.58 2B4T** | text LLM (1-bit) | `IQ2_BN_R4` | ~988 MB | ship |
+| **Microsoft BitNet b1.58 2B4T** | text LLM (1-bit) | `IQ2_BN` | ~988 MB | ship |
 | **SmolVLM2-256M-Video-Instruct** | vision (VLM) | `Q8_0` + mmproj | ~280 MB | ship |
 | **Bonsai** (ternary) | text LLM | n/a on this runtime | — | appendix only |
 
@@ -75,7 +75,7 @@ This keeps `ModelSpec` unchanged (it already carries `hints`) and makes BitNet c
 // internal DefaultModelCatalog additions
 val bitnetText = huggingFaceSpec(
     repoId = "tdh111/bitnet-b1.58-2B-4T-GGUF",
-    filename = "bitnet1582b4t-iq2_bn_r4.gguf",
+    filename = "bitnet1582b4t-iq2_bn.gguf", // plain IQ2_BN (portable); repo also has an _r4 CPU repack
     preferredQuantizations = emptyList(),
     artifactKind = ModelArtifactKind.GGUF_MODEL,
     capabilities = setOf(ModelCapability.TEXT),

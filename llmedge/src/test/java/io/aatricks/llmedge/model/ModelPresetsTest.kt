@@ -9,7 +9,7 @@ class ModelPresetsTest {
     fun `bitnet preset points at the ik_llama IQ2_BN gguf`() {
         val spec = ModelPresets.bitnet as ModelSpec.HuggingFace
         assertEquals("tdh111/bitnet-b1.58-2B-4T-GGUF", spec.repoId)
-        assertEquals("bitnet1582b4t-iq2_bn_r4.gguf", spec.filename)
+        assertEquals("bitnet1582b4t-iq2_bn.gguf", spec.filename)
         assertEquals(ModelArtifactKind.GGUF_MODEL, spec.hints.artifactKind)
         assertTrue(ModelCapability.TEXT in spec.hints.capabilities)
     }

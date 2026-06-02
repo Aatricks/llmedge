@@ -56,11 +56,15 @@ internal object DefaultModelCatalog {
             capabilities = setOf(ModelCapability.PROJECTOR),
         )
 
-    /** Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN_R4 for ik_llama.cpp). ~988 MB. */
+    /**
+     * Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN for ik_llama.cpp). ~988 MB.
+     * Plain IQ2_BN is the portable default; the same repo also ships an `_r4` CPU row-interleaved
+     * repack (`bitnet1582b4t-iq2_bn_r4.gguf`) that can be faster on pure-CPU setups.
+     */
     val bitnetText: ModelSpec =
         huggingFaceSpec(
             repoId = "tdh111/bitnet-b1.58-2B-4T-GGUF",
-            filename = "bitnet1582b4t-iq2_bn_r4.gguf",
+            filename = "bitnet1582b4t-iq2_bn.gguf",
             preferredQuantizations = emptyList(),
             artifactKind = ModelArtifactKind.GGUF_MODEL,
             capabilities = setOf(ModelCapability.TEXT),

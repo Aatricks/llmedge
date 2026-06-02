@@ -177,7 +177,7 @@ Log.d("llmedge", "Cached ${modelFile.name} at ${modelFile.parent}")
 ik_llama.cpp runtime — no need to hand-type repo/filenames:
 
 ```kotlin
-// Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN_R4, ~988 MB).
+// Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN, ~988 MB).
 // The correct chat template ships on the preset, so generation is well-formed out of the box.
 val reply = edge.text.generate(prompt = "Hi", model = ModelPresets.bitnet)
 
