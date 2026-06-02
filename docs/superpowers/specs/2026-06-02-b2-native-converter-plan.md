@@ -1,7 +1,9 @@
 # B2 — on-device native safetensors → GGUF converter (implementation plan)
 
 **Date:** 2026-06-02
-**Status:** Layers 1–3 done + verified (tensor path oracle-green vs upstream); Layer 4 (tokenizer baking) is the next boundary. Multi-session. Branch `feat/low-end-models`.
+**Status:** Layers 1–6 done + verified end-to-end on host arm64 (convert → bake tokenizer → quantize →
+load → generate). Only the on-device Bonsai QLinear *adapter* remains (verification-blocked: no local
+Bonsai model). Branch `feat/low-end-models`.
 **Parent spec:** `2026-06-01-safetensors-conversion-design.md`
 
 ## Progress (verified)
@@ -11,22 +13,39 @@
 - **Layer 3 — Llama tensor+hparam converter** ✅ `cpp/convert/hf_to_gguf.*`. Ground-truth oracle GREEN:
   converted SmolLM-135M and diffed **272/272 tensors** (shapes + fp32 values, rtol/atol 2e-3) against the
   upstream `convert_hf_to_gguf.py` output — proving the HF→GGUF name map, the Q/K RoPE permutation, tied
-  embeddings, and bf16→f16 are all correct. (Exact tensor match ⇒ inference is identical by construction,
-  so a separate greedy-token oracle is redundant for the tensor path.)
+  embeddings, and bf16→f16 are all correct.
+- **Layer 4 — tokenizer baking** ✅ `cpp/convert/tokenizer_bake.*`. Emits the GPT2-BPE
+  `tokenizer.ggml.*` KVs (model, pre, tokens[vocab], token_type[vocab], merges[], bos/eos/unk/pad ids,
+  add_space_prefix/add_bos_token, chat_template). `tokenizer.ggml.pre` is **caller-supplied** (a
+  `ModelConversion.tokenizerPre` hint, mirroring `chatTemplate`) and required — upstream derives it by
+  hashing the real tokenizer's output, which v1 does not reimplement; an empty pre throws rather than
+  guessing (a wrong pre loads silently and mis-tokenizes). Fail-loud guards: model.type=="BPE",
+  space-joined string merges (array-pair form rejected), contiguous vocab ids. Oracle GREEN:
+  `compare_tokenizer_kv.py` byte-matches **all 12 tokenizer KVs** vs the upstream reference.
+- **Layer 5 — JNI + Kotlin wiring** ✅ `smollm_jni_convert.cpp` exposes
+  `SmolLM.nativeConvertSafetensors`; `convert/*.cpp` added to both Android + desktop smollm targets.
+  `DefaultModelRepository.resolveConvertedModel` (now suspend) downloads the HF model dir (or uses the
+  local dir) and converts into the cache target — with fail-fast on missing tokenizerPre, atomic
+  temp+rename, and an UnsatisfiedLinkError fallback to the host-tool instructions.
+- **Layer 6 — quantize** ✅ in the JNI wrapper via `llama_model_quantize` (convert→temp-F16→requantize),
+  supporting q8_0 / q4_k_m / iq2_bn / iq2_bn_r4.
 
-### Boundary reached this session → Layer 4 = next
+### End-to-end verification (B2ConvertE2ETest, host arm64)
 
-- **Layer 4 — tokenizer baking** (NOT done; the fragile per-tokenizer-family core). For SmolLM (GPT2-BPE)
-  the converted GGUF must emit, from `tokenizer.json`/`tokenizer_config.json`:
-  `tokenizer.ggml.model` (="gpt2"), `tokenizer.ggml.pre` (**fragile** — upstream picks it by hashing the
-  tokenizer against a known list; getting it wrong shifts tokenization → wrong output),
-  `tokens[vocab]`, `token_type[vocab]`, `merges[]`, `bos/eos/unknown/padding_token_id`,
-  `add_space_prefix`/`add_bos_token`, `chat_template`. Verify by KV-diff against the reference GGUF's
-  `tokenizer.ggml.*` arrays (independent of the tensor path). Until this lands, the converted GGUF carries
-  tensors+hparams only and is not loadable without a borrowed tokenizer.
-- **Layer 5 — JNI + Kotlin wiring**: `nativeConvertSafetensors(...)` + hook into
-  `DefaultModelRepository.resolve` (the `ModelSpec.safetensors` else-branch).
-- **Layer 6 — quantize (`llama_model_quantize`) + Bonsai QLinear fold (port B1's fold to C++).**
+Drives the **real** `DefaultModelRepository.resolve(safetensorsLocal(SmolLM-135M, tokenizerPre="smollm"))`:
+- **F16** → 270 MB GGUF in `llmedge-converted/` → loads → generates **"The capital of France is Paris!"**
+- **Q4_K_M** → 105 MB GGUF (2.6× smaller than the source) → generates **"The capital of France!"**
+This proves the baked tokenizer builds a working `llama_vocab` and the baked chat_template is used —
+the whole pipeline, not just KV/tensor equivalence.
+
+### Remaining → on-device Bonsai QLinear adapter
+
+- **Bonsai fold (adapter=BONSAI_QLINEAR) on-device**: NOT done. Needs `convert_llama_dir` to accept the
+  QLlama arch and fold per-output-channel `.scales` into the weights (`W_eff = W × scale`) before the
+  GGUF write, then IQ2_BN quantize. Verification-blocked: no Bonsai model is available locally and IQ2_BN
+  is a ternary quant, so an end-to-end oracle can't run this session. The fold *math* is already
+  unit-tested in B1 (`tools/safetensors-convert/bonsai_fold.py`, 5/5), and the **B1 host path converts
+  Bonsai offline today** (`--adapter bonsai-qlinear`), so this is an enhancement, not a blocker.
 
 ## Decision: reimplement in C++ (reuse ruled out)
 

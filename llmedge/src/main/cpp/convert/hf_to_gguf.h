@@ -1,9 +1,10 @@
 // HF (Llama-family) safetensors -> GGUF orchestrator for the on-device converter (Track B / Phase B2).
 //
 // v1 scope: Llama architecture (tensors + hyperparameters, Layer 3) plus a baked GPT2-BPE tokenizer
-// (Layer 4) when `tokenizer_pre` is supplied. Tensors are verified against the upstream
-// convert_hf_to_gguf.py output by a tensor-by-tensor value diff; tokenizer KVs by a KV diff
-// (see test_convert.cpp + compare_gguf.py + compare_tokenizer_kv.py).
+// (Layer 4) when `tokenizer_pre` is supplied. Output is F16; quantization (Layer 6) is applied by the
+// JNI wrapper via llama_model_quantize, not here, so this stays ggml/llama-free and host-testable.
+// Tensors are verified against the upstream convert_hf_to_gguf.py output by a tensor-by-tensor value
+// diff; tokenizer KVs by a KV diff (see test_convert.cpp + compare_gguf.py + compare_tokenizer_kv.py).
 #pragma once
 
 #include <string>
