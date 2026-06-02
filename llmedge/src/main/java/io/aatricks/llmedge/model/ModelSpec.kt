@@ -12,10 +12,12 @@ sealed interface ModelSpec {
         override val hints: ModelHints = ModelHints(),
     ) : ModelSpec {
         override val cacheKey: String =
-            listOf(
-                "file://${file.absolutePath}",
-                "artifact=${hints.artifactKind.name}",
-                "capabilities=${hints.capabilities.map(ModelCapability::name).sorted().joinToString(",")}",
+            (
+                listOf(
+                    "file://${file.absolutePath}",
+                    "artifact=${hints.artifactKind.name}",
+                    "capabilities=${hints.capabilities.map(ModelCapability::name).sorted().joinToString(",")}",
+                ) + listOfNotNull(hints.conversion?.cacheToken)
             ).joinToString("|")
     }
 
@@ -30,15 +32,17 @@ sealed interface ModelSpec {
         override val hints: ModelHints = ModelHints(),
     ) : ModelSpec {
         override val cacheKey: String =
-            listOf(
-                "hf",
-                repoId,
-                revision,
-                filename.orEmpty(),
-                preferredQuantizations.joinToString(","),
-                forceDownload.toString(),
-                "artifact=${hints.artifactKind.name}",
-                "capabilities=${hints.capabilities.map(ModelCapability::name).sorted().joinToString(",")}",
+            (
+                listOf(
+                    "hf",
+                    repoId,
+                    revision,
+                    filename.orEmpty(),
+                    preferredQuantizations.joinToString(","),
+                    forceDownload.toString(),
+                    "artifact=${hints.artifactKind.name}",
+                    "capabilities=${hints.capabilities.map(ModelCapability::name).sorted().joinToString(",")}",
+                ) + listOfNotNull(hints.conversion?.cacheToken)
             ).joinToString("|")
     }
 
@@ -78,6 +82,55 @@ sealed interface ModelSpec {
                 forceDownload = forceDownload,
                 preferSystemDownloader = preferSystemDownloader,
                 hints = hints,
+            )
+
+        /**
+         * A safetensors model on Hugging Face to be converted to GGUF (at [precision]) before loading.
+         *
+         * On-device conversion is not yet available; resolution looks for a pre-converted GGUF in the
+         * app cache and, if absent, fails with instructions for `tools/safetensors-convert`. Use
+         * [adapter] = [ConversionAdapter.BONSAI_QLINEAR] for Bonsai / QLlama models.
+         */
+        @JvmStatic
+        @JvmOverloads
+        fun safetensors(
+            repoId: String,
+            precision: ConversionPrecision = ConversionPrecision.F16,
+            adapter: ConversionAdapter = ConversionAdapter.NONE,
+            revision: String = "main",
+            token: String? = null,
+            capabilities: Set<ModelCapability> = setOf(ModelCapability.TEXT),
+        ): ModelSpec =
+            HuggingFace(
+                repoId = repoId,
+                revision = revision,
+                token = token,
+                hints =
+                    ModelHints(
+                        capabilities = capabilities,
+                        conversion = ModelConversion(precision, adapter),
+                    ),
+            )
+
+        /**
+         * A local safetensors model directory (or file) to be converted to GGUF before loading.
+         * See [safetensors] for conversion behavior.
+         */
+        @JvmStatic
+        @JvmOverloads
+        fun safetensorsLocal(
+            path: String,
+            precision: ConversionPrecision = ConversionPrecision.F16,
+            adapter: ConversionAdapter = ConversionAdapter.NONE,
+            capabilities: Set<ModelCapability> = setOf(ModelCapability.TEXT),
+        ): ModelSpec =
+            LocalFile(
+                file = File(path),
+                hints =
+                    ModelHints(
+                        capabilities = capabilities,
+                        conversion = ModelConversion(precision, adapter),
+                    ),
             )
     }
 }

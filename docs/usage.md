@@ -433,6 +433,25 @@ Presets are plain `ModelSpec`s, so they compose with everything else (`edge.mode
 `ModelRegistry`, per-call `model =` overrides). A template passed via `TextModelOptions.chatTemplate`
 always overrides a preset's `ModelHints.chatTemplate`.
 
+### Converting safetensors models
+
+The runtime loads GGUF, not safetensors. `ModelSpec.safetensors(...)` declares a safetensors source plus
+a target precision; resolution loads a converted GGUF from the app cache, and if none exists yet, fails
+fast with instructions instead of downloading a model the runtime can't load.
+
+```kotlin
+// "direct" = F16 (no precision loss); or Q8_0 / Q4_K_M / IQ2_BN for smaller, lossy output.
+val bonsai = ModelSpec.safetensors(
+    repoId = "deepgrove/Bonsai",
+    precision = ConversionPrecision.IQ2_BN,
+    adapter = ConversionAdapter.BONSAI_QLINEAR, // Bonsai/QLlama need the scale-fold; omit for stock models
+)
+```
+
+On-device conversion is not yet available (tracked as Phase B2). Produce the GGUF once on a dev box / CI
+with [`tools/safetensors-convert`](../tools/safetensors-convert/README.md), then either drop it where the
+error message points (the app cache) or load it directly via `ModelSpec.localFile("…/model.gguf")`.
+
 ### Downloading Models from Hugging Face
 
 For app code, prefer the facade-managed model repository:

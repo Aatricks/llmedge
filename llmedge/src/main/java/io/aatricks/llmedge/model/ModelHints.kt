@@ -30,6 +30,11 @@ data class ModelHints(
      * missing or incorrect template (e.g. BitNet b1.58). A caller-provided template always wins.
      */
     val chatTemplate: String? = null,
+    /**
+     * When non-null, marks this spec as a safetensors source that must be converted to GGUF before
+     * loading (see [ModelSpec.safetensors]). Resolution looks for a cached converted GGUF.
+     */
+    val conversion: ModelConversion? = null,
 ) {
     fun hasCapability(capability: ModelCapability): Boolean = capability in capabilities
 }
