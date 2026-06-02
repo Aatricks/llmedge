@@ -84,6 +84,28 @@ class SmolLM internal constructor(
         @JvmStatic
         private external fun nativeIsVulkanAvailable(): Boolean
 
+        @JvmStatic
+        private external fun nativeConvertSafetensors(
+            modelDir: String,
+            outPath: String,
+            tokenizerPre: String?,
+        )
+
+        /**
+         * Convert a Hugging Face safetensors model directory ([modelDir], containing config.json +
+         * model.safetensors + tokenizer files) to a GGUF at [outPath], on-device (Track B / Phase B2).
+         *
+         * [tokenizerPre] is the `tokenizer.ggml.pre` id to bake (e.g. "smollm"); it must be non-null
+         * (see the native tokenizer_bake.h for why a pre-tokenizer id cannot be guessed safely).
+         *
+         * Throws [UnsatisfiedLinkError] if the converter was not compiled into this build, or
+         * [IllegalStateException] if the model architecture/tokenizer is unsupported.
+         */
+        internal fun convertSafetensorsToGguf(modelDir: String, outPath: String, tokenizerPre: String?) {
+            currentNativeLibrarySupport().ensureLoaded()
+            nativeConvertSafetensors(modelDir, outPath, tokenizerPre)
+        }
+
         internal fun createLoadedForTests(
             nativePtr: Long,
             useVulkan: Boolean = false,

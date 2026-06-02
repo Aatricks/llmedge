@@ -30,8 +30,15 @@ enum class ConversionAdapter(val cliFlag: String?) {
 data class ModelConversion(
     val precision: ConversionPrecision = ConversionPrecision.F16,
     val adapter: ConversionAdapter = ConversionAdapter.NONE,
+    /**
+     * The `tokenizer.ggml.pre` identifier baked into the converted GGUF (e.g. "smollm"). Required for
+     * on-device conversion of a text model: a GGUF without a baked tokenizer is not loadable, and the
+     * pre-tokenizer id cannot be derived safely on-device, so it must be declared by the caller.
+     */
+    val tokenizerPre: String? = null,
 ) {
     /** Stable token distinguishing one conversion target from another in cache keys. */
     val cacheToken: String
-        get() = "convert:${precision.ggufLabel}:${adapter.name.lowercase()}"
+        get() = "convert:${precision.ggufLabel}:${adapter.name.lowercase()}" +
+            (tokenizerPre?.let { ":pre=$it" }.orEmpty())
 }

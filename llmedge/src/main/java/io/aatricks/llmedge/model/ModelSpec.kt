@@ -87,9 +87,11 @@ sealed interface ModelSpec {
         /**
          * A safetensors model on Hugging Face to be converted to GGUF (at [precision]) before loading.
          *
-         * On-device conversion is not yet available; resolution looks for a pre-converted GGUF in the
-         * app cache and, if absent, fails with instructions for `tools/safetensors-convert`. Use
-         * [adapter] = [ConversionAdapter.BONSAI_QLINEAR] for Bonsai / QLlama models.
+         * Resolution first looks for a pre-converted GGUF in the app cache. If absent and
+         * [tokenizerPre] is set, the model dir is downloaded and converted on-device (Track B / Phase
+         * B2); otherwise it fails with instructions for `tools/safetensors-convert`. [tokenizerPre] is
+         * the `tokenizer.ggml.pre` id to bake (e.g. "smollm") and is required for on-device conversion.
+         * Use [adapter] = [ConversionAdapter.BONSAI_QLINEAR] for Bonsai / QLlama models.
          */
         @JvmStatic
         @JvmOverloads
@@ -100,6 +102,7 @@ sealed interface ModelSpec {
             revision: String = "main",
             token: String? = null,
             capabilities: Set<ModelCapability> = setOf(ModelCapability.TEXT),
+            tokenizerPre: String? = null,
         ): ModelSpec =
             HuggingFace(
                 repoId = repoId,
@@ -108,13 +111,13 @@ sealed interface ModelSpec {
                 hints =
                     ModelHints(
                         capabilities = capabilities,
-                        conversion = ModelConversion(precision, adapter),
+                        conversion = ModelConversion(precision, adapter, tokenizerPre),
                     ),
             )
 
         /**
-         * A local safetensors model directory (or file) to be converted to GGUF before loading.
-         * See [safetensors] for conversion behavior.
+         * A local safetensors model directory to be converted to GGUF before loading.
+         * See [safetensors] for conversion behavior; [tokenizerPre] is required for on-device conversion.
          */
         @JvmStatic
         @JvmOverloads
@@ -123,13 +126,14 @@ sealed interface ModelSpec {
             precision: ConversionPrecision = ConversionPrecision.F16,
             adapter: ConversionAdapter = ConversionAdapter.NONE,
             capabilities: Set<ModelCapability> = setOf(ModelCapability.TEXT),
+            tokenizerPre: String? = null,
         ): ModelSpec =
             LocalFile(
                 file = File(path),
                 hints =
                     ModelHints(
                         capabilities = capabilities,
-                        conversion = ModelConversion(precision, adapter),
+                        conversion = ModelConversion(precision, adapter, tokenizerPre),
                     ),
             )
     }

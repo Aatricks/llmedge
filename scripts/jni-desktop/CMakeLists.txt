@@ -119,10 +119,16 @@ if(BUILD_SMOLLM)
         ${LLMEDGE_CPP_ROOT}/smollm_jni_completion.cpp
         ${LLMEDGE_CPP_ROOT}/smollm_jni_embeddings.cpp
         ${LLMEDGE_CPP_ROOT}/smollm_jni_state.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_convert.cpp
         ${LLMEDGE_CPP_ROOT}/LLMInference.cpp
         ${LLMEDGE_CPP_ROOT}/llm_backend_support.cpp
         ${LLMEDGE_CPP_ROOT}/gguf_reader_internal.cpp
         ${LLMEDGE_CPP_ROOT}/GGUFReader.cpp
+        # On-device safetensors -> GGUF converter (Track B / Phase B2). No ggml/llama dependency.
+        ${LLMEDGE_CPP_ROOT}/convert/safetensors_reader.cpp
+        ${LLMEDGE_CPP_ROOT}/convert/gguf_writer.cpp
+        ${LLMEDGE_CPP_ROOT}/convert/tokenizer_bake.cpp
+        ${LLMEDGE_CPP_ROOT}/convert/hf_to_gguf.cpp
     )
 
     target_include_directories(${LLMEDGE_TARGET_SMOLLM} PRIVATE
