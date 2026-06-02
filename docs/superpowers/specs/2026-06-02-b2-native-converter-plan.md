@@ -1,8 +1,32 @@
 # B2 — on-device native safetensors → GGUF converter (implementation plan)
 
 **Date:** 2026-06-02
-**Status:** In progress (multi-session). Branch `feat/low-end-models`.
+**Status:** Layers 1–3 done + verified (tensor path oracle-green vs upstream); Layer 4 (tokenizer baking) is the next boundary. Multi-session. Branch `feat/low-end-models`.
 **Parent spec:** `2026-06-01-safetensors-conversion-design.md`
+
+## Progress (verified)
+
+- **Layer 1 — safetensors reader** ✅ `cpp/convert/safetensors_reader.*`; round-trip test passes.
+- **Layer 2 — GGUF writer** ✅ `cpp/convert/gguf_writer.*`; output cross-verified by canonical `gguf-py`.
+- **Layer 3 — Llama tensor+hparam converter** ✅ `cpp/convert/hf_to_gguf.*`. Ground-truth oracle GREEN:
+  converted SmolLM-135M and diffed **272/272 tensors** (shapes + fp32 values, rtol/atol 2e-3) against the
+  upstream `convert_hf_to_gguf.py` output — proving the HF→GGUF name map, the Q/K RoPE permutation, tied
+  embeddings, and bf16→f16 are all correct. (Exact tensor match ⇒ inference is identical by construction,
+  so a separate greedy-token oracle is redundant for the tensor path.)
+
+### Boundary reached this session → Layer 4 = next
+
+- **Layer 4 — tokenizer baking** (NOT done; the fragile per-tokenizer-family core). For SmolLM (GPT2-BPE)
+  the converted GGUF must emit, from `tokenizer.json`/`tokenizer_config.json`:
+  `tokenizer.ggml.model` (="gpt2"), `tokenizer.ggml.pre` (**fragile** — upstream picks it by hashing the
+  tokenizer against a known list; getting it wrong shifts tokenization → wrong output),
+  `tokens[vocab]`, `token_type[vocab]`, `merges[]`, `bos/eos/unknown/padding_token_id`,
+  `add_space_prefix`/`add_bos_token`, `chat_template`. Verify by KV-diff against the reference GGUF's
+  `tokenizer.ggml.*` arrays (independent of the tensor path). Until this lands, the converted GGUF carries
+  tensors+hparams only and is not loadable without a borrowed tokenizer.
+- **Layer 5 — JNI + Kotlin wiring**: `nativeConvertSafetensors(...)` + hook into
+  `DefaultModelRepository.resolve` (the `ModelSpec.safetensors` else-branch).
+- **Layer 6 — quantize (`llama_model_quantize`) + Bonsai QLinear fold (port B1's fold to C++).**
 
 ## Decision: reimplement in C++ (reuse ruled out)
 
