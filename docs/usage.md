@@ -409,6 +409,30 @@ you explicitly want the model runtime to own all chat history.
 
 See [Examples](examples.md#chatsession-pattern) for a focused session snippet, or [LocalAssetDemoActivity](examples.md#localassetdemoactivity) for a complete app-level example.
 
+### Built-in low-end model presets
+
+`ModelPresets` provides ready-to-use specs for models that run well on low-end devices and are supported
+by the bundled ik_llama.cpp runtime:
+
+```kotlin
+// Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN_R4, ~988 MB).
+// The canonical chat template ships on the preset (BitNet's GGUF metadata one is wrong),
+// so this is well-formed without setting TextModelOptions.chatTemplate.
+val reply = edge.text.generate(prompt = "Hi", model = ModelPresets.bitnet)
+
+// SmolVLM2-256M — tiny vision model (~280 MB total: base + projector).
+val caption = edge.vision.analyze(
+    image = bitmap,
+    prompt = "Describe this image.",
+    model = ModelPresets.smolVlm2.model,
+    projector = ModelPresets.smolVlm2.projector,
+)
+```
+
+Presets are plain `ModelSpec`s, so they compose with everything else (`edge.models.prefetch(...)`,
+`ModelRegistry`, per-call `model =` overrides). A template passed via `TextModelOptions.chatTemplate`
+always overrides a preset's `ModelHints.chatTemplate`.
+
 ### Downloading Models from Hugging Face
 
 For app code, prefer the facade-managed model repository:

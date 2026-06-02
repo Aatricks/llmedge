@@ -171,6 +171,31 @@ Log.d("llmedge", "Cached ${modelFile.name} at ${modelFile.parent}")
 
 - Direct `HuggingFaceHub` downloads remain available for expert workflows, but most app code should stay on the facade/model-repository path.
 
+#### Built-in low-end presets
+
+`ModelPresets` exposes ready-to-use specs tuned for low-end devices, already supported by the bundled
+ik_llama.cpp runtime — no need to hand-type repo/filenames:
+
+```kotlin
+// Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN_R4, ~988 MB).
+// The correct chat template ships on the preset, so generation is well-formed out of the box.
+val reply = edge.text.generate(prompt = "Hi", model = ModelPresets.bitnet)
+
+// SmolVLM2-256M — tiny vision model (~280 MB total: base + projector).
+val caption = edge.vision.analyze(
+    image = bitmap,
+    prompt = "Describe this image.",
+    model = ModelPresets.smolVlm2.model,
+    projector = ModelPresets.smolVlm2.projector,
+)
+```
+
+> [!NOTE]
+> BitNet's GGUF metadata carries an incorrect chat template, so llmedge supplies the canonical one via
+> `ModelHints.chatTemplate`. A template you pass through `TextModelOptions.chatTemplate` always overrides it.
+> Bonsai and other ternary models distributed only as PrismML `Q2_0` GGUFs are **not** loadable by this
+> runtime (it uses `IQ2_BN`); see the safetensors-conversion design for the conversion path.
+
 ### Reasoning Controls
 
 Reasoning-aware models can be controlled from the facade through `TextModelOptions`. The default configuration keeps thinking enabled (`ThinkingMode.DEFAULT`, reasoning budget `-1`). To disable thinking for a request or session, pass the options explicitly:

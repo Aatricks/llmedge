@@ -56,7 +56,7 @@ internal fun createTextRuntimePool(
                     RuntimeCacheKeyBuilder.prefix(
                         spec.cacheKey,
                         "ctx=${options.contextSize ?: config.text.contextSize ?: 0L}",
-                        "chatTemplate=${chatTemplateCacheToken(options.chatTemplate)}",
+                        "chatTemplate=${chatTemplateCacheToken(options.chatTemplate ?: spec.hints.chatTemplate)}",
                         "threads=${options.numThreads ?: config.text.promptThreads}",
                         "genThreads=${options.generationThreads ?: options.numThreads ?: config.text.generationThreads}",
                         "mmap=${options.useMmap ?: config.text.useMmap}",
@@ -69,7 +69,7 @@ internal fun createTextRuntimePool(
                     val smol = SmolLM(useVulkan = backend == ComputeBackend.VULKAN)
                     smol.load(
                         modelFile.absolutePath,
-                        options.toInferenceParams(config),
+                        options.toInferenceParams(config, spec.hints.chatTemplate),
                         preferredBackend = backend,
                     )
                     ManagedTextModel(fileSizeBytes = modelFile.length(), model = smol)
