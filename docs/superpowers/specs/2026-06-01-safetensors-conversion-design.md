@@ -1,7 +1,7 @@
 # Safetensors → GGUF conversion as a library option — design (Track B)
 
 **Date:** 2026-06-01
-**Status:** Design for approval
+**Status:** B1 implemented + unit-tested (host converter + `ModelSpec.safetensors(...)` API); B2 (on-device native) deferred
 **Branch:** `feat/low-end-models`
 **Depends on:** Track A presets spec (independent; can land before or after)
 

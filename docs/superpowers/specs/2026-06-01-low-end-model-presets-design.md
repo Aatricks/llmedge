@@ -1,7 +1,7 @@
 # Low-end model presets for llmedge — design
 
 **Date:** 2026-06-01
-**Status:** Approved scope, pending spec review
+**Status:** Implemented + unit-tested (`ModelPresets.bitnet`, `ModelPresets.smolVlm2`)
 **Branch:** `feat/low-end-models`
 
 ## Summary
