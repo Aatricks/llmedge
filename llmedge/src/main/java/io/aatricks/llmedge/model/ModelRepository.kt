@@ -116,7 +116,12 @@ private suspend fun resolveConvertedModel(
     target.parentFile?.mkdirs()
     val tmp = File(target.parentFile, "${target.name}.tmp${System.nanoTime()}")
     try {
-        SmolLM.convertSafetensorsToGguf(modelDir.absolutePath, tmp.absolutePath, tokenizerPre)
+        SmolLM.convertSafetensorsToGguf(
+            modelDir = modelDir.absolutePath,
+            outPath = tmp.absolutePath,
+            tokenizerPre = tokenizerPre,
+            precision = conversion.precision.ggufLabel,
+        )
     } catch (_: UnsatisfiedLinkError) {
         tmp.delete()
         throw LLMEdgeException(convertedModelInstructions(spec, conversion, target))

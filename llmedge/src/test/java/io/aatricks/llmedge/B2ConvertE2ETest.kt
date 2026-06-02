@@ -19,12 +19,12 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Desktop-host E2E for the on-device safetensors → GGUF converter (Track B / Phase B2, Layer 5).
+ * Desktop-host E2E for the on-device safetensors → GGUF converter (Track B / Phase B2, Layers 5-6).
  *
  * Drives the REAL [DefaultModelRepository.resolve] with a [ModelSpec.safetensorsLocal] spec: it runs
  * the native converter (nativeConvertSafetensors) on a local HF model dir, caches the GGUF, then loads
- * and generates from it — proving the whole pipeline (convert → bake tokenizer → cache → load →
- * tokenize → generate) works end-to-end, not just that the GGUF KVs match a reference.
+ * and generates from it — proving the whole pipeline (convert → bake tokenizer → [quantize] → cache →
+ * load → tokenize → generate) works end-to-end, not just that the GGUF KVs match a reference.
  *
  * Gated like the other host E2E tests:
  *   LLMEDGE_BUILD_NATIVE_LIB_PATH → host libsmollm built with the convert sources
@@ -44,8 +44,8 @@ class B2ConvertE2ETest {
     @Before fun reset() { SmolLM.resetNativeBridgeForTests(); GGUFReader.resetNativeBridgeForTests() }
     @After fun tearDown() { SmolLM.resetNativeBridgeForTests(); GGUFReader.resetNativeBridgeForTests() }
 
-    @Test
-    fun `converts a local safetensors dir on-device then loads and generates`() = runBlocking {
+    /** Resolve [stDir] through the real converter at [precision], then load + greedily generate. */
+    private fun convertAndGenerate(precision: ConversionPrecision): Pair<File, String> {
         val stDir = env(ST_DIR_ENV)
         Assume.assumeTrue("No safetensors dir in $ST_DIR_ENV", !stDir.isNullOrBlank())
         Assume.assumeTrue("$stDir is not a dir with model.safetensors", File(stDir, "model.safetensors").isFile)
@@ -58,42 +58,49 @@ class B2ConvertE2ETest {
         val pre = env(PRE_ENV) ?: "smollm"
         val context = ApplicationProvider.getApplicationContext<Context>()
 
-        // Real resolve path: LocalFile + conversion hint → native convert → cached GGUF.
-        val spec =
-            ModelSpec.safetensorsLocal(
-                path = stDir!!,
-                precision = ConversionPrecision.F16,
-                tokenizerPre = pre,
-            )
-        val gguf = DefaultModelRepository().resolve(context, spec)
-        println("[B2ConvertE2ETest] converted GGUF=${gguf.absolutePath} size=${gguf.length()}")
+        val spec = ModelSpec.safetensorsLocal(path = stDir!!, precision = precision, tokenizerPre = pre)
+        val gguf = runBlocking { DefaultModelRepository().resolve(context, spec) }
+        println("[B2ConvertE2ETest] precision=$precision GGUF=${gguf.absolutePath} size=${gguf.length()}")
 
-        // Must be the on-device-converted cache artifact, not the input dir.
         assertTrue("Converted GGUF missing/empty", gguf.isFile && gguf.length() > 0L)
         assertTrue("Expected converted cache path, got ${gguf.absolutePath}", gguf.absolutePath.contains("llmedge-converted"))
 
         val smol = SmolLM(useVulkan = false)
-        try {
-            smol.load(
-                gguf.absolutePath,
-                SmolLM.InferenceParams(
-                    contextSize = 2048,
-                    temperature = 0.0f, // greedy → deterministic
-                    storeChats = true,
-                ),
-            )
-            val prompt = "The capital of France is"
-            smol.addUserMessage(prompt)
-            val response = smol.getResponse(prompt, maxTokens = 16)
-            println("[B2ConvertE2ETest] response='$response'")
-
-            // The converted GGUF's baked tokenizer must build a working vocab and the model must
-            // tokenize + generate real text (mine ≡ upstream-ref by construction, so correctness of
-            // the tokens themselves is already proven by the KV/tensor oracles).
-            val cleaned = response.replace(Regex("<\\|[^|]*\\|>"), "").trim()
-            assertTrue("Expected real generated text, got: '$response'", cleaned.length >= 3)
-        } finally {
-            smol.close()
+        return runBlocking {
+            try {
+                smol.load(
+                    gguf.absolutePath,
+                    SmolLM.InferenceParams(contextSize = 2048, temperature = 0.0f, storeChats = true),
+                )
+                val prompt = "The capital of France is"
+                smol.addUserMessage(prompt)
+                val response = smol.getResponse(prompt, maxTokens = 16)
+                println("[B2ConvertE2ETest] precision=$precision response='$response'")
+                gguf to response
+            } finally {
+                smol.close()
+            }
         }
+    }
+
+    @Test
+    fun `converts a local safetensors dir on-device (f16) then loads and generates`() {
+        val (_, response) = convertAndGenerate(ConversionPrecision.F16)
+        val cleaned = response.replace(Regex("<\\|[^|]*\\|>"), "").trim()
+        assertTrue("Expected real generated text, got: '$response'", cleaned.length >= 3)
+    }
+
+    @Test
+    fun `converts then quantizes to q4_k_m on-device and generates`() {
+        val stDir = env(ST_DIR_ENV)
+        val (gguf, response) = convertAndGenerate(ConversionPrecision.Q4_K_M)
+        // Quantized output must be materially smaller than the source safetensors.
+        val sourceBytes = File(stDir!!, "model.safetensors").length()
+        assertTrue(
+            "Q4_K_M GGUF (${gguf.length()}) should be < source safetensors ($sourceBytes)",
+            gguf.length() in 1 until sourceBytes,
+        )
+        val cleaned = response.replace(Regex("<\\|[^|]*\\|>"), "").trim()
+        assertTrue("Expected real generated text from quantized model, got: '$response'", cleaned.length >= 3)
     }
 }

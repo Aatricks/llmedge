@@ -89,6 +89,7 @@ class SmolLM internal constructor(
             modelDir: String,
             outPath: String,
             tokenizerPre: String?,
+            precision: String,
         )
 
         /**
@@ -97,13 +98,21 @@ class SmolLM internal constructor(
          *
          * [tokenizerPre] is the `tokenizer.ggml.pre` id to bake (e.g. "smollm"); it must be non-null
          * (see the native tokenizer_bake.h for why a pre-tokenizer id cannot be guessed safely).
+         * [precision] is a [io.aatricks.llmedge.model.ConversionPrecision] ggufLabel: "f16" writes the
+         * converter's native F16 output directly; "q8_0" / "q4_k_m" / "iq2_bn" / "iq2_bn_r4" convert to
+         * F16 first and then requantize via the native llama quantizer.
          *
          * Throws [UnsatisfiedLinkError] if the converter was not compiled into this build, or
-         * [IllegalStateException] if the model architecture/tokenizer is unsupported.
+         * [IllegalStateException] if the model/tokenizer is unsupported or quantization fails.
          */
-        internal fun convertSafetensorsToGguf(modelDir: String, outPath: String, tokenizerPre: String?) {
+        internal fun convertSafetensorsToGguf(
+            modelDir: String,
+            outPath: String,
+            tokenizerPre: String?,
+            precision: String = "f16",
+        ) {
             currentNativeLibrarySupport().ensureLoaded()
-            nativeConvertSafetensors(modelDir, outPath, tokenizerPre)
+            nativeConvertSafetensors(modelDir, outPath, tokenizerPre, precision)
         }
 
         internal fun createLoadedForTests(
