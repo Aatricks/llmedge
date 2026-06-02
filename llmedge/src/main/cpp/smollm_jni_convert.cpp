@@ -70,15 +70,21 @@ extern "C" JNIEXPORT void JNICALL Java_io_aatricks_llmedge_text_runtime_SmolLM_n
             return;
         }
 
-        // Convert to a temporary F16 GGUF, then requantize it into the requested precision.
+        // Convert to a temporary F16 GGUF, then requantize it into the requested precision. The temp
+        // file is removed on every path (success, non-zero code, or exception) so it never leaks.
         const std::string tmp_f16 = std::string(out.get()) + ".f16.tmp";
-        llmedge::convert::convert_llama_dir(dir.get(), tmp_f16, pre_s);
-
-        llama_backend_init();
-        llama_model_quantize_params params = llama_model_quantize_default_params();
-        params.ftype = ftype;
-        const uint32_t rc = llama_model_quantize(tmp_f16.c_str(), out.get(), &params);
-        llama_backend_free();
+        uint32_t rc;
+        try {
+            llmedge::convert::convert_llama_dir(dir.get(), tmp_f16, pre_s);
+            llama_backend_init();
+            llama_model_quantize_params params = llama_model_quantize_default_params();
+            params.ftype = ftype;
+            rc = llama_model_quantize(tmp_f16.c_str(), out.get(), &params);
+            llama_backend_free();
+        } catch (...) {
+            std::remove(tmp_f16.c_str());
+            throw;
+        }
         std::remove(tmp_f16.c_str());
 
         if (rc != 0) {
