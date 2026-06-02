@@ -145,6 +145,12 @@ if(BUILD_SMOLLM)
         mtmd
         ${JNI_LIBRARIES}
     )
+
+    if(APPLE)
+        # macOS produces .dylib by default; the desktop test harness loads the lib by an absolute
+        # `.so` path (System.load accepts any extension), so force the `.so` suffix on all hosts.
+        set_target_properties(${LLMEDGE_TARGET_SMOLLM} PROPERTIES SUFFIX ".so")
+    endif()
 endif()
 
 # ------------------------------------------------------------
