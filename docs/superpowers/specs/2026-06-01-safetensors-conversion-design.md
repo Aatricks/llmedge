@@ -86,9 +86,13 @@ before the stock convert path. Plain `LlamaForCausalLM` safetensors need no adap
 Deliverable surface: one Python adapter + Gradle task + one new `ModelSpec` variant + resolver hook + docs.
 Effort: days. Risk: low (reuses upstream converter).
 
-### Phase B2 — on-device native converter, stock-Llama only  (OPTIONAL, larger, later)
+### Phase B2 — on-device native converter  (APPROVED, sequenced after B1)
 
-Only if a concrete need to convert *on the device* emerges (rare for low-end).
+User approved building the on-device path too, targeting arbitrary HF architectures. Sequenced **after**
+B1 lands. Honest constraint: on-device native conversion cannot match upstream's arbitrary-arch +
+arbitrary-tokenizer coverage on day one — B1 (reusing upstream `convert_hf_to_gguf.py`) carries the broad
+"arbitrary architecture" promise; B2's native coverage grows incrementally (Llama/Mistral tokenizers
+first), refusing unsupported arch/tokenizer with a clear error rather than emitting a broken GGUF.
 
 - JNI converter: hand-rolled native safetensors reader (streaming, per-tensor) → HF→llama tensor-name map
   for Llama-family → **bake Llama/SPM tokenizer from `tokenizer.json`** into GGUF (the fragile core) →
@@ -100,19 +104,12 @@ Only if a concrete need to convert *on the device* emerges (rare for low-end).
   refuse below a RAM threshold).
 - Effort: weeks. Risk: high (tokenizer fidelity). Recommend deferring until B1 is in use.
 
-## Recommendation
+## Sequencing
 
-Build **B1 now**. It satisfies "conversion as a library option" with a real `ModelSpec.safetensors(…,
-precision)` API and unblocks Bonsai, reusing the converter that already ships in-repo — without a
-weeks-long, fragile native tokenizer reimplementation that runs desktop-class work on the weakest phones.
-Treat **B2 as a separate, opt-in phase** with its own plan, pursued only if on-device conversion is truly
-required.
-
-## Open question for the user
-
-Should v1 target **only Bonsai + stock Llama/Mistral**, or aim for **arbitrary HF architectures**?
-Recommendation: Llama/Mistral + the Bonsai adapter for v1 — arbitrary-arch support is mostly upstream
-converter coverage and can grow incrementally.
+Land **B1 first** (real `ModelSpec.safetensors(…, precision)` API + tool, unblocks Bonsai, reuses the
+in-repo converter), then build **B2** (on-device native). B1 carries the broad "arbitrary architecture"
+promise via upstream `convert_hf_to_gguf.py`; B2's native coverage grows incrementally and fails loudly on
+anything it can't yet handle.
 
 ## Risks
 
