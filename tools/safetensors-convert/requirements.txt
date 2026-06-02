@@ -1,0 +1,8 @@
+# Host-side converter deps (run on a dev box / CI, not on-device).
+# The fold math (bonsai_fold.py) only needs numpy; full conversion needs the rest.
+numpy>=1.24
+torch>=2.1
+safetensors>=0.4
+huggingface_hub>=0.23
+sentencepiece>=0.2
+# gguf is vendored in the repo at llama.cpp/gguf-py and used by convert_hf_to_gguf.py.
