@@ -157,4 +157,11 @@ set(GGUF_READER_SOURCES
 add_compile_options("-ffile-prefix-map=${LLAMA_DIR}=.")
 add_link_options("LINKER:--build-id=none")
 
+# Strip symbol/debug sections at link time for Release builds. AGP's
+# stripReleaseDebugSymbols step fails on these large libs ("Unable to strip ...,
+# packaging them as they are"), leaving full debug_info in the APK (~115MB/lib).
+# --strip-all removes .symtab + debug sections but keeps the exported .dynsym
+# (JNI Java_* / JNI_OnLoad), shrinking each smollm lib ~115MB -> ~19MB.
+add_link_options("$<$<CONFIG:Release>:LINKER:--strip-all>")
+
 include("${CMAKE_CURRENT_LIST_DIR}/llmedge-smollm-targets.cmake")

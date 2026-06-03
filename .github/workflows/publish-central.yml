@@ -83,6 +83,13 @@ jobs:
             exit 1
           fi
 
+          # Register the *decoded* key as a masked value. GitHub only masks the
+          # original secret automatically; the decoded form is a new string it
+          # has never seen, so without this it prints in clear in later env dumps.
+          while IFS= read -r __key_line; do
+            [[ -n "${__key_line}" ]] && echo "::add-mask::${__key_line}"
+          done <<< "${SIGNING_KEY}"
+
           {
             echo "ORG_GRADLE_PROJECT_signingInMemoryKey<<EOF"
             printf '%s\n' "${SIGNING_KEY}" | tr -d '\r'
