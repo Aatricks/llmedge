@@ -557,7 +557,18 @@ python3 scripts/convert_bonsai_flux2_to_bfl.py \
 sd -M convert -m bonsai-flux2-bfl.safetensors --type q2_K -o bonsai-flux2-klein-q2_K.gguf
 ```
 
-Point `Flux2Klein.imageRequest(model = ...)` at the resulting GGUF as the diffusion model. The QAT weights survive `Q2_K` well, giving a **coherent ~1.3 GB DiT** (vs ~2.5 GB for base Q4_0). Note: ggml's literal ternary types (`tq1_0`/`tq2_0`, ~0.8–1.0 GB) load and run on CPU but their per-256-weight scale is too coarse for Bonsai's per-128 trained scales and produce degraded output — `Q2_K`'s finer per-16 sub-block scales are what preserve quality. The text encoder remains the dominant memory cost; sequential encoder/DiT loading to lower peak RAM is not yet implemented.
+A prebuilt Q2_K of this is published at [`Aatricks/bonsai-image-ternary-4B-FLUX2-klein-GGUF`](https://huggingface.co/Aatricks/bonsai-image-ternary-4B-FLUX2-klein-GGUF) and wired into `Flux2Klein.bonsaiDiffusionModel`. The QAT weights survive `Q2_K` well, giving a **coherent ~1.3 GB DiT** (vs ~2.5 GB for base Q4_0). Note: ggml's literal ternary types (`tq1_0`/`tq2_0`, ~0.8–1.0 GB) load and run on CPU but their per-256-weight scale is too coarse for Bonsai's per-128 trained scales and produce degraded output — `Q2_K`'s finer per-16 sub-block scales are what preserve quality.
+
+#### Sequential loading for ~4 GB-RAM devices
+
+The text encoder (~2 GB) is the dominant memory cost. Sequential mode loads only the Qwen3 encoder to precompute the text conditioning, frees it, then loads only the DiT to generate — so peak RAM is `max(encoder, DiT)` (~2.6 GB) instead of the sum (~4 GB):
+
+```kotlin
+val bmp = edge.image.generate(Flux2Klein.bonsaiImageRequest("a red fox in snow, 8k"))
+// or for the base FLUX.2 Klein DiT: Flux2Klein.imageRequest(prompt, sequential = true)
+```
+
+`ImageGenerationRequest.sequential` drives this; the runtime runs the two phases automatically (encoder-only → precompute → free → DiT-only → generate via a precomputed condition), backed by stable-diffusion.cpp's `sd_precompute_condition` / `sd_generate_image_with_precomputed_condition`.
 
 ### Video Generation
 

@@ -43,6 +43,24 @@ object Flux2Klein {
         )
 
     /**
+     * PrismML's **Bonsai Image** ternary DiT (FLUX.2 Klein 4B QAT), quantized to Q2_K GGUF
+     * (~1.3 GB) — a smaller, quality-preserving alternative to [diffusionModel]. Pair with
+     * [textEncoder] + [vae]; ideal with `sequential = true` for ~4 GB-RAM devices.
+     */
+    @JvmField
+    val bonsaiDiffusionModel: ModelSpec =
+        ModelSpec.huggingFace(
+            repoId = "Aatricks/bonsai-image-ternary-4B-FLUX2-klein-GGUF",
+            filename = "bonsai-flux2-klein-ternary-q2_k.gguf",
+            preferredQuantizations = emptyList(),
+            hints =
+                ModelHints(
+                    artifactKind = ModelArtifactKind.DIFFUSION_MODEL,
+                    capabilities = setOf(ModelCapability.IMAGE),
+                ),
+        )
+
+    /**
      * The Qwen3-4B text encoder (routed to `llm_path`), Q3_K_M GGUF (~2.1 GB). sdcpp's FLUX.2 LLM
      * loader reads this standard GGUF directly; Comfy's fp4 safetensors packing is NOT compatible
      * (sdcpp misreads its intermediate_size), so a GGUF-quantized encoder is required here.
@@ -107,6 +125,40 @@ object Flux2Klein {
             seed = seed,
             flashAttention = flashAttention,
             model = diffusionModel,
+            vae = vae,
+            textEncoder = textEncoder,
+            splitDiffusionModel = true,
+            sequential = sequential,
+        )
+
+    /**
+     * Low-memory request: PrismML's Bonsai ternary DiT ([bonsaiDiffusionModel], ~1.3 GB) with
+     * [sequential] loading on by default, so peak RAM ≈ max(encoder, DiT) ≈ 2.6 GB — targeting
+     * ~4 GB-RAM devices.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun bonsaiImageRequest(
+        prompt: String,
+        negative: String = "",
+        width: Int = 512,
+        height: Int = 512,
+        steps: Int = 4,
+        cfgScale: Float = 1.0f,
+        seed: Long = -1L,
+        flashAttention: Boolean = true,
+        sequential: Boolean = true,
+    ): ImageGenerationRequest =
+        ImageGenerationRequest(
+            prompt = prompt,
+            negative = negative,
+            width = width,
+            height = height,
+            steps = steps,
+            cfgScale = cfgScale,
+            seed = seed,
+            flashAttention = flashAttention,
+            model = bonsaiDiffusionModel,
             vae = vae,
             textEncoder = textEncoder,
             splitDiffusionModel = true,
