@@ -436,21 +436,35 @@ always overrides a preset's `ModelHints.chatTemplate`.
 ### Converting safetensors models
 
 The runtime loads GGUF, not safetensors. `ModelSpec.safetensors(...)` declares a safetensors source plus
-a target precision; resolution loads a converted GGUF from the app cache, and if none exists yet, fails
-fast with instructions instead of downloading a model the runtime can't load.
+a target precision; resolution returns a converted GGUF from the app cache, and if none exists yet it
+**converts on-device**: it downloads the model directory (config + safetensors + tokenizer files), runs
+the native converter, optionally quantizes, caches the result, then loads it. `safetensorsLocal(path,…)`
+does the same from a local model directory (no download).
 
 ```kotlin
 // "direct" = F16 (no precision loss); or Q8_0 / Q4_K_M / IQ2_BN for smaller, lossy output.
-val bonsai = ModelSpec.safetensors(
-    repoId = "deepgrove/Bonsai",
-    precision = ConversionPrecision.IQ2_BN,
-    adapter = ConversionAdapter.BONSAI_QLINEAR, // Bonsai/QLlama need the scale-fold; omit for stock models
+val smol = ModelSpec.safetensors(
+    repoId = "HuggingFaceTB/SmolLM-135M-Instruct",
+    precision = ConversionPrecision.Q4_K_M,
+    tokenizerPre = "smollm", // REQUIRED: the tokenizer.ggml.pre id to bake (see below)
 )
+val reply = edge.text.generate(prompt = "Hi", model = smol)
 ```
 
-On-device conversion is not yet available (tracked as Phase B2). Produce the GGUF once on a dev box / CI
-with [`tools/safetensors-convert`](../tools/safetensors-convert/README.md), then either drop it where the
-error message points (the app cache) or load it directly via `ModelSpec.localFile("…/model.gguf")`.
+`tokenizerPre` is mandatory for on-device conversion of a text model: a GGUF without a baked tokenizer is
+not loadable, and the BPE pre-tokenizer id cannot be derived safely on-device, so the caller declares it
+(it comes straight from upstream's `convert_hf_to_gguf.py` table — e.g. `"smollm"`, `"llama-bpe"`,
+`"gpt-2"`). Omit it and resolution fails fast, before downloading anything.
+
+**Scope (v1):** the on-device converter handles **Llama-architecture models with a GPT2-BPE tokenizer**
+and a single-file `model.safetensors`. Anything else — other architectures, sharded safetensors, or the
+Bonsai `ConversionAdapter.BONSAI_QLINEAR` scale-fold — fails loud with instructions; for those, produce the
+GGUF once on a dev box / CI with [`tools/safetensors-convert`](../tools/safetensors-convert/README.md) and
+drop it where the error message points (the app cache), or load it directly via
+`ModelSpec.localFile("…/model.gguf")`.
+
+Verified end-to-end on a real arm64 device: HF safetensors → convert → bake tokenizer → quantize Q4_K_M →
+load → generate, all on-device.
 
 ### Downloading Models from Hugging Face
 

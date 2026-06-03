@@ -18,6 +18,8 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 - **LLM Inference**: Run GGUF models directly on Android using llama.cpp (JNI)
 - **Model Downloads**: Download and cache models from Hugging Face Hub
+- **Low-end Presets**: `ModelPresets` ready-to-use specs (Microsoft BitNet b1.58 2B4T, SmolVLM2-256M) tuned for low-end devices
+- **On-device Safetensors → GGUF**: Convert Hugging Face safetensors models on-device (Llama arch + GPT2-BPE tokenizer), with optional quantization (Q8_0 / Q4_K_M / IQ2_BN), via `ModelSpec.safetensors(...)`
 - **Optimized Inference**: Native KV cache reuse for compact chats, default batched blocking and streaming text generation, separate prompt vs generation thread tuning, and Kotlin-managed `ChatSession` replay for reasoning-heavy models
 - **Speech-to-Text (STT)**: Whisper.cpp integration with timestamp support, language detection, streaming transcription, and SRT generation
 - **Text-to-Speech (TTS)**: Bark.cpp integration with ARM optimizations
@@ -194,7 +196,8 @@ val caption = edge.vision.analyze(
 > BitNet's GGUF metadata carries an incorrect chat template, so llmedge supplies the canonical one via
 > `ModelHints.chatTemplate`. A template you pass through `TextModelOptions.chatTemplate` always overrides it.
 > Bonsai and other ternary models distributed only as PrismML `Q2_0` GGUFs are **not** loadable by this
-> runtime (it uses `IQ2_BN`); see the safetensors-conversion design for the conversion path.
+> runtime (it uses `IQ2_BN`); convert the safetensors instead — see
+> [Converting safetensors models](docs/usage.md#converting-safetensors-models).
 
 ### Reasoning Controls
 
