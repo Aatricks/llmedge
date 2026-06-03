@@ -5,6 +5,7 @@
 // ggml/llama dependency and is host-testable on its own. Quantization (Layer 6) is layered on here in
 // the JNI wrapper, where the linked llama runtime's llama_model_quantize is available: F16 conversion
 // happens first, then the result is requantized to the requested precision.
+#include <cstdint>
 #include <cstdio>
 #include <string>
 

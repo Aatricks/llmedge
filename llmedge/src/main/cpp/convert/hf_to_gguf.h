@@ -7,6 +7,8 @@
 // diff; tokenizer KVs by a KV diff (see test_convert.cpp + compare_gguf.py + compare_tokenizer_kv.py).
 #pragma once
 
+#include <cstddef>  // size_t
+#include <cstdint>  // uint16_t (GCC does not pull these in transitively via <string>)
 #include <string>
 
 namespace llmedge {
