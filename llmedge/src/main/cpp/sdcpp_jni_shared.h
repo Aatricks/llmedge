@@ -53,17 +53,7 @@ inline int __android_log_print(int level, const char* tag, const char* format, .
 #define ALOGW(...) __android_log_print(ANDROID_LOG_WARN,  LOG_TAG, __VA_ARGS__)
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 
-typedef struct {
-    int ndims;
-    int64_t ne[4];
-    float* data;
-} sd_tensor_raw_t;
-
-typedef struct {
-    sd_tensor_raw_t c_crossattn;
-    sd_tensor_raw_t c_vector;
-    sd_tensor_raw_t c_concat;
-} sd_condition_raw_t;
+// sd_tensor_raw_t / sd_condition_raw_t are now defined in stable-diffusion.h (llmedge Lever 1).
 
 extern "C" SD_API sd_condition_raw_t* sd_precompute_condition(
         sd_ctx_t* ctx,

@@ -43,6 +43,10 @@ data class ImageGenerationRequest(
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
     val splitDiffusionModel: Boolean = false,
+    // FLUX.2 sequential low-memory mode: load the encoder alone to precompute the conditioning,
+    // free it, then load the DiT alone to generate. Peak RAM = max(encoder, DiT) instead of the
+    // sum. Requires [splitDiffusionModel] + a [textEncoder]. CFG must be 1.0 (no uncond pass).
+    val sequential: Boolean = false,
 )
 
 data class VideoGenerationRequest(

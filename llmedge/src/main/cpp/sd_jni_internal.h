@@ -9,6 +9,7 @@ struct sd_ctx_t;
 struct SdHandle {
     sd_ctx_t* ctx = nullptr;
     void* t5_ctx = nullptr; // Pointer to T5CLIPEmbedder for T5-only mode
+    void* llm_ctx = nullptr; // Pointer to LLMEmbedder for Qwen3-only mode (FLUX.2 sequential)
     float flowShift = 0.0f;
     std::string loraModelDir;
     int last_width = 0;

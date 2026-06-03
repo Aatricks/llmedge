@@ -34,6 +34,9 @@ internal data class DiffusionRuntimeSpec(
     // FLUX.2 Klein split model: route [model] to diffusion_model_path and [textEncoder] (Qwen3)
     // to llm_path instead of the default model_path / t5xxl_path slots.
     val splitDiffusionModel: Boolean = false,
+    // FLUX.2 sequential mode: load ONLY [model] (the Qwen3 encoder) via llm_path, no DiT/VAE, so
+    // the precompute phase peaks at the encoder size.
+    val encoderOnly: Boolean = false,
 )
 
 internal data class DiffusionLoadOptions(
@@ -124,6 +127,7 @@ internal class DiffusionRuntimeLoader(
                 fileSizeBytes = fileSizeBytes,
                 flashAttn = preferredFlash,
                 splitDiffusionModel = spec.splitDiffusionModel,
+                encoderOnly = spec.encoderOnly,
             )
         } catch (error: Throwable) {
             if (!shouldRetryWithoutFlash(spec, options)) {
@@ -144,6 +148,7 @@ internal class DiffusionRuntimeLoader(
                     fileSizeBytes = fileSizeBytes,
                     flashAttn = false,
                     splitDiffusionModel = spec.splitDiffusionModel,
+                encoderOnly = spec.encoderOnly,
                 )
             } catch (fallbackError: Throwable) {
                 fallbackError.addSuppressed(error)
@@ -162,6 +167,7 @@ internal class DiffusionRuntimeLoader(
         fileSizeBytes: Long,
         flashAttn: Boolean,
         splitDiffusionModel: Boolean,
+        encoderOnly: Boolean,
     ): ManagedDiffusionModel {
         AndroidLogAdapter.i(
             LOG_TAG,
@@ -170,12 +176,18 @@ internal class DiffusionRuntimeLoader(
         val model =
             StableDiffusion.loadWithRuntimeBackend(
                 context = context,
-                modelPath = if (splitDiffusionModel) null else resolvedModel.absolutePath,
-                vaePath = resolvedVae?.absolutePath,
-                t5xxlPath = if (splitDiffusionModel) null else resolvedTextEncoder?.absolutePath,
-                taesdPath = resolvedTaehv?.absolutePath,
+                // encoderOnly: load just the Qwen3 encoder via llm_path (no model/diffusion/vae).
+                modelPath = if (splitDiffusionModel || encoderOnly) null else resolvedModel.absolutePath,
+                vaePath = if (encoderOnly) null else resolvedVae?.absolutePath,
+                t5xxlPath = if (splitDiffusionModel || encoderOnly) null else resolvedTextEncoder?.absolutePath,
+                taesdPath = if (encoderOnly) null else resolvedTaehv?.absolutePath,
                 diffusionModelPath = if (splitDiffusionModel) resolvedModel.absolutePath else null,
-                llmPath = if (splitDiffusionModel) resolvedTextEncoder?.absolutePath else null,
+                llmPath =
+                    when {
+                        encoderOnly -> resolvedModel.absolutePath
+                        splitDiffusionModel -> resolvedTextEncoder?.absolutePath
+                        else -> null
+                    },
                 nThreads = options.nThreads,
                 offloadToCpu = options.offloadToCpu,
                 keepClipOnCpu = options.keepClipOnCpu,

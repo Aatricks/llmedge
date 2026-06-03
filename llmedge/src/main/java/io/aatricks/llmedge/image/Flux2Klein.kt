@@ -95,6 +95,7 @@ object Flux2Klein {
         cfgScale: Float = 1.0f,
         seed: Long = -1L,
         flashAttention: Boolean = true,
+        sequential: Boolean = false,
     ): ImageGenerationRequest =
         ImageGenerationRequest(
             prompt = prompt,
@@ -109,5 +110,6 @@ object Flux2Klein {
             vae = vae,
             textEncoder = textEncoder,
             splitDiffusionModel = true,
+            sequential = sequential,
         )
 }

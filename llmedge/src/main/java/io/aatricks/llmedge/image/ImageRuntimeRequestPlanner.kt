@@ -59,6 +59,58 @@ internal object ImageRuntimeRequestPlanner {
                 ),
         )
 
+    /**
+     * Two-phase plan for FLUX.2 sequential low-memory generation: phase 1 loads ONLY the Qwen3
+     * encoder (to precompute the conditioning), phase 2 loads ONLY the DiT (+VAE). Peak RAM is the
+     * larger of the two phases, not their sum.
+     */
+    fun imageSequentialPlan(
+        params: ImageGenerationRequest,
+        config: LLMEdgeConfig,
+    ): DiffusionExecutionPlan.Sequential {
+        val encoderSpec = params.textEncoder ?: error("sequential image generation requires a textEncoder")
+        val ditModel = params.model ?: config.models.image
+        val baseOptions =
+            DiffusionLoadOptions(
+                subsystem = ComputeSubsystem.IMAGE,
+                allowGpu = true,
+                nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                offloadToCpu = true,
+                keepClipOnCpu = true,
+                keepVaeOnCpu = true,
+                flashAttn = params.flashAttention,
+                vaeDecodeOnly = true,
+                sequentialLoad = true,
+                preferPerformanceMode = config.image.preferPerformanceMode,
+                loraModelDir = null,
+                loraApplyMode = params.loraApplyMode,
+            )
+        return DiffusionExecutionPlan.Sequential(
+            conditioningRequest =
+                PlannedDiffusionRuntimeRequest(
+                    spec =
+                        DiffusionRuntimeSpec(
+                            role = DiffusionRuntimeRole.IMAGE,
+                            model = encoderSpec,
+                            encoderOnly = true,
+                        ),
+                    options = baseOptions.copy(nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING)),
+                ),
+            diffusionRequest =
+                PlannedDiffusionRuntimeRequest(
+                    spec =
+                        DiffusionRuntimeSpec(
+                            role = DiffusionRuntimeRole.IMAGE,
+                            model = ditModel,
+                            vae = params.vae,
+                            textEncoder = null,
+                            splitDiffusionModel = true,
+                        ),
+                    options = baseOptions,
+                ),
+        )
+    }
+
     fun directVideoRequest(
         params: VideoGenerationRequest,
         config: LLMEdgeConfig,
