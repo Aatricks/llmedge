@@ -52,7 +52,7 @@ function(llmedge_prepare_patch_modded_tree)
             endif()
             foreach(_llmedge_patch_file IN LISTS _llmedge_patch_files)
                 execute_process(
-                        COMMAND "${CMAKE_COMMAND}" -E env TMPDIR="${CMAKE_CURRENT_BINARY_DIR}"
+                        COMMAND "${CMAKE_COMMAND}" -E env "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}"
                         "${LLMEDGE_PATCH_EXECUTABLE}" --dry-run --batch -p1 -d "${_llmedge_tree_root}" -i "${_llmedge_patch_file}"
                         RESULT_VARIABLE _llmedge_patch_check_result
                         OUTPUT_VARIABLE _llmedge_patch_check_output
@@ -60,7 +60,7 @@ function(llmedge_prepare_patch_modded_tree)
                 )
                 if (NOT _llmedge_patch_check_result EQUAL 0)
                     execute_process(
-                            COMMAND "${CMAKE_COMMAND}" -E env TMPDIR="${CMAKE_CURRENT_BINARY_DIR}"
+                            COMMAND "${CMAKE_COMMAND}" -E env "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}"
                             "${LLMEDGE_PATCH_EXECUTABLE}" --dry-run --batch -R -p1 -d "${_llmedge_tree_root}" -i "${_llmedge_patch_file}"
                             RESULT_VARIABLE _llmedge_patch_reverse_result
                             OUTPUT_VARIABLE _llmedge_patch_reverse_output
@@ -73,7 +73,7 @@ function(llmedge_prepare_patch_modded_tree)
                 endif()
 
                 execute_process(
-                        COMMAND "${CMAKE_COMMAND}" -E env TMPDIR="${CMAKE_CURRENT_BINARY_DIR}"
+                        COMMAND "${CMAKE_COMMAND}" -E env "TMPDIR=${CMAKE_CURRENT_BINARY_DIR}"
                         "${LLMEDGE_PATCH_EXECUTABLE}" --batch -p1 -d "${_llmedge_tree_root}" -i "${_llmedge_patch_file}"
                         RESULT_VARIABLE _llmedge_patch_result
                         OUTPUT_VARIABLE _llmedge_patch_output

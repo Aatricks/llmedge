@@ -7,7 +7,14 @@ set(VULKAN_ENABLED ${GGML_VULKAN})
 if (VULKAN_ENABLED)
     # Provide Vulkan library and include path for Android NDK
     find_library(VULKAN_LIB vulkan REQUIRED)
-    set(Vulkan_INCLUDE_DIR "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include")
+    # Use the NDK toolchain's sysroot (set per-host by android.toolchain.cmake) so this
+    # resolves correctly on Linux CI (prebuilt/linux-x86_64) and macOS (prebuilt/darwin-x86_64).
+    if (CMAKE_SYSROOT)
+        set(Vulkan_INCLUDE_DIR "${CMAKE_SYSROOT}/usr/include")
+    else()
+        file(GLOB _llmedge_ndk_sysroot_inc "${ANDROID_NDK}/toolchains/llvm/prebuilt/*/sysroot/usr/include")
+        list(GET _llmedge_ndk_sysroot_inc 0 Vulkan_INCLUDE_DIR)
+    endif()
 
     # Download Vulkan C++ headers (vulkan.hpp) which don't ship with Android NDK
     include(FetchContent)
