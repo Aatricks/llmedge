@@ -27,15 +27,25 @@ case "$ARCH" in
   *) ARCH_DIR="linux-$ARCH" ;;
 esac
 
+# On macOS, System.loadLibrary() maps a name to lib<name>.dylib, but this harness names libraries
+# ".so" on every host. Emit a .dylib alias so the JVM name-based loader can find host builds on macOS.
+maybe_dylib_alias() {
+    local so_path="$1"
+    [[ "$(uname -s)" == "Darwin" && "$so_path" == *.so ]] || return 0
+    cp "$so_path" "${so_path%.so}.dylib"
+}
+
 copy_output() {
     local built_lib="$1"
     local output_name="$2"
 
     mkdir -p "$ROOT_DIR/llmedge/build/native/$ARCH_DIR"
     cp "$built_lib" "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/$output_name"
+    maybe_dylib_alias "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/$output_name"
 
     mkdir -p "$BUILD_BIN_DIR"
     cp "$built_lib" "$BUILD_BIN_DIR/$output_name"
+    maybe_dylib_alias "$BUILD_BIN_DIR/$output_name"
 }
 
 prepare_sdcpp_mods() {
@@ -154,6 +164,7 @@ copy_alias_outputs() {
         [[ -n "$alias_name" ]] || continue
         cp "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/$output_name" \
             "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/$alias_name"
+        maybe_dylib_alias "$ROOT_DIR/llmedge/build/native/$ARCH_DIR/$alias_name"
     done < <(llmedge_native_alias_outputs "$target")
 }
 
@@ -172,7 +183,7 @@ build_target() {
     cmake -S "$DESKTOP_CMAKE_DIR" -B "$build_dir" "${cmake_args[@]}"
 
     cmake_target="$(llmedge_native_cmake_target "$target")"
-    cmake --build "$build_dir" --target "$cmake_target" --parallel "$(nproc)"
+    cmake --build "$build_dir" --target "$cmake_target" --parallel "$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
 
     output_name="$(llmedge_native_output_name "$target")"
     lib_path=$(find "$build_dir" -type f -name "$output_name" -print -quit || true)

@@ -18,6 +18,8 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 
 - **LLM Inference**: Run GGUF models directly on Android using llama.cpp (JNI)
 - **Model Downloads**: Download and cache models from Hugging Face Hub
+- **Low-end Presets**: `ModelPresets` ready-to-use specs (Microsoft BitNet b1.58 2B4T, SmolVLM2-256M) tuned for low-end devices
+- **On-device Safetensors → GGUF**: Convert Hugging Face safetensors models on-device (Llama arch + GPT2-BPE tokenizer), with optional quantization (Q8_0 / Q4_K_M / IQ2_BN), via `ModelSpec.safetensors(...)`
 - **Optimized Inference**: Native KV cache reuse for compact chats, default batched blocking and streaming text generation, separate prompt vs generation thread tuning, and Kotlin-managed `ChatSession` replay for reasoning-heavy models
 - **Speech-to-Text (STT)**: Whisper.cpp integration with timestamp support, language detection, streaming transcription, and SRT generation
 - **Text-to-Speech (TTS)**: Bark.cpp integration with ARM optimizations
@@ -170,6 +172,32 @@ Log.d("llmedge", "Cached ${modelFile.name} at ${modelFile.parent}")
 - Large downloads use Android's DownloadManager when `preferSystemDownloader = true` to keep transfers out of the Dalvik heap.
 
 - Direct `HuggingFaceHub` downloads remain available for expert workflows, but most app code should stay on the facade/model-repository path.
+
+#### Built-in low-end presets
+
+`ModelPresets` exposes ready-to-use specs tuned for low-end devices, already supported by the bundled
+ik_llama.cpp runtime — no need to hand-type repo/filenames:
+
+```kotlin
+// Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN, ~988 MB).
+// The correct chat template ships on the preset, so generation is well-formed out of the box.
+val reply = edge.text.generate(prompt = "Hi", model = ModelPresets.bitnet)
+
+// SmolVLM2-256M — tiny vision model (~280 MB total: base + projector).
+val caption = edge.vision.analyze(
+    image = bitmap,
+    prompt = "Describe this image.",
+    model = ModelPresets.smolVlm2.model,
+    projector = ModelPresets.smolVlm2.projector,
+)
+```
+
+> [!NOTE]
+> BitNet's GGUF metadata carries an incorrect chat template, so llmedge supplies the canonical one via
+> `ModelHints.chatTemplate`. A template you pass through `TextModelOptions.chatTemplate` always overrides it.
+> Bonsai and other ternary models distributed only as PrismML `Q2_0` GGUFs are **not** loadable by this
+> runtime (it uses `IQ2_BN`); convert the safetensors instead — see
+> [Converting safetensors models](docs/usage.md#converting-safetensors-models).
 
 ### Reasoning Controls
 

@@ -14,8 +14,15 @@ if [[ ! -f "${CMAKE_TARGETS_FILE}" ]]; then
   exit 1
 fi
 
-mapfile -t target_lines < <(sed -nE 's/^set\((LLMEDGE_TARGET_[A-Z0-9_]+) "([^"]+)"\)$/\1=\2/p' "${CMAKE_TARGETS_FILE}")
-mapfile -t list_lines < <(sed -nE 's/^set\((LLMEDGE_(DESKTOP|CI)_TARGETS) "([^"]*)"\)$/\1=\3/p' "${CMAKE_TARGETS_FILE}")
+# Portable array population (bash 3.2 has no `mapfile`, e.g. stock macOS /bin/bash).
+target_lines=()
+while IFS= read -r line; do
+  target_lines+=("${line}")
+done < <(sed -nE 's/^set\((LLMEDGE_TARGET_[A-Z0-9_]+) "([^"]+)"\)$/\1=\2/p' "${CMAKE_TARGETS_FILE}")
+list_lines=()
+while IFS= read -r line; do
+  list_lines+=("${line}")
+done < <(sed -nE 's/^set\((LLMEDGE_(DESKTOP|CI)_TARGETS) "([^"]*)"\)$/\1=\3/p' "${CMAKE_TARGETS_FILE}")
 
 if [[ ${#target_lines[@]} -eq 0 ]]; then
   echo "No LLMEDGE_TARGET_* constants found in ${CMAKE_TARGETS_FILE}" >&2

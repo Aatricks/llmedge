@@ -43,13 +43,16 @@ data class TextGenerationRequest(
     val batchSize: Int = 0,
 )
 
-internal fun TextModelOptions.toInferenceParams(config: LLMEdgeConfig): SmolLM.InferenceParams =
+internal fun TextModelOptions.toInferenceParams(
+    config: LLMEdgeConfig,
+    fallbackChatTemplate: String? = null,
+): SmolLM.InferenceParams =
     SmolLM.InferenceParams(
         minP = minP ?: config.text.minP,
         temperature = temperature ?: config.text.temperature,
         storeChats = false,
         contextSize = contextSize ?: config.text.contextSize,
-        chatTemplate = chatTemplate,
+        chatTemplate = chatTemplate ?: fallbackChatTemplate,
         numThreads = numThreads ?: config.text.promptThreads,
         generationThreads = generationThreads ?: numThreads ?: config.text.generationThreads,
         useMmap = useMmap ?: config.text.useMmap,

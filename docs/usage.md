@@ -409,6 +409,63 @@ you explicitly want the model runtime to own all chat history.
 
 See [Examples](examples.md#chatsession-pattern) for a focused session snippet, or [LocalAssetDemoActivity](examples.md#localassetdemoactivity) for a complete app-level example.
 
+### Built-in low-end model presets
+
+`ModelPresets` provides ready-to-use specs for models that run well on low-end devices and are supported
+by the bundled ik_llama.cpp runtime:
+
+```kotlin
+// Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN, ~988 MB).
+// The canonical chat template ships on the preset (BitNet's GGUF metadata one is wrong),
+// so this is well-formed without setting TextModelOptions.chatTemplate.
+val reply = edge.text.generate(prompt = "Hi", model = ModelPresets.bitnet)
+
+// SmolVLM2-256M — tiny vision model (~280 MB total: base + projector).
+val caption = edge.vision.analyze(
+    image = bitmap,
+    prompt = "Describe this image.",
+    model = ModelPresets.smolVlm2.model,
+    projector = ModelPresets.smolVlm2.projector,
+)
+```
+
+Presets are plain `ModelSpec`s, so they compose with everything else (`edge.models.prefetch(...)`,
+`ModelRegistry`, per-call `model =` overrides). A template passed via `TextModelOptions.chatTemplate`
+always overrides a preset's `ModelHints.chatTemplate`.
+
+### Converting safetensors models
+
+The runtime loads GGUF, not safetensors. `ModelSpec.safetensors(...)` declares a safetensors source plus
+a target precision; resolution returns a converted GGUF from the app cache, and if none exists yet it
+**converts on-device**: it downloads the model directory (config + safetensors + tokenizer files), runs
+the native converter, optionally quantizes, caches the result, then loads it. `safetensorsLocal(path,…)`
+does the same from a local model directory (no download).
+
+```kotlin
+// "direct" = F16 (no precision loss); or Q8_0 / Q4_K_M / IQ2_BN for smaller, lossy output.
+val smol = ModelSpec.safetensors(
+    repoId = "HuggingFaceTB/SmolLM-135M-Instruct",
+    precision = ConversionPrecision.Q4_K_M,
+    tokenizerPre = "smollm", // REQUIRED: the tokenizer.ggml.pre id to bake (see below)
+)
+val reply = edge.text.generate(prompt = "Hi", model = smol)
+```
+
+`tokenizerPre` is mandatory for on-device conversion of a text model: a GGUF without a baked tokenizer is
+not loadable, and the BPE pre-tokenizer id cannot be derived safely on-device, so the caller declares it
+(it comes straight from upstream's `convert_hf_to_gguf.py` table — e.g. `"smollm"`, `"llama-bpe"`,
+`"gpt-2"`). Omit it and resolution fails fast, before downloading anything.
+
+**Scope (v1):** the on-device converter handles **Llama-architecture models with a GPT2-BPE tokenizer**
+and a single-file `model.safetensors`. Anything else — other architectures, sharded safetensors, or the
+Bonsai `ConversionAdapter.BONSAI_QLINEAR` scale-fold — fails loud with instructions; for those, produce the
+GGUF once on a dev box / CI with [`tools/safetensors-convert`](../tools/safetensors-convert/README.md) and
+drop it where the error message points (the app cache), or load it directly via
+`ModelSpec.localFile("…/model.gguf")`.
+
+Verified end-to-end on a real arm64 device: HF safetensors → convert → bake tokenizer → quantize Q4_K_M →
+load → generate, all on-device.
+
 ### Downloading Models from Hugging Face
 
 For app code, prefer the facade-managed model repository:

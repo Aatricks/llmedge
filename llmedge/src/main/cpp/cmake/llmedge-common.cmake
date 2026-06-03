@@ -104,6 +104,12 @@ set(SMOLLM_SOURCES
         ${LLMEDGE_CPP_ROOT}/smollm_jni_embeddings.cpp
         ${LLMEDGE_CPP_ROOT}/smollm_jni_load.cpp
         ${LLMEDGE_CPP_ROOT}/smollm_jni_state.cpp
+        ${LLMEDGE_CPP_ROOT}/smollm_jni_convert.cpp
+        # On-device safetensors -> GGUF converter (Track B / Phase B2). No ggml/llama dependency.
+        ${LLMEDGE_CPP_ROOT}/convert/safetensors_reader.cpp
+        ${LLMEDGE_CPP_ROOT}/convert/gguf_writer.cpp
+        ${LLMEDGE_CPP_ROOT}/convert/tokenizer_bake.cpp
+        ${LLMEDGE_CPP_ROOT}/convert/hf_to_gguf.cpp
         # libmtmd (multimodal projector) from llama.cpp
         ${MTMD_DIR}/mtmd.cpp
         ${MTMD_DIR}/mtmd-helper.cpp
