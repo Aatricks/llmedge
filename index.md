@@ -20,6 +20,7 @@ llmedge is a lightweight toolkit for running LLM inference, vision models, and m
 
     - **EasyCache**: Automatically enabled by `edge.image` for supported DiT models (Flux, SD3, Wan, Qwen Image, Z-Image) to accelerate generation.
     - **LoRA Support**: Apply Low-Rank Adaptation models (e.g., for style transfer) with automatic downloading from Hugging Face.
+    - **FLUX.2 Klein 4B**: Distilled diffusion transformer (the architecture behind PrismML's binary/ternary Bonsai Image) via the `Flux2Klein` helper — loads the DiT + Qwen3-4B encoder + VAE as a split model in ~4 steps.
 
 - **Video Generation**: Generate short video clips (4-64 frames) from text using Wan models with sequential loading for lower RAM usage.
 
