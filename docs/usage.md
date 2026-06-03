@@ -451,20 +451,31 @@ val smol = ModelSpec.safetensors(
 val reply = edge.text.generate(prompt = "Hi", model = smol)
 ```
 
-`tokenizerPre` is mandatory for on-device conversion of a text model: a GGUF without a baked tokenizer is
-not loadable, and the BPE pre-tokenizer id cannot be derived safely on-device, so the caller declares it
-(it comes straight from upstream's `convert_hf_to_gguf.py` table — e.g. `"smollm"`, `"llama-bpe"`,
-`"gpt-2"`). Omit it and resolution fails fast, before downloading anything.
+`tokenizerPre` is mandatory for on-device conversion of a **GPT2-BPE** text model: a GGUF without a baked
+tokenizer is not loadable, and the BPE pre-tokenizer id cannot be derived safely on-device, so the caller
+declares it (it comes straight from upstream's `convert_hf_to_gguf.py` table — e.g. `"smollm"`,
+`"llama-bpe"`, `"gpt-2"`). Omit it and resolution fails fast, before downloading anything.
 
-**Scope (v1):** the on-device converter handles **Llama-architecture models with a GPT2-BPE tokenizer**
-and a single-file `model.safetensors`. Anything else — other architectures, sharded safetensors, or the
-Bonsai `ConversionAdapter.BONSAI_QLINEAR` scale-fold — fails loud with instructions; for those, produce the
-GGUF once on a dev box / CI with [`tools/safetensors-convert`](../tools/safetensors-convert/README.md) and
-drop it where the error message points (the app cache), or load it directly via
-`ModelSpec.localFile("…/model.gguf")`.
+**Bonsai (ternary QLlama)** converts on-device too — pass the adapter, no `tokenizerPre` needed (it folds
+the per-output `.scales` into the weights and bakes a self-contained Llama-style tokenizer):
 
-Verified end-to-end on a real arm64 device: HF safetensors → convert → bake tokenizer → quantize Q4_K_M →
-load → generate, all on-device.
+```kotlin
+val bonsai = ModelSpec.safetensors(
+    repoId = "deepgrove/Bonsai",
+    precision = ConversionPrecision.Q4_K_M,
+    adapter = ConversionAdapter.BONSAI_QLINEAR,
+)
+```
+
+**Scope (v1):** the on-device converter handles **Llama-architecture models** with either a GPT2-BPE
+tokenizer (needs `tokenizerPre`) or the Bonsai QLlama adapter, and a single-file `model.safetensors`.
+Anything else — other architectures, other tokenizer families, sharded safetensors — fails loud with
+instructions; for those, produce the GGUF once on a dev box / CI with
+[`tools/safetensors-convert`](../tools/safetensors-convert/README.md) and drop it where the error message
+points (the app cache), or load it directly via `ModelSpec.localFile("…/model.gguf")`.
+
+Verified end-to-end on a real arm64 device (SmolLM, HF → convert → quantize → generate) and against the
+host tool on `deepgrove/Bonsai` (147/147 tensors + 12/12 tokenizer KVs match; both emit the same text).
 
 ### Downloading Models from Hugging Face
 
