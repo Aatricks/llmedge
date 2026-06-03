@@ -42,7 +42,18 @@ object CpuTopology {
         cachedCoreInfo?.let {
             return it
         }
+        return try {
+            detectCoreTopologyUncached()
+        } catch (e: Throwable) {
+            // CPU-topology detection runs at SmolLM's static init, so it must never crash. On a real
+            // device this succeeds; in plain JVM unit tests android.util.Log is unmocked and throws
+            // ("Method ... not mocked"), which would otherwise cascade into ExceptionInInitializerError
+            // for every SmolLM test. Fall back to safe defaults instead.
+            createDefaultCoreInfo()
+        }
+    }
 
+    private fun detectCoreTopologyUncached(): CoreInfo {
         val maxFrequencies = mutableListOf<Long>()
         val cpuDir = File(CPU_BASE_PATH)
 
