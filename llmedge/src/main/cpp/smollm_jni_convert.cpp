@@ -40,12 +40,13 @@ bool ftypeForLabel(const std::string& label, llama_ftype& out) {
 
 extern "C" JNIEXPORT void JNICALL Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeConvertSafetensors(
         JNIEnv* env, jclass /*clazz*/, jstring modelDir, jstring outPath, jstring tokenizerPre,
-        jstring precision) {
+        jstring precision, jstring adapter) {
     ScopedUtfChars dir(env, modelDir);
     ScopedUtfChars out(env, outPath);
     ScopedUtfChars pre(env, tokenizerPre);
     ScopedUtfChars prec(env, precision);
-    if (!dir.ok() || !out.ok() || !pre.ok() || !prec.ok()) {
+    ScopedUtfChars adpt(env, adapter);
+    if (!dir.ok() || !out.ok() || !pre.ok() || !prec.ok() || !adpt.ok()) {
         throwJavaException(env, "java/lang/IllegalArgumentException", "failed to read string arguments");
         return;
     }
@@ -55,11 +56,12 @@ extern "C" JNIEXPORT void JNICALL Java_io_aatricks_llmedge_text_runtime_SmolLM_n
     }
     const std::string pre_s = pre.get() ? pre.get() : "";
     const std::string label = prec.get() ? prec.get() : "f16";
+    const std::string adapter_s = adpt.get() ? adpt.get() : "";
 
     try {
         // F16 is the converter's native output: no quantization step.
         if (label.empty() || label == "f16") {
-            llmedge::convert::convert_llama_dir(dir.get(), out.get(), pre_s);
+            llmedge::convert::convert_llama_dir(dir.get(), out.get(), pre_s, adapter_s);
             return;
         }
 
@@ -75,7 +77,7 @@ extern "C" JNIEXPORT void JNICALL Java_io_aatricks_llmedge_text_runtime_SmolLM_n
         const std::string tmp_f16 = std::string(out.get()) + ".f16.tmp";
         uint32_t rc;
         try {
-            llmedge::convert::convert_llama_dir(dir.get(), tmp_f16, pre_s);
+            llmedge::convert::convert_llama_dir(dir.get(), tmp_f16, pre_s, adapter_s);
             llama_backend_init();
             llama_model_quantize_params params = llama_model_quantize_default_params();
             params.ftype = ftype;

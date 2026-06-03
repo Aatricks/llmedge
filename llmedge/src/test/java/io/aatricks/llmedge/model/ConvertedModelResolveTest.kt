@@ -19,19 +19,20 @@ class ConvertedModelResolveTest {
     fun `resolve throws actionable error when converted gguf is missing`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val spec =
+            // Stock safetensors with no tokenizerPre: on-device conversion can't bake a tokenizer, so
+            // resolution fails fast (before downloading) with actionable host-tool instructions.
             ModelSpec.safetensors(
-                "deepgrove/Bonsai",
-                ConversionPrecision.IQ2_BN,
-                ConversionAdapter.BONSAI_QLINEAR,
+                "some-org/SomeModel",
+                ConversionPrecision.Q4_K_M,
             )
         try {
             DefaultModelRepository().resolve(context, spec)
-            fail("expected LLMEdgeException for un-converted safetensors spec")
+            fail("expected LLMEdgeException for un-converted safetensors spec without tokenizerPre")
         } catch (e: LLMEdgeException) {
             val msg = e.message ?: ""
+            assertTrue(msg, msg.contains("tokenizerPre"))
             assertTrue(msg, msg.contains("safetensors-convert"))
-            assertTrue(msg, msg.contains("--adapter bonsai-qlinear"))
-            assertTrue(msg, msg.contains("--precision iq2_bn"))
+            assertTrue(msg, msg.contains("--precision q4_k_m"))
         }
     }
 

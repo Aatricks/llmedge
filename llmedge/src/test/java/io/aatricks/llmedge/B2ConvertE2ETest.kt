@@ -2,6 +2,7 @@ package io.aatricks.llmedge
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.aatricks.llmedge.model.ConversionAdapter
 import io.aatricks.llmedge.model.ConversionPrecision
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -88,6 +89,49 @@ class B2ConvertE2ETest {
         val (_, response) = convertAndGenerate(ConversionPrecision.F16)
         val cleaned = response.replace(Regex("<\\|[^|]*\\|>"), "").trim()
         assertTrue("Expected real generated text, got: '$response'", cleaned.length >= 3)
+    }
+
+    @Test
+    fun `converts Bonsai on-device via the bonsai-qlinear adapter and generates`() {
+        val bonsaiDir = env("LLMEDGE_TEST_BONSAI_DIR")
+        Assume.assumeTrue("No Bonsai dir in LLMEDGE_TEST_BONSAI_DIR", !bonsaiDir.isNullOrBlank())
+        Assume.assumeTrue("$bonsaiDir has no model.safetensors", File(bonsaiDir, "model.safetensors").isFile)
+        DesktopNativeTestSupport.requireEnabled()
+        val libPath = env(LIB_PATH_ENV)
+        Assume.assumeTrue("No native lib in $LIB_PATH_ENV", !libPath.isNullOrBlank())
+        DesktopNativeTestSupport.requireAndLoadLibrary(libPath!!)
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        // No tokenizerPre: the bonsai-qlinear adapter folds the .scales and bakes a self-contained
+        // Llama-style tokenizer on-device.
+        val spec = ModelSpec.safetensorsLocal(
+            path = bonsaiDir!!,
+            precision = ConversionPrecision.F16,
+            adapter = ConversionAdapter.BONSAI_QLINEAR,
+        )
+        val gguf = runBlocking { DefaultModelRepository().resolve(context, spec) }
+        assertTrue("Converted GGUF missing/empty", gguf.isFile && gguf.length() > 0L)
+
+        val smol = SmolLM(useVulkan = false)
+        val raw = runBlocking {
+            try {
+                smol.load(
+                    gguf.absolutePath,
+                    SmolLM.InferenceParams(
+                        contextSize = 2048,
+                        temperature = 0.0f,
+                        storeChats = false,
+                        chatTemplate = "{% for m in messages %}{{ m['content'] }}{% endfor %}", // pass-through
+                    ),
+                )
+                smol.addUserMessage("The capital of France is")
+                smol.getResponse("The capital of France is", maxTokens = 16)
+            } finally {
+                smol.close()
+            }
+        }
+        println("[B2ConvertE2ETest] bonsai response='$raw'")
+        assertTrue("Expected 'Paris' from on-device-converted Bonsai, got: '$raw'", raw.contains("Paris", ignoreCase = true))
     }
 
     @Test

@@ -93,10 +93,12 @@ private suspend fun resolveConvertedModel(
         return ModelFileValidator.requireReadableFile(target, "Converted model")
     }
 
-    // A text GGUF without a baked tokenizer is not loadable, so the pre-tokenizer id is mandatory.
+    // A text GGUF without a baked tokenizer is not loadable, so the pre-tokenizer id is mandatory —
+    // except for adapters that bake a self-contained tokenizer (Bonsai uses the Llama-style bake).
     // Fail before downloading anything when it is absent.
     val tokenizerPre = conversion.tokenizerPre
-    if (tokenizerPre.isNullOrBlank()) {
+    val adapterBakesTokenizer = conversion.adapter == ConversionAdapter.BONSAI_QLINEAR
+    if (tokenizerPre.isNullOrBlank() && !adapterBakesTokenizer) {
         throw LLMEdgeException(
             "On-device conversion of '${convertedSourceLabel(spec)}' needs ModelConversion.tokenizerPre " +
                 "(the tokenizer.ggml.pre id, e.g. \"smollm\"), which was not provided.\n" +
@@ -121,6 +123,7 @@ private suspend fun resolveConvertedModel(
             outPath = tmp.absolutePath,
             tokenizerPre = tokenizerPre,
             precision = conversion.precision.ggufLabel,
+            adapter = conversion.adapter.cliFlag.orEmpty(),
         )
     } catch (_: UnsatisfiedLinkError) {
         tmp.delete()

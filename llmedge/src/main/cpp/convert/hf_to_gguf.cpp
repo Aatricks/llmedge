@@ -123,7 +123,8 @@ std::vector<uint8_t> permute_rows(const std::vector<uint8_t>& data, int64_t out_
 }  // namespace
 
 size_t convert_llama_dir(const std::string& model_dir, const std::string& out_path,
-                         const std::string& tokenizer_pre) {
+                         const std::string& tokenizer_pre, const std::string& adapter) {
+    const bool bonsai = adapter == "bonsai-qlinear";
     json cfg = json::parse(read_file(model_dir + "/config.json"));
     const std::string arch = cfg.value("model_type", "");
     if (arch != "llama") throw std::runtime_error("convert v1 supports model_type=llama only, got: " + arch);
@@ -168,16 +169,42 @@ size_t convert_llama_dir(const std::string& model_dir, const std::string& out_pa
         const StTensor* t = find(hf_name);
         if (!t) throw std::runtime_error("convert: missing tensor " + hf_name);
         int64_t n = st_num_elements(*t);
-        std::vector<uint8_t> raw = st_read_tensor_bytes(st, *t);
         const bool is_1d = t->shape.size() == 1;
 
+        std::vector<int64_t> ne;  // ggml order: ne[0] = fastest (in), ne[1] = out
+        for (auto it = t->shape.rbegin(); it != t->shape.rend(); ++it) ne.push_back(*it);
+
+        // Bonsai QLinear fold: y = (x·Wᵀ)·s  ==  x·(W·s[:,None])ᵀ. If a sibling "<name>.scales" exists,
+        // fold each output row's scale into the weight (in f32, before the Q/K permute + f16 cast — the
+        // host folds in full precision, so this must too to match the tensor-diff), then drop the scales.
+        if (bonsai && !is_1d && hf_name.size() > 7 && hf_name.compare(hf_name.size() - 7, 7, ".weight") == 0) {
+            const StTensor* sc = find(hf_name.substr(0, hf_name.size() - 7) + ".scales");
+            if (sc) {
+                const int64_t out_rows = t->shape[0], in_cols = t->shape[1];
+                if (sc->shape.size() != 1 || sc->shape[0] != out_rows) {
+                    throw std::runtime_error("convert: .scales shape mismatch for " + hf_name);
+                }
+                std::vector<uint8_t> wf32 = to_f32(st_read_tensor_bytes(st, *t), t->dtype, n);
+                std::vector<uint8_t> sf32 = to_f32(st_read_tensor_bytes(st, *sc), sc->dtype, out_rows);
+                float* wp = (float*)wf32.data();
+                const float* sp = (const float*)sf32.data();
+                for (int64_t o = 0; o < out_rows; ++o) {
+                    const float s = sp[o];
+                    for (int64_t c = 0; c < in_cols; ++c) wp[o * in_cols + c] *= s;
+                }
+                if (perm_heads > 0) wf32 = permute_rows(wf32, out_rows, in_cols, sizeof(float), perm_heads);
+                std::vector<uint8_t> f16 = to_f16(wf32, StDType::F32, n);
+                w.add_tensor(gguf_name, GgmlType::F16, ne, f16.data(), f16.size());
+                ++written;
+                return;
+            }
+        }
+
+        std::vector<uint8_t> raw = st_read_tensor_bytes(st, *t);
         if (perm_heads > 0) {
             int64_t out_rows = t->shape[0], in_cols = t->shape[1];
             raw = permute_rows(raw, out_rows, in_cols, st_dtype_size(t->dtype), perm_heads);
         }
-
-        std::vector<int64_t> ne;  // ggml order: ne[0] = fastest (in), ne[1] = out
-        for (auto it = t->shape.rbegin(); it != t->shape.rend(); ++it) ne.push_back(*it);
 
         if (is_1d) {
             std::vector<uint8_t> f32 = to_f32(raw, t->dtype, n);
@@ -207,7 +234,11 @@ size_t convert_llama_dir(const std::string& model_dir, const std::string& out_pa
         emit(p + "post_attention_layernorm.weight", b + "ffn_norm.weight", 0);
     }
 
-    if (!tokenizer_pre.empty()) bake_gpt2_tokenizer(w, model_dir, tokenizer_pre);
+    if (bonsai) {
+        bake_llama_tokenizer(w, model_dir);
+    } else if (!tokenizer_pre.empty()) {
+        bake_gpt2_tokenizer(w, model_dir, tokenizer_pre);
+    }
 
     w.write(out_path, 32);
     return written;
