@@ -544,6 +544,21 @@ val bitmap = edge.image.generate(
 
 Internally this sets `ImageGenerationRequest.splitDiffusionModel = true`, which routes the transformer to stable-diffusion.cpp's `diffusion_model_path` and the Qwen3 encoder to `llm_path` (instead of the single `model_path` slot), and offloads weights to CPU. Footprint: ~2.5 GB DiT (Q4_0) + ~2.1 GB encoder (Q3_K_M) + ~0.3 GB VAE, so it targets higher-RAM devices.
 
+##### Low-end: Bonsai (QAT) DiT for a smaller transformer
+
+PrismML's **Bonsai Image** models are FLUX.2 Klein 4B fine-tuned with quantization-aware training (QAT) to ternary weights. They ship only in MLX/GemLite packings (not Android-loadable) and in a dense-bf16 `-unpacked` form using the non-standard `Flux2KleinPipeline` diffusers naming, which stable-diffusion.cpp cannot ingest directly.
+
+`scripts/convert_bonsai_flux2_to_bfl.py` converts a Bonsai unpacked transformer into the BFL naming sdcpp expects (renames + fuses the double-block `to_q/k/v` into `*_attn.qkv`). Then quantize with stable-diffusion.cpp:
+
+```bash
+python3 scripts/convert_bonsai_flux2_to_bfl.py \
+    bonsai-image-ternary-4B-unpacked/transformer/diffusion_pytorch_model.safetensors \
+    bonsai-flux2-bfl.safetensors
+sd -M convert -m bonsai-flux2-bfl.safetensors --type q2_K -o bonsai-flux2-klein-q2_K.gguf
+```
+
+Point `Flux2Klein.imageRequest(model = ...)` at the resulting GGUF as the diffusion model. The QAT weights survive `Q2_K` well, giving a **coherent ~1.3 GB DiT** (vs ~2.5 GB for base Q4_0). Note: ggml's literal ternary types (`tq1_0`/`tq2_0`, ~0.8–1.0 GB) load and run on CPU but their per-256-weight scale is too coarse for Bonsai's per-128 trained scales and produce degraded output — `Q2_K`'s finer per-16 sub-block scales are what preserve quality. The text encoder remains the dominant memory cost; sequential encoder/DiT loading to lower peak RAM is not yet implemented.
+
 ### Video Generation
 
 Generate short video clips using `edge.image.generateVideo(...)`. The namespaced client surfaces progress as a `Flow` while reusing the existing Wan loading logic internally.
