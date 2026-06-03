@@ -23,7 +23,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 - **Optimized Inference**: Native KV cache reuse for compact chats, default batched blocking and streaming text generation, separate prompt vs generation thread tuning, and Kotlin-managed `ChatSession` replay for reasoning-heavy models
 - **Speech-to-Text (STT)**: Whisper.cpp integration with timestamp support, language detection, streaming transcription, and SRT generation
 - **Text-to-Speech (TTS)**: Bark.cpp integration with ARM optimizations
-- **Image Generation**: Stable Diffusion with EasyCache and LoRA support
+- **Image Generation**: Stable Diffusion with EasyCache and LoRA support, plus FLUX.2 Klein 4B (distilled DiT, the architecture behind PrismML's binary/ternary Bonsai Image)
 - **Video Generation**: Wan 2.1 models (4-64 frames) with sequential loading
 - **On-device RAG**: PDF indexing, embeddings, vector search, Q&A
 - **OCR**: Google ML Kit text extraction
@@ -528,6 +528,21 @@ imageView.setImageBitmap(bitmap)
 - **LoRA**: Apply fine-tuned weights on the fly without merging models.
 
 For explicit runtime ownership or custom native-load experiments, the `StableDiffusion` class remains available in the expert API layer.
+
+#### FLUX.2 Klein 4B (distilled DiT, split model)
+
+[FLUX.2 Klein 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) is a step-distilled diffusion transformer that produces high-quality images in ~4 steps. It is the same architecture PrismML's binary/ternary **Bonsai Image** models are built on — Bonsai's own 1-bit/ternary weights ship only in MLX (Apple) and GemLite (CUDA) packings, which don't load on Android, so this GGUF build is the Android-runnable equivalent at a comparable footprint.
+
+Unlike a classic single-file checkpoint, FLUX.2 loads as three components: the diffusion transformer (GGUF), a Qwen3-4B text encoder, and the FLUX.2 VAE. The `Flux2Klein` helper wires all three plus the distilled defaults (CFG 1.0, 4 steps):
+
+```kotlin
+val edge = LLMEdge.create(context, viewModelScope)
+val bitmap = edge.image.generate(
+    Flux2Klein.imageRequest("a red fox in snow, detailed, 8k"),
+)
+```
+
+Internally this sets `ImageGenerationRequest.splitDiffusionModel = true`, which routes the transformer to stable-diffusion.cpp's `diffusion_model_path` and the Qwen3 encoder to `llm_path` (instead of the single `model_path` slot), and offloads weights to CPU. Footprint: ~2.5 GB DiT (Q4_0) + ~2.1 GB encoder (Q3_K_M) + ~0.3 GB VAE, so it targets higher-RAM devices.
 
 ### Video Generation
 

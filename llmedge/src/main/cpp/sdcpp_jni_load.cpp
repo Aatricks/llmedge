@@ -249,6 +249,8 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         jstring jVaePath,
         jstring jT5xxlPath,
         jstring jTaesdPath,
+        jstring jDiffusionModelPath,
+        jstring jLlmPath,
         jint nThreads,
         jboolean enableOpenCl,
         jboolean useVulkan,
@@ -267,6 +269,17 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     const char* loraModelDir = jLoraModelDir ? env->GetStringUTFChars(jLoraModelDir, nullptr) : nullptr;
     const std::string loraModelDirValue = loraModelDir ? loraModelDir : "";
 
+    // FLUX.2 / split-model loading: the diffusion transformer goes in diffusion_model_path
+    // (not model_path) and the Qwen3 text encoder in llm_path. Copy into std::string so the
+    // values outlive new_sd_ctx without touching the char* release blocks below.
+    const char* diffusionModelPathRaw = jDiffusionModelPath ? env->GetStringUTFChars(jDiffusionModelPath, nullptr) : nullptr;
+    const std::string diffusionModelPathValue = diffusionModelPathRaw ? diffusionModelPathRaw : "";
+    if (jDiffusionModelPath && diffusionModelPathRaw) env->ReleaseStringUTFChars(jDiffusionModelPath, diffusionModelPathRaw);
+
+    const char* llmPathRaw = jLlmPath ? env->GetStringUTFChars(jLlmPath, nullptr) : nullptr;
+    const std::string llmPathValue = llmPathRaw ? llmPathRaw : "";
+    if (jLlmPath && llmPathRaw) env->ReleaseStringUTFChars(jLlmPath, llmPathRaw);
+
     sd_set_log_callback(sd_android_log_cb, nullptr);
 
     ALOGI("Initializing Stable Diffusion with:");
@@ -274,6 +287,8 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     ALOGI("  vaePath=%s", vaePath ? vaePath : "NULL");
     ALOGI("  t5xxlPath=%s", t5xxlPath ? t5xxlPath : "NULL");
     ALOGI("  taesdPath=%s", taesdPath ? taesdPath : "NULL");
+    ALOGI("  diffusionModelPath=%s", diffusionModelPathValue.empty() ? "NULL" : diffusionModelPathValue.c_str());
+    ALOGI("  llmPath=%s", llmPathValue.empty() ? "NULL" : llmPathValue.c_str());
     ALOGI("  loraModelDir=%s, loraApplyMode=%d", loraModelDirValue.empty() ? "NULL" : loraModelDirValue.c_str(), static_cast<int>(jLoraApplyMode));
     ALOGI("  enableOpenCl=%s, useVulkan=%s, offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
           enableOpenCl ? "true" : "false",
@@ -317,6 +332,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.vae_path = vaePath ? vaePath : "";
     p.t5xxl_path = t5xxlPath;
     p.taesd_path = taesdPath ? taesdPath : "";
+    // Split-model components (FLUX.2 Klein etc.). Empty string == not provided.
+    p.diffusion_model_path = diffusionModelPathValue.c_str();
+    p.llm_path = llmPathValue.c_str();
     p.free_params_immediately = true;
     p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
     p.offload_params_to_cpu = offloadToCpu;

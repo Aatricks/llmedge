@@ -117,6 +117,8 @@ class ImageClientTraceTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
             )
         } coAnswers {
             val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)

@@ -186,6 +186,8 @@ class ImageClientTest {
                 any(),
                 any(),
                 any(),
+                any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -331,6 +333,8 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -367,6 +371,129 @@ class ImageClientTest {
             assertEquals(listOf(false), sequentialFlags)
             assertEquals(256, bitmap.width)
             assertEquals(256, bitmap.height)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `split-model image request routes DiT to diffusionModelPath and encoder to llmPath`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val ditFile =
+            java.io.File.createTempFile("flux2-dit", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val vaeFile =
+            java.io.File.createTempFile("flux2-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val encFile =
+            java.io.File.createTempFile("qwen3-enc", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        every { RuntimeCapabilities.isStableDiffusionVulkanAvailable() } returns true
+        every { RuntimeCapabilities.isStableDiffusionOpenClAvailable() } returns false
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray = ByteArray(width * height * 3) { 0x33 }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray> = Array(videoFrames) { ByteArray(width * height * 3) { 0x33 } }
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        var observedModelPath: String? = "unset"
+        var observedDiffusionModelPath: String? = "unset"
+        var observedLlmPath: String? = "unset"
+        var observedVaePath: String? = "unset"
+        var observedOffload: Boolean? = null
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            observedModelPath = callArgs[3] as String?
+            observedVaePath = callArgs[4] as String?
+            observedOffload = callArgs[8] as Boolean
+            observedDiffusionModelPath = callArgs[21] as String?
+            observedLlmPath = callArgs[22] as String?
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = false)),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "a red fox in snow",
+                    width = 256,
+                    height = 256,
+                    model = ModelSpec.localFile(ditFile),
+                    vae = ModelSpec.localFile(vaeFile),
+                    textEncoder = ModelSpec.localFile(encFile),
+                    splitDiffusionModel = true,
+                ),
+            )
+
+            // Split-model routing: the DiT must NOT be in modelPath (else sdcpp loads it as a
+            // complete checkpoint); it goes to diffusionModelPath and the encoder to llmPath.
+            assertEquals(null, observedModelPath)
+            assertEquals(ditFile.absolutePath, observedDiffusionModelPath)
+            assertEquals(encFile.absolutePath, observedLlmPath)
+            assertEquals(vaeFile.absolutePath, observedVaePath)
+            // Split models offload to CPU to fit mobile memory budgets.
+            assertEquals(true, observedOffload)
         } finally {
             client.close()
             edgeScope.close()
@@ -443,6 +570,8 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -571,6 +700,8 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -712,6 +843,8 @@ class ImageClientTest {
         coEvery {
             StableDiffusion.loadWithRuntimeBackend(
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
             )
         } coAnswers {
             val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
@@ -815,6 +948,8 @@ class ImageClientTest {
         coEvery {
             StableDiffusion.loadWithRuntimeBackend(
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
             )
         } coAnswers {
             sleep(5)
@@ -852,6 +987,8 @@ class ImageClientTest {
             coVerify(exactly = 1) {
                 StableDiffusion.loadWithRuntimeBackend(
                     any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                    any(),
+                    any(),
                 )
             }
             assertFalse(metrics.first().cacheHit)
@@ -969,6 +1106,8 @@ class ImageClientTest {
         coEvery {
             StableDiffusion.loadWithRuntimeBackend(
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -1098,6 +1237,8 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -1215,6 +1356,8 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args

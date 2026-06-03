@@ -9,6 +9,9 @@ internal data class StableDiffusionAssetRequest(
     val vaePath: String? = null,
     val t5xxlPath: String? = null,
     val taesdPath: String? = null,
+    // FLUX.2 Klein split model: DiT goes here (not modelPath); Qwen3 encoder in llmPath.
+    val diffusionModelPath: String? = null,
+    val llmPath: String? = null,
     val token: String? = null,
     val forceDownload: Boolean = false,
     val preferSystemDownloader: Boolean = true,
@@ -47,6 +50,8 @@ internal data class StableDiffusionNativeLoadRequest(
     val vaePath: String?,
     val t5xxlPath: String?,
     val taesdPath: String?,
+    val diffusionModelPath: String? = null,
+    val llmPath: String? = null,
     val nThreads: Int,
     val enableOpenCl: Boolean,
     val useVulkan: Boolean,

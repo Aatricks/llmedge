@@ -37,6 +37,12 @@ data class ImageGenerationRequest(
     val loraModelDir: String? = null,
     val loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
     val model: ModelSpec? = null,
+    // Split-model image generation (FLUX.2 Klein): [model] is the diffusion transformer,
+    // [vae] the autoencoder, [textEncoder] the Qwen3 LLM encoder. When [splitDiffusionModel] is
+    // true the runtime routes [model] -> diffusion_model_path and [textEncoder] -> llm_path.
+    val vae: ModelSpec? = null,
+    val textEncoder: ModelSpec? = null,
+    val splitDiffusionModel: Boolean = false,
 )
 
 data class VideoGenerationRequest(
