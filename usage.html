@@ -1,40 +1,15 @@
 <!DOCTYPE html>
-<html lang="en">
 
+<html lang="en">
 <head>
-    <script>
+<script>
         const base_url = "https://aatricks.github.io/llmedge/"; /* for search plugin notably */
     </script>
-    <script>
-    const darkTheme = window.matchMedia("(prefers-color-scheme: dark)");
-    darkTheme.onchange = (e) => {
-        if (e.matches) {
-            document.documentElement.classList.add("dark")
-            localStorage.theme = 'dark';
-        } else {
-            document.documentElement.classList.remove("dark")
-            localStorage.removeItem("theme")
-        }
-    };
-
-    // On page load. Priotiry to lcaolStorage
-    if (localStorage.theme === "dark") {
-        document.documentElement.classList.add("dark")
-    } else if (localStorage.theme === "light") {
-        document.documentElement.classList.remove("dark")
-    } else if (darkTheme.matches) {
-        document.documentElement.classList.add("dark")
-    } else {
-        document.documentElement.classList.remove("dark")
-    }
-
-    // set the layout based on localStorage
-    document.documentElement.classList.add(localStorage.getItem("html-layout") || "layout-fixed");
-</script>
+    <script integrity="sha384-m6cZ+Whl1ci89lidlu8DH4C+sZLNOYBvImtjUIhUK+iaNffXhqtbYgBVuuPfRsa0" src="js/dark.js"></script>
 
 
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
 
     
 
@@ -82,10 +57,10 @@
 
 
 
-    <link rel="icon" href="img/favicon.ico">
+    <link href="img/favicon.ico" rel="icon"/>
 
-    <link href="css/base.css" rel="stylesheet">
-    <link href="css/geist.css" rel="stylesheet">
+    <link href="css/base.css" rel="stylesheet"/>
+<link href="css/geist.css" rel="stylesheet"/>
 
     
     
@@ -98,210 +73,59 @@
 
 
     
-    <link href="assets/_mkdocstrings.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --theme-accent: oklch(62.3% 0.214 259.815);
+        }
+    </style>
+    <link href="assets/_mkdocstrings.css" rel="stylesheet"/>
 
     
 
-    <script src="js/callbacks.js"></script>
+    <script integrity="sha384-V2jkXRy811qODUbfkLlkVJYBbf4h6XHAEjcU6ReASBPrJvTrlYh4GrI4t6GCju6n" src="js/callbacks.js"></script>
 
     
     
 <!-- katex -->
-<link rel="stylesheet" href="css/katex.min.css" >
+<link href="css/katex.min.css" rel="stylesheet"/>
 <!-- The loading of KaTeX is deferred to speed up page rendering -->
-<script defer src="js/katex.min.js"></script>
+<script defer="" integrity="sha384-YPHNAPyrxGS8BNnA7Q4ommqra8WQPEjooVSLzFgwgs8OXJBvadbyvx4QpfiFurGr" src="js/katex.min.js"></script>
 <!-- To automatically render math in text elements, include the auto-render extension: -->
-<script defer src="js/auto-render.min.js"
-    onload='renderMathInElement(document.body, {"macros": {"\\dx": "\\mathrm{d}x"}});'></script>
+<script defer="" integrity="sha384-JKXHIJf8PKPyDFptuKZoUyMRQJAmQKj4B4xyOca62ebJhciMYGiDdq/9twUUWyZH" onload='renderMathInElement(document.body, {"macros": {"\\dx": "\\mathrm{d}x"}});' src="js/auto-render.min.js"></script>
     
 
     
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.js"></script>
-<script>
-    const rootStyles = getComputedStyle(document.documentElement);
-    const color = ["#8ec5ff", "#2b7fff", "#1d6ed4", "#155ab6", "#0f4c8a"];
-    const waitForECharts = () => {
-        if (typeof echarts !== 'undefined') {
-            console.log('ECharts is loaded');
-            echarts.registerTheme('shadcn', {
-                "seriesCnt": "5",
-                "backgroundColor": "rgba(0,0,0,0)",
-                "titleColor": "#0a0a0a",
-                "subtitleColor": "#737373",
-                "textColorShow": false,
-                "textColor": "#333",
-                "textStyle": {
-                    "fontFamily": "Geist"
-                },
-                "markTextColor": "#ffffff",
-                "color": color,
-                "borderColor": "#e5e5e5",
-                "borderWidth": 0,
-                "visualMapColor": [
-                    "#09090b",
-                    "#18181b",
-                    "#27272a",
-                    "#3f3f46",
-                    "#52525b",
-                    "#71717a",
-                    "#a1a1aa",
-                    "#d4d4d8",
-                    "#e4e4e7",
-                    "#f4f4f5",
-                    "#fafafa"
-                ],
-                "legendTextColor": "#0a0a0a",
-                "kColor": "#eb5454",
-                "kColor0": "#47b262",
-                "kBorderColor": "#eb5454",
-                "kBorderColor0": "#47b262",
-                "kBorderWidth": 1,
-                "lineWidth": 2,
-                "symbolSize": 4,
-                "symbol": "emptyCircle",
-                "symbolBorderWidth": 1,
-                "lineSmooth": true,
-                "graphLineWidth": 1,
-                "graphLineColor": "#aaaaaa",
-                "mapLabelColor": "#000",
-                "mapLabelColorE": "rgb(100,0,0)",
-                "mapBorderColor": "#444",
-                "mapBorderColorE": "#444",
-                "mapBorderWidth": 0.5,
-                "mapBorderWidthE": 1,
-                "mapAreaColor": "#eee",
-                "mapAreaColorE": "rgba(255,215,0,0.8)",
-                "axes": [
-                    {
-                        "type": "all",
-                        "name": "通用坐标轴",
-                        "axisLineShow": true,
-                        "axisLineColor": "#6E7079",
-                        "axisTickShow": true,
-                        "axisTickColor": "#6E7079",
-                        "axisLabelShow": true,
-                        "axisLabelColor": "#6E7079",
-                        "splitLineShow": true,
-                        "splitLineColor": [
-                            "#E0E6F1"
-                        ],
-                        "splitAreaShow": false,
-                        "splitAreaColor": [
-                            "rgba(250,250,250,0.2)",
-                            "rgba(210,219,238,0.2)"
-                        ]
-                    },
-                    {
-                        "type": "category",
-                        "name": "类目坐标轴",
-                        "axisLineShow": true,
-                        "axisLineColor": "#6e7079",
-                        "axisTickShow": true,
-                        "axisTickColor": "#6e7079",
-                        "axisLabelShow": true,
-                        "axisLabelColor": "#6e7079",
-                        "splitLineShow": false,
-                        "splitLineColor": [
-                            "#E0E6F1"
-                        ],
-                        "splitAreaShow": false,
-                        "splitAreaColor": [
-                            "rgba(250,250,250,0.2)",
-                            "rgba(210,219,238,0.2)"
-                        ]
-                    },
-                    {
-                        "type": "value",
-                        "name": "数值坐标轴",
-                        "axisLineShow": false,
-                        "axisLineColor": "#6e7079",
-                        "axisTickShow": false,
-                        "axisTickColor": "#6e7079",
-                        "axisLabelShow": true,
-                        "axisLabelColor": "#6e7079",
-                        "splitLineShow": true,
-                        "splitLineColor": [
-                            "#E0E6F1"
-                        ],
-                        "splitAreaShow": false,
-                        "splitAreaColor": [
-                            "rgba(250,250,250,0.2)",
-                            "rgba(210,219,238,0.2)"
-                        ]
-                    },
-                    {
-                        "type": "log",
-                        "name": "对数坐标轴",
-                        "axisLineShow": false,
-                        "axisLineColor": "#6e7079",
-                        "axisTickShow": false,
-                        "axisTickColor": "#6e7079",
-                        "axisLabelShow": true,
-                        "axisLabelColor": "#6e7079",
-                        "splitLineShow": true,
-                        "splitLineColor": [
-                            "#E0E6F1"
-                        ],
-                        "splitAreaShow": false,
-                        "splitAreaColor": [
-                            "rgba(250,250,250,0.2)",
-                            "rgba(210,219,238,0.2)"
-                        ]
-                    },
-                    {
-                        "type": "time",
-                        "name": "时间坐标轴",
-                        "axisLineShow": true,
-                        "axisLineColor": "#6e7079",
-                        "axisTickShow": true,
-                        "axisTickColor": "#6e7079",
-                        "axisLabelShow": true,
-                        "axisLabelColor": "#6e7079",
-                        "splitLineShow": false,
-                        "splitLineColor": [
-                            "#E0E6F1"
-                        ],
-                        "splitAreaShow": false,
-                        "splitAreaColor": [
-                            "rgba(250,250,250,0.2)",
-                            "rgba(210,219,238,0.2)"
-                        ]
-                    }
-                ],
-                "axisSeperateSetting": true,
-                "toolboxColor": "#999999",
-                "toolboxEmphasisColor": "#666666",
-                "tooltipAxisColor": "#cccccc",
-                "tooltipAxisWidth": 1,
-                "timelineLineColor": "#e5e5e5",
-                "timelineLineWidth": 2,
-                "timelineItemColor": "#e5e5e5",
-                "timelineItemColorE": "#ffffff",
-                "timelineCheckColor": "#171717",
-                "timelineCheckBorderColor": "#ffffff",
-                "timelineItemBorderWidth": 1,
-                "timelineControlColor": "#737373",
-                "timelineControlBorderColor": "#171717",
-                "timelineControlBorderWidth": "0.0",
-                "timelineLabelColor": "#737373"
-            })
-        } else {
-            setTimeout(waitForECharts, 300);
-        }
-    }
+    <script integrity="sha384-F07Cpw5v8spSU0H113F33m2NQQ/o6GqPTnTjf45ssG4Q6q58ZwhxBiQtIaqvnSpR" src="js/echarts.min.js"></script>
+<script integrity="sha384-z2nBxqjQr+3NoeDZBkvio6wHbU1KSPkNxT3AYgdsIm+PQAz5Lp3Oj9twImKNn6NW" src="js/echarts-style.js"></script>
+    
 
-    waitForECharts();
+    
 
+    
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+        document.querySelectorAll("a.headerlink").forEach(function (link) {
+            link.addEventListener("click", function (e) {
+                e.preventDefault();
+
+                // Build the full URL with the anchor fragment
+                const url = window.location.origin + window.location.pathname + this.getAttribute("href");
+
+                navigator.clipboard.writeText(url).then(function () {
+                    // Optional: brief visual feedback
+                });
+            });
+        });
+    });
 </script>
     
 
     
-
+    
 </head>
-
-<body
-    class="text-foreground group/body overscroll-none font-sans antialiased [--footer-height:calc(var(--spacing)*14)] [--header-height:calc(var(--spacing)*14)] xl:[--footer-height:calc(var(--spacing)*24)] theme-default">
-    <div id="inner-body" class="bg-background relative z-10 flex min-h-svh flex-col">
+<body class="text-foreground group/body overscroll-none font-sans antialiased [--footer-height:calc(var(--spacing)*14)] [--header-height:calc(var(--spacing)*14)] xl:[--footer-height:calc(var(--spacing)*24)] theme-default">
+<div class="bg-background relative z-10 flex min-h-svh flex-col" id="inner-body">
         <header class="bg-background sticky top-0 z-50 w-full" view-transition-name="header">
     <div class="container-wrapper 3xl:fixed:px-0 px-6">
         <div class="3xl:fixed:container flex h-(--header-height) items-center gap-2 **:data-[slot=separator]:!h-4">
@@ -385,6 +209,7 @@
     document.addEventListener("keydown", searchShortcutHandler);
 </script>
                 </div>
+                
                 <div data-orientation="vertical" role="none" data-slot="separator"
                     class="bg-border shrink-0 data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-px ml-2 hidden lg:block">
                 </div>
@@ -401,6 +226,7 @@
                     </span>
                     
                 </a>
+                
                 <div data-orientation="vertical" role="none" data-slot="separator"
                     class="bg-border shrink-0 data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-px 3xl:flex hidden">
                 </div>
@@ -439,16 +265,15 @@
     </div>
 </header>
         <main class="flex flex-1 flex-col">
-            <div class="container-wrapper flex flex-1 flex-col px-2">
-                <div data-slot="sidebar-wrapper" style="--sidebar-width:calc(var(--spacing) * 72);--sidebar-width-icon:3rem;"
-                    class="group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex w-full 3xl:fixed:container 3xl:fixed:px-3 min-h-min flex-1 items-start px-0 [--sidebar-width:220px] [--top-spacing:0] lg:grid lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)] lg:[--sidebar-width:240px] lg:[--top-spacing:calc(var(--spacing)*4)]">
-                    <div data-slot="sidebar"
-                        class="w-(--sidebar-width) flex-col text-sidebar-foreground sticky top-[calc(var(--header-height)+0.6rem)] z-30 hidden h-[calc(100svh-10rem)] overscroll-none bg-transparent [--sidebar-menu-width:--spacing(56)] lg:flex">
-                        <div class="h-9"></div>
-                        <div class="absolute top-8 z-10 h-8 w-(--sidebar-menu-width) shrink-0 bg-gradient-to-b from-background via-background/80 to-background/50 blur-xs"></div>
-                        <div class="absolute top-12 right-2 bottom-0 hidden h-full w-px bg-gradient-to-b from-transparent via-border to-transparent lg:flex"></div>
-                        <div data-slot="sidebar-content" data-sidebar="content" view-transition-name="sidebar"
-                            class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden mx-auto no-scrollbar w-(--sidebar-menu-width) overflow-x-hidden px-2">
+<div class="container-wrapper flex flex-1 flex-col px-2">
+<div class="group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex w-full 3xl:fixed:container 3xl:fixed:px-3 min-h-min flex-1 items-start px-0 [--sidebar-width:220px] [--top-spacing:0] lg:grid lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)] lg:[--sidebar-width:240px] lg:[--top-spacing:calc(var(--spacing)*4)]" data-slot="sidebar-wrapper" style="--sidebar-width:calc(var(--spacing) * 72);--sidebar-width-icon:3rem;">
+<div class="w-(--sidebar-width) flex-col text-sidebar-foreground sticky top-[calc(var(--header-height)+0.6rem)] z-30 hidden h-[calc(100svh-10rem)] overscroll-none bg-transparent [--sidebar-menu-width:--spacing(56)] lg:flex" data-slot="sidebar">
+<div class="h-9"></div>
+<div class="absolute top-8 z-10 h-8 w-(--sidebar-menu-width) shrink-0 bg-gradient-to-b from-background via-background/80 to-background/50 blur-xs">
+</div>
+<div class="absolute top-12 right-2 bottom-0 hidden h-full w-px bg-gradient-to-b from-transparent via-border to-transparent lg:flex">
+</div>
+<div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden mx-auto no-scrollbar w-(--sidebar-menu-width) overflow-x-hidden px-2" data-sidebar="content" data-slot="sidebar-content" view-transition-name="sidebar">
                             
 
 
@@ -466,10 +291,11 @@
         <ul data-slot="sidebar-menu" data-sidebar="menu" class="flex w-full min-w-0 flex-col gap-0.5">
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/index.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="index.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Home
@@ -485,10 +311,11 @@
             
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/installation.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="installation.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Installation
@@ -504,10 +331,11 @@
             
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="true" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/usage.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="usage.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Usage
@@ -523,10 +351,11 @@
             
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/examples.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="examples.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Examples
@@ -542,10 +371,11 @@
             
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/video-generation-api.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="video-generation-api.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Video Generation
@@ -561,10 +391,11 @@
             
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/architecture.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="architecture.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Architecture
@@ -580,10 +411,11 @@
             
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/quirks.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="quirks.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Quirks & Troubleshooting
@@ -599,10 +431,11 @@
             
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/faq.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="faq.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         FAQ
@@ -618,10 +451,11 @@
             
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/testing.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="testing.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Testing
@@ -637,10 +471,11 @@
             
             
             
+            
             <li data-slot="sidebar-menu-item" data-sidebar="menu-item" class="group/menu-item relative">
     <a data-slot="sidebar-menu-button" data-active="false" data-sidebar="menu-button"
-        data-size="default" href="/llmedge/contributing.html"
-        class="hpeer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
+        data-size="default" href="contributing.html"
+        class="peer/menu-button flex items-center gap-2 rounded-md p-2 text-left ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground relative h-[30px] w-fit overflow-visible border border-transparent text-[0.8rem] font-medium after:absolute after:inset-x-0 after:-inset-y-1 after:z-0 after:rounded-md data-[active=true]:border-accent data-[active=true]:bg-accent 3xl:fixed:w-full 3xl:fixed:max-w-48">
 
         
         Contributing
@@ -664,79 +499,58 @@
 
 
 
-<div class="sticky -bottom-1 z-10 h-16 shrink-0 bg-gradient-to-t from-background via-background/80 to-background/50 blur-xs"></div>
+<div
+    class="sticky -bottom-1 z-10 h-16 shrink-0 bg-gradient-to-t from-background via-background/80 to-background/50 blur-xs">
+</div>
                         </div>
-                    </div>
-                    <div class="h-full w-full">
-                        <div data-slot="docs" class="flex items-stretch text-[1.05rem] sm:text-[15px] xl:w-full">
-                            <div class="flex min-w-0 flex-1 flex-col">
-                                <div class="h-(--top-spacing) shrink-0"></div>
+</div>
+<div class="h-full w-full">
+<div class="flex items-stretch text-[1.05rem] sm:text-[15px] xl:w-full" data-slot="docs">
+<div class="flex min-w-0 flex-1 flex-col">
+<div class="h-(--top-spacing) shrink-0"></div>
                                 <article class="w-full" view-transition-name="page">
   <div class="flex flex-col gap-2">
     <div class="flex flex-col gap-2">
       <div id="page-header" class="flex items-start justify-between">
-        <h1
-          class="scroll-m-20 text-4xl font-semibold tracking-tight sm:text-3xl xl:text-4xl"
-        >
+        <h1 class="scroll-m-20 text-4xl font-semibold tracking-tight sm:text-3xl xl:text-4xl">
           Usage
         </h1>
 
         <div class="flex items-center gap-2 pt-1.5">
+          <button
+    onclick="fetch(`https://aatricks.github.io/llmedge/usage.md`).then((r) => r.blob()).then((blob) => navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]))"
+    data-slot="button" class="secondary cursor-pointer">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-copy ">
+        <path
+            d="M7 7m0 2.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667z">
+        </path>
+        <path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"></path>
+    </svg>
+    <span class="max-md:hidden">Copy Page</span>
+</button>
           
-<button onclick="fetch(`https://aatricks.github.io/llmedge/usage.md`).then((r) => r.blob()).then((blob) => navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]))" 
-        data-slot="button" 
-        class="cursor-pointer inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md gap-1.5 px-3 has-[&>svg]:px-2.5 h-8 shadow-none md:h-7 md:text-[0.8rem]">
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tabler-icon tabler-icon-copy ">
-    <path d="M7 7m0 2.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667z"></path><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"></path>
-</svg>
-<span class="max-md:hidden">Copy Page</span>
-</button> 
-          
-          <a
-            data-slot="button"
-            id="previous-button"
+          <a data-slot="button" id="previous-button"
             class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg:not([class*='size-'])]:size-4 shrink-0 [&amp;_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive bg-secondary text-secondary-foreground hover:bg-secondary/80 extend-touch-target size-8 shadow-none md:size-7"
-            href="/llmedge/installation.html"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="tabler-icon tabler-icon-arrow-left"
-            >
+            href="installation.html">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              class="tabler-icon tabler-icon-arrow-left">
               <path d="M5 12l14 0"></path>
               <path d="M5 12l6 6"></path>
               <path d="M5 12l6 -6"></path>
             </svg>
             <span class="sr-only">Previous</span>
           </a>
-           
           
-          <a
-            data-slot="button"
-            id="next-button"
+          
+          <a data-slot="button" id="next-button"
             class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg:not([class*='size-'])]:size-4 shrink-0 [&amp;_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive bg-secondary text-secondary-foreground hover:bg-secondary/80 extend-touch-target size-8 shadow-none md:size-7"
-            href="/llmedge/examples.html"
-          >
+            href="examples.html">
             <span class="sr-only">Next</span>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="tabler-icon tabler-icon-arrow-right"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              class="tabler-icon tabler-icon-arrow-right">
               <path d="M5 12l14 0"></path>
               <path d="M13 18l6 -6"></path>
               <path d="M13 6l6 6"></path>
@@ -748,7 +562,8 @@
       
     </div>
     <div class="flex justify-end items-center">
-       
+      
+      
     </div>
   </div>
   <div class="typography w-full flex-1 *:data-[slot=alert]:first:mt-0">
@@ -842,6 +657,35 @@ crossing JNI once per token:</p>
 </table></div>
 <p>If you are tuning on big.LITTLE devices, adjust <code>batchSize</code> together with <code>numThreads</code> and
 <code>generationThreads</code> rather than treating them in isolation.</p>
+<h3 id="tool-calling">Tool Calling</h3>
+<p>Use <code>edge.text.toolAgent(...)</code> when the model should call app-defined tools instead of only returning text.
+Read-only tools run automatically. Action tools, including the bash tool below, still require an
+explicit policy approval.</p>
+<pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
+val agent =
+    edge.text.toolAgent(
+        tools =
+            listOf(
+                BashToolFactory(
+                    BashToolOptions(
+                        allowRawShell = true,
+                        defaultWorkingDirectory = context.filesDir.absolutePath,
+                    ),
+                ).createBashTool(),
+            ),
+        systemPrompt = &quot;Use shell commands only when they materially help answer the user.&quot;,
+        policy = ToolPolicies.ALLOW_ALL,
+    )
+</code></pre>
+
+<p><code>run_bash_command</code> supports two argument shapes:</p>
+<ul>
+<li><code>argv</code>: a structured array such as <code>["echo", "hello"]</code></li>
+<li><code>command</code>: a raw shell string such as <code>"pwd"</code>; this stays disabled unless <code>allowRawShell = true</code></li>
+</ul>
+<p>The tool captures <code>stdout</code>, <code>stderr</code>, exit code, timeout state, truncation state, and the executed
+command details in the returned <code>ToolResult.data</code>. If <code>bash</code> is unavailable at runtime or process
+startup fails, the tool reports that as a structured tool error.</p>
 <h3 id="image-generation">Image Generation</h3>
 <p>Handles model resolution and memory-safe loading through the <code>edge.image</code> client.</p>
 <pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
@@ -1121,6 +965,62 @@ window, and strips older <code>&lt;think&gt;...&lt;/think&gt;</code> traces befo
 <p>Prefer plain <code>SmolLM</code> with <code>storeChats = true</code> only for tightly scoped native-KV-cache flows where
 you explicitly want the model runtime to own all chat history.</p>
 <p>See <a href="examples.html#chatsession-pattern">Examples</a> for a focused session snippet, or <a href="examples.html#localassetdemoactivity">LocalAssetDemoActivity</a> for a complete app-level example.</p>
+<h3 id="built-in-low-end-model-presets">Built-in low-end model presets</h3>
+<p><code>ModelPresets</code> provides ready-to-use specs for models that run well on low-end devices and are supported
+by the bundled ik_llama.cpp runtime:</p>
+<pre class="codehilite"><code class="language-kotlin">// Microsoft BitNet b1.58 2B4T — native 1-bit LLM (IQ2_BN, ~988 MB).
+// The canonical chat template ships on the preset (BitNet's GGUF metadata one is wrong),
+// so this is well-formed without setting TextModelOptions.chatTemplate.
+val reply = edge.text.generate(prompt = &quot;Hi&quot;, model = ModelPresets.bitnet)
+
+// SmolVLM2-256M — tiny vision model (~280 MB total: base + projector).
+val caption = edge.vision.analyze(
+    image = bitmap,
+    prompt = &quot;Describe this image.&quot;,
+    model = ModelPresets.smolVlm2.model,
+    projector = ModelPresets.smolVlm2.projector,
+)
+</code></pre>
+
+<p>Presets are plain <code>ModelSpec</code>s, so they compose with everything else (<code>edge.models.prefetch(...)</code>,
+<code>ModelRegistry</code>, per-call <code>model =</code> overrides). A template passed via <code>TextModelOptions.chatTemplate</code>
+always overrides a preset's <code>ModelHints.chatTemplate</code>.</p>
+<h3 id="converting-safetensors-models">Converting safetensors models</h3>
+<p>The runtime loads GGUF, not safetensors. <code>ModelSpec.safetensors(...)</code> declares a safetensors source plus
+a target precision; resolution returns a converted GGUF from the app cache, and if none exists yet it
+<strong>converts on-device</strong>: it downloads the model directory (config + safetensors + tokenizer files), runs
+the native converter, optionally quantizes, caches the result, then loads it. <code>safetensorsLocal(path,…)</code>
+does the same from a local model directory (no download).</p>
+<pre class="codehilite"><code class="language-kotlin">// &quot;direct&quot; = F16 (no precision loss); or Q8_0 / Q4_K_M / IQ2_BN for smaller, lossy output.
+val smol = ModelSpec.safetensors(
+    repoId = &quot;HuggingFaceTB/SmolLM-135M-Instruct&quot;,
+    precision = ConversionPrecision.Q4_K_M,
+    tokenizerPre = &quot;smollm&quot;, // REQUIRED: the tokenizer.ggml.pre id to bake (see below)
+)
+val reply = edge.text.generate(prompt = &quot;Hi&quot;, model = smol)
+</code></pre>
+
+<p><code>tokenizerPre</code> is mandatory for on-device conversion of a <strong>GPT2-BPE</strong> text model: a GGUF without a baked
+tokenizer is not loadable, and the BPE pre-tokenizer id cannot be derived safely on-device, so the caller
+declares it (it comes straight from upstream's <code>convert_hf_to_gguf.py</code> table — e.g. <code>"smollm"</code>,
+<code>"llama-bpe"</code>, <code>"gpt-2"</code>). Omit it and resolution fails fast, before downloading anything.</p>
+<p><strong>Bonsai (ternary QLlama)</strong> converts on-device too — pass the adapter, no <code>tokenizerPre</code> needed (it folds
+the per-output <code>.scales</code> into the weights and bakes a self-contained Llama-style tokenizer):</p>
+<pre class="codehilite"><code class="language-kotlin">val bonsai = ModelSpec.safetensors(
+    repoId = &quot;deepgrove/Bonsai&quot;,
+    precision = ConversionPrecision.Q4_K_M,
+    adapter = ConversionAdapter.BONSAI_QLINEAR,
+)
+</code></pre>
+
+<p><strong>Scope (v1):</strong> the on-device converter handles <strong>Llama-architecture models</strong> with either a GPT2-BPE
+tokenizer (needs <code>tokenizerPre</code>) or the Bonsai QLlama adapter, and a single-file <code>model.safetensors</code>.
+Anything else — other architectures, other tokenizer families, sharded safetensors — fails loud with
+instructions; for those, produce the GGUF once on a dev box / CI with
+<a href="../tools/safetensors-convert/README.md"><code>tools/safetensors-convert</code></a> and drop it where the error message
+points (the app cache), or load it directly via <code>ModelSpec.localFile("…/model.gguf")</code>.</p>
+<p>Verified end-to-end on a real arm64 device (SmolLM, HF → convert → quantize → generate) and against the
+host tool on <code>deepgrove/Bonsai</code> (147/147 tensors + 12/12 tokenizer KVs match; both emit the same text).</p>
 <h3 id="downloading-models-from-hugging-face">Downloading Models from Hugging Face</h3>
 <p>For app code, prefer the facade-managed model repository:</p>
 <pre class="codehilite"><code class="language-kotlin">val edge = LLMEdge.create(context, viewModelScope)
@@ -1417,12 +1317,18 @@ sd.close()
 - <code>StableDiffusion.txt2vid(params: VideoGenerateParams): List&lt;Bitmap&gt;</code> — generates video frames</p>
 <p>Refer to the <code>llmedge-examples</code> activities for complete, working code samples.</p>
   </div>
+  
+  <script>
+    document.querySelectorAll('article h2, article h3').forEach((header) => {
+      toc.observer.observe(header);
+    });
+  </script>
 </article>
                                 <div class="mx-auto flex flex-wrap h-16 w-full max-w-2xl items-center gap-2 px-4 md:px-0">
     
     <a data-slot="button"
         class="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg:not([class*='size-'])]:size-4 shrink-0 [&amp;_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive bg-secondary text-secondary-foreground hover:bg-secondary/80 h-8 rounded-md gap-1.5 px-3 has-[&gt;svg]:px-2.5 shadow-none"
-        href="/llmedge/installation.html">
+        href="installation.html">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
             class="tabler-icon tabler-icon-arrow-left ">
@@ -1436,7 +1342,7 @@ sd.close()
     
     <a data-slot="button"
         class="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg:not([class*='size-'])]:size-4 shrink-0 [&amp;_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive bg-secondary text-secondary-foreground hover:bg-secondary/80 h-8 rounded-md gap-1.5 px-3 has-[&gt;svg]:px-2.5 ml-auto shadow-none"
-        href="/llmedge/examples.html">
+        href="examples.html">
         <span class="max-[500px]:hidden">Examples</span>
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -1535,10 +1441,9 @@ sd.close()
     </div>
 </dialog>
                             </div>
-                            <div
-                                class="sticky top-[calc(var(--header-height)+1px)] ml-auto hidden h-[calc(100svh-var(--header-height)-var(--footer-height))] w-72 flex-col gap-4 overflow-hidden overscroll-none pb-8 xl:flex">
-                                <div class="h-(--top-spacing) shrink-0"></div>
-                                <div view-transition-name="toc" class="no-scrollbar overflow-y-auto px-8">
+<div class="sticky top-[calc(var(--header-height)+1px)] ml-auto hidden h-[calc(100svh-var(--header-height)-var(--footer-height))] w-72 flex-col gap-4 overflow-hidden overscroll-none pb-8 xl:flex">
+<div class="h-(--top-spacing) shrink-0"></div>
+                                <div id="toc" view-transition-name="toc" class="no-scrollbar overflow-y-auto px-8">
     <div class="flex flex-col gap-2 p-4 pt-0 text-sm">
         <p class="text-muted-foreground bg-background sticky top-0 h-6 text-xs">On This Page</p>
         
@@ -1547,7 +1452,7 @@ sd.close()
         
         <a href="#gpu-backends-on-android"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#gpu-backends-on-android');">
             GPU Backends on Android
         </a>
         
@@ -1555,62 +1460,68 @@ sd.close()
         
         <a href="#high-level-api-llmedge"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#high-level-api-llmedge');">
             High-Level API (LLMEdge)
         </a>
         
         
         <a href="#text-generation"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#text-generation');">
             Text Generation
         </a>
         
         <a href="#batch-size-tuning"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#batch-size-tuning');">
             Batch Size Tuning
+        </a>
+        
+        <a href="#tool-calling"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#tool-calling');">
+            Tool Calling
         </a>
         
         <a href="#image-generation"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#image-generation');">
             Image Generation
         </a>
         
         <a href="#video-generation-wan-21"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#video-generation-wan-21');">
             Video Generation (Wan 2.1)
         </a>
         
         <a href="#vision-analysis"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#vision-analysis');">
             Vision Analysis
         </a>
         
         <a href="#ocr-text-extraction"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#ocr-text-extraction');">
             OCR (Text Extraction)
         </a>
         
         <a href="#speech-to-text-whisper"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#speech-to-text-whisper');">
             Speech-to-Text (Whisper)
         </a>
         
         <a href="#streaming-transcription-real-time-captioning"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#streaming-transcription-real-time-captioning');">
             Streaming Transcription (Real-time Captioning)
         </a>
         
         <a href="#text-to-speech-bark"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#text-to-speech-bark');">
             Text-to-Speech (Bark)
         </a>
         
@@ -1619,80 +1530,92 @@ sd.close()
         
         <a href="#low-level-api"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="2">
+            data-active="false" data-depth="2" onClick="deferSetActiveTocLink('#low-level-api');">
             Low-Level API
         </a>
         
         
         <a href="#core-components"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#core-components');">
             Core components
         </a>
         
         <a href="#basic-llm-inference"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#basic-llm-inference');">
             Basic LLM Inference
         </a>
         
         <a href="#managed-chat-history-with-edgetextsession"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#managed-chat-history-with-edgetextsession');">
             Managed chat history with edge.text.session(...)
+        </a>
+        
+        <a href="#built-in-low-end-model-presets"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#built-in-low-end-model-presets');">
+            Built-in low-end model presets
+        </a>
+        
+        <a href="#converting-safetensors-models"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#converting-safetensors-models');">
+            Converting safetensors models
         </a>
         
         <a href="#downloading-models-from-hugging-face"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#downloading-models-from-hugging-face');">
             Downloading Models from Hugging Face
         </a>
         
         <a href="#reasoning-controls"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#reasoning-controls');">
             Reasoning Controls
         </a>
         
         <a href="#image-text-extraction-ocr"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#image-text-extraction-ocr');">
             Image Text Extraction (OCR)
         </a>
         
         <a href="#vision-models-low-level"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#vision-models-low-level');">
             Vision Models (Low-Level)
         </a>
         
         <a href="#speech-to-text-whisper-low-level"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#speech-to-text-whisper-low-level');">
             Speech-to-Text (Whisper Low-Level)
         </a>
         
         <a href="#text-to-speech-bark-low-level"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#text-to-speech-bark-low-level');">
             Text-to-Speech (Bark Low-Level)
         </a>
         
         <a href="#stable-diffusion-image-video-generation"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#stable-diffusion-image-video-generation');">
             Stable Diffusion (Image &amp; Video Generation)
         </a>
         
         <a href="#best-practices"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#best-practices');">
             Best Practices
         </a>
         
         <a href="#api-reference"
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
-            data-active="false" data-depth="3">
+            data-active="false" data-depth="3" onClick="deferSetActiveTocLink('#api-reference');">
             API reference
         </a>
         
@@ -1705,13 +1628,14 @@ sd.close()
 
     </div>
     <div class="h-12"></div>
+
 </div>
                             </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </main>
+</div>
+</div>
+</div>
+</div>
+</main>
         <footer view-transition-name="footer"
     class="group-has-[.section-soft]/body:bg-surface/40 3xl:fixed:bg-transparent dark:bg-transparent">
     <div class="container-wrapper px-4 xl:px-6">
@@ -1734,103 +1658,19 @@ sd.close()
 
     
 
-    <script src="js/copy-button.js"></script>
-    <script>updatePygmentsStylesheet();</script>
+    <script integrity="sha384-JLNLRFGzvOp0up707XKgSnAjjt1w5BF/+lbeLQvlf6mNwf0m89IXFdpNAk4t6Hcs" src="js/copy-button.js"></script>
+<script integrity="sha384-JBx6cBEiyhK1KPwZgBHiI6GDaAmvlOxMQFyWAZTEpW5Ifo5XQ2LBcJ61GVOumwF1" src="js/sidebar.js"></script>
+<script integrity="sha384-fNURFMRt0p/HqXnQnV4+CT9dX1GiU5F0fC3pFbg7gfoANytoUMErSW7suWSBkSuF" src="js/slider.js"></script>
+<script>updatePygmentsStylesheet();</script>
     
     <script>fetchStargazers("https://github.com/Aatricks/llmedge");</script>
     
     
-    <script>
-    for (const el of document.querySelectorAll(
-        ".typography .doc code.language-python",
-    )) {
-        el.classList.add("codehilite");
-    }
-
-    for (const el of document.querySelectorAll("article .doc .doc-contents")) {
-        el.innerHTML = el.innerHTML.trim();
-    }
-</script>
+    <script integrity="sha384-Oi13RhLSSgEpSmRyDbfsfmU5N1KzT7IBoQqMenKZoi1Mu+0mCDcF1mKtSZw3cd80" src="js/mkdocstrings.js"></script>
     
     
-    <script src="js/socket.io.min.js"></script>
-<script>
-    function randomString(length = 10) {
-        const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        const array = new Uint32Array(length);
-        crypto.getRandomValues(array);
-        return Array.from(array, x => chars[x % chars.length]).join('');
-    }
-
-    /**
-     * Executes code using Programiz REPL via socket.io
-     * @param {string} lang - Programming language (e.g., "python", "cpp", "javascript")
-     * @param {string} code - Code to execute
-     * @returns {Promise<{output:string,ok:boolean}>} Promise resolving to the output
-     */
-    function runCodexec(code, lang) {
-        console.log(`Running code in ${lang}:`, code);
-        if (!["r", "c", "cpp", "csharp", "java", "python", "javascript", "typescript", "scala", "dart", "ruby", "golang", "php", "swift", "rust"].includes(lang)) {
-            return Promise.reject(new Error(`Unsupported language: ${lang}`));
-        }
-        const sessionId = randomString();
-        const socket = io(`wss://${lang}.repl-web.programiz.com`, {
-            path: "/socket.io",
-            transports: ["websocket"],
-            query: {
-                sessionId,
-                lang,
-                EIO: "3",
-            },
-        });
-
-        const id = `${lang}/${sessionId}`;
-
-
-        return new Promise((resolve, reject) => {
-            let timeout;
-            let result = ""
-            let ok = true;
-
-            socket.on("connect_error", (err) => {
-                console.error(`[${id}] Connection error:`, err);
-                reject(err);
-            });
-
-            socket.on("connect", () => {
-                console.log(`[${id}] Connected`);
-                console.log(`[${id}] Code:\n${code}`);
-                socket.emit("run", { code });
-            });
-
-            socket.on("disconnect", () => {
-                clearTimeout(timeout);
-                // remove bottom marker and trim
-                result = result.replace("=== Code Execution Successful ===", "").trim(); // trim trailing newlines
-                resolve({ output: result, ok });
-                console.log(`[${id}] Disconnected`);
-            });
-
-            socket.on("output", ({ output }) => {
-                console.log(`[${id}] Output received:`, output);
-                if (output.slice(0, 6) === "ERROR!") {
-                    ok = false;
-                    // we try to retrieve the error message in the next message
-                    return
-                }
-                // append output
-                result += output;
-            });
-
-            // safety timeout
-            timeout = setTimeout(() => {
-                reject(new Error(`[${id}] Timeout while waiting for output`));
-                socket.disconnect();
-            }, 10000);
-        });
-    }
-
-</script>
+    <script integrity="sha384-rPk5N1h70rv6ztd86UBQ14H17tD0d/MVi4mzOmieyoRHV5lbqGdg+O/IfTivzm/G" src="js/socket.io.min.js"></script>
+<script integrity="sha384-5H5Z+a/mJwVaYaE9Vg0r1v0Sp+AM09zccLz1lSolwEPwb43iQX7dJaYwd4uwCpVD" src="js/codexec.js"></script>
     
     <script type="speculationrules">
 {
@@ -1844,5 +1684,4 @@ sd.close()
 }
 </script>
 </body>
-
 </html>

@@ -106,6 +106,37 @@ model_and_cache_contracts:
       vision: "VisionRuntimeSupport.createVisionRuntimePool cacheKeyPrefix lambda"
     suffix_rule: "RuntimeCacheKeyBuilder.withBackend(prefix, backend)"
     invariant: "Backend suffix is part of cache identity; invalidation removes all backend variants for a prefix."
+published_artifacts:
+  release_aar:
+    owner: "llmedge/build.gradle.kts + gradle.properties"
+    coordinates:
+      group: "GROUP (default io.github.aatricks)"
+      artifact: "POM_ARTIFACT_ID (default llmedge)"
+      version: "VERSION_NAME (default 0.3.9-SNAPSHOT)"
+    payload:
+      - "release AAR from the Android `release` component"
+      - "sources jar from `android.publishing.singleVariant(\"release\")`"
+      - "javadoc jar from `android.publishing.singleVariant(\"release\")`"
+      - "generated POM metadata from POM_* properties"
+    supported_targets:
+      - "Maven Local"
+      - "Maven Central via mavenCentralUsername / mavenCentralPassword"
+      - "GitHub Packages via owner/repository/user/token properties or CI env"
+      - "ConfiguredRemote repository via LLMEDGE_PUBLISH_REPO_URL / username / password"
+    release_tag_rule:
+      accepted_prefixes:
+        - "V"
+        - "v"
+      normalization: "GitHub Actions publish workflows strip the leading prefix from either tag names or manual workflow version inputs and pass the remaining semantic version to Gradle."
+    signing:
+      workflow_secret_inputs:
+        - "MAVEN_SIGNING_KEY_B64 (preferred)"
+        - "MAVEN_SIGNING_KEY"
+        - "MAVEN_SIGNING_KEY_PASSWORD"
+      input_keys:
+        - "ORG_GRADLE_PROJECT_signingInMemoryKey"
+        - "ORG_GRADLE_PROJECT_signingInMemoryKeyPassword"
+      invariant: "Signing is optional for Maven Local, GitHub Packages, and generic Maven publication, but Maven Central release workflow enables it explicitly through CI env, strips whitespace from base64 input, validates the armored key header, and avoids relying on a separate key ID."
 request_shapes:
   speech:
     owner: "llmedge/src/main/java/io/aatricks/llmedge/speech/SpeechClient.kt"

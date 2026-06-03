@@ -103,8 +103,17 @@ refactor_targets:
       - "llmedge-examples/app/src/main/java/com/example/llmedgeexample/demo/rag"
       - "llmedge-examples/app/src/main/java/com/example/llmedgeexample/demo/tools"
     goal: "Keep demo activities thin and push reusable smoke/demo logic into controllers/support classes; image/video view binding, RAG async workflow logic, form parsing, and media/export helpers are extracted, but more UI-state orchestration can still move out of activities."
+  - name: "maven-central-release-automation"
+    files:
+      - "llmedge/build.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/publish-central.yml"
+      - ".github/workflows/publish-packages.yml"
+      - "README.md"
+    goal: "The repo can now publish to Maven Central through the Central Portal plugin path and to GitHub Packages/custom Maven repositories, but it still depends on external namespace ownership and CI secrets being configured correctly."
 recommended_next_cuts:
   - "Continue moving wrapper-companion/native-load state out of remaining runtime facades when new engines are added so the public wrappers stay thin."
   - "Expose backend details consistently across all runtime traces and user-facing diagnostics for easier fallback debugging."
   - "Keep the shell, generated Kotlin constants, and CMake native target metadata aligned through llmedge-targets.cmake if new engines, aliases, host outputs, or logical target groups are introduced."
   - "Continue trimming example-app activity orchestration, especially tool and video demos, by moving workflow code into controllers/support files instead of growing activity classes."
+  - "Keep the Maven Central workflow aligned with Sonatype portal requirements as they evolve."
