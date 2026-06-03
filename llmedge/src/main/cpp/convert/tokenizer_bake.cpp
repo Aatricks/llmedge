@@ -145,5 +145,103 @@ void bake_gpt2_tokenizer(GgufWriter& w, const std::string& model_dir, const std:
     }
 }
 
+namespace {
+
+// A byte-fallback token "<0xNN>" (exactly 6 chars: '<','0','x',hex,hex,'>').
+bool is_byte_token(const std::string& t) {
+    auto hex = [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    };
+    return t.size() == 6 && t[0] == '<' && t[1] == '0' && t[2] == 'x' && t[5] == '>' && hex(t[3]) && hex(t[4]);
+}
+
+}  // namespace
+
+void bake_llama_tokenizer(GgufWriter& w, const std::string& model_dir) {
+    // GGUF token types.
+    constexpr int32_t TYPE_NORMAL = 1;
+    constexpr int32_t TYPE_CONTROL = 3;
+    constexpr int32_t TYPE_BYTE = 6;
+
+    json tj = json::parse(read_file(model_dir + "/tokenizer.json"));
+    const json& model = tj.at("model");
+
+    // ---- vocab: {token -> id}, contiguous 0..N-1, stored verbatim (SentencePiece form) ----
+    const json& vocab = model.at("vocab");
+    const int n = (int)vocab.size();
+    std::vector<std::string> tokens(n);
+    std::vector<bool> seen(n, false);
+    for (auto it = vocab.begin(); it != vocab.end(); ++it) {
+        const int id = it.value().get<int>();
+        if (id < 0 || id >= n) throw std::runtime_error("tokenizer(llama): vocab id out of range: " + std::to_string(id));
+        tokens[id] = it.key();
+        seen[id] = true;
+    }
+    for (int i = 0; i < n; ++i) {
+        if (!seen[i]) throw std::runtime_error("tokenizer(llama): vocab ids not contiguous (gap at " + std::to_string(i) + ")");
+    }
+
+    // ---- token_type: BYTE for <0xNN>, CONTROL for special added tokens, else NORMAL; scores constant ----
+    std::vector<int32_t> token_type(n, TYPE_NORMAL);
+    for (int i = 0; i < n; ++i) {
+        if (is_byte_token(tokens[i])) token_type[i] = TYPE_BYTE;
+    }
+    if (tj.contains("added_tokens")) {
+        for (const json& at : tj["added_tokens"]) {
+            const int id = at.at("id").get<int>();
+            if (id >= 0 && id < n && at.value("special", false)) token_type[id] = TYPE_CONTROL;
+        }
+    }
+    // Llama/SPM checkpoints reconstructed from a tokenizer.json carry no real per-token scores; upstream
+    // emits a constant sentinel. Match it.
+    std::vector<float> scores(n, -1000.0f);
+
+    // ---- special-token ids + flags from tokenizer_config.json (+ special_tokens_map) ----
+    json cfg = json::parse(read_file(model_dir + "/tokenizer_config.json"));
+    json stm;
+    {
+        std::ifstream stm_in(model_dir + "/special_tokens_map.json", std::ios::binary);
+        if (stm_in) stm = json::parse(std::string((std::istreambuf_iterator<char>(stm_in)), std::istreambuf_iterator<char>()));
+    }
+    std::unordered_map<std::string, int> tok2id;
+    tok2id.reserve(n * 2);
+    for (int i = 0; i < n; ++i) tok2id.emplace(tokens[i], i);
+    auto resolve_id = [&](const char* key) -> long {
+        std::string content;
+        if (cfg.contains(key)) content = token_content(cfg[key]);
+        if (content.empty() && stm.is_object() && stm.contains(key)) content = token_content(stm[key]);
+        if (content.empty()) return -1;
+        auto found = tok2id.find(content);
+        return found == tok2id.end() ? -1 : (long)found->second;
+    };
+    const long bos = resolve_id("bos_token");
+    const long eos = resolve_id("eos_token");
+    const long unk = resolve_id("unk_token");
+    long pad = resolve_id("pad_token");
+    if (pad < 0) pad = unk;  // upstream defaults padding to the unknown token when none is declared
+
+    const bool add_bos = get_bool(cfg, "add_bos_token", false);
+    const bool add_eos = get_bool(cfg, "add_eos_token", false);
+    const bool add_space_prefix = get_bool(cfg, "add_prefix_space", false);
+
+    // ---- emit ----
+    w.set_str("tokenizer.ggml.model", "llama");
+    w.set_str("tokenizer.ggml.pre", "default");
+    w.set_arr_str("tokenizer.ggml.tokens", tokens);
+    w.set_arr_f32("tokenizer.ggml.scores", scores);
+    w.set_arr_i32("tokenizer.ggml.token_type", token_type);
+    if (bos >= 0) w.set_u32("tokenizer.ggml.bos_token_id", (uint32_t)bos);
+    if (eos >= 0) w.set_u32("tokenizer.ggml.eos_token_id", (uint32_t)eos);
+    if (unk >= 0) w.set_u32("tokenizer.ggml.unknown_token_id", (uint32_t)unk);
+    if (pad >= 0) w.set_u32("tokenizer.ggml.padding_token_id", (uint32_t)pad);
+    w.set_bool("tokenizer.ggml.add_space_prefix", add_space_prefix);
+    w.set_bool("tokenizer.ggml.add_bos_token", add_bos);
+    w.set_bool("tokenizer.ggml.add_eos_token", add_eos);
+
+    if (cfg.contains("chat_template") && cfg["chat_template"].is_string()) {
+        w.set_str("tokenizer.chat_template", cfg["chat_template"].get<std::string>());
+    }
+}
+
 }  // namespace convert
 }  // namespace llmedge

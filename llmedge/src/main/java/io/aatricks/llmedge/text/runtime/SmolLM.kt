@@ -90,6 +90,7 @@ class SmolLM internal constructor(
             outPath: String,
             tokenizerPre: String?,
             precision: String,
+            adapter: String,
         )
 
         /**
@@ -101,6 +102,9 @@ class SmolLM internal constructor(
          * [precision] is a [io.aatricks.llmedge.model.ConversionPrecision] ggufLabel: "f16" writes the
          * converter's native F16 output directly; "q8_0" / "q4_k_m" / "iq2_bn" / "iq2_bn_r4" convert to
          * F16 first and then requantize via the native llama quantizer.
+         * [adapter] is a [io.aatricks.llmedge.model.ConversionAdapter] cliFlag: "" (stock) bakes the
+         * GPT2-BPE tokenizer using [tokenizerPre]; "bonsai-qlinear" folds Bonsai's per-output `.scales`
+         * into the weights and bakes the Llama-style tokenizer (then [tokenizerPre] is ignored).
          *
          * Throws [UnsatisfiedLinkError] if the converter was not compiled into this build, or
          * [IllegalStateException] if the model/tokenizer is unsupported or quantization fails.
@@ -110,9 +114,10 @@ class SmolLM internal constructor(
             outPath: String,
             tokenizerPre: String?,
             precision: String = "f16",
+            adapter: String = "",
         ) {
             currentNativeLibrarySupport().ensureLoaded()
-            nativeConvertSafetensors(modelDir, outPath, tokenizerPre, precision)
+            nativeConvertSafetensors(modelDir, outPath, tokenizerPre, precision, adapter)
         }
 
         internal fun createLoadedForTests(

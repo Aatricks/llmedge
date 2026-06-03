@@ -7,6 +7,8 @@
 // diff; tokenizer KVs by a KV diff (see test_convert.cpp + compare_gguf.py + compare_tokenizer_kv.py).
 #pragma once
 
+#include <cstddef>  // size_t
+#include <cstdint>  // uint16_t (GCC does not pull these in transitively via <string>)
 #include <string>
 
 namespace llmedge {
@@ -14,14 +16,19 @@ namespace convert {
 
 // Convert a Llama-arch HF model directory (config.json + *.safetensors) to a GGUF at out_path.
 //
-// When `tokenizer_pre` is non-empty, the GPT2-BPE tokenizer is also baked from tokenizer.json /
-// tokenizer_config.json (see tokenizer_bake.h for why `pre` must be caller-supplied). When it is
-// empty, only tensors + llama.* hparams are written (the Layer 3 tensor-only path).
+// `adapter` selects a model-specific conversion profile:
+//   ""  / "none"            — stock Llama: GPT2-BPE tokenizer baked when `tokenizer_pre` is non-empty.
+//   "bonsai-qlinear"        — Bonsai/QLlama: fold each weight's per-output `.scales` into the weight
+//                             (in f32, before the Q/K permute), and bake the Llama-style tokenizer
+//                             (`tokenizer_pre` is ignored — Bonsai uses `pre="default"`).
+//
+// When no tokenizer is baked (stock profile with empty `tokenizer_pre`), only tensors + llama.* hparams
+// are written (the Layer 3 tensor-only path).
 //
 // Throws std::runtime_error on unsupported architecture or malformed input.
 // Returns the number of tensors written.
 size_t convert_llama_dir(const std::string& model_dir, const std::string& out_path,
-                         const std::string& tokenizer_pre = "");
+                         const std::string& tokenizer_pre = "", const std::string& adapter = "");
 
 // fp32 -> fp16 (round to nearest even) and bf16 -> fp16, exposed for tests.
 uint16_t f32_to_f16(float f);
