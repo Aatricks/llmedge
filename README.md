@@ -23,7 +23,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 - **Optimized Inference**: Native KV cache reuse for compact chats, default batched blocking and streaming text generation, separate prompt vs generation thread tuning, and Kotlin-managed `ChatSession` replay for reasoning-heavy models
 - **Speech-to-Text (STT)**: Whisper.cpp integration with timestamp support, language detection, streaming transcription, and SRT generation
 - **Text-to-Speech (TTS)**: Bark.cpp integration with ARM optimizations
-- **Image Generation**: Stable Diffusion with EasyCache and LoRA support
+- **Image Generation**: Stable Diffusion with EasyCache and LoRA support, plus FLUX.2 Klein 4B (distilled DiT, the architecture behind PrismML's binary/ternary Bonsai Image)
 - **Video Generation**: Wan 2.1 models (4-64 frames) with sequential loading
 - **On-device RAG**: PDF indexing, embeddings, vector search, Q&A
 - **OCR**: Google ML Kit text extraction
@@ -528,6 +528,47 @@ imageView.setImageBitmap(bitmap)
 - **LoRA**: Apply fine-tuned weights on the fly without merging models.
 
 For explicit runtime ownership or custom native-load experiments, the `StableDiffusion` class remains available in the expert API layer.
+
+#### FLUX.2 Klein 4B (distilled DiT, split model)
+
+[FLUX.2 Klein 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) is a step-distilled diffusion transformer that produces high-quality images in ~4 steps. It is the same architecture PrismML's binary/ternary **Bonsai Image** models are built on — Bonsai's own 1-bit/ternary weights ship only in MLX (Apple) and GemLite (CUDA) packings, which don't load on Android, so this GGUF build is the Android-runnable equivalent at a comparable footprint.
+
+Unlike a classic single-file checkpoint, FLUX.2 loads as three components: the diffusion transformer (GGUF), a Qwen3-4B text encoder, and the FLUX.2 VAE. The `Flux2Klein` helper wires all three plus the distilled defaults (CFG 1.0, 4 steps):
+
+```kotlin
+val edge = LLMEdge.create(context, viewModelScope)
+val bitmap = edge.image.generate(
+    Flux2Klein.imageRequest("a red fox in snow, detailed, 8k"),
+)
+```
+
+Internally this sets `ImageGenerationRequest.splitDiffusionModel = true`, which routes the transformer to stable-diffusion.cpp's `diffusion_model_path` and the Qwen3 encoder to `llm_path` (instead of the single `model_path` slot), and offloads weights to CPU. Footprint: ~2.5 GB DiT (Q4_0) + ~2.1 GB encoder (Q3_K_M) + ~0.3 GB VAE, so it targets higher-RAM devices.
+
+##### Low-end: Bonsai (QAT) DiT for a smaller transformer
+
+PrismML's **Bonsai Image** models are FLUX.2 Klein 4B fine-tuned with quantization-aware training (QAT) to ternary weights. They ship only in MLX/GemLite packings (not Android-loadable) and in a dense-bf16 `-unpacked` form using the non-standard `Flux2KleinPipeline` diffusers naming, which stable-diffusion.cpp cannot ingest directly.
+
+`scripts/convert_bonsai_flux2_to_bfl.py` converts a Bonsai unpacked transformer into the BFL naming sdcpp expects (renames + fuses the double-block `to_q/k/v` into `*_attn.qkv`). Then quantize with stable-diffusion.cpp:
+
+```bash
+python3 scripts/convert_bonsai_flux2_to_bfl.py \
+    bonsai-image-ternary-4B-unpacked/transformer/diffusion_pytorch_model.safetensors \
+    bonsai-flux2-bfl.safetensors
+sd -M convert -m bonsai-flux2-bfl.safetensors --type q2_K -o bonsai-flux2-klein-q2_K.gguf
+```
+
+A prebuilt Q2_K of this is published at [`Aatricks/bonsai-image-ternary-4B-FLUX2-klein-GGUF`](https://huggingface.co/Aatricks/bonsai-image-ternary-4B-FLUX2-klein-GGUF) and wired into `Flux2Klein.bonsaiDiffusionModel`. The QAT weights survive `Q2_K` well, giving a **coherent ~1.3 GB DiT** (vs ~2.5 GB for base Q4_0). Note: ggml's literal ternary types (`tq1_0`/`tq2_0`, ~0.8–1.0 GB) load and run on CPU but their per-256-weight scale is too coarse for Bonsai's per-128 trained scales and produce degraded output — `Q2_K`'s finer per-16 sub-block scales are what preserve quality.
+
+#### Sequential loading for ~4 GB-RAM devices
+
+The text encoder (~2 GB) is the dominant memory cost. Sequential mode loads only the Qwen3 encoder to precompute the text conditioning, frees it, then loads only the DiT to generate — so peak RAM is `max(encoder, DiT)` (~2.6 GB) instead of the sum (~4 GB):
+
+```kotlin
+val bmp = edge.image.generate(Flux2Klein.bonsaiImageRequest("a red fox in snow, 8k"))
+// or for the base FLUX.2 Klein DiT: Flux2Klein.imageRequest(prompt, sequential = true)
+```
+
+`ImageGenerationRequest.sequential` drives this; the runtime runs the two phases automatically (encoder-only → precompute → free → DiT-only → generate via a precomputed condition), backed by stable-diffusion.cpp's `sd_precompute_condition` / `sd_generate_image_with_precomputed_condition`.
 
 ### Video Generation
 

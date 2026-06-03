@@ -23,7 +23,69 @@ internal class ImageGenerationExecutor(
     private val requestExecutor: DiffusionRequestExecutor,
     private val logTag: String,
 ) {
-    suspend fun generate(params: ImageGenerationRequest): Bitmap =
+    suspend fun generate(params: ImageGenerationRequest): Bitmap {
+        if (params.sequential && params.splitDiffusionModel && params.textEncoder != null) {
+            return generateSequential(params)
+        }
+        return generateDirect(params)
+    }
+
+    /**
+     * FLUX.2 sequential low-memory generation: phase 1 loads only the Qwen3 encoder to precompute
+     * the conditioning (then frees it), phase 2 loads only the DiT to generate. Peak RAM is the
+     * larger phase, not the sum.
+     */
+    private suspend fun generateSequential(params: ImageGenerationRequest): Bitmap =
+        generationMutex.withLock {
+            state.resetForRequest()
+            val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, config)
+            val requestId = imageRequestIds.incrementAndGet()
+            AndroidLogAdapter.i(logTag, "FLUX.2 sequential image request: requestId=$requestId")
+
+            val cond =
+                requestExecutor.withRuntimeModel(
+                    spec = plan.conditioningRequest.spec,
+                    options = plan.conditioningRequest.options,
+                    retryMessage = "Retrying FLUX.2 sequential conditioning on the next backend for",
+                ) { model, _, _ ->
+                    model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
+                }
+
+            requestExecutor.withRuntimeModel(
+                spec = plan.diffusionRequest.spec,
+                options = plan.diffusionRequest.options,
+                retryMessage = "Retrying FLUX.2 sequential diffusion on the next backend for",
+            ) { model, _, _ ->
+                val rgb =
+                    model.txt2ImgWithPrecomputedCondition(
+                        prompt = params.prompt,
+                        negative = "",
+                        width = params.width,
+                        height = params.height,
+                        steps = params.steps,
+                        cfg = params.cfgScale,
+                        seed = params.seed,
+                        cond = cond,
+                        uncond = null,
+                    ) ?: throw IllegalStateException("FLUX.2 sequential generation returned null")
+                rgbToBitmap(rgb, params.width, params.height)
+            }
+        }
+
+    private fun rgbToBitmap(rgb: ByteArray, width: Int, height: Int): Bitmap {
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val px = IntArray(width * height)
+        for (i in 0 until width * height) {
+            val r = rgb[i * 3].toInt() and 0xFF
+            val g = rgb[i * 3 + 1].toInt() and 0xFF
+            val b = rgb[i * 3 + 2].toInt() and 0xFF
+            px[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        bmp.setPixels(px, 0, width, 0, 0, width, height)
+        return bmp
+    }
+
+    private suspend fun generateDirect(params: ImageGenerationRequest): Bitmap =
         generationMutex.withLock {
             state.resetForRequest()
             val request = ImageRuntimeRequestPlanner.imageRequest(params, config)

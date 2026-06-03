@@ -42,9 +42,16 @@ if(BUILD_SDCPP)
     # Add stable-diffusion.cpp
     add_subdirectory(${SD_ROOT} stable-diffusion)
 
-    # Build sdcpp shared library
+    # Build sdcpp shared library. Compile the full split JNI source set (matching the Android
+    # build in cmake/llmedge-stable-diffusion.cmake) so the desktop library actually exports the
+    # JNI entry points (nativeCreate, txt2img, ...) and host image/video E2E tests can load it.
     add_library(${LLMEDGE_TARGET_SDCPP} SHARED
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_common.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_condition.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_image.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_load.cpp
+        ${LLMEDGE_CPP_ROOT}/sdcpp_jni_video.cpp
     )
 
     target_include_directories(${LLMEDGE_TARGET_SDCPP} PRIVATE

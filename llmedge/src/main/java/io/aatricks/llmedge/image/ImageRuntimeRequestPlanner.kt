@@ -30,6 +30,9 @@ internal object ImageRuntimeRequestPlanner {
                 DiffusionRuntimeSpec(
                     role = DiffusionRuntimeRole.IMAGE,
                     model = params.model ?: config.models.image,
+                    vae = params.vae,
+                    textEncoder = params.textEncoder,
+                    splitDiffusionModel = params.splitDiffusionModel,
                 ),
             options =
                 DiffusionLoadOptions(
@@ -38,9 +41,11 @@ internal object ImageRuntimeRequestPlanner {
                     // heuristics, but should not silently force CPU or CPU-offloaded weights.
                     allowGpu = true,
                     nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
-                    offloadToCpu = false,
-                    keepClipOnCpu = false,
-                    keepVaeOnCpu = false,
+                    // Split models (FLUX.2 Klein) bundle a multi-GB DiT + Qwen3 encoder; offload to
+                    // CPU and keep the encoder/VAE off-GPU so they fit mobile memory budgets.
+                    offloadToCpu = params.splitDiffusionModel,
+                    keepClipOnCpu = params.splitDiffusionModel,
+                    keepVaeOnCpu = params.splitDiffusionModel,
                     flashAttn = params.flashAttention,
                     vaeDecodeOnly = true,
                     // Image generation should stay on the direct path unless the caller
@@ -53,6 +58,58 @@ internal object ImageRuntimeRequestPlanner {
                     loraApplyMode = params.loraApplyMode,
                 ),
         )
+
+    /**
+     * Two-phase plan for FLUX.2 sequential low-memory generation: phase 1 loads ONLY the Qwen3
+     * encoder (to precompute the conditioning), phase 2 loads ONLY the DiT (+VAE). Peak RAM is the
+     * larger of the two phases, not their sum.
+     */
+    fun imageSequentialPlan(
+        params: ImageGenerationRequest,
+        config: LLMEdgeConfig,
+    ): DiffusionExecutionPlan.Sequential {
+        val encoderSpec = params.textEncoder ?: error("sequential image generation requires a textEncoder")
+        val ditModel = params.model ?: config.models.image
+        val baseOptions =
+            DiffusionLoadOptions(
+                subsystem = ComputeSubsystem.IMAGE,
+                allowGpu = true,
+                nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
+                offloadToCpu = true,
+                keepClipOnCpu = true,
+                keepVaeOnCpu = true,
+                flashAttn = params.flashAttention,
+                vaeDecodeOnly = true,
+                sequentialLoad = true,
+                preferPerformanceMode = config.image.preferPerformanceMode,
+                loraModelDir = null,
+                loraApplyMode = params.loraApplyMode,
+            )
+        return DiffusionExecutionPlan.Sequential(
+            conditioningRequest =
+                PlannedDiffusionRuntimeRequest(
+                    spec =
+                        DiffusionRuntimeSpec(
+                            role = DiffusionRuntimeRole.IMAGE,
+                            model = encoderSpec,
+                            encoderOnly = true,
+                        ),
+                    options = baseOptions.copy(nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING)),
+                ),
+            diffusionRequest =
+                PlannedDiffusionRuntimeRequest(
+                    spec =
+                        DiffusionRuntimeSpec(
+                            role = DiffusionRuntimeRole.IMAGE,
+                            model = ditModel,
+                            vae = params.vae,
+                            textEncoder = null,
+                            splitDiffusionModel = true,
+                        ),
+                    options = baseOptions,
+                ),
+        )
+    }
 
     fun directVideoRequest(
         params: VideoGenerationRequest,

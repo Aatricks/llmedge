@@ -50,16 +50,16 @@ copy_output() {
 
 prepare_sdcpp_mods() {
     local build_dir="$1"
-    local -n out_args_ref="$2"
+    # NOTE: bind a DISTINCT nameref name. The caller already binds a nameref called out_args_ref
+    # and passes the underlying array name; a nameref named out_args_ref pointing at out_args_ref is
+    # circular, and bash silently drops appends (this is why -DSD_ROOT_OVERRIDE never reached cmake).
+    local -n _psm_out_args="$2"
 
-    local use_mods="${LLMEDGE_SDCPP_USE_MODS:-}"
-    if [[ -z "$use_mods" ]]; then
-      if [[ -f "$ROOT_DIR/mods/stable-diffusion.cpp" || -f "$ROOT_DIR/mods/stable-diffusion.h" || -f "$ROOT_DIR/mods/wan.hpp" ]]; then
-        use_mods=1
-      else
-        use_mods=0
-      fi
-    fi
+    # The mods/ overlay is currently STALE relative to the pinned stable-diffusion.cpp submodule
+    # (it references helpers/structs from a different snapshot and will not compile). The active
+    # sdcpp customizations now live in the submodule directly, so the overlay is OFF by default and
+    # must be explicitly opted into (LLMEDGE_SDCPP_USE_MODS=1) after it has been refreshed.
+    local use_mods="${LLMEDGE_SDCPP_USE_MODS:-0}"
 
     if [[ "$use_mods" != "1" ]]; then
         return
@@ -98,7 +98,7 @@ prepare_sdcpp_mods() {
       fi
     done
 
-    out_args_ref+=("-DSD_ROOT_OVERRIDE=$patched_root")
+    _psm_out_args+=("-DSD_ROOT_OVERRIDE=$patched_root")
 }
 
 configure_target() {
@@ -109,7 +109,7 @@ configure_target() {
     out_args_ref=(-DCMAKE_BUILD_TYPE=Release)
     case "$target" in
         sdcpp)
-            prepare_sdcpp_mods "$build_dir" out_args_ref
+            prepare_sdcpp_mods "$build_dir" "$3"
             out_args_ref+=(
                 -DBUILD_SDCPP=ON
                 -DBUILD_SMOLLM=OFF

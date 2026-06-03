@@ -138,6 +138,54 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
                 return nullptr;
             }
+        } else if (handle->llm_ctx) {
+            // FLUX.2 sequential mode: encoder-only (Qwen3) handle precomputes the conditioning.
+            auto* llm = static_cast<LLMEmbedder*>(handle->llm_ctx);
+            try {
+                struct ggml_init_params params;
+                params.mem_size = 1024 * 1024 * 1024;
+                params.mem_buffer = nullptr;
+                params.no_alloc = false;
+                struct ggml_context* work_ctx = ggml_init(params);
+
+                ConditionerParams cparams;
+                cparams.text      = resolved.prompt.c_str();
+                cparams.clip_skip = clipSkip;
+                cparams.width     = width;
+                cparams.height    = height;
+
+                SDCondition sd_cond =
+                        llm->get_learned_condition(work_ctx, sd_get_num_physical_cores_safe(), cparams);
+
+                cond = static_cast<sd_condition_raw_t*>(calloc(1, sizeof(sd_condition_raw_t)));
+                if (!cond) {
+                    ggml_free(work_ctx);
+                    throw std::runtime_error("Out of memory allocating condition");
+                }
+
+                auto tensor_to_raw_f32 = [](struct ggml_tensor* t, sd_tensor_raw_t& raw) {
+                    if (!t) return;
+                    raw.ndims = ggml_n_dims(t);
+                    for (int i = 0; i < 4; ++i) raw.ne[i] = t->ne[i];
+                    const size_t n = static_cast<size_t>(ggml_nelements(t));
+                    raw.data = static_cast<float*>(malloc(sizeof(float) * n));
+                    if (!raw.data) {
+                        raw.ndims = 0;
+                        return;
+                    }
+                    for (size_t i = 0; i < n; ++i) raw.data[i] = ggml_get_f32_1d(t, static_cast<int>(i));
+                };
+
+                if (sd_cond.c_crossattn) tensor_to_raw_f32(sd_cond.c_crossattn, cond->c_crossattn);
+                if (sd_cond.c_vector) tensor_to_raw_f32(sd_cond.c_vector, cond->c_vector);
+                if (sd_cond.c_concat) tensor_to_raw_f32(sd_cond.c_concat, cond->c_concat);
+
+                ggml_free(work_ctx);
+            } catch (const std::exception& e) {
+                releaseStrings();
+                throwJavaException(env, "java/lang/RuntimeException", e.what());
+                return nullptr;
+            }
         } else {
             throwJavaException(env, "java/lang/IllegalStateException", "Invalid handle state");
             releaseStrings();

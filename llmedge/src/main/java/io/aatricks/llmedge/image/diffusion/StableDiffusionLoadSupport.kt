@@ -20,6 +20,11 @@ internal data class StableDiffusionResolvedAssets(
     val vaePath: String?,
     val t5xxlPath: String?,
     val metadata: VideoModelMetadata,
+    // Split-model (FLUX.2 Klein): when set, the DiT lives here and native modelPath is left empty.
+    val diffusionModelPath: String? = null,
+    val llmPath: String? = null,
+    // Encoder-only (FLUX.2 sequential precompute phase): load ONLY the Qwen3 encoder, no DiT.
+    val encoderOnly: Boolean = false,
 )
 
 internal object StableDiffusionLoadSupport {
@@ -33,6 +38,46 @@ internal object StableDiffusionLoadSupport {
         onFallback: (String) -> Unit = {},
     ): StableDiffusionResolvedAssets =
         withContext(Dispatchers.IO) {
+            // Encoder-only (FLUX.2 sequential precompute): only an llmPath is supplied. Load just the
+            // Qwen3 encoder so the precompute phase peaks at the encoder size, not encoder+DiT.
+            if (request.diffusionModelPath == null && request.modelPath == null && request.llmPath != null) {
+                return@withContext StableDiffusionResolvedAssets(
+                    modelPath = request.llmPath,
+                    vaePath = null,
+                    t5xxlPath = null,
+                    llmPath = request.llmPath,
+                    diffusionModelPath = null,
+                    encoderOnly = true,
+                    metadata = inferVideoModelMetadata(request.llmPath, request.modelId, request.filename),
+                )
+            }
+
+            // Split-model (FLUX.2 Klein): caller supplies pre-resolved absolute paths for the DiT,
+            // Qwen3 encoder and VAE. The DiT path doubles as modelPath for metadata/heuristics, but
+            // the native layer routes it to diffusion_model_path and leaves model_path empty.
+            if (request.diffusionModelPath != null) {
+                validateResolvedAssets(
+                    request.diffusionModelPath,
+                    request.vaePath,
+                    request.t5xxlPath,
+                    request.taesdPath,
+                    request.loraModelDir,
+                )
+                return@withContext StableDiffusionResolvedAssets(
+                    modelPath = request.diffusionModelPath,
+                    vaePath = request.vaePath,
+                    t5xxlPath = request.t5xxlPath,
+                    diffusionModelPath = request.diffusionModelPath,
+                    llmPath = request.llmPath,
+                    metadata =
+                        inferVideoModelMetadata(
+                            request.diffusionModelPath,
+                            request.modelId,
+                            request.filename,
+                        ),
+                )
+            }
+
             if (request.modelPath != null) {
                 validateResolvedAssets(
                     request.modelPath,
@@ -350,10 +395,15 @@ internal object StableDiffusionLoadSupport {
         keepVaeOnCpu: Boolean,
     ): StableDiffusionNativeLoadRequest =
         StableDiffusionNativeLoadRequest(
-            modelPath = resolved.modelPath,
+            // For split models the DiT must go to diffusion_model_path; model_path must be empty
+            // so sdcpp doesn't try to load it as a complete checkpoint. Encoder-only loads also
+            // leave model_path empty (only llm_path is sent → the Qwen3-only handle).
+            modelPath = if (resolved.diffusionModelPath != null || resolved.encoderOnly) "" else resolved.modelPath,
             vaePath = resolved.vaePath,
             t5xxlPath = resolved.t5xxlPath,
             taesdPath = request.assets.taesdPath,
+            diffusionModelPath = resolved.diffusionModelPath,
+            llmPath = resolved.llmPath,
             nThreads = request.runtime.nThreads,
             enableOpenCl = backend == ComputeBackend.OPENCL,
             useVulkan = backend == ComputeBackend.VULKAN,

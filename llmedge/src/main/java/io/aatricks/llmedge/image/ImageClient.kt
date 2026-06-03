@@ -37,6 +37,16 @@ data class ImageGenerationRequest(
     val loraModelDir: String? = null,
     val loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
     val model: ModelSpec? = null,
+    // Split-model image generation (FLUX.2 Klein): [model] is the diffusion transformer,
+    // [vae] the autoencoder, [textEncoder] the Qwen3 LLM encoder. When [splitDiffusionModel] is
+    // true the runtime routes [model] -> diffusion_model_path and [textEncoder] -> llm_path.
+    val vae: ModelSpec? = null,
+    val textEncoder: ModelSpec? = null,
+    val splitDiffusionModel: Boolean = false,
+    // FLUX.2 sequential low-memory mode: load the encoder alone to precompute the conditioning,
+    // free it, then load the DiT alone to generate. Peak RAM = max(encoder, DiT) instead of the
+    // sum. Requires [splitDiffusionModel] + a [textEncoder]. CFG must be 1.0 (no uncond pass).
+    val sequential: Boolean = false,
 )
 
 data class VideoGenerationRequest(
