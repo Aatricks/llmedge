@@ -75,6 +75,8 @@ class RAGEngine(
 
     companion object {
         internal const val TAG = "RAGEngine"
+        /** Hard cap on RAG answer length so small models stop before exhausting the context window. */
+        internal const val MAX_ANSWER_TOKENS = 256
         internal const val SYSTEM_PROMPT =
             "You are a question answering assistant. Use only the provided context to answer. If the context does not contain the answer, say 'I don't know'."
     }

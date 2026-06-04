@@ -5,8 +5,11 @@ import io.aatricks.llmedge.huggingface.HuggingFaceHub
 internal object DefaultModelCatalog {
     val text: ModelSpec =
         huggingFaceSpec(
-            repoId = "HuggingFaceTB/SmolLM-135M-Instruct-GGUF",
-            filename = "smollm-135m-instruct.q4_k_m.gguf",
+            // HuggingFaceTB/SmolLM-135M-Instruct-GGUF is unavailable to anonymous clients (HTTP 401),
+            // which made every default-text consumer (e.g. the RAG session) fail to build. Use the
+            // public MaziyarPanahi mirror, which serves the same model.
+            repoId = "MaziyarPanahi/SmolLM-135M-Instruct-GGUF",
+            filename = "SmolLM-135M-Instruct.Q4_K_M.gguf",
             artifactKind = ModelArtifactKind.GGUF_MODEL,
             capabilities = setOf(ModelCapability.TEXT),
         )
