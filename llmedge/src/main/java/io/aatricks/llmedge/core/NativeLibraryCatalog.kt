@@ -2,7 +2,6 @@ package io.aatricks.llmedge.core
 
 import android.os.Build
 import java.io.File
-import java.io.FileNotFoundException
 
 internal object NativeLibraryCatalog {
     val SMOLLM: String = NativeTargetNames.SMOLLM
@@ -25,12 +24,20 @@ internal object NativeLibraryCatalog {
         val hardware = Build.HARDWARE.orEmpty()
         val supportedAbis = Build.SUPPORTED_ABIS ?: emptyArray()
         val supported32BitAbis = Build.SUPPORTED_32_BIT_ABIS ?: emptyArray()
-        val hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp")
-        val hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp")
-        val hasI8mm = cpuFeatures.contains("i8mm")
+        // Prefer kernel hwcaps (getauxval via the baseline-ISA probe library) —
+        // authoritative and immune to /proc/cpuinfo formatting differences. The
+        // string-scraping below is only the fallback when the probe is unavailable.
+        val probed = NativeCpuFeatures.features
+        val hasFp16 =
+            probed?.hasFp16 ?: (cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp"))
+        val hasDotProd =
+            probed?.hasDotProd ?: (cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp"))
+        val hasI8mm = probed?.hasI8mm ?: cpuFeatures.contains("i8mm")
         val isAtLeastArmV82 =
-            cpuFeatures.contains("asimd") && cpuFeatures.contains("crc32") && cpuFeatures.contains("aes")
-        val isAtLeastArmV84 = cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat")
+            probed?.isAtLeastArmV82
+                ?: (cpuFeatures.contains("asimd") && cpuFeatures.contains("crc32") && cpuFeatures.contains("aes"))
+        val isAtLeastArmV84 =
+            probed?.isAtLeastArmV84 ?: (cpuFeatures.contains("dcpop") && cpuFeatures.contains("uscat"))
         val isEmulated =
             hardware.contains("goldfish") || hardware.contains("ranchu")
 
@@ -73,7 +80,9 @@ internal object NativeLibraryCatalog {
         val cpuInfo =
             try {
                 File("/proc/cpuinfo").readText()
-            } catch (_: FileNotFoundException) {
+            } catch (_: Throwable) {
+                // Any read failure (not just a missing file) must not crash class init;
+                // callers fall back to the universal library.
                 ""
             }
         return cpuInfo.substringAfter("Features").substringAfter(":").substringBefore("\n").trim()

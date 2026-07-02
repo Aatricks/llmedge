@@ -3,6 +3,28 @@
 #include <jni.h>
 #include <string>
 
+#if defined(__aarch64__) && defined(__linux__)
+#include <sys/auxv.h>
+#endif
+
+// CPU feature probe for native-library variant selection. Lives in the GGUF
+// reader library because it is always compiled for the baseline ISA and is
+// therefore safe to load on any device before feature detection has run.
+// Returns [AT_HWCAP, AT_HWCAP2] on aarch64 Linux/Android, [0, 0] elsewhere.
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_io_aatricks_llmedge_core_NativeCpuFeatures_nativeGetHwcaps(JNIEnv* env, jclass) {
+    jlong caps[2] = {0, 0};
+#if defined(__aarch64__) && defined(__linux__)
+    caps[0] = static_cast<jlong>(getauxval(AT_HWCAP));
+    caps[1] = static_cast<jlong>(getauxval(AT_HWCAP2));
+#endif
+    jlongArray result = env->NewLongArray(2);
+    if (result) {
+        env->SetLongArrayRegion(result, 0, 2, caps);
+    }
+    return result;
+}
+
 namespace {
 // GGUF metadata is untrusted file content and may contain 4-byte UTF-8
 // (invalid Modified UTF-8), so it must not go through NewStringUTF.
