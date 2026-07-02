@@ -150,10 +150,12 @@ object CpuTopology {
                 }
             }
             TaskType.TOKEN_GENERATION -> {
-                // Use fewer cores to reduce contention
-                // Token generation is sequential, so fewer threads can be faster
+                // Decode is a sequential sync-per-token workload. Measured on-device
+                // (S22, 1x X2 + 3x A710 P-cores, 135M Q4_K_M, P-core affinity active):
+                // P-1 threads = 107 tok/s vs P/2 = 84 and P = 70 — leaving one P-core
+                // free for the coordinating thread beats both fewer and all cores.
                 if (coreInfo.performanceCores >= 4) {
-                    (coreInfo.performanceCores / 2).coerceAtLeast(2)
+                    (coreInfo.performanceCores - 1).coerceAtLeast(2)
                 } else {
                     Runtime.getRuntime().availableProcessors().coerceAtMost(4)
                 }
