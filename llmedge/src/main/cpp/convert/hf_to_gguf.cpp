@@ -162,27 +162,47 @@ size_t convert_llama_dir(const std::string& model_dir, const std::string& out_pa
         return nullptr;
     };
 
-    // Emit one tensor: name mapping handled by caller; perm_heads>0 applies Q/K permutation;
-    // 1-D tensors stay F32, 2-D weights become F16 (values compared dtype-agnostically by the oracle).
-    size_t written = 0;
-    auto emit = [&](const std::string& hf_name, const std::string& gguf_name, int perm_heads) {
+    // Two-pass streaming conversion so peak memory is one tensor, not the whole model:
+    // pass 1 declares every tensor's name/type/shape/size from the safetensors header
+    // (1-D tensors stay F32, 2-D weights become F16, so the output size is known without
+    // reading any payload); pass 2 reads, converts and streams each payload in order.
+    struct PlannedTensor {
+        std::string hf_name;
+        int perm_heads;
+    };
+    std::vector<PlannedTensor> planned;
+
+    auto plan = [&](const std::string& hf_name, const std::string& gguf_name, int perm_heads) {
         const StTensor* t = find(hf_name);
         if (!t) throw std::runtime_error("convert: missing tensor " + hf_name);
-        int64_t n = st_num_elements(*t);
+        const int64_t n = st_num_elements(*t);
         const bool is_1d = t->shape.size() == 1;
 
         std::vector<int64_t> ne;  // ggml order: ne[0] = fastest (in), ne[1] = out
         for (auto it = t->shape.rbegin(); it != t->shape.rend(); ++it) ne.push_back(*it);
 
+        const GgmlType type = is_1d ? GgmlType::F32 : GgmlType::F16;
+        const uint64_t nbytes = (uint64_t)n * (is_1d ? 4u : 2u);
+        w.add_tensor_info(gguf_name, type, ne, nbytes);
+        planned.push_back({hf_name, perm_heads});
+    };
+
+    // Read, convert and stream one tensor's payload. perm_heads>0 applies the Q/K permutation.
+    auto emit_data = [&](const PlannedTensor& pt) {
+        const StTensor* t = find(pt.hf_name);
+        const int64_t n = st_num_elements(*t);
+        const bool is_1d = t->shape.size() == 1;
+
         // Bonsai QLinear fold: y = (x·Wᵀ)·s  ==  x·(W·s[:,None])ᵀ. If a sibling "<name>.scales" exists,
         // fold each output row's scale into the weight (in f32, before the Q/K permute + f16 cast — the
         // host folds in full precision, so this must too to match the tensor-diff), then drop the scales.
-        if (bonsai && !is_1d && hf_name.size() > 7 && hf_name.compare(hf_name.size() - 7, 7, ".weight") == 0) {
-            const StTensor* sc = find(hf_name.substr(0, hf_name.size() - 7) + ".scales");
+        if (bonsai && !is_1d && pt.hf_name.size() > 7 &&
+            pt.hf_name.compare(pt.hf_name.size() - 7, 7, ".weight") == 0) {
+            const StTensor* sc = find(pt.hf_name.substr(0, pt.hf_name.size() - 7) + ".scales");
             if (sc) {
                 const int64_t out_rows = t->shape[0], in_cols = t->shape[1];
                 if (sc->shape.size() != 1 || sc->shape[0] != out_rows) {
-                    throw std::runtime_error("convert: .scales shape mismatch for " + hf_name);
+                    throw std::runtime_error("convert: .scales shape mismatch for " + pt.hf_name);
                 }
                 std::vector<uint8_t> wf32 = to_f32(st_read_tensor_bytes(st, *t), t->dtype, n);
                 std::vector<uint8_t> sf32 = to_f32(st_read_tensor_bytes(st, *sc), sc->dtype, out_rows);
@@ -192,46 +212,44 @@ size_t convert_llama_dir(const std::string& model_dir, const std::string& out_pa
                     const float s = sp[o];
                     for (int64_t c = 0; c < in_cols; ++c) wp[o * in_cols + c] *= s;
                 }
-                if (perm_heads > 0) wf32 = permute_rows(wf32, out_rows, in_cols, sizeof(float), perm_heads);
+                if (pt.perm_heads > 0) wf32 = permute_rows(wf32, out_rows, in_cols, sizeof(float), pt.perm_heads);
                 std::vector<uint8_t> f16 = to_f16(wf32, StDType::F32, n);
-                w.add_tensor(gguf_name, GgmlType::F16, ne, f16.data(), f16.size());
-                ++written;
+                w.write_tensor_data(f16.data(), f16.size());
                 return;
             }
         }
 
         std::vector<uint8_t> raw = st_read_tensor_bytes(st, *t);
-        if (perm_heads > 0) {
+        if (pt.perm_heads > 0) {
             int64_t out_rows = t->shape[0], in_cols = t->shape[1];
-            raw = permute_rows(raw, out_rows, in_cols, st_dtype_size(t->dtype), perm_heads);
+            raw = permute_rows(raw, out_rows, in_cols, st_dtype_size(t->dtype), pt.perm_heads);
         }
 
         if (is_1d) {
             std::vector<uint8_t> f32 = to_f32(raw, t->dtype, n);
-            w.add_tensor(gguf_name, GgmlType::F32, ne, f32.data(), f32.size());
+            w.write_tensor_data(f32.data(), f32.size());
         } else {
             std::vector<uint8_t> f16 = to_f16(raw, t->dtype, n);
-            w.add_tensor(gguf_name, GgmlType::F16, ne, f16.data(), f16.size());
+            w.write_tensor_data(f16.data(), f16.size());
         }
-        ++written;
     };
 
-    emit("model.embed_tokens.weight", "token_embd.weight", 0);
-    emit("model.norm.weight", "output_norm.weight", 0);
-    if (find("lm_head.weight")) emit("lm_head.weight", "output.weight", 0);  // absent when tied
+    plan("model.embed_tokens.weight", "token_embd.weight", 0);
+    plan("model.norm.weight", "output_norm.weight", 0);
+    if (find("lm_head.weight")) plan("lm_head.weight", "output.weight", 0);  // absent when tied
 
     for (int i = 0; i < n_layer; ++i) {
         const std::string p = "model.layers." + std::to_string(i) + ".";
         const std::string b = "blk." + std::to_string(i) + ".";
-        emit(p + "self_attn.q_proj.weight", b + "attn_q.weight", n_head);
-        emit(p + "self_attn.k_proj.weight", b + "attn_k.weight", n_head_kv);
-        emit(p + "self_attn.v_proj.weight", b + "attn_v.weight", 0);
-        emit(p + "self_attn.o_proj.weight", b + "attn_output.weight", 0);
-        emit(p + "mlp.gate_proj.weight", b + "ffn_gate.weight", 0);
-        emit(p + "mlp.up_proj.weight", b + "ffn_up.weight", 0);
-        emit(p + "mlp.down_proj.weight", b + "ffn_down.weight", 0);
-        emit(p + "input_layernorm.weight", b + "attn_norm.weight", 0);
-        emit(p + "post_attention_layernorm.weight", b + "ffn_norm.weight", 0);
+        plan(p + "self_attn.q_proj.weight", b + "attn_q.weight", n_head);
+        plan(p + "self_attn.k_proj.weight", b + "attn_k.weight", n_head_kv);
+        plan(p + "self_attn.v_proj.weight", b + "attn_v.weight", 0);
+        plan(p + "self_attn.o_proj.weight", b + "attn_output.weight", 0);
+        plan(p + "mlp.gate_proj.weight", b + "ffn_gate.weight", 0);
+        plan(p + "mlp.up_proj.weight", b + "ffn_up.weight", 0);
+        plan(p + "mlp.down_proj.weight", b + "ffn_down.weight", 0);
+        plan(p + "input_layernorm.weight", b + "attn_norm.weight", 0);
+        plan(p + "post_attention_layernorm.weight", b + "ffn_norm.weight", 0);
     }
 
     if (bonsai) {
@@ -240,8 +258,12 @@ size_t convert_llama_dir(const std::string& model_dir, const std::string& out_pa
         bake_gpt2_tokenizer(w, model_dir, tokenizer_pre);
     }
 
-    w.write(out_path, 32);
-    return written;
+    w.write_begin(out_path, 32);
+    for (const auto& pt : planned) {
+        emit_data(pt);
+    }
+    w.finish();
+    return planned.size();
 }
 
 }  // namespace convert
