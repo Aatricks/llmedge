@@ -82,8 +82,12 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         LOGi("contextSize %ld adjusted to %ld to fit llama context limits", contextSize, safeContext);
     }
     ctx_params.n_ctx = static_cast<uint32_t>(safeContext);
-    // n_batch must cover the full context: startCompletion() submits the whole
-    // prompt as a single llama_batch (no chunked prompt decode yet).
+    // n_batch must cover the full context because startCompletion() submits the whole
+    // prompt as a single llama_batch. This is cheap in the vendored fork (verified in
+    // llama.cpp:3693ff): llama_decode splits work into n_ubatch micro-batches
+    // internally, and the logits buffer is sized by actual outputs
+    // (llama_output_reserve), not n_batch — only output_ids scales with n_batch,
+    // at 4 bytes per token.
     ctx_params.n_batch = static_cast<uint32_t>(safeContext);
     // Micro-batch size drives prefill throughput vs. compute-buffer memory.
     // Default stays at 128 (cache-friendly on small ARM cores) but callers can
@@ -408,21 +412,37 @@ LLMInference::startCompletion(const char *query) {
             }
 
             if (currentHash == _cachedSystemPromptHash && !_systemPromptKVSnapshot.empty()) {
-                // Restore KV state from cached snapshot
-                LOGi("Restoring system prompt KV snapshot (hash=%zu, tokens=%d)",
-                     currentHash, _systemPromptTokenCount);
-                llmedge_kv_cache_seq_rm(_ctx, -1, -1, -1);
-                size_t nset = llmedge_state_seq_set_data(
-                    _ctx, _systemPromptKVSnapshot.data(), _systemPromptKVSnapshot.size(), 0);
-                if (nset == 0) {
-                    LOGe("Failed to restore system prompt KV snapshot, processing normally");
-                    _systemPromptKVSnapshot.clear();
-                    _cachedSystemPromptHash = 0;
-                    _systemPromptTokenCount = 0;
-                } else {
+                // Fast path: this instance decodes only on sequence 0 and never removes
+                // positions below the system prefix between turns, so when the cache
+                // still holds at least that many positions the prefix is ours — trim
+                // back to it instead of memcpy'ing the serialized state (multi-MB per
+                // turn) back in. Anything that emptied the cache (e.g. an external
+                // clearKvCache) fails the position check and takes the full restore.
+                const llama_pos cachePosMax = llmedge_kv_cache_seq_pos_max(_ctx, 0);
+                if (_systemPromptTokenCount > 0 && cachePosMax + 1 >= _systemPromptTokenCount) {
+                    LOGi("Trimming KV cache to system prompt prefix (hash=%zu, tokens=%d)",
+                         currentHash, _systemPromptTokenCount);
+                    llmedge_kv_cache_seq_rm(_ctx, 0, _systemPromptTokenCount, -1);
                     _prevLen = sysTemplateLen;
                     restoredFromSnapshot = true;
                     snapshotNPast = _systemPromptTokenCount;
+                } else {
+                    // Restore KV state from cached snapshot
+                    LOGi("Restoring system prompt KV snapshot (hash=%zu, tokens=%d)",
+                         currentHash, _systemPromptTokenCount);
+                    llmedge_kv_cache_seq_rm(_ctx, -1, -1, -1);
+                    size_t nset = llmedge_state_seq_set_data(
+                        _ctx, _systemPromptKVSnapshot.data(), _systemPromptKVSnapshot.size(), 0);
+                    if (nset == 0) {
+                        LOGe("Failed to restore system prompt KV snapshot, processing normally");
+                        _systemPromptKVSnapshot.clear();
+                        _cachedSystemPromptHash = 0;
+                        _systemPromptTokenCount = 0;
+                    } else {
+                        _prevLen = sysTemplateLen;
+                        restoredFromSnapshot = true;
+                        snapshotNPast = _systemPromptTokenCount;
+                    }
                 }
             } else if (sysTemplateLen > 0) {
                 // Decode system prompt and create a new snapshot

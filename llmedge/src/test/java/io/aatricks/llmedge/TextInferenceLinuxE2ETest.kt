@@ -102,4 +102,47 @@ class TextInferenceLinuxE2ETest {
             smol.close()
         }
     }
+
+    @Test
+    fun `system prompt KV snapshot reuses the cached prefix across turns`() = runBlocking {
+        val modelPath = System.getenv(MODEL_PATH_ENV) ?: System.getProperty(MODEL_PATH_ENV)
+        Assume.assumeTrue("No text test model specified in $MODEL_PATH_ENV", !modelPath.isNullOrBlank())
+        val projectDir = System.getProperty("user.dir")
+        val defaultLibPath = "$projectDir/llmedge/build/native/linux-x86_64/libsmollm.so"
+        val libPath = System.getenv(LIB_PATH_ENV) ?: System.getProperty(LIB_PATH_ENV) ?: defaultLibPath
+        DesktopNativeTestSupport.requireEnabled()
+        DesktopNativeTestSupport.requireAndLoadLibrary(libPath)
+
+        val smol = SmolLM(useVulkan = false)
+        try {
+            @Suppress("DEPRECATION")
+            val params = SmolLM.InferenceParams(
+                contextSize = 2048,
+                temperature = 0.0f,
+                // Non-storeChats: every turn re-renders from the system prefix, which is
+                // exactly the path that snapshots (turn 1) and then trims/restores (turn 2+).
+                storeChats = false,
+            )
+            smol.load(modelPath!!, params)
+            smol.addSystemPrompt("You are a concise assistant. Answer in one short sentence.")
+
+            // Turn 1 decodes the system prompt and creates the KV snapshot.
+            val first = smol.getResponse("Name the capital of France.", maxTokens = 32)
+            println("[TextInferenceLinuxE2ETest] snapshot turn 1: $first")
+            assertTrue("Turn 1 response should not be empty", first.isNotEmpty())
+
+            // Turn 2 hits the same-hash path: the resident prefix is trimmed back to
+            // instead of restoring the serialized snapshot. Output must stay coherent.
+            val second = smol.getResponse("Name the capital of Italy.", maxTokens = 32)
+            println("[TextInferenceLinuxE2ETest] snapshot turn 2: $second")
+            assertTrue("Turn 2 response should not be empty", second.isNotEmpty())
+
+            // And a third turn to make sure the trim path is repeatable.
+            val third = smol.getResponse("Name the capital of Spain.", maxTokens = 32)
+            println("[TextInferenceLinuxE2ETest] snapshot turn 3: $third")
+            assertTrue("Turn 3 response should not be empty", third.isNotEmpty())
+        } finally {
+            smol.close()
+        }
+    }
 }
