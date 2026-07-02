@@ -18,7 +18,14 @@ package io.aatricks.llmedge.rag
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
 import java.util.PriorityQueue
 import kotlin.math.sqrt
 
@@ -41,6 +48,14 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
 
     companion object {
         private const val BRUTE_FORCE_THRESHOLD = 500
+
+        // "LEVS" (llmedge vector store) + version header for the binary persist format.
+        private val BINARY_MAGIC = byteArrayOf(0x4C, 0x45, 0x56, 0x53)
+        private const val BINARY_VERSION = 1
+
+        // Sanity bounds so a corrupt length field fails parsing instead of OOMing.
+        private const val MAX_BLOB_BYTES = 16 * 1024 * 1024
+        private const val MAX_EMBEDDING_DIM = 65536
     }
 
     // Partition index for sub-linear retrieval on large datasets
@@ -178,17 +193,28 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
 
     fun save() {
         val file = persistFile ?: return
-        val serializable =
-            synchronized(lock) {
-                entries.map { e -> SerializableEntry(e.id, e.text, e.embedding.toList()) }
-            }
+        val snapshot = synchronized(lock) { entries.toList() }
         file.parentFile?.mkdirs()
-        // Write to a temp file and rename so a crash mid-write can't leave a
+        // Compact binary format (embeddings as raw floats instead of boxed JSON
+        // numbers: ~4-6x smaller and much faster to (de)serialize at 10k+ chunks).
+        // Written to a temp file and renamed so a crash mid-write can't leave a
         // truncated index behind.
         val tmp = File(file.parentFile, "${file.name}.tmp")
-        tmp.writeText(gson.toJson(serializable))
+        DataOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { out ->
+            out.write(BINARY_MAGIC)
+            out.writeInt(BINARY_VERSION)
+            out.writeInt(snapshot.size)
+            for (e in snapshot) {
+                writeBlob(out, e.id.toByteArray(Charsets.UTF_8))
+                writeBlob(out, e.text.toByteArray(Charsets.UTF_8))
+                out.writeInt(e.embedding.size)
+                val bytes = ByteBuffer.allocate(e.embedding.size * 4)
+                bytes.asFloatBuffer().put(e.embedding)
+                out.write(bytes.array())
+            }
+        }
         if (!tmp.renameTo(file)) {
-            file.writeText(gson.toJson(serializable))
+            tmp.copyTo(file, overwrite = true)
             tmp.delete()
         }
     }
@@ -196,10 +222,15 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
     fun load() {
         val file = persistFile ?: return
         if (!file.exists()) return
-        val list: List<SerializableEntry> =
+        val list: List<VectorEntry> =
             try {
-                val type = object : TypeToken<List<SerializableEntry>>() {}.type
-                gson.fromJson<List<SerializableEntry>>(file.readText(), type) ?: return
+                if (hasBinaryMagic(file)) {
+                    loadBinary(file)
+                } else {
+                    // Pre-binary stores were Gson JSON; migrate them transparently
+                    // (the next save() rewrites in the binary format).
+                    loadLegacyJson(file) ?: return
+                }
             } catch (_: Throwable) {
                 // A corrupt index (e.g. process death mid-save before this class wrote
                 // atomically) must not break every future session: start empty and let
@@ -212,13 +243,63 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
             idIndex.clear()
             cachedNorms.clear()
             invalidateIndex()
-            for ((i, item) in list.withIndex()) {
-                val entry = VectorEntry(item.id, item.text, item.embedding.toFloatArray())
+            for ((i, entry) in list.withIndex()) {
                 entries.add(entry)
                 cachedNorms.add(norm(entry.embedding))
                 idIndex[entry.id] = i
             }
         }
+    }
+
+    private fun writeBlob(out: DataOutputStream, bytes: ByteArray) {
+        out.writeInt(bytes.size)
+        out.write(bytes)
+    }
+
+    private fun hasBinaryMagic(file: File): Boolean {
+        val head = ByteArray(BINARY_MAGIC.size)
+        FileInputStream(file).use { input ->
+            if (input.read(head) != head.size) return false
+        }
+        return head.contentEquals(BINARY_MAGIC)
+    }
+
+    private fun loadBinary(file: File): List<VectorEntry> {
+        DataInputStream(BufferedInputStream(FileInputStream(file))).use { input ->
+            input.skipBytes(BINARY_MAGIC.size)
+            val version = input.readInt()
+            require(version == BINARY_VERSION) { "Unsupported vector store version $version" }
+            val count = input.readInt()
+            require(count >= 0) { "Corrupt vector store entry count" }
+            val result = ArrayList<VectorEntry>(count)
+            repeat(count) {
+                val id = String(readBlob(input), Charsets.UTF_8)
+                val text = String(readBlob(input), Charsets.UTF_8)
+                val dim = input.readInt()
+                require(dim in 0..MAX_EMBEDDING_DIM) { "Corrupt embedding length $dim" }
+                val raw = ByteArray(dim * 4)
+                input.readFully(raw)
+                val embedding = FloatArray(dim)
+                ByteBuffer.wrap(raw).asFloatBuffer().get(embedding)
+                result.add(VectorEntry(id, text, embedding))
+            }
+            return result
+        }
+    }
+
+    private fun readBlob(input: DataInputStream): ByteArray {
+        val size = input.readInt()
+        require(size in 0..MAX_BLOB_BYTES) { "Corrupt blob length $size" }
+        val bytes = ByteArray(size)
+        input.readFully(bytes)
+        return bytes
+    }
+
+    private fun loadLegacyJson(file: File): List<VectorEntry>? {
+        val type = object : TypeToken<List<SerializableEntry>>() {}.type
+        val list: List<SerializableEntry> =
+            gson.fromJson<List<SerializableEntry>>(file.readText(), type) ?: return null
+        return list.map { VectorEntry(it.id, it.text, it.embedding.toFloatArray()) }
     }
 
     private data class SerializableEntry(

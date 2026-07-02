@@ -45,6 +45,28 @@ class InMemoryVectorStoreTest {
     }
 
     @Test
+    fun `legacy json persist file migrates on load`() {
+        val persistFile = File.createTempFile("rag-store", ".json")
+        persistFile.deleteOnExit()
+        persistFile.writeText(
+            """[{"id":"one","text":"hello","embedding":[1.0,2.0]},""" +
+                """{"id":"two","text":"world","embedding":[3.0,4.0]}]""",
+        )
+
+        val store = InMemoryVectorStore(persistFile)
+        store.load()
+
+        assertEquals(2, store.size())
+        assertEquals("hello", store.head(1).single().text)
+
+        // A save rewrites in the binary format and the store still round-trips.
+        store.save()
+        val reloaded = InMemoryVectorStore(persistFile)
+        reloaded.load()
+        assertEquals(2, reloaded.size())
+    }
+
+    @Test
     fun `corrupt persist file is discarded instead of breaking load`() {
         val persistFile = File.createTempFile("rag-store", ".json")
         persistFile.deleteOnExit()
