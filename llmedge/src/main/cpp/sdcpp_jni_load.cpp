@@ -9,6 +9,7 @@
 #include <string>
 
 #include "jni_thread_cache.h"
+#include "jni_utils.h"
 
 #define GGML_MAX_NAME 128
 #include "ggml_backend_probe.h"
@@ -21,8 +22,6 @@
 #include "model.h"
 
 namespace {
-std::mutex g_sd_backend_env_mutex;
-
 class ScopedEnvVar {
 public:
     ScopedEnvVar(const char* key, std::optional<std::string> value) : key_(key), had_original_(false) {
@@ -399,7 +398,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
 
     sd_ctx_t* ctx = nullptr;
     {
-        std::lock_guard<std::mutex> lock(g_sd_backend_env_mutex);
+        // Shared with the whisper loader: env mutation must be process-globally
+        // serialized (concurrent setenv/getenv across threads is UB).
+        std::lock_guard<std::mutex> lock(llmedge_process_env_mutex());
         ScopedEnvVar disableVulkan("GGML_DISABLE_VULKAN", useVulkan == JNI_TRUE ? std::nullopt : std::optional<std::string>("1"));
         ScopedEnvVar disableOpenCl("GGML_DISABLE_OPENCL", enableOpenCl == JNI_TRUE ? std::nullopt : std::optional<std::string>("1"));
         ScopedEnvVar vulkanDevice("SD_VK_DEVICE", selectedVulkanDevice);
@@ -463,7 +464,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
     if (handlePtr == 0) return;
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
     clearProgressCallback(env, handle);
-    sd_set_progress_callback(nullptr, nullptr);
+    // Do NOT clear the process-global sd progress callback here: it may belong to a
+    // different live handle (FLUX.2 split mode holds encoder + diffusion handles).
+    // Generation paths set and clear the global callback around themselves.
     if (handle->ctx) {
         free_sd_ctx(handle->ctx);
         handle->ctx = nullptr;

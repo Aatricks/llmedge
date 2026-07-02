@@ -3,8 +3,6 @@
 #include "jni_thread_cache.h"
 #include "jni_utils.h"
 
-std::mutex g_whisper_backend_preference_mutex;
-
 void throwJavaException(JNIEnv* env, const char* className, const char* message) {
     llmedge_throw_java_exception(env, className, message);
 }

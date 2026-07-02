@@ -159,10 +159,30 @@ class GGUFReader : Closeable {
     private class DefaultNativeBridge : NativeBridge {
         override external fun getGGUFContextNativeHandle(modelPath: String): Long
         override external fun getContextSize(nativeHandle: Long): Long
-        override external fun getChatTemplate(nativeHandle: Long): String
-        override external fun getArchitecture(nativeHandle: Long): String
-        override external fun getParameterCount(nativeHandle: Long): String
-        override external fun getModelName(nativeHandle: Long): String
+
+        // GGUF metadata is untrusted file content that can contain 4-byte UTF-8,
+        // which is invalid Modified UTF-8 — the native side returns raw bytes and
+        // the decode happens here.
+        override fun getChatTemplate(nativeHandle: Long): String =
+            getChatTemplateBytes(nativeHandle)?.toString(Charsets.UTF_8).orEmpty()
+
+        override fun getArchitecture(nativeHandle: Long): String =
+            getArchitectureBytes(nativeHandle)?.toString(Charsets.UTF_8).orEmpty()
+
+        override fun getParameterCount(nativeHandle: Long): String =
+            getParameterCountBytes(nativeHandle)?.toString(Charsets.UTF_8).orEmpty()
+
+        override fun getModelName(nativeHandle: Long): String =
+            getModelNameBytes(nativeHandle)?.toString(Charsets.UTF_8).orEmpty()
+
+        private external fun getChatTemplateBytes(nativeHandle: Long): ByteArray?
+
+        private external fun getArchitectureBytes(nativeHandle: Long): ByteArray?
+
+        private external fun getParameterCountBytes(nativeHandle: Long): ByteArray?
+
+        private external fun getModelNameBytes(nativeHandle: Long): ByteArray?
+
         override external fun getFileType(nativeHandle: Long): Int
         override external fun getDominantTensorType(nativeHandle: Long): Int
         override external fun releaseGGUFContext(nativeHandle: Long)

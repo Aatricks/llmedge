@@ -29,11 +29,11 @@ inline ggml_type llmedge_resolve_kv_cache_type(int32_t code, const char * label)
         case static_cast<int32_t>(llmedge_kv_cache_type_code::Q4_0):
             return GGML_TYPE_Q4_0;
         case static_cast<int32_t>(llmedge_kv_cache_type_code::Q8_KV):
-#ifdef GGML_TYPE_Q8_KV
+            // GGML_TYPE_Q8_KV is an enum constant (not a macro), so it cannot be
+            // feature-tested with #ifdef — that test was always false and disabled
+            // Q8_KV entirely. The vendored ik_llama.cpp fork always provides it; a
+            // submodule swap without it fails loudly at compile time instead.
             return GGML_TYPE_Q8_KV;
-#else
-            throw std::runtime_error(std::string(label) + "=Q8_KV is not supported by the current llama.cpp backend");
-#endif
         default:
             throw std::runtime_error(std::string("Unknown llmedge KV cache type code for ") + label);
     }

@@ -2,6 +2,16 @@
 
 #include <jni.h>
 
+#include <mutex>
+
+// Single process-wide mutex for setenv/unsetenv/getenv around backend selection.
+// POSIX environment mutation is not thread-safe against concurrent getenv, and the
+// whisper and stable-diffusion loaders both tweak env vars — they must share one lock.
+inline std::mutex& llmedge_process_env_mutex() {
+    static std::mutex env_mutex;
+    return env_mutex;
+}
+
 inline void llmedge_throw_java_exception(JNIEnv* env, const char* class_name, const char* message) {
     if (!env) {
         return;

@@ -166,12 +166,17 @@ Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeDestroy(JNIEnv* env, jclass, j
     auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
     if (!handle) return;
 
-    std::lock_guard<std::mutex> lock(handle->mutex);
+    // Release the mutex before deleting the handle: deleting while the
+    // lock_guard still holds handle->mutex destroys a locked mutex (UB).
+    {
+        std::lock_guard<std::mutex> lock(handle->mutex);
 
-    llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
+        llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
 
-    if (handle->ctx) {
-        bark_free(handle->ctx);
+        if (handle->ctx) {
+            bark_free(handle->ctx);
+            handle->ctx = nullptr;
+        }
     }
 
     delete handle;

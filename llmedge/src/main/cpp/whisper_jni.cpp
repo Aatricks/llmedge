@@ -104,7 +104,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCreate(JNIEnv* env, jclass,
 
     whisper_context* ctx = nullptr;
     {
-        std::lock_guard<std::mutex> lock(g_whisper_backend_preference_mutex);
+        std::lock_guard<std::mutex> lock(llmedge_process_env_mutex());
         const char* previousBackend = std::getenv("LLMEDGE_PREFERRED_GGML_BACKEND");
         std::string previousBackendValue = previousBackend ? previousBackend : "";
         const bool hadPreviousBackend = previousBackend != nullptr;
@@ -171,13 +171,18 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeDestroy(JNIEnv* env, jclass, j
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle) return;
 
-    std::lock_guard<std::mutex> lock(handle->mutex);
+    // Release the mutex before deleting the handle: deleting while the
+    // lock_guard still holds handle->mutex destroys a locked mutex (UB).
+    {
+        std::lock_guard<std::mutex> lock(handle->mutex);
 
-    llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
-    llmedge_clear_global_ref(env, handle->segmentCallbackGlobalRef);
+        llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
+        llmedge_clear_global_ref(env, handle->segmentCallbackGlobalRef);
 
-    if (handle->ctx) {
-        whisper_free(handle->ctx);
+        if (handle->ctx) {
+            whisper_free(handle->ctx);
+            handle->ctx = nullptr;
+        }
     }
 
     delete handle;
