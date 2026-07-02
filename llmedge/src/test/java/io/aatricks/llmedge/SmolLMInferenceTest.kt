@@ -104,10 +104,17 @@ class SmolLMInferenceTest {
         assertEquals(0, bridge.completionLoopCalls)
         assertEquals(2, bridge.completionLoopBatchCalls)
 
-        // Test flow
+        // Test flow: the default stream batch groups a few tokens per native call,
+        // so assert on the reassembled text rather than per-token emission.
         SmolLM.overrideNativeBridgeForTests { _ -> bridge }
         val flowList = smol.getResponseAsFlow("test prompt").toList()
-        assertEquals(listOf("Hello", " ", "world"), flowList)
+        assertEquals("Hello world", flowList.joinToString(""))
+
+        // With an explicit batchSize of 1 the flow still emits token by token.
+        SmolLM.overrideNativeBridgeForTests { _ -> bridge }
+        val perTokenList =
+            smol.getResponseAsFlow("test prompt", kotlinx.coroutines.Dispatchers.Unconfined, 1).toList()
+        assertEquals(listOf("Hello", " ", "world"), perTokenList)
 
         // Test metrics
         val metrics = smol.getLastGenerationMetrics()

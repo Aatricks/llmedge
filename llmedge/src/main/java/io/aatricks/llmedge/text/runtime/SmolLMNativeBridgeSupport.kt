@@ -20,6 +20,43 @@ internal object SmolLMNativeBridgeSupport {
                 kvCacheTypeV: Int,
                 nGpuLayers: Int,
             ): Long =
+                loadModel(
+                    instance,
+                    modelPath,
+                    minP,
+                    temperature,
+                    storeChats,
+                    contextSize,
+                    chatTemplate,
+                    nThreads,
+                    useMmap,
+                    useMlock,
+                    useVulkan,
+                    useFlashAttn,
+                    kvCacheTypeK,
+                    kvCacheTypeV,
+                    nGpuLayers,
+                    nUbatch = 0,
+                )
+
+            override fun loadModel(
+                instance: SmolLM,
+                modelPath: String,
+                minP: Float,
+                temperature: Float,
+                storeChats: Boolean,
+                contextSize: Long,
+                chatTemplate: String,
+                nThreads: Int,
+                useMmap: Boolean,
+                useMlock: Boolean,
+                useVulkan: Boolean,
+                useFlashAttn: Boolean,
+                kvCacheTypeK: Int,
+                kvCacheTypeV: Int,
+                nGpuLayers: Int,
+                nUbatch: Int,
+            ): Long =
                 instance.loadModel(
                     modelPath,
                     minP,
@@ -35,6 +72,7 @@ internal object SmolLMNativeBridgeSupport {
                     kvCacheTypeK,
                     kvCacheTypeV,
                     nGpuLayers,
+                    nUbatch,
                 )
 
             override fun setReasoningOptions(
@@ -115,6 +153,11 @@ internal object SmolLMNativeBridgeSupport {
                 instance: SmolLM,
                 modelPtr: Long,
             ): Int = instance.getContextSizeUsed(modelPtr)
+
+            override fun wasContextLimitReached(
+                instance: SmolLM,
+                modelPtr: Long,
+            ): Boolean = instance.wasContextLimitReached(modelPtr)
 
             override fun getNativeModelPtr(
                 instance: SmolLM,

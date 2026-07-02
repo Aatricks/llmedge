@@ -10,6 +10,71 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
 internal object SmolLMCompletionSupport {
+    private const val EOG = "[EOG]"
+
+    /**
+     * Fetches completion pieces, preferring the byte-array native path: generated text can
+     * contain 4-byte UTF-8 sequences (emoji), which are invalid Modified UTF-8 and unsafe to
+     * return through `NewStringUTF`. Falls back to the legacy String natives only when the
+     * loaded library predates the bytes entry point.
+     *
+     * Every native call is made under [SmolLM.nativeCallLock] with the handle re-read inside
+     * the lock, so a concurrent `close()` results in an IllegalStateException on the next
+     * step instead of a native use-after-free.
+     */
+    private class CompletionStepper(private val instance: SmolLM) {
+        private var bytesSupported = true
+
+        /**
+         * Returns the next piece, or null when the stream is over. An empty string
+         * means "keep polling" (the native side is buffering an incomplete UTF-8
+         * sequence) — except on the legacy String batch path, where empty has always
+         * meant end-of-stream and is mapped to null to preserve that contract.
+         */
+        fun next(count: Int): String? {
+            synchronized(instance.nativeCallLock) {
+                val nativePtr = instance.requireLoadedHandle()
+                if (bytesSupported) {
+                    try {
+                        val bytes =
+                            instance.bridge.completionLoopBatchBytes(instance, nativePtr, count)
+                        if (bytes != null) {
+                            val piece = String(bytes, Charsets.UTF_8)
+                            return if (piece == EOG) null else piece
+                        }
+                        // null = this bridge has no bytes path (contract default / old lib);
+                        // fall through to the String natives below for this and later calls.
+                        bytesSupported = false
+                    } catch (_: UnsatisfiedLinkError) {
+                        bytesSupported = false
+                    }
+                }
+                if (count > 1) {
+                    val piece = instance.bridge.completionLoopBatch(instance, nativePtr, count)
+                    return if (piece == EOG || piece.isEmpty()) null else piece
+                }
+                val piece = instance.bridge.completionLoop(instance, nativePtr)
+                return if (piece == EOG) null else piece
+            }
+        }
+    }
+
+    private fun startCompletionLocked(instance: SmolLM, query: String) {
+        instance.applyInferenceThreadAffinity()
+        synchronized(instance.nativeCallLock) {
+            instance.bridge.startCompletion(instance, instance.requireLoadedHandle(), query)
+        }
+    }
+
+    private fun stopCompletionLocked(instance: SmolLM) {
+        synchronized(instance.nativeCallLock) {
+            val nativePtr = instance.state.nativePtr
+            if (nativePtr != 0L) {
+                instance.bridge.stopCompletion(instance, nativePtr)
+            }
+        }
+    }
+
     fun getResponseAsFlow(
         instance: SmolLM,
         query: String,
@@ -17,58 +82,17 @@ internal object SmolLMCompletionSupport {
         batchSize: Int,
     ): Flow<String> =
         flow {
-            val nativePtr = instance.requireLoadedHandle()
             try {
-                instance.bridge.startCompletion(instance, nativePtr, query)
-                if (batchSize > 1) {
-                    val eogBytes = "[EOG]".toByteArray(Charsets.UTF_8)
-                    var bytes =
-                        try {
-                            instance.bridge.completionLoopBatchBytes(
-                                instance,
-                                nativePtr,
-                                batchSize,
-                            )
-                        } catch (_: Throwable) {
-                            null
-                        }
-
-                    if (bytes != null) {
-                        var chunk: ByteArray = bytes
-                        while (!chunk.contentEquals(eogBytes) && chunk.isNotEmpty()) {
-                            currentCoroutineContext().ensureActive()
-                            emit(String(chunk, Charsets.UTF_8))
-                            chunk =
-                                instance.bridge.completionLoopBatchBytes(
-                                    instance,
-                                    nativePtr,
-                                    batchSize,
-                                ) ?: break
-                        }
-                    } else {
-                        var piece =
-                            instance.bridge.completionLoopBatch(
-                                instance,
-                                nativePtr,
-                                batchSize,
-                            )
-                        while (piece != "[EOG]" && piece.isNotEmpty()) {
-                            currentCoroutineContext().ensureActive()
-                            emit(piece)
-                            piece =
-                                instance.bridge.completionLoopBatch(
-                                    instance,
-                                    nativePtr,
-                                    batchSize,
-                                )
-                        }
-                    }
-                } else {
-                    var piece = instance.bridge.completionLoop(instance, nativePtr)
-                    while (piece != "[EOG]") {
-                        currentCoroutineContext().ensureActive()
+                startCompletionLocked(instance, query)
+                val stepper = CompletionStepper(instance)
+                val step = batchSize.coerceAtLeast(1)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val piece = stepper.next(step) ?: break
+                    // An empty piece means the native side is buffering an incomplete
+                    // UTF-8 sequence; keep looping until it resolves or the stream ends.
+                    if (piece.isNotEmpty()) {
                         emit(piece)
-                        piece = instance.bridge.completionLoop(instance, nativePtr)
                     }
                 }
             } catch (e: IllegalStateException) {
@@ -78,7 +102,7 @@ internal object SmolLMCompletionSupport {
                     cause = e,
                 )
             } finally {
-                instance.bridge.stopCompletion(instance, nativePtr)
+                stopCompletionLocked(instance)
             }
         }.flowOn(dispatcher)
 
@@ -88,70 +112,37 @@ internal object SmolLMCompletionSupport {
         maxTokens: Int,
         batchSize: Int,
     ): String {
-        val nativePtr = instance.requireLoadedHandle()
         SmolLM.logDebug(
             "getResponse: starting completion. maxTokens=$maxTokens, batchSize=$batchSize, queryLength=${query.length}",
         )
-        instance.bridge.startCompletion(instance, nativePtr, query)
+        startCompletionLocked(instance, query)
         try {
             val estimatedCapacity = if (maxTokens > 0) maxTokens * 4 else 512
             val responseBuilder = StringBuilder(estimatedCapacity)
+            val stepper = CompletionStepper(instance)
             var tokensGenerated = 0
 
-            if (batchSize > 1) {
-                val effectiveBatch = if (maxTokens > 0) minOf(batchSize, maxTokens) else batchSize
-                var piece =
-                    instance.bridge.completionLoopBatch(
-                        instance,
-                        nativePtr,
-                        effectiveBatch,
-                    )
-                while (piece != "[EOG]" && piece.isNotEmpty()) {
-                    responseBuilder.append(piece)
-                    tokensGenerated += effectiveBatch
-
-                    if (maxTokens > 0 && tokensGenerated >= maxTokens) {
-                        SmolLM.logDebug("getResponse: maxTokens ($maxTokens) reached. Stopping.")
-                        break
+            while (true) {
+                val step =
+                    if (maxTokens > 0) {
+                        minOf(batchSize.coerceAtLeast(1), maxTokens - tokensGenerated)
+                    } else {
+                        batchSize.coerceAtLeast(1)
                     }
-
-                    val remaining =
-                        if (maxTokens > 0) minOf(batchSize, maxTokens - tokensGenerated)
-                        else batchSize
-                    if (remaining <= 0) break
-                    piece =
-                        instance.bridge.completionLoopBatch(
-                            instance,
-                            nativePtr,
-                            remaining,
-                        )
+                if (step <= 0) {
+                    SmolLM.logDebug("getResponse: maxTokens ($maxTokens) reached. Stopping.")
+                    break
                 }
-                if (piece == "[EOG]") {
-                    SmolLM.logDebug(
-                        "getResponse: [EOG] received after ~$tokensGenerated tokens.",
-                    )
+                val piece = stepper.next(step)
+                if (piece == null) {
+                    SmolLM.logDebug("getResponse: stream ended after ~$tokensGenerated tokens.")
+                    break
                 }
-            } else {
-                var piece = instance.bridge.completionLoop(instance, nativePtr)
-                while (piece != "[EOG]") {
-                    responseBuilder.append(piece)
-                    tokensGenerated++
+                responseBuilder.append(piece)
+                tokensGenerated += step
 
-                    if (tokensGenerated % 10 == 0) {
-                        SmolLM.logDebug("Generated $tokensGenerated tokens...")
-                    }
-
-                    if (maxTokens > 0 && tokensGenerated >= maxTokens) {
-                        SmolLM.logDebug("getResponse: maxTokens ($maxTokens) reached. Stopping.")
-                        break
-                    }
-
-                    piece = instance.bridge.completionLoop(instance, nativePtr)
-                }
-                if (piece == "[EOG]") {
-                    SmolLM.logDebug(
-                        "getResponse: [EOG] received after $tokensGenerated tokens.",
-                    )
+                if (tokensGenerated % 40 == 0) {
+                    SmolLM.logDebug("Generated ~$tokensGenerated tokens...")
                 }
             }
 
@@ -165,18 +156,14 @@ internal object SmolLMCompletionSupport {
                 cause = e,
             )
         } finally {
-            instance.bridge.stopCompletion(instance, nativePtr)
+            stopCompletionLocked(instance)
         }
     }
 
     fun stopCompletion(instance: SmolLM) {
-        val nativePtr = instance.state.nativePtr
-        if (nativePtr == 0L) {
-            return
-        }
         SmolLM.logDebug("stopCompletion invoked")
         try {
-            instance.bridge.stopCompletion(instance, nativePtr)
+            stopCompletionLocked(instance)
         } catch (e: Throwable) {
             SmolLM.logWarning("stopCompletion failed: ${e.message}")
         }

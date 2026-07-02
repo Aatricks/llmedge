@@ -22,7 +22,7 @@
 void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, bool storeChats, long contextSize,
                         const char *chatTemplate, int nThreads, bool useMmap, bool useMlock, int backendId,
-                        bool useFlashAttn, int kvCacheTypeKCode, int kvCacheTypeVCode, int nGpuLayers) {
+                        bool useFlashAttn, int kvCacheTypeKCode, int kvCacheTypeVCode, int nGpuLayers, int nUbatch) {
     const RequestedBackend requestedBackend = static_cast<RequestedBackend>(backendId);
     LOGi("loading model with"
          "\n\tmodel_path = %s"
@@ -82,9 +82,15 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         LOGi("contextSize %ld adjusted to %ld to fit llama context limits", contextSize, safeContext);
     }
     ctx_params.n_ctx = static_cast<uint32_t>(safeContext);
+    // n_batch must cover the full context: startCompletion() submits the whole
+    // prompt as a single llama_batch (no chunked prompt decode yet).
     ctx_params.n_batch = static_cast<uint32_t>(safeContext);
-    // Smaller micro-batches improve cache locality on ARM
-    ctx_params.n_ubatch = std::min(ctx_params.n_batch, 128u);
+    // Micro-batch size drives prefill throughput vs. compute-buffer memory.
+    // Default stays at 128 (cache-friendly on small ARM cores) but callers can
+    // raise it via InferenceParams.nUbatch for faster prompt processing.
+    ctx_params.n_ubatch = nUbatch > 0
+        ? std::min(static_cast<uint32_t>(nUbatch), ctx_params.n_batch)
+        : std::min(ctx_params.n_batch, 128u);
     ctx_params.n_threads = nThreads;
     ctx_params.n_threads_batch = nThreads;
     ctx_params.flash_attn = useFlashAttn;
@@ -306,6 +312,11 @@ LLMInference::getContextSizeUsed() const {
     return _nCtxUsed;
 }
 
+bool
+LLMInference::isContextLimitReached() const {
+    return _contextLimitReached;
+}
+
 void
 LLMInference::startCompletion(const char *query) {
     if (!_storeChats) {
@@ -355,6 +366,7 @@ LLMInference::startCompletion(const char *query) {
     bool restoredFromSnapshot = false;
     int snapshotNPast = 0;
     _eogReached = false;
+    _contextLimitReached = false;
 
     if (_prevLen == 0) {
         size_t systemMsgCount = 0;
@@ -546,7 +558,23 @@ LLMInference::completionLoop() {
     uint32_t contextSize = llama_n_ctx(_ctx);
     _nCtxUsed = llmedge_kv_cache_seq_pos_max(_ctx, 0) + 1;
     if (_nCtxUsed + _batch->n_tokens > contextSize) {
-        throw std::runtime_error("context size reached");
+        if (_responseNumTokens <= 0) {
+            // Nothing generated yet: the prompt alone exceeds the context window,
+            // so surface an error rather than silently returning nothing.
+            throw std::runtime_error("context size reached");
+        }
+        // Mid-generation overflow: stop gracefully so the caller keeps the partial
+        // response instead of losing it to an exception. Queryable via
+        // isContextLimitReached().
+        LOGe("context window full after %ld generated tokens; ending completion", _responseNumTokens);
+        _contextLimitReached = true;
+        _eogReached = true;
+        if (_storeChats) {
+            addChatMessage(_response.c_str(), "assistant");
+        }
+        _response.clear();
+        _cacheResponseTokens.clear();
+        return "[EOG]";
     }
 
     auto start = ggml_time_us();
@@ -648,6 +676,7 @@ LLMInference::clearMessages() {
     _promptTokens.clear();
     _preservePreparedKvForNextCompletion = false;
     _eogReached = false;
+    _contextLimitReached = false;
     if (_batch) {
         std::memset(_batch, 0, sizeof(llama_batch));
     }
@@ -723,7 +752,11 @@ LLMInference::~LLMInference() {
     llama_free(_ctx);
     llama_free_model(_model);
     delete _batch;
-    common_sampler_free(_sampler);
+    // common_sampler_free() dereferences its argument without a null check, so a
+    // load that failed before sampler init must not reach it with nullptr.
+    if (_sampler) {
+        common_sampler_free(_sampler);
+    }
 }
 
 // Safe accessors used by JNI/native glue. Return internal pointers; caller must not free.

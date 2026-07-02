@@ -113,6 +113,7 @@ internal object SmolLMLoader {
                                     params.kvCacheTypeK.nativeCode,
                                     params.kvCacheTypeV.nativeCode,
                                     params.nGpuLayers,
+                                    params.nUbatch,
                                 )
                             }
                         instance.state.nativePtr =
@@ -147,6 +148,7 @@ internal object SmolLMLoader {
         instance.applyReasoningStateForLoad(params.thinkingMode, reasoningBudget)
 
         val pCoreMask = CpuTopology.getPerformanceCoreMask()
+        instance.state.pCoreMask = pCoreMask
         if (pCoreMask != 0L) {
             instance.setThreadAffinityForLoad(instance.state.nativePtr, pCoreMask)
         }

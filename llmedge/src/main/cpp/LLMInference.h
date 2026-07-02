@@ -75,6 +75,10 @@ class LLMInference {
     // instead of attempting another llama_decode with stale batch data.
     bool _eogReached = false;
 
+    // Set when a completion ended because the context window filled up
+    // mid-generation (the partial response was still returned to the caller).
+    bool _contextLimitReached = false;
+
     bool _isValidUtf8(const char* response);
     FormattedPrompt formatChatMessages(size_t messageCount, bool addGenerationPrompt);
     FormattedPrompt formatChatMessagesJinja(size_t messageCount, bool addGenerationPrompt) const;
@@ -86,7 +90,7 @@ class LLMInference {
     void loadModel(const char* modelPath, float minP, float temperature, bool storeChats, long contextSize,
                    const char* chatTemplate, int nThreads, bool useMmap, bool useMlock, int backendId,
                    bool useFlashAttn = true, int kvCacheTypeKCode = -1, int kvCacheTypeVCode = -1,
-                   int nGpuLayers = 99);
+                   int nGpuLayers = 99, int nUbatch = 0);
 
     void addChatMessage(const char* message, const char* role);
 
@@ -103,6 +107,8 @@ class LLMInference {
     uint64_t getStateMemoryBytes() const;
 
     int getContextSizeUsed() const;
+
+    bool isContextLimitReached() const;
 
     void startCompletion(const char* query);
 

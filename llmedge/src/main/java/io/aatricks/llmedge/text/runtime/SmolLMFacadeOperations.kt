@@ -48,6 +48,11 @@ internal object SmolLMFacadeOperations {
         return instance.bridge.getContextSizeUsed(instance, nativePtr)
     }
 
+    fun wasContextLimitReached(instance: SmolLM): Boolean {
+        val nativePtr = instance.requireLoadedHandle()
+        return instance.bridge.wasContextLimitReached(instance, nativePtr)
+    }
+
     fun getResponseAsFlow(instance: SmolLM, query: String): Flow<String> =
         getResponseAsFlow(instance, query, Dispatchers.IO)
 
@@ -55,7 +60,11 @@ internal object SmolLMFacadeOperations {
         instance: SmolLM,
         query: String,
         dispatcher: CoroutineDispatcher,
-    ): Flow<String> = getResponseAsFlow(instance, query, dispatcher, 1)
+    ): Flow<String> = getResponseAsFlow(instance, query, dispatcher, DEFAULT_STREAM_BATCH)
+
+    // Emitting a few tokens per native call amortizes the JNI round-trip without
+    // noticeably chunking the stream (4 tokens is well under typical frame budgets).
+    private const val DEFAULT_STREAM_BATCH = 4
 
     fun getResponseAsFlow(
         instance: SmolLM,

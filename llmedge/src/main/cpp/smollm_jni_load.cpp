@@ -25,7 +25,7 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_loadModel(JNIEnv* env, jobject thiz
                                              jfloat temperature, jboolean storeChats, jlong contextSize,
                                              jstring chatTemplate, jint nThreads, jboolean useMmap, jboolean useMlock,
                                              jint backendId, jboolean useFlashAttn, jint kvCacheTypeK, jint kvCacheTypeV,
-                                             jint nGpuLayers) {
+                                             jint nGpuLayers, jint nUbatch) {
     ScopedUtfChars modelPathCstr(env, modelPath);
     ScopedUtfChars chatTemplateCstr(env, chatTemplate);
     if (!modelPathCstr.ok() || !chatTemplateCstr.ok()) {
@@ -35,7 +35,7 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_loadModel(JNIEnv* env, jobject thiz
     auto llmInference = std::make_unique<LLMInference>();
     try {
         llmInference->loadModel(modelPathCstr.get(), minP, temperature, storeChats, contextSize, chatTemplateCstr.get(), nThreads,
-                                useMmap, useMlock, backendId, useFlashAttn, kvCacheTypeK, kvCacheTypeV, nGpuLayers);
+                                useMmap, useMlock, backendId, useFlashAttn, kvCacheTypeK, kvCacheTypeV, nGpuLayers, nUbatch);
     } catch (const std::exception& error) {
         throwJavaException(env, "java/lang/IllegalStateException", error.what());
         return 0;
