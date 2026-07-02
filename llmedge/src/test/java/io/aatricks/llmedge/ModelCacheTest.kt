@@ -62,33 +62,44 @@ class ModelCacheTest {
     }
 
     @Test
-    fun `dynamic size provider refreshes cache accounting before eviction`() {
+    fun `entry sizes are fixed at insert and live runtimes are not re-queried`() {
         val cache = ModelCache<DummyModel>(maxCacheSize = 4, maxMemoryMB = 1024)
-        cache.systemMemoryProvider = { 400L }
+        cache.systemMemoryProvider = { 4096L }
 
         val first = DummyModel()
         val second = DummyModel()
+        var providerCalls = 0
         var firstSizeBytes = 150L * 1024L * 1024L
 
         cache.put(
             key = "first",
             model = first,
             sizeBytes = firstSizeBytes,
-            sizeProvider = { firstSizeBytes },
+            sizeProvider = {
+                providerCalls++
+                firstSizeBytes
+            },
         )
+        assertEquals(1, providerCalls)
+
+        // The provider's answer growing later must NOT be observed by cache
+        // operations: re-querying would make native JNI calls on a runtime that
+        // may be mid-inference on another thread.
         firstSizeBytes = 300L * 1024L * 1024L
         cache.put(
             key = "second",
             model = second,
             sizeBytes = 100L * 1024L * 1024L,
         )
+        cache.get("first")
 
-        assertTrue(first.closed)
+        assertEquals(1, providerCalls)
+        assertFalse(first.closed)
         assertFalse(second.closed)
-        assertFalse(cache.contains("first"))
+        assertTrue(cache.contains("first"))
         assertTrue(cache.contains("second"))
-        assertEquals(100L, cache.getCurrentSizeMB())
-        assertEquals(1, cache.getStats().evictions)
+        assertEquals(250L, cache.getCurrentSizeMB())
+        assertEquals(0, cache.getStats().evictions)
     }
 
     @Test

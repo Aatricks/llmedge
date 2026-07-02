@@ -68,7 +68,10 @@ object CpuTopology {
                         .listFiles { file ->
                             file.isDirectory && file.name.matches(CPU_DIR_REGEX)
                         }
-                        ?.sortedBy { it.name }
+                        // Numeric sort: a lexicographic sort puts "cpu10" before "cpu2",
+                        // which scrambles the index→CPU-id mapping the affinity mask
+                        // relies on for devices with 10+ cores.
+                        ?.sortedBy { it.name.removePrefix("cpu").toIntOrNull() ?: Int.MAX_VALUE }
                         ?: emptyList()
 
         for (cpuDir in cpuDirs) {

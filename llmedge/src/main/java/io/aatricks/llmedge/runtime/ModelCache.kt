@@ -7,6 +7,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -78,7 +79,9 @@ class ModelCache<T : AutoCloseable>(
         val entry = lock.write {
             val e = cache[key]
             if (e != null) {
-                refreshEntrySize(e)
+                // Do NOT refresh the entry size here: sizeProvider makes native JNI
+                // calls on the runtime handle, which may be mid-inference on another
+                // thread (no native-side lock). Sizes are resolved at insert time.
                 e.lastUsedMs = System.currentTimeMillis()
                 e.hitCount++
             }
@@ -153,7 +156,8 @@ class ModelCache<T : AutoCloseable>(
 
     /** Check if we should evict based on cache size and memory limits */
     private fun shouldEvict(newSizeBytes: Long): Boolean {
-        refreshAllEntrySizes()
+        // Entry sizes are intentionally not refreshed here: sizeProvider calls into
+        // native code on runtimes that other coroutines may be actively using.
         return ModelCacheBudgetPolicy.shouldEvict(
             entryCount = cache.size,
             maxCacheSize = maxCacheSize,
@@ -175,20 +179,6 @@ class ModelCache<T : AutoCloseable>(
                     "(${resolvedSizeBytes / 1024 / 1024}MB > $maxMemoryMB MB) because the cache is empty",
             )
         }
-    }
-
-    private fun refreshEntrySize(entry: CacheEntry<T>) {
-        val provider = entry.sizeProvider ?: return
-        val refreshedSize = provider().coerceAtLeast(0L)
-        if (refreshedSize == entry.sizeBytes) {
-            return
-        }
-        totalCachedBytes += refreshedSize - entry.sizeBytes
-        entry.sizeBytes = refreshedSize
-    }
-
-    private fun refreshAllEntrySizes() {
-        cache.values.forEach(::refreshEntrySize)
     }
 
     /** Evict least recently used entry, closing the evicted model outside the lock */
@@ -223,7 +213,10 @@ class ModelCache<T : AutoCloseable>(
     private fun closeModels(models: List<T>) {
         for (model in models) {
             if (closeScope != null) {
-                closeScope.launch {
+                // close() blocks until any in-flight generation on the runtime finishes;
+                // force Dispatchers.IO so cache pressure can never park that wait on the
+                // caller's dispatcher (often Main) — an ANR under normal usage otherwise.
+                closeScope.launch(Dispatchers.IO) {
                     try {
                         model.close()
                     } catch (e: Exception) {
