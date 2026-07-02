@@ -202,7 +202,8 @@ internal object HFDownloadSupport {
         }
     }
 
-    private fun verifyDownloadedFile(target: DownloadTarget) {
+    // internal for testing: the SHA-mismatch path must fail loudly (regression guard).
+    internal fun verifyDownloadedFile(target: DownloadTarget) {
         val expectedSize = target.expectedSize
         if ((expectedSize ?: -1L) > 0L && target.targetFile.length() != expectedSize) {
             target.targetFile.delete()
@@ -210,14 +211,16 @@ internal object HFDownloadSupport {
         }
 
         target.modelFile.lfs?.oid?.let { expectedShaValue ->
-            try {
-                val actualSha = computeSha256(target.targetFile)
-                if (!actualSha.equals(expectedShaValue, ignoreCase = true)) {
-                    target.targetFile.delete()
-                    throw IllegalStateException("Downloaded file sha mismatch for ${target.modelFile.path}")
+            val actualSha =
+                try {
+                    computeSha256(target.targetFile)
+                } catch (_: Throwable) {
+                    // Size validation above is still a strong signal if hashing is unavailable.
+                    null
                 }
-            } catch (_: Throwable) {
-                // Size validation above is still a strong signal if hashing is unavailable.
+            if (actualSha != null && !actualSha.equals(expectedShaValue, ignoreCase = true)) {
+                target.targetFile.delete()
+                throw IllegalStateException("Downloaded file sha mismatch for ${target.modelFile.path}")
             }
         }
     }

@@ -2,12 +2,15 @@ package io.aatricks.llmedge.huggingface
 
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -41,10 +44,16 @@ internal class HFModelDownload(
         destination: File,
         token: String?,
         onProgress: ((downloaded: Long, totalBytes: Long?) -> Unit)?,
-    ): File = withContext(Dispatchers.IO) {
+    ): File = downloadLockFor(destination).withLock {
+        withContext(Dispatchers.IO) {
         destination.parentFile?.mkdirs()
         val tempFile = File(destination.parentFile, "${destination.name}.part")
         if (destination.exists()) {
+            // Another caller finished this exact download while we waited on the
+            // per-destination lock — reuse it instead of re-downloading.
+            if (destination.length() > 0L) {
+                return@withContext destination
+            }
             destination.delete()
         }
 
@@ -122,7 +131,8 @@ internal class HFModelDownload(
             tempFile.delete()
             throw e
         } catch (e: IOException) {
-            tempFile.delete()
+            // Keep the partial file: the next attempt resumes it via the Range header
+            // (and a server that ignores Range triggers the fresh-start path above).
             throw e
         } finally {
             response.close()
@@ -134,7 +144,13 @@ internal class HFModelDownload(
         }
 
         destination
+        }
     }
+
+    // One mutex per destination path: two concurrent downloads of the same file would
+    // otherwise interleave writes into the same .part file and corrupt it.
+    private fun downloadLockFor(destination: File): Mutex =
+        downloadLocks.computeIfAbsent(destination.absolutePath) { Mutex() }
 
     private fun buildDownloadUrl(modelId: String, revision: String, filePath: String): String {
         // Encode segments individually so that special characters (including spaces) are encoded
@@ -152,5 +168,7 @@ internal class HFModelDownload(
     companion object {
         // 64KB buffer for efficient streaming without excessive memory usage
         private const val DOWNLOAD_BUFFER_SIZE = 64 * 1024
+
+        private val downloadLocks = ConcurrentHashMap<String, Mutex>()
     }
 }
