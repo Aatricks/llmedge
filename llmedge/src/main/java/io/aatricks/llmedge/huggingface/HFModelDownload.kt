@@ -92,14 +92,16 @@ internal class HFModelDownload(
             }
 
             val contentLength = response.header("Content-Length")?.toLongOrNull()
-            val expectedLength = contentLength?.let { it + resumeStart } ?: contentLength
 
             var downloaded = resumeStart
+            var expectedLength = contentLength?.let { it + resumeStart }
 
-            // If server returned full file (200) despite Range header, start fresh
+            // If server returned full file (200) despite Range header, start fresh —
+            // including the progress total, which otherwise stays inflated by resumeStart.
             if (resumeStart > 0L && response.code == 200) {
                 tempFile.delete()
                 downloaded = 0L
+                expectedLength = contentLength
             }
 
             onProgress?.invoke(downloaded, expectedLength)

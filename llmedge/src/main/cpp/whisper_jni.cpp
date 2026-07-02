@@ -408,7 +408,8 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeTranscribe(JNIEnv* env, jclass
         int64_t t0 = whisper_full_get_segment_t0(handle->ctx, i);
         int64_t t1 = whisper_full_get_segment_t1(handle->ctx, i);
 
-        jstring jText = env->NewStringUTF(text ? text : "");
+        // Transcribed text can contain 4-byte UTF-8; NewStringUTF is unsafe for it.
+        jstring jText = llmedge_new_string_utf8(env, text);
         jobject segment = env->NewObject(segmentClass, segmentCtor,
                                           static_cast<jint>(i),
                                           static_cast<jlong>(t0),
@@ -479,7 +480,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetFullText(JNIEnv* env, jclas
         }
     }
 
-    return env->NewStringUTF(fullText.c_str());
+    return llmedge_new_string_utf8(env, fullText.c_str());
 }
 
 JNIEXPORT void JNICALL
