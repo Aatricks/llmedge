@@ -145,6 +145,11 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
     }
 
     _formattedMessages = std::vector<char>(llama_n_ctx(_ctx));
+    // Messages hold strdup'd strings; a bare clear() on reload would leak them.
+    for (llama_chat_message &message : _messages) {
+        free(const_cast<char *>(message.role));
+        free(const_cast<char *>(message.content));
+    }
     _messages.clear();
 
     // Invalidate any existing system prompt KV snapshot
@@ -371,14 +376,23 @@ LLMInference::startCompletion(const char *query) {
     if (_prevLen == 0) {
         size_t systemMsgCount = 0;
         std::string systemContent;
-        for (const auto& msg : _messages) {
-            if (std::strcmp(msg.role, "system") == 0) {
-                systemContent += msg.content;
+        bool systemIsPrefix = true;
+        for (size_t i = 0; i < _messages.size(); ++i) {
+            if (std::strcmp(_messages[i].role, "system") == 0) {
+                // The snapshot slices the rendered prompt at format(first N messages),
+                // which only equals the rendered system prompt when every system
+                // message sits at the front. A system message added after a user
+                // message (possible via the direct addSystemPrompt API) would cache
+                // the wrong prefix under the system content's hash.
+                if (i != systemMsgCount) {
+                    systemIsPrefix = false;
+                }
+                systemContent += _messages[i].content;
                 systemMsgCount++;
             }
         }
 
-        if (systemMsgCount > 0) {
+        if (systemMsgCount > 0 && systemIsPrefix) {
             size_t currentHash = std::hash<std::string>{}(systemContent);
 
             int sysTemplateLen = 0;
