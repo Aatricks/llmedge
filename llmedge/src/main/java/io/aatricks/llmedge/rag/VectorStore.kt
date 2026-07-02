@@ -34,6 +34,11 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
     private val cachedNorms = mutableListOf<Float>()
     private val gson = Gson()
 
+    // Guards entries/idIndex/cachedNorms/partitionIndex: nothing upstream serializes
+    // indexing (addAll/upsert) against queries (topK) or save(), and ArrayList/HashMap
+    // are unsafe under concurrent structural modification.
+    private val lock = Any()
+
     companion object {
         private const val BRUTE_FORCE_THRESHOLD = 500
     }
@@ -42,21 +47,7 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
     private var partitionIndex: PartitionIndex? = null
 
     fun upsert(entry: VectorEntry) {
-        val existingIdx = idIndex[entry.id]
-        if (existingIdx != null) {
-            entries[existingIdx] = entry
-            cachedNorms[existingIdx] = norm(entry.embedding)
-        } else {
-            val idx = entries.size
-            entries.add(entry)
-            cachedNorms.add(norm(entry.embedding))
-            idIndex[entry.id] = idx
-        }
-        invalidateIndex()
-    }
-
-    fun addAll(newEntries: List<VectorEntry>) {
-        for (entry in newEntries) {
+        synchronized(lock) {
             val existingIdx = idIndex[entry.id]
             if (existingIdx != null) {
                 entries[existingIdx] = entry
@@ -67,28 +58,48 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
                 cachedNorms.add(norm(entry.embedding))
                 idIndex[entry.id] = idx
             }
+            invalidateIndex()
         }
-        invalidateIndex()
     }
 
-    fun isEmpty() = entries.isEmpty()
+    fun addAll(newEntries: List<VectorEntry>) {
+        synchronized(lock) {
+            for (entry in newEntries) {
+                val existingIdx = idIndex[entry.id]
+                if (existingIdx != null) {
+                    entries[existingIdx] = entry
+                    cachedNorms[existingIdx] = norm(entry.embedding)
+                } else {
+                    val idx = entries.size
+                    entries.add(entry)
+                    cachedNorms.add(norm(entry.embedding))
+                    idIndex[entry.id] = idx
+                }
+            }
+            invalidateIndex()
+        }
+    }
+
+    fun isEmpty() = synchronized(lock) { entries.isEmpty() }
 
     fun topK(query: FloatArray, k: Int = 5): List<VectorEntry> =
         topKWithScores(query, k).map { it.first }
 
     fun topKWithScores(query: FloatArray, k: Int = 5): List<Pair<VectorEntry, Float>> {
-        if (entries.isEmpty()) return emptyList()
-        val effectiveK = minOf(k, entries.size)
+        synchronized(lock) {
+            if (entries.isEmpty()) return emptyList()
+            val effectiveK = minOf(k, entries.size)
 
-        return if (entries.size >= BRUTE_FORCE_THRESHOLD) {
-            indexedTopK(query, effectiveK)
-        } else {
-            bruteForceTopK(query, effectiveK)
+            return if (entries.size >= BRUTE_FORCE_THRESHOLD) {
+                indexedTopK(query, effectiveK)
+            } else {
+                bruteForceTopK(query, effectiveK)
+            }
         }
     }
 
-    fun head(n: Int): List<VectorEntry> = entries.take(n)
-    fun size(): Int = entries.size
+    fun head(n: Int): List<VectorEntry> = synchronized(lock) { entries.take(n) }
+    fun size(): Int = synchronized(lock) { entries.size }
 
     private fun bruteForceTopK(query: FloatArray, k: Int): List<Pair<VectorEntry, Float>> {
         val qnorm = norm(query)
@@ -166,26 +177,47 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
     }
 
     fun save() {
-        persistFile ?: return
-        val serializable = entries.map { e -> SerializableEntry(e.id, e.text, e.embedding.toList()) }
-        persistFile.parentFile?.mkdirs()
-        persistFile.writeText(gson.toJson(serializable))
+        val file = persistFile ?: return
+        val serializable =
+            synchronized(lock) {
+                entries.map { e -> SerializableEntry(e.id, e.text, e.embedding.toList()) }
+            }
+        file.parentFile?.mkdirs()
+        // Write to a temp file and rename so a crash mid-write can't leave a
+        // truncated index behind.
+        val tmp = File(file.parentFile, "${file.name}.tmp")
+        tmp.writeText(gson.toJson(serializable))
+        if (!tmp.renameTo(file)) {
+            file.writeText(gson.toJson(serializable))
+            tmp.delete()
+        }
     }
 
     fun load() {
-        persistFile ?: return
-        if (!persistFile.exists()) return
-        val type = object : TypeToken<List<SerializableEntry>>() {}.type
-        val list: List<SerializableEntry> = gson.fromJson(persistFile.readText(), type) ?: return
-        entries.clear()
-        idIndex.clear()
-        cachedNorms.clear()
-        invalidateIndex()
-        for ((i, item) in list.withIndex()) {
-            val entry = VectorEntry(item.id, item.text, item.embedding.toFloatArray())
-            entries.add(entry)
-            cachedNorms.add(norm(entry.embedding))
-            idIndex[entry.id] = i
+        val file = persistFile ?: return
+        if (!file.exists()) return
+        val list: List<SerializableEntry> =
+            try {
+                val type = object : TypeToken<List<SerializableEntry>>() {}.type
+                gson.fromJson<List<SerializableEntry>>(file.readText(), type) ?: return
+            } catch (_: Throwable) {
+                // A corrupt index (e.g. process death mid-save before this class wrote
+                // atomically) must not break every future session: start empty and let
+                // the next save replace the bad file.
+                file.delete()
+                return
+            }
+        synchronized(lock) {
+            entries.clear()
+            idIndex.clear()
+            cachedNorms.clear()
+            invalidateIndex()
+            for ((i, item) in list.withIndex()) {
+                val entry = VectorEntry(item.id, item.text, item.embedding.toFloatArray())
+                entries.add(entry)
+                cachedNorms.add(norm(entry.embedding))
+                idIndex[entry.id] = i
+            }
         }
     }
 

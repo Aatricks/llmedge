@@ -18,6 +18,8 @@ package io.aatricks.llmedge.rag
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import com.ml.shubham0204.sentence_embeddings.SentenceEmbedding
@@ -37,6 +39,11 @@ class EmbeddingProvider(private val context: Context, private var config: Embedd
     private var modelFilePath: String? = null
     private var tokenizerBytesCache: ByteArray? = null
 
+    // Serializes init/encode: the token_type_ids fallback mutates `config` and
+    // re-inits `se`, which must not happen while another encode is in flight
+    // (concurrent indexing vs. querying share this provider).
+    private val sessionMutex = Mutex()
+
     private suspend fun copyAssetToFiles(assetPath: String, outFile: File) = withContext(Dispatchers.IO) {
         if (outFile.exists()) return@withContext
         outFile.parentFile?.mkdirs()
@@ -47,49 +54,53 @@ class EmbeddingProvider(private val context: Context, private var config: Embedd
         }
     }
 
-    suspend fun init() = withContext(Dispatchers.IO) {
-        if (initialized) return@withContext
-        val modelsDir = File(context.filesDir, "embedding_models")
-        val modelFile = File(modelsDir, File(config.modelAssetPath).name)
-        val tokenizerFile = File(modelsDir, File(config.tokenizerAssetPath).name)
-        copyAssetToFiles(config.modelAssetPath, modelFile)
-        copyAssetToFiles(config.tokenizerAssetPath, tokenizerFile)
+    suspend fun init() = sessionMutex.withLock {
+        withContext(Dispatchers.IO) {
+            if (initialized) return@withContext
+            val modelsDir = File(context.filesDir, "embedding_models")
+            val modelFile = File(modelsDir, File(config.modelAssetPath).name)
+            val tokenizerFile = File(modelsDir, File(config.tokenizerAssetPath).name)
+            copyAssetToFiles(config.modelAssetPath, modelFile)
+            copyAssetToFiles(config.tokenizerAssetPath, tokenizerFile)
 
-        val tokenizerBytes = tokenizerFile.readBytes()
-        modelFilePath = modelFile.absolutePath
-        tokenizerBytesCache = tokenizerBytes
-        initInternal()
-        // Probe to auto-adapt configuration for models requiring token_type_ids
-        try {
-            withContext(Dispatchers.IO) { se.encode("__init_probe__") }
-        } catch (t: Throwable) {
-            val msg = t.message ?: ""
-            val needsTokenTypeIds = msg.contains("Missing Input: token_type_ids", ignoreCase = true)
-            if (needsTokenTypeIds && !config.useTokenTypeIds) {
-                config = config.copy(useTokenTypeIds = true, outputTensorName = "last_hidden_state")
-                initInternal()
-            } else {
-                // ignore; actual encode() will still catch and re-adapt if needed
+            val tokenizerBytes = tokenizerFile.readBytes()
+            modelFilePath = modelFile.absolutePath
+            tokenizerBytesCache = tokenizerBytes
+            initInternal()
+            // Probe to auto-adapt configuration for models requiring token_type_ids
+            try {
+                se.encode("__init_probe__")
+            } catch (t: Throwable) {
+                val msg = t.message ?: ""
+                val needsTokenTypeIds = msg.contains("Missing Input: token_type_ids", ignoreCase = true)
+                if (needsTokenTypeIds && !config.useTokenTypeIds) {
+                    config = config.copy(useTokenTypeIds = true, outputTensorName = "last_hidden_state")
+                    initInternal()
+                } else {
+                    // ignore; actual encode() will still catch and re-adapt if needed
+                }
             }
+            initialized = true
         }
-        initialized = true
     }
 
-    suspend fun encode(text: String): FloatArray = withContext(Dispatchers.IO) {
-        check(initialized) { "EmbeddingProvider.init() must be called first" }
-        try {
-            se.encode(text)
-        } catch (t: Throwable) {
-            // Auto-fallback for models that require token_type_ids (e.g., bge-small-en-v1.5)
-            val msg = t.message ?: ""
-            val needsTokenTypeIds = msg.contains("Missing Input: token_type_ids", ignoreCase = true)
-            if (needsTokenTypeIds && !config.useTokenTypeIds) {
-                // Re-init with token type ids and common output tensor for such models
-                config = config.copy(useTokenTypeIds = true, outputTensorName = "last_hidden_state")
-                withContext(Dispatchers.IO) { initInternal() }
+    suspend fun encode(text: String): FloatArray = sessionMutex.withLock {
+        withContext(Dispatchers.IO) {
+            check(initialized) { "EmbeddingProvider.init() must be called first" }
+            try {
                 se.encode(text)
-            } else {
-                throw t
+            } catch (t: Throwable) {
+                // Auto-fallback for models that require token_type_ids (e.g., bge-small-en-v1.5)
+                val msg = t.message ?: ""
+                val needsTokenTypeIds = msg.contains("Missing Input: token_type_ids", ignoreCase = true)
+                if (needsTokenTypeIds && !config.useTokenTypeIds) {
+                    // Re-init with token type ids and common output tensor for such models
+                    config = config.copy(useTokenTypeIds = true, outputTensorName = "last_hidden_state")
+                    initInternal()
+                    se.encode(text)
+                } else {
+                    throw t
+                }
             }
         }
     }

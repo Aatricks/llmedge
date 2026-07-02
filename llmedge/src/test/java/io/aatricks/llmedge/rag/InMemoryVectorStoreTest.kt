@@ -7,6 +7,58 @@ import org.junit.Test
 
 class InMemoryVectorStoreTest {
     @Test
+    fun `concurrent indexing and querying does not corrupt the store`() {
+        val store = InMemoryVectorStore()
+        val errors = java.util.concurrent.ConcurrentLinkedQueue<Throwable>()
+        val iterations = 200
+
+        val writer = Thread {
+            try {
+                repeat(iterations) { i ->
+                    store.addAll(
+                        (0 until 5).map { j ->
+                            VectorEntry("w$i-$j", "text", FloatArray(16) { (i + j).toFloat() })
+                        },
+                    )
+                }
+            } catch (t: Throwable) {
+                errors.add(t)
+            }
+        }
+        val reader = Thread {
+            try {
+                repeat(iterations) {
+                    store.topKWithScores(FloatArray(16) { 1f }, 3)
+                    store.size()
+                }
+            } catch (t: Throwable) {
+                errors.add(t)
+            }
+        }
+        writer.start()
+        reader.start()
+        writer.join()
+        reader.join()
+
+        assertTrue("Concurrent access failed: ${errors.firstOrNull()}", errors.isEmpty())
+        assertEquals(iterations * 5, store.size())
+    }
+
+    @Test
+    fun `corrupt persist file is discarded instead of breaking load`() {
+        val persistFile = File.createTempFile("rag-store", ".json")
+        persistFile.deleteOnExit()
+        persistFile.writeText("{ this is not valid json")
+
+        val store = InMemoryVectorStore(persistFile)
+        store.load()
+
+        assertTrue(store.isEmpty())
+        // The corrupt file is removed so the next save starts clean.
+        assertTrue(!persistFile.exists())
+    }
+
+    @Test
     fun `upsert replaces matching id`() {
         val store = InMemoryVectorStore()
 
