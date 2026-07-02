@@ -69,7 +69,8 @@ internal object BarkAudioSupport {
                 val pcm16 = (clamped * 32767.0f).toInt().toShort()
                 buffer.putShort(pcm16)
             }
-            fos.write(buffer.array())
+            // Reused buffers can be larger than this synthesis; only write the fresh bytes.
+            fos.write(buffer.array(), 0, requiredBytes)
         }
     }
 

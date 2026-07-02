@@ -132,15 +132,29 @@ class Whisper internal constructor(
     private var progressCallback: ProgressCallback? = null
     private var segmentCallback: SegmentCallback? = null
 
+    // Serializes every native call against close(): the native handle is deleted by
+    // nativeDestroy, so a call racing close() would be a use-after-free, and a second
+    // close() would be a double free.
+    private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val nativeCallLock = Any()
+
+    private inline fun <T> withNativeHandle(block: (Long) -> T): T =
+        synchronized(nativeCallLock) {
+            check(!closed.get()) { "Whisper instance has been closed" }
+            block(handle)
+        }
+
     internal interface NativeBridge : WhisperNativeBridgeContract
 
     /** Set a callback to receive progress updates during transcription. */
     fun setProgressCallback(callback: ProgressCallback?) {
         this.progressCallback = callback
-        if (callback != null) {
-            nativeSetProgressCallback(handle, WhisperCallbackSupport.progressCallbackBridge(callback))
-        } else {
-            nativeSetProgressCallback(handle, null)
+        withNativeHandle { h ->
+            if (callback != null) {
+                nativeSetProgressCallback(h, WhisperCallbackSupport.progressCallbackBridge(callback))
+            } else {
+                nativeSetProgressCallback(h, null)
+            }
         }
     }
 
@@ -150,10 +164,12 @@ class Whisper internal constructor(
      */
     fun setSegmentCallback(callback: SegmentCallback?) {
         this.segmentCallback = callback
-        if (callback != null) {
-            nativeSetSegmentCallback(handle, WhisperCallbackSupport.segmentCallbackBridge(callback))
-        } else {
-            nativeSetSegmentCallback(handle, null)
+        withNativeHandle { h ->
+            if (callback != null) {
+                nativeSetSegmentCallback(h, WhisperCallbackSupport.segmentCallbackBridge(callback))
+            } else {
+                nativeSetSegmentCallback(h, null)
+            }
         }
     }
 
@@ -172,21 +188,23 @@ class Whisper internal constructor(
             samples = samples,
             params = params,
         ) { pcm, threads, translate, language, detectLanguage, tokenTimestamps, maxLen, splitOnWord, temperature, beamSize, suppressBlank, printProgress ->
-            nativeTranscribe(
-                handle,
-                pcm,
-                threads,
-                translate,
-                language,
-                detectLanguage,
-                tokenTimestamps,
-                maxLen,
-                splitOnWord,
-                temperature,
-                beamSize,
-                suppressBlank,
-                printProgress,
-            )
+            withNativeHandle { h ->
+                nativeTranscribe(
+                    h,
+                    pcm,
+                    threads,
+                    translate,
+                    language,
+                    detectLanguage,
+                    tokenTimestamps,
+                    maxLen,
+                    splitOnWord,
+                    temperature,
+                    beamSize,
+                    suppressBlank,
+                    printProgress,
+                )
+            }
         }
 
     /** Transcribe audio and return results as a Flow for streaming use cases. */
@@ -211,25 +229,27 @@ class Whisper internal constructor(
         return WhisperInferenceOperations.detectLanguage(
             samples = samples,
             nThreads = nThreads,
-            detectLanguageNative = { pcm, threads -> nativeDetectLanguage(handle, pcm, threads, 0) },
+            detectLanguageNative = { pcm, threads ->
+                withNativeHandle { h -> nativeDetectLanguage(h, pcm, threads, 0) }
+            },
             resolveLanguageString = ::getLanguageString,
         )
     }
 
     /** Get the full transcribed text from the last transcription. */
-    fun getFullText(): String = nativeGetFullText(handle)
+    fun getFullText(): String = withNativeHandle { h -> nativeGetFullText(h) }
 
     /** Check if the loaded model supports multiple languages. */
-    fun isMultilingual(): Boolean = nativeIsMultilingual(handle)
+    fun isMultilingual(): Boolean = withNativeHandle { h -> nativeIsMultilingual(h) }
 
     /** Get the model type (e.g., "tiny", "base", "small", "medium", "large"). */
-    fun getModelType(): String = nativeGetModelType(handle)
+    fun getModelType(): String = withNativeHandle { h -> nativeGetModelType(h) }
 
     /** Reset internal timing statistics. */
-    fun resetTimings() = nativeResetTimings(handle)
+    fun resetTimings() = withNativeHandle { h -> nativeResetTimings(h) }
 
     /** Print timing statistics to the log. */
-    fun printTimings() = nativePrintTimings(handle)
+    fun printTimings() = withNativeHandle { h -> nativePrintTimings(h) }
 
     /** Generate SRT subtitle content from transcription segments. */
     fun generateSrt(segments: List<TranscriptionSegment>): String =
@@ -361,7 +381,12 @@ class Whisper internal constructor(
     }
 
     override fun close() {
-        nativeDestroy(handle)
+        synchronized(nativeCallLock) {
+            if (!closed.compareAndSet(false, true)) {
+                return
+            }
+            nativeDestroy(handle)
+        }
     }
 
     // Native method declarations

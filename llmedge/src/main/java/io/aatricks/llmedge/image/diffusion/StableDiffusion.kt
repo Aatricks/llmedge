@@ -29,6 +29,8 @@ import io.aatricks.llmedge.core.UnsupportedModelException
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionExecutor
 import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionLoader
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import kotlin.jvm.JvmName
 
 /**
@@ -678,7 +680,14 @@ class StableDiffusion internal constructor(
         // so avoid calling nativeDestroy to prevent UnsatisfiedLinkError. See override
         // helpers in the companion object.
         if (!supportNativeBridgeOverriddenForTests() && supportIsNativeLibraryAvailable() && handle != 0L) {
-            nativeDestroy(handle)
+            // Wait for any in-flight generation to observe the cancellation above and
+            // release the mutex — destroying the native context while txt2img/txt2vid is
+            // still inside the native call would be a use-after-free.
+            runBlocking {
+                runtimeState.generationMutex.withLock {
+                    nativeDestroy(handle)
+                }
+            }
         }
         runtimeState.cancellationRequested.set(false)
         runtimeState.modelMetadata = null
