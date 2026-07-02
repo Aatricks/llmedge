@@ -7,13 +7,8 @@ import java.io.FileNotFoundException
 internal object NativeLibraryCatalog {
     val SMOLLM: String = NativeTargetNames.SMOLLM
     val SMOLLM_V7A: String = NativeTargetNames.SMOLLM_V7A
-    val SMOLLM_V8: String = NativeTargetNames.SMOLLM_V8
-    val SMOLLM_V8_2_FP16: String = NativeTargetNames.SMOLLM_V8_2_FP16
     val SMOLLM_V8_2_FP16_DOTPROD: String = NativeTargetNames.SMOLLM_V8_2_FP16_DOTPROD
-    val SMOLLM_V8_4_FP16_DOTPROD: String = NativeTargetNames.SMOLLM_V8_4_FP16_DOTPROD
-    val SMOLLM_V8_4_FP16_DOTPROD_SVE: String = NativeTargetNames.SMOLLM_V8_4_FP16_DOTPROD_SVE
     val SMOLLM_V8_4_FP16_DOTPROD_I8MM: String = NativeTargetNames.SMOLLM_V8_4_FP16_DOTPROD_I8MM
-    val SMOLLM_V8_4_FP16_DOTPROD_I8MM_SVE: String = NativeTargetNames.SMOLLM_V8_4_FP16_DOTPROD_I8MM_SVE
     val STABLE_DIFFUSION: String = NativeTargetNames.SDCPP
     const val WHISPER = "whisper"
     const val WHISPER_JNI = "whisper_jni"
@@ -32,7 +27,6 @@ internal object NativeLibraryCatalog {
         val supported32BitAbis = Build.SUPPORTED_32_BIT_ABIS ?: emptyArray()
         val hasFp16 = cpuFeatures.contains("fp16") || cpuFeatures.contains("fphp")
         val hasDotProd = cpuFeatures.contains("dotprod") || cpuFeatures.contains("asimddp")
-        val hasSve = cpuFeatures.contains("sve")
         val hasI8mm = cpuFeatures.contains("i8mm")
         val isAtLeastArmV82 =
             cpuFeatures.contains("asimd") && cpuFeatures.contains("crc32") && cpuFeatures.contains("aes")
@@ -40,27 +34,18 @@ internal object NativeLibraryCatalog {
         val isEmulated =
             hardware.contains("goldfish") || hardware.contains("ranchu")
 
+        // Three-tier ladder: the IQK kernels only gate on fp16+dotprod (no SVE),
+        // so v8.2+fp16+dotprod is the workhorse; the v8.4 build adds i8mm for
+        // ggml's aarch64 repack paths; everything else falls back to the
+        // universal armv8-a baseline (which SMOLLM already is on arm64).
         if (!isEmulated) {
             if (supportedAbis.firstOrNull() == "arm64-v8a") {
-                if (isAtLeastArmV84 && hasSve && hasI8mm && hasFp16 && hasDotProd) {
-                    candidates += SMOLLM_V8_4_FP16_DOTPROD_I8MM_SVE
-                }
-                if (isAtLeastArmV84 && hasSve && hasFp16 && hasDotProd) {
-                    candidates += SMOLLM_V8_4_FP16_DOTPROD_SVE
-                }
                 if (isAtLeastArmV84 && hasI8mm && hasFp16 && hasDotProd) {
                     candidates += SMOLLM_V8_4_FP16_DOTPROD_I8MM
-                }
-                if (isAtLeastArmV84 && hasFp16 && hasDotProd) {
-                    candidates += SMOLLM_V8_4_FP16_DOTPROD
                 }
                 if (isAtLeastArmV82 && hasFp16 && hasDotProd) {
                     candidates += SMOLLM_V8_2_FP16_DOTPROD
                 }
-                if (isAtLeastArmV82 && hasFp16) {
-                    candidates += SMOLLM_V8_2_FP16
-                }
-                candidates += SMOLLM_V8
             } else if (supported32BitAbis.firstOrNull() == "armeabi-v7a") {
                 candidates += SMOLLM_V7A
             }

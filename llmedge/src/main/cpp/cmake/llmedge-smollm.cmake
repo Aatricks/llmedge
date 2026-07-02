@@ -10,38 +10,19 @@ if (LLMEDGE_OPENCL_ENABLED)
     llmedge_enable_android_opencl("${LLMEDGE_TARGET_SMOLLM}" "${GGML_DIR}")
 endif()
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    build_library_arm64("${LLMEDGE_TARGET_SMOLLM_V8}" "-march=armv8-a")
-    if (LLMEDGE_OPENCL_ENABLED)
-        llmedge_enable_android_opencl("${LLMEDGE_TARGET_SMOLLM_V8}" "${GGML_DIR}")
-    endif()
-    # Targets for Arm-v8.2a
-    build_library_arm64("${LLMEDGE_TARGET_SMOLLM_V8_2_FP16}" "-march=armv8.2-a+fp16")
-    if (LLMEDGE_OPENCL_ENABLED)
-        llmedge_enable_android_opencl("${LLMEDGE_TARGET_SMOLLM_V8_2_FP16}" "${GGML_DIR}")
-    endif()
+    # Two tuned variants beyond the universal baseline (which is already armv8-a
+    # with IQK enabled, so a separate -march=armv8-a target would be a duplicate).
+    # The vendored IQK kernels gate on fp16+dotprod only — no SVE and no i8mm —
+    # so SVE builds bought nothing, and i8mm (used by ggml's aarch64 repack
+    # paths) ships in a single v8.4 build. Keeping the variant count at three
+    # roughly third's the AAR's smollm payload.
     build_library_arm64("${LLMEDGE_TARGET_SMOLLM_V8_2_FP16_DOTPROD}" "-march=armv8.2-a+fp16+dotprod")
     if (LLMEDGE_OPENCL_ENABLED)
         llmedge_enable_android_opencl("${LLMEDGE_TARGET_SMOLLM_V8_2_FP16_DOTPROD}" "${GGML_DIR}")
     endif()
-
-    # Targets for Arm-v8.4a
-    build_library_arm64("${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD}" "-march=armv8.4-a+fp16+dotprod")
-    if (LLMEDGE_OPENCL_ENABLED)
-        llmedge_enable_android_opencl("${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD}" "${GGML_DIR}")
-    endif()
-    build_library_arm64("${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD_SVE}" "-march=armv8.4-a+fp16+dotprod+sve")
-    target_compile_definitions(${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD_SVE} PRIVATE GGML_F32_STEP=32)
-    if (LLMEDGE_OPENCL_ENABLED)
-        llmedge_enable_android_opencl("${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD_SVE}" "${GGML_DIR}")
-    endif()
     build_library_arm64("${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD_I8MM}" "-march=armv8.4-a+fp16+dotprod+i8mm")
     if (LLMEDGE_OPENCL_ENABLED)
         llmedge_enable_android_opencl("${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD_I8MM}" "${GGML_DIR}")
-    endif()
-    build_library_arm64("${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD_I8MM_SVE}" "-march=armv8.4-a+fp16+dotprod+i8mm+sve")
-    target_compile_definitions(${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD_I8MM_SVE} PRIVATE GGML_F32_STEP=32)
-    if (LLMEDGE_OPENCL_ENABLED)
-        llmedge_enable_android_opencl("${LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD_I8MM_SVE}" "${GGML_DIR}")
     endif()
 endif()
 
