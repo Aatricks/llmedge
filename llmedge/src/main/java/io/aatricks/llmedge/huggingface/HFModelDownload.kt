@@ -2,12 +2,16 @@ package io.aatricks.llmedge.huggingface
 
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -41,99 +45,187 @@ internal class HFModelDownload(
         destination: File,
         token: String?,
         onProgress: ((downloaded: Long, totalBytes: Long?) -> Unit)?,
-    ): File = withContext(Dispatchers.IO) {
-        destination.parentFile?.mkdirs()
-        val tempFile = File(destination.parentFile, "${destination.name}.part")
-        if (destination.exists()) {
-            destination.delete()
+    ): File {
+        val path = destination.absolutePath
+        val refMutex = synchronized(downloadLocks) {
+            downloadLocks.getOrPut(path) { RefCountedMutex() }.apply { refCount++ }
         }
-
-        val resumeStart = if (tempFile.exists()) tempFile.length() else 0L
-
-        // Build the download URL
-        val url = buildDownloadUrl(modelId, revision, filePath)
-
-        // Build the request with optional resume and auth headers
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .get()
-
-        token?.let { requestBuilder.addHeader("Authorization", "Bearer $it") }
-        if (resumeStart > 0L) {
-            requestBuilder.addHeader("Range", "bytes=$resumeStart-")
-        }
-
-        val request = requestBuilder.build()
-
-        // Execute the request - OkHttp streams directly without buffering in heap
-        val response = downloadClient.newCall(request).execute()
-
         try {
-            if (!response.isSuccessful) {
-                val errorBody = response.body?.string() ?: ""
-                throw IllegalStateException(
-                    buildString {
-                        append("Failed to download $filePath from $modelId (${response.code})")
-                        if (errorBody.isNotBlank()) {
-                            append(": ")
-                            append(errorBody.take(500)) // Limit error message size
+            refMutex.mutex.withLock {
+                return withContext(Dispatchers.IO) {
+                    destination.parentFile?.mkdirs()
+                    val tempFile = File(destination.parentFile, "${destination.name}.part")
+                    val etagFile = File(destination.parentFile, "${destination.name}.part.etag")
+
+                    if (destination.exists()) {
+                        // Another caller finished this exact download while we waited on the
+                        // per-destination lock — reuse it instead of re-downloading.
+                        // Note: validation (isFileValidCached) is the caller's responsibility.
+                        if (destination.length() > 0L) {
+                            return@withContext destination
+                        }
+                        destination.delete()
+                    }
+
+                    var resumeStart = if (tempFile.exists()) tempFile.length() else 0L
+
+                    // Build the download URL
+                    val url = buildDownloadUrl(modelId, revision, filePath)
+
+                    // Build the request with optional resume and auth headers
+                    val requestBuilder = Request.Builder()
+                        .url(url)
+                        .get()
+
+                    token?.let { requestBuilder.addHeader("Authorization", "Bearer $it") }
+
+                    if (resumeStart > 0L) {
+                        val storedEtag = try {
+                            if (etagFile.exists()) etagFile.readText().trim() else null
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        if (storedEtag.isNullOrEmpty()) {
+                            tempFile.delete()
+                            try { etagFile.delete() } catch (_: Throwable) {}
+                            resumeStart = 0L
+                        } else {
+                            requestBuilder.addHeader("Range", "bytes=$resumeStart-")
+                            requestBuilder.addHeader("If-Range", storedEtag)
                         }
                     }
-                )
-            }
 
-            val contentLength = response.header("Content-Length")?.toLongOrNull()
-            val expectedLength = contentLength?.let { it + resumeStart } ?: contentLength
+                    val request = requestBuilder.build()
+                    val call = downloadClient.newCall(request)
 
-            var downloaded = resumeStart
-
-            // If server returned full file (200) despite Range header, start fresh
-            if (resumeStart > 0L && response.code == 200) {
-                tempFile.delete()
-                downloaded = 0L
-            }
-
-            onProgress?.invoke(downloaded, expectedLength)
-
-            // Stream directly to file - no heap buffering
-            val responseBody = response.body
-                ?: throw IllegalStateException("Empty response body for $filePath")
-
-            responseBody.byteStream().use { inputStream ->
-                val outputStream = if (resumeStart > 0L && response.code == 206) {
-                    FileOutputStream(tempFile, true) // Append mode for resume
-                } else {
-                    FileOutputStream(tempFile)
-                }
-
-                outputStream.use { fos ->
-                    val buffer = ByteArray(DOWNLOAD_BUFFER_SIZE)
-                    var bytesRead: Int
-
-                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                        fos.write(buffer, 0, bytesRead)
-                        downloaded += bytesRead
-                        onProgress?.invoke(downloaded, expectedLength)
+                    val response = try {
+                        val job = coroutineContext[kotlinx.coroutines.Job]
+                        val disposable = job?.invokeOnCompletion { cause ->
+                            if (cause is kotlinx.coroutines.CancellationException) {
+                                call.cancel()
+                            }
+                        }
+                        val resp = call.execute()
+                        disposable?.dispose()
+                        resp
+                    } catch (e: IOException) {
+                        coroutineContext.ensureActive()
+                        throw e
                     }
-                    fos.flush()
+
+                    try {
+                        if (!response.isSuccessful) {
+                            val errorBody = response.body?.string() ?: ""
+                            throw IllegalStateException(
+                                buildString {
+                                    append("Failed to download $filePath from $modelId (${response.code})")
+                                    if (errorBody.isNotBlank()) {
+                                        append(": ")
+                                        append(errorBody.take(500)) // Limit error message size
+                                    }
+                                }
+                            )
+                        }
+
+                        val contentLength = response.header("Content-Length")?.toLongOrNull()
+
+                        var downloaded = resumeStart
+                        var expectedLength = contentLength?.let { it + resumeStart }
+
+                        // If server returned full file (200) despite Range header, start fresh —
+                        // including the progress total, which otherwise stays inflated by resumeStart.
+                        if (resumeStart > 0L && response.code == 200) {
+                            tempFile.delete()
+                            try { etagFile.delete() } catch (_: Throwable) {}
+                            downloaded = 0L
+                            expectedLength = contentLength
+                        }
+
+                        // Write response ETag to etagFile
+                        val responseEtag = response.header("ETag")?.trim()
+                        if (!responseEtag.isNullOrEmpty()) {
+                            try {
+                                etagFile.writeText(responseEtag)
+                            } catch (_: Throwable) {}
+                        } else {
+                            try { etagFile.delete() } catch (_: Throwable) {}
+                        }
+
+                        onProgress?.invoke(downloaded, expectedLength)
+
+                        // Stream directly to file - no heap buffering
+                        val responseBody = response.body
+                            ?: throw IllegalStateException("Empty response body for $filePath")
+
+                        responseBody.byteStream().use { inputStream ->
+                            val outputStream = if (resumeStart > 0L && response.code == 206) {
+                                FileOutputStream(tempFile, true) // Append mode for resume
+                            } else {
+                                FileOutputStream(tempFile)
+                            }
+
+                            outputStream.use { fos ->
+                                val buffer = ByteArray(DOWNLOAD_BUFFER_SIZE)
+                                var bytesRead: Int
+                                var chunkCount = 0
+                                var lastProgressBytes = downloaded
+                                var lastProgressTime = System.currentTimeMillis()
+                                val throttleBytes = 1024 * 1024 // 1MB
+                                val throttleMs = 100L // 100ms
+
+                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                    fos.write(buffer, 0, bytesRead)
+                                    downloaded += bytesRead
+
+                                    val now = System.currentTimeMillis()
+                                    if (downloaded - lastProgressBytes >= throttleBytes || now - lastProgressTime >= throttleMs) {
+                                        onProgress?.invoke(downloaded, expectedLength)
+                                        lastProgressBytes = downloaded
+                                        lastProgressTime = now
+                                    }
+
+                                    chunkCount++
+                                    if (chunkCount % 10 == 0) {
+                                        coroutineContext.ensureActive()
+                                    }
+                                }
+                                fos.flush()
+                            }
+                        }
+                        // Always emit final progress
+                        onProgress?.invoke(downloaded, expectedLength)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: OutOfMemoryError) {
+                        tempFile.delete()
+                        try { etagFile.delete() } catch (_: Throwable) {}
+                        throw e
+                    } catch (e: IOException) {
+                        // Keep the partial file: the next attempt resumes it via the Range header
+                        // (and a server that ignores Range triggers the fresh-start path above).
+                        throw e
+                    } finally {
+                        response.close()
+                    }
+
+                    if (!tempFile.renameTo(destination)) {
+                        tempFile.delete()
+                        try { etagFile.delete() } catch (_: Throwable) {}
+                        throw IllegalStateException("Failed to move temporary file for $filePath")
+                    }
+                    try { etagFile.delete() } catch (_: Throwable) {}
+
+                    destination
                 }
             }
-        } catch (e: OutOfMemoryError) {
-            tempFile.delete()
-            throw e
-        } catch (e: IOException) {
-            tempFile.delete()
-            throw e
         } finally {
-            response.close()
+            synchronized(downloadLocks) {
+                refMutex.refCount--
+                if (refMutex.refCount == 0) {
+                    downloadLocks.remove(path)
+                }
+            }
         }
-
-        if (!tempFile.renameTo(destination)) {
-            tempFile.delete()
-            throw IllegalStateException("Failed to move temporary file for $filePath")
-        }
-
-        destination
     }
 
     private fun buildDownloadUrl(modelId: String, revision: String, filePath: String): String {
@@ -152,5 +244,8 @@ internal class HFModelDownload(
     companion object {
         // 64KB buffer for efficient streaming without excessive memory usage
         private const val DOWNLOAD_BUFFER_SIZE = 64 * 1024
+
+        private class RefCountedMutex(val mutex: Mutex = Mutex(), var refCount: Int = 0)
+        private val downloadLocks = HashMap<String, RefCountedMutex>()
     }
 }

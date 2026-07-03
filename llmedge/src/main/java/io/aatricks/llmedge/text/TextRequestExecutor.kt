@@ -4,6 +4,7 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.runtime.BackendFailureClassifier
+import io.aatricks.llmedge.core.runtime.RuntimeClosedException
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.model.ModelSpec
 import kotlinx.coroutines.flow.Flow
@@ -30,33 +31,62 @@ internal class TextRequestExecutor(
             generateWithRuntimeRetry(request)
         } catch (error: InferenceFailedException) {
             retryGenerateIfNeeded(request, error)
+        } catch (raced: RuntimeClosedException) {
+            // A cached runtime can be evicted and closed between acquire() and the
+            // mutex-guarded execution. Nothing ran yet in that case, so re-acquire once
+            // (the pool will load a fresh runtime) instead of surfacing a raw internal error.
+            AndroidLogAdapter.w(
+                logTag,
+                "Text runtime was evicted before use; re-acquiring once for '${request.model.cacheKey}'",
+            )
+            generateWithRuntimeRetry(request)
         }
     }
 
     fun stream(request: TextGenerationRequest): Flow<TextStreamEvent> =
             flow {
                 emit(TextStreamEvent.Started(request.prompt))
-            val runtime = runtimePool.acquire(request.model, request.options)
+            var runtime = runtimePool.acquire(request.model, request.options)
             resetMetrics()
             val response = StringBuilder()
             try {
-                runtimeSession
-                    .streamCompletion(
-                        runtime = runtime,
-                        prompt = request.prompt,
-                        systemPrompt = request.systemPrompt,
-                        options = request.options,
-                        batchSize = request.batchSize,
-                    ).collect { chunk ->
-                        response.append(chunk)
-                        emit(TextStreamEvent.Chunk(chunk))
-                    }
+                try {
+                    streamInto(runtime, request, response)
+                } catch (raced: RuntimeClosedException) {
+                    // Eviction race: the runtime was closed between acquire() and use.
+                    // Nothing has been emitted from the model yet, so retry once.
+                    if (response.isNotEmpty()) throw raced
+                    AndroidLogAdapter.w(
+                        logTag,
+                        "Text runtime was evicted before use; re-acquiring once for '${request.model.cacheKey}'",
+                    )
+                    runtime = runtimePool.acquire(request.model, request.options)
+                    streamInto(runtime, request, response)
+                }
             } catch (error: InferenceFailedException) {
                 recordBackendFailureIfNeeded(request.model, request.options, runtime, error)
                 throw error
             }
             emit(TextStreamEvent.Completed(response.toString()))
         }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<TextStreamEvent>.streamInto(
+        runtime: ManagedTextModel,
+        request: TextGenerationRequest,
+        response: StringBuilder,
+    ) {
+        runtimeSession
+            .streamCompletion(
+                runtime = runtime,
+                prompt = request.prompt,
+                systemPrompt = request.systemPrompt,
+                options = request.options,
+                batchSize = request.batchSize,
+            ).collect { chunk ->
+                response.append(chunk)
+                emit(TextStreamEvent.Chunk(chunk))
+            }
+    }
 
     suspend fun acquire(
         model: ModelSpec,

@@ -32,6 +32,9 @@ data class TextModelOptions(
     val thinkingMode: SmolLM.ThinkingMode = SmolLM.ThinkingMode.DEFAULT,
     val reasoningBudget: Int? = null,
     val useVulkan: Boolean? = null,
+    val kvCacheTypeK: SmolLM.KvCacheType? = null,
+    val kvCacheTypeV: SmolLM.KvCacheType? = null,
+    val nUbatch: Int? = null,
 )
 
 data class TextGenerationRequest(
@@ -60,6 +63,9 @@ internal fun TextModelOptions.toInferenceParams(
         useFlashAttn = useFlashAttention ?: config.text.useFlashAttention,
         thinkingMode = thinkingMode,
         reasoningBudget = reasoningBudget,
+        kvCacheTypeK = kvCacheTypeK ?: config.text.kvCacheTypeK,
+        kvCacheTypeV = kvCacheTypeV ?: config.text.kvCacheTypeV,
+        nUbatch = nUbatch ?: config.text.nUbatch,
     )
 
 class TextClient internal constructor(
@@ -68,8 +74,6 @@ class TextClient internal constructor(
 ) : OwnedFeatureClient(featureContext, ownedBootstrap) {
     companion object {
         private const val LOG_TAG = "TextClient"
-        /** Cap for chat state snapshots — skip snapshotting if state exceeds 64 MB. */
-        private const val MAX_CHAT_STATE_BYTES = 64L * 1024L * 1024L
         private val FACTORY = featureClientFactory(::TextClient)
 
         @Deprecated(
@@ -219,37 +223,6 @@ class TextClient internal constructor(
     ): String =
         runtimeSession.complete(runtime, prompt, systemPrompt, options, maxTokens, batchSize)
 
-    /**
-     * Chat-oriented completion that captures the KV-cache state after generation
-     * so callers can restore it on the next turn, avoiding full re-tokenization.
-     *
-     * @param restoreState If non-null, restores this state before generation instead
-     *                     of re-preparing the model from scratch.
-     * @return Pair of (response text, state snapshot). The snapshot may be null if
-     *         the native runtime does not support state capture or the state exceeds
-     *         [maxStateBytes].
-     */
-    internal suspend fun chatTurn(
-        runtime: ManagedTextModel,
-        prompt: String,
-        systemPrompt: String?,
-        options: TextModelOptions,
-        maxTokens: Int,
-        batchSize: Int,
-        restoreState: ByteArray? = null,
-        maxStateBytes: Long = MAX_CHAT_STATE_BYTES,
-    ): Pair<String, ByteArray?> =
-        runtimeSession.chatTurn(
-            runtime = runtime,
-            prompt = prompt,
-            systemPrompt = systemPrompt,
-            options = options,
-            maxTokens = maxTokens,
-            batchSize = batchSize,
-            restoreState = restoreState,
-            maxStateBytes = maxStateBytes,
-        )
-
     internal fun streamCompletion(
         runtime: ManagedTextModel,
         prompt: String,
@@ -263,6 +236,10 @@ class TextClient internal constructor(
         closeOwned {
             runtimePool.close()
         }
+    }
+
+    internal fun invalidate(model: ModelSpec, options: TextModelOptions) {
+        requestExecutor.invalidate(model, options)
     }
 
     internal suspend fun loadDetached(model: ModelSpec, options: TextModelOptions): ManagedTextModel =

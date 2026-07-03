@@ -34,7 +34,14 @@ data class GenerateParams(
         val seed: Long = 42L,
         val vaeTiling: Boolean = true,
         val easyCacheParams: EasyCacheParams = EasyCacheParams()
-)
+) {
+    init {
+        require(width > 0) { "Width must be positive" }
+        require(height > 0) { "Height must be positive" }
+        require(width % 64 == 0) { "Width must be a multiple of 64" }
+        require(height % 64 == 0) { "Height must be a multiple of 64" }
+    }
+}
 
 data class EasyCacheParams(
         val enabled: Boolean = false,
@@ -131,6 +138,12 @@ data class VideoGenerateParams(
         val scheduler: Scheduler = Scheduler.DEFAULT,
         val easyCacheParams: EasyCacheParams = EasyCacheParams()
 ) {
+    init {
+        require(width > 0) { "Width must be positive" }
+        require(height > 0) { "Height must be positive" }
+        require(width % 64 == 0) { "Width must be a multiple of 64" }
+        require(height % 64 == 0) { "Height must be a multiple of 64" }
+    }
     /**
      * Calculate the actual number of frames that will be generated. Wan model uses formula:
      * actual_frames = (videoFrames-1)/4*4+1 Examples: 5→5, 8→5, 9→9, 10→9, 12→9, 13→13

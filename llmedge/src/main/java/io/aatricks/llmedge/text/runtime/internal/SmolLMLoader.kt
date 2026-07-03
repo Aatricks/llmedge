@@ -90,6 +90,17 @@ internal object SmolLMLoader {
                             )
                     },
                 ) { backend ->
+                    // Q8_KV KV-cache kernels exist only in the CPU (IQK) path of the ik fork;
+                    // loading it on a GPU backend SIGSEGVs natively (measured on S22 Vulkan).
+                    // Failing the attempt here lets runBackendAttempts fall back to CPU.
+                    if (backend != ComputeBackend.CPU &&
+                        params.kvCacheTypeK == SmolLM.KvCacheType.Q8_KV
+                    ) {
+                        throw ModelLoadException(
+                            validatedModel.absolutePath,
+                            "KvCacheType.Q8_KV is CPU-only; refusing to load it on $backend.",
+                        )
+                    }
                     instance.state.requestedLoadBackend = backend
                     try {
                         val candidateHandle =
@@ -113,6 +124,7 @@ internal object SmolLMLoader {
                                     params.kvCacheTypeK.nativeCode,
                                     params.kvCacheTypeV.nativeCode,
                                     params.nGpuLayers,
+                                    params.nUbatch,
                                 )
                             }
                         instance.state.nativePtr =
@@ -147,6 +159,7 @@ internal object SmolLMLoader {
         instance.applyReasoningStateForLoad(params.thinkingMode, reasoningBudget)
 
         val pCoreMask = CpuTopology.getPerformanceCoreMask()
+        instance.state.pCoreMask = pCoreMask
         if (pCoreMask != 0L) {
             instance.setThreadAffinityForLoad(instance.state.nativePtr, pCoreMask)
         }

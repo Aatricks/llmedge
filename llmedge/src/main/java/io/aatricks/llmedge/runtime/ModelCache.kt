@@ -7,6 +7,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -32,7 +33,8 @@ class ModelCache<T : AutoCloseable>(
             val loadTimeMs: Long,
             val sizeProvider: (() -> Long)? = null,
             var lastUsedMs: Long = System.currentTimeMillis(),
-            var hitCount: Int = 0
+            var hitCount: Int = 0,
+            var pinCount: Int = 0
     )
 
     /** Cache statistics */
@@ -78,7 +80,9 @@ class ModelCache<T : AutoCloseable>(
         val entry = lock.write {
             val e = cache[key]
             if (e != null) {
-                refreshEntrySize(e)
+                // Do NOT refresh the entry size here: sizeProvider makes native JNI
+                // calls on the runtime handle, which may be mid-inference on another
+                // thread (no native-side lock). Sizes are resolved at insert time.
                 e.lastUsedMs = System.currentTimeMillis()
                 e.hitCount++
             }
@@ -122,7 +126,9 @@ class ModelCache<T : AutoCloseable>(
                 logOversizedInsertIfNeeded(key, resolvedSizeBytes)
             } else {
                 while (cache.isNotEmpty() && shouldEvict(resolvedSizeBytes)) {
-                    evictLRULocked(toClose)
+                    // Pinned entries are skipped; stop when nothing evictable remains
+                    // (the insert then intentionally overshoots the budget).
+                    if (!evictLRULocked(toClose)) break
                 }
                 if (cache.isEmpty() && shouldEvict(resolvedSizeBytes)) {
                     logOversizedInsertIfNeeded(key, resolvedSizeBytes)
@@ -153,7 +159,8 @@ class ModelCache<T : AutoCloseable>(
 
     /** Check if we should evict based on cache size and memory limits */
     private fun shouldEvict(newSizeBytes: Long): Boolean {
-        refreshAllEntrySizes()
+        // Entry sizes are intentionally not refreshed here: sizeProvider calls into
+        // native code on runtimes that other coroutines may be actively using.
         return ModelCacheBudgetPolicy.shouldEvict(
             entryCount = cache.size,
             maxCacheSize = maxCacheSize,
@@ -177,18 +184,26 @@ class ModelCache<T : AutoCloseable>(
         }
     }
 
-    private fun refreshEntrySize(entry: CacheEntry<T>) {
-        val provider = entry.sizeProvider ?: return
-        val refreshedSize = provider().coerceAtLeast(0L)
-        if (refreshedSize == entry.sizeBytes) {
-            return
-        }
-        totalCachedBytes += refreshedSize - entry.sizeBytes
-        entry.sizeBytes = refreshedSize
+    /**
+     * Pin an entry so LRU eviction skips it while a long-lived session (e.g. streaming
+     * transcription) holds the runtime. Pins are advisory against eviction only:
+     * [clear] and [remove] still close pinned entries.
+     *
+     * @return true if the entry was present and is now pinned
+     */
+    fun pin(key: String): Boolean = lock.write {
+        val entry = cache[key] ?: return@write false
+        entry.pinCount++
+        true
     }
 
-    private fun refreshAllEntrySizes() {
-        cache.values.forEach(::refreshEntrySize)
+    /** Release one pin taken with [pin]. Safe to call for absent keys. */
+    fun unpin(key: String) {
+        lock.write {
+            cache[key]?.let { entry ->
+                if (entry.pinCount > 0) entry.pinCount--
+            }
+        }
     }
 
     /** Evict least recently used entry, closing the evicted model outside the lock */
@@ -200,30 +215,33 @@ class ModelCache<T : AutoCloseable>(
         closeModels(toClose)
     }
 
-    /** Internal eviction that collects models to close — must be called while holding write lock */
-    private fun evictLRULocked(toClose: MutableList<T>) {
-        if (cache.isEmpty()) return
+    /**
+     * Evict the least recently used unpinned entry — must be called while holding write lock.
+     * @return true if an entry was evicted, false if every entry is pinned (or cache is empty)
+     */
+    private fun evictLRULocked(toClose: MutableList<T>): Boolean {
+        val lruKey = cache.entries.firstOrNull { it.value.pinCount == 0 }?.key ?: return false
+        val lruEntry = cache.remove(lruKey) ?: return false
 
-        val lruKey = cache.keys.first()
-        val lruEntry = cache.remove(lruKey)
-
-        lruEntry?.let { entry ->
-            totalCachedBytes -= entry.sizeBytes
-            evictions.incrementAndGet()
-            AndroidLogAdapter.i(
-                    TAG,
-                    "Evicted LRU '$lruKey' (used ${entry.hitCount} times, " +
-                            "${entry.sizeBytes / 1024 / 1024}MB)"
-            )
-            toClose.add(entry.model)
-        }
+        totalCachedBytes -= lruEntry.sizeBytes
+        evictions.incrementAndGet()
+        AndroidLogAdapter.i(
+                TAG,
+                "Evicted LRU '$lruKey' (used ${lruEntry.hitCount} times, " +
+                        "${lruEntry.sizeBytes / 1024 / 1024}MB)"
+        )
+        toClose.add(lruEntry.model)
+        return true
     }
 
     /** Close models outside any lock to avoid blocking concurrent readers */
     private fun closeModels(models: List<T>) {
         for (model in models) {
             if (closeScope != null) {
-                closeScope.launch {
+                // close() blocks until any in-flight generation on the runtime finishes;
+                // force Dispatchers.IO so cache pressure can never park that wait on the
+                // caller's dispatcher (often Main) — an ANR under normal usage otherwise.
+                closeScope.launch(Dispatchers.IO) {
                     try {
                         model.close()
                     } catch (e: Exception) {
@@ -240,7 +258,11 @@ class ModelCache<T : AutoCloseable>(
         }
     }
 
-    /** Clear all cached models */
+    /**
+     * Clear all cached models. Closes synchronously — deferring the closes to a
+     * scope would let a shutdown cancel them and leak native runtimes — and close()
+     * waits for in-flight generations, so call this off the main thread.
+     */
     fun clear() {
         val toClose: List<T>
         lock.write {
@@ -261,18 +283,22 @@ class ModelCache<T : AutoCloseable>(
         }
     }
 
-    /** Remove specific entry from cache */
+    /**
+     * Remove specific entry from cache. Closes synchronously so callers (e.g. the
+     * FLUX.2 sequential invalidate) can rely on the runtime being freed on return;
+     * close() waits for in-flight generations, so call off the main thread.
+     */
     fun remove(key: String): Boolean {
         val entry: CacheEntry<T>?
         lock.write {
             entry = cache.remove(key)
             if (entry != null) {
-                totalCachedBytes -= entry!!.sizeBytes
+                totalCachedBytes -= entry.sizeBytes
             }
         }
         if (entry != null) {
             try {
-                entry!!.model.close()
+                entry.model.close()
                 AndroidLogAdapter.i(TAG, "Removed '$key' from cache")
                 return true
             } catch (e: Exception) {

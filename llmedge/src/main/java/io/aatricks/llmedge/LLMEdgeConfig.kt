@@ -25,23 +25,43 @@ data class ExecutionConfig(
 
 data class TextRuntimeConfig(
     val cache: RuntimeCacheConfig = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 2048),
-    val useVulkan: Boolean = true,
+    /**
+     * CPU by default: the vendored ik_llama.cpp fork's strength is its CPU (IQK) kernels, and
+     * its Vulkan path measured far slower on-device (S22 Xclipse 920: smollm-135M 4.4 vs 78
+     * tok/s, Qwen3-0.6B 3.4 vs 22.6 tok/s). Opt in per-host on hardware where Vulkan wins.
+     */
+    val useVulkan: Boolean = false,
     val promptThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
     val generationThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.TOKEN_GENERATION),
     val batchSize: Int = SmolLM.DEFAULT_BLOCKING_BATCH_SIZE,
-    val streamBatchSize: Int = 4,
+    val streamBatchSize: Int = 1,
     val contextSize: Long? = null,
     val minP: Float = 0.1f,
     val temperature: Float = 0.8f,
     val useMmap: Boolean = true,
     val useMlock: Boolean = false,
     val useFlashAttention: Boolean = true,
+    /**
+     * KV cache type for keys. [SmolLM.KvCacheType.Q8_KV] measured +4-6% decode and ~-12% load
+     * heap vs F16 on S22 CPU, but is CPU-only (GPU load attempts fall back to CPU), so the
+     * SDK default stays F16.
+     */
+    val kvCacheTypeK: SmolLM.KvCacheType = SmolLM.KvCacheType.DEFAULT,
+    /** KV cache type for values. Q8_KV is rejected here (K-cache-only layout). */
+    val kvCacheTypeV: SmolLM.KvCacheType = SmolLM.KvCacheType.DEFAULT,
+    /**
+     * Micro-batch size for prompt processing (llama.cpp n_ubatch). 0 = engine default (128).
+     * Larger values trade compute-buffer memory for prefill speed on long (e.g. RAG) prompts:
+     * S22 measured 27.5s -> 14.5s TTFT on a ~1800-token prompt going 128 -> 512.
+     */
+    val nUbatch: Int = CpuTopology.recommendBatchSize(CpuTopology.TaskType.PROMPT_PROCESSING),
 ) {
     init {
         require(promptThreads > 0) { "Text prompt threads must be positive." }
         require(generationThreads > 0) { "Text generation threads must be positive." }
         require(batchSize > 0) { "Text batch size must be positive." }
         require(streamBatchSize > 0) { "Text stream batch size must be positive." }
+        require(nUbatch >= 0) { "Text nUbatch must be >= 0." }
     }
 }
 
@@ -56,7 +76,8 @@ data class ImageRuntimeConfig(
 
 data class VisionRuntimeConfig(
     val cache: RuntimeCacheConfig = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 2048),
-    val useVulkan: Boolean = true,
+    /** CPU by default for the same reason as [TextRuntimeConfig.useVulkan] (same engine). */
+    val useVulkan: Boolean = false,
     val promptThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
     val generationThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.TOKEN_GENERATION),
     val useFlashAttention: Boolean = true,

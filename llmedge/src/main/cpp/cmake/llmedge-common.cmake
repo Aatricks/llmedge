@@ -59,7 +59,7 @@ set(LLMEDGE_IQK_DOTPROD_SOURCES
 )
 # The patched IQK sources rely on IQK_FORCE_IMPLEMENT in two cases:
 # - desktop x86 host builds, where upstream gating does not enable the implementation by default
-# - Android arm64 targets such as ggufreader and smollm_v8, which compile IQK sources without
+# - Android arm64 targets such as ggufreader and the baseline smollm, which compile IQK sources without
 #   dotprod-specific march flags but still need the generic AArch64 NEON helper implementations
 if ((NOT ANDROID AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
         OR (ANDROID AND "${ANDROID_ABI}" STREQUAL "arm64-v8a"))

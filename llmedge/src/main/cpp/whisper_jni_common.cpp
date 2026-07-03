@@ -3,8 +3,6 @@
 #include "jni_thread_cache.h"
 #include "jni_utils.h"
 
-std::mutex g_whisper_backend_preference_mutex;
-
 void throwJavaException(JNIEnv* env, const char* className, const char* message) {
     llmedge_throw_java_exception(env, className, message);
 }
@@ -33,6 +31,12 @@ void whisper_progress_callback_wrapper(
     }
 
     static thread_local int lastReportedProgress = -1;
+    // The thread-local survives across transcriptions on the same thread; a new
+    // run's progress restarting below the last reported value means a new
+    // transcription began, so reset instead of dropping its early updates.
+    if (progress < lastReportedProgress) {
+        lastReportedProgress = -1;
+    }
     if (progress / 5 == lastReportedProgress / 5 && progress != 100) {
         return;
     }
@@ -73,7 +77,9 @@ void whisper_new_segment_callback_wrapper(
     int start = n_segments - n_new;
 
     if (n_new > 16) {
-        env->EnsureLocalCapacity(n_new + 4);
+        if (env->EnsureLocalCapacity(n_new + 4) < 0) {
+            return;
+        }
     }
 
     for (int i = start; i < n_segments; ++i) {
@@ -81,7 +87,15 @@ void whisper_new_segment_callback_wrapper(
         int64_t t0 = whisper_full_get_segment_t0_from_state(state, i);
         int64_t t1 = whisper_full_get_segment_t1_from_state(state, i);
 
-        jstring jText = env->NewStringUTF(text ? text : "");
+        // Transcribed text is model output and can contain 4-byte UTF-8, which
+        // NewStringUTF rejects — build the String from raw UTF-8 bytes instead.
+        jstring jText = llmedge_new_string_utf8(env, text);
+        if (!jText) {
+            if (env->ExceptionCheck()) {
+                break;
+            }
+            continue;
+        }
         env->CallVoidMethod(
             handle->segmentCallbackGlobalRef,
             handle->segmentMethodID,

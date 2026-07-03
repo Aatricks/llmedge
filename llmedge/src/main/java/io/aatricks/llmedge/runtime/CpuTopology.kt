@@ -68,7 +68,10 @@ object CpuTopology {
                         .listFiles { file ->
                             file.isDirectory && file.name.matches(CPU_DIR_REGEX)
                         }
-                        ?.sortedBy { it.name }
+                        // Numeric sort: a lexicographic sort puts "cpu10" before "cpu2",
+                        // which scrambles the index→CPU-id mapping the affinity mask
+                        // relies on for devices with 10+ cores.
+                        ?.sortedBy { it.name.removePrefix("cpu").toIntOrNull() ?: Int.MAX_VALUE }
                         ?: emptyList()
 
         for (cpuDir in cpuDirs) {
@@ -147,10 +150,12 @@ object CpuTopology {
                 }
             }
             TaskType.TOKEN_GENERATION -> {
-                // Use fewer cores to reduce contention
-                // Token generation is sequential, so fewer threads can be faster
+                // Decode is a sequential sync-per-token workload. Measured on-device
+                // (S22, 1x X2 + 3x A710 P-cores, 135M Q4_K_M, P-core affinity active):
+                // P-1 threads = 107 tok/s vs P/2 = 84 and P = 70 — leaving one P-core
+                // free for the coordinating thread beats both fewer and all cores.
                 if (coreInfo.performanceCores >= 4) {
-                    (coreInfo.performanceCores / 2).coerceAtLeast(2)
+                    (coreInfo.performanceCores - 1).coerceAtLeast(2)
                 } else {
                     Runtime.getRuntime().availableProcessors().coerceAtMost(4)
                 }
@@ -217,10 +222,11 @@ object CpuTopology {
 
         return when (taskType) {
             TaskType.PROMPT_PROCESSING -> {
-                // Prompt processing benefits from larger batches on capable devices
+                // Prompt processing benefits from larger batches on capable devices.
+                // S22 (4 P-cores) measured TTFT on a ~1800-token prompt: n_ubatch 128 = 27.5s,
+                // 256 = 18.1s, 512 = 14.5s — so 4+ P-cores gets 512.
                 val coreBased = when {
-                    coreInfo.performanceCores >= 8 -> 512
-                    coreInfo.performanceCores >= 4 -> 256
+                    coreInfo.performanceCores >= 4 -> 512
                     else -> 128
                 }
                 // Reduce if model is large relative to available memory

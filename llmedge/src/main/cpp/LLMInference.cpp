@@ -22,7 +22,7 @@
 void
 LLMInference::loadModel(const char *model_path, float minP, float temperature, bool storeChats, long contextSize,
                         const char *chatTemplate, int nThreads, bool useMmap, bool useMlock, int backendId,
-                        bool useFlashAttn, int kvCacheTypeKCode, int kvCacheTypeVCode, int nGpuLayers) {
+                        bool useFlashAttn, int kvCacheTypeKCode, int kvCacheTypeVCode, int nGpuLayers, int nUbatch) {
     const RequestedBackend requestedBackend = static_cast<RequestedBackend>(backendId);
     LOGi("loading model with"
          "\n\tmodel_path = %s"
@@ -82,9 +82,19 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
         LOGi("contextSize %ld adjusted to %ld to fit llama context limits", contextSize, safeContext);
     }
     ctx_params.n_ctx = static_cast<uint32_t>(safeContext);
+    // n_batch must cover the full context because startCompletion() submits the whole
+    // prompt as a single llama_batch. This is cheap in the vendored fork (verified in
+    // llama.cpp:3693ff): llama_decode splits work into n_ubatch micro-batches
+    // internally, and the logits buffer is sized by actual outputs
+    // (llama_output_reserve), not n_batch — only output_ids scales with n_batch,
+    // at 4 bytes per token.
     ctx_params.n_batch = static_cast<uint32_t>(safeContext);
-    // Smaller micro-batches improve cache locality on ARM
-    ctx_params.n_ubatch = std::min(ctx_params.n_batch, 128u);
+    // Micro-batch size drives prefill throughput vs. compute-buffer memory.
+    // Default stays at 128 (cache-friendly on small ARM cores) but callers can
+    // raise it via InferenceParams.nUbatch for faster prompt processing.
+    ctx_params.n_ubatch = nUbatch > 0
+        ? std::min(static_cast<uint32_t>(nUbatch), ctx_params.n_batch)
+        : std::min(ctx_params.n_batch, 128u);
     ctx_params.n_threads = nThreads;
     ctx_params.n_threads_batch = nThreads;
     ctx_params.flash_attn = useFlashAttn;
@@ -139,6 +149,11 @@ LLMInference::loadModel(const char *model_path, float minP, float temperature, b
     }
 
     _formattedMessages = std::vector<char>(llama_n_ctx(_ctx));
+    // Messages hold strdup'd strings; a bare clear() on reload would leak them.
+    for (llama_chat_message &message : _messages) {
+        free(const_cast<char *>(message.role));
+        free(const_cast<char *>(message.content));
+    }
     _messages.clear();
 
     // Invalidate any existing system prompt KV snapshot
@@ -306,6 +321,11 @@ LLMInference::getContextSizeUsed() const {
     return _nCtxUsed;
 }
 
+bool
+LLMInference::isContextLimitReached() const {
+    return _contextLimitReached;
+}
+
 void
 LLMInference::startCompletion(const char *query) {
     if (!_storeChats) {
@@ -335,7 +355,13 @@ LLMInference::startCompletion(const char *query) {
         finalQuery.find("<|user|>") != std::string::npos ||
         finalQuery.find("<|assistant|>") != std::string::npos ||
         finalQuery.find("<|im_start|>") != std::string::npos;
-    if (suppressThinking && !looksStructuredPrompt && finalQuery.find("/no_think") == std::string::npos) {
+    // The "/no_think" soft switch is a Qwen convention; templates without it treat
+    // the literal as user text, so only inject when the template understands it.
+    const bool templateSupportsNoThink =
+        _chatTemplateSrc.find("enable_thinking") != std::string::npos ||
+        _chatTemplateSrc.find("no_think") != std::string::npos;
+    if (suppressThinking && templateSupportsNoThink && !looksStructuredPrompt &&
+        finalQuery.find("/no_think") == std::string::npos) {
         if (!finalQuery.empty()) {
             finalQuery.insert(0, "/no_think\n");
         } else {
@@ -350,23 +376,40 @@ LLMInference::startCompletion(const char *query) {
         LOGi("Chat formatter changed between turns; resetting cached prompt prefix");
         _prevLen = 0;
     }
+    if (_prevLen > newLen) {
+        // Templates that re-render prior turns shorter (e.g. stripping <think>
+        // content from stored assistant replies) would make the incremental slice
+        // below start past its end — replay the whole prompt instead.
+        LOGi("Rendered prompt shrank below cached prefix (%d < %d); resetting prefix", newLen, _prevLen);
+        _prevLen = 0;
+    }
 
     // --- System prompt KV cache snapshotting ---
     bool restoredFromSnapshot = false;
     int snapshotNPast = 0;
     _eogReached = false;
+    _contextLimitReached = false;
 
     if (_prevLen == 0) {
         size_t systemMsgCount = 0;
         std::string systemContent;
-        for (const auto& msg : _messages) {
-            if (std::strcmp(msg.role, "system") == 0) {
-                systemContent += msg.content;
+        bool systemIsPrefix = true;
+        for (size_t i = 0; i < _messages.size(); ++i) {
+            if (std::strcmp(_messages[i].role, "system") == 0) {
+                // The snapshot slices the rendered prompt at format(first N messages),
+                // which only equals the rendered system prompt when every system
+                // message sits at the front. A system message added after a user
+                // message (possible via the direct addSystemPrompt API) would cache
+                // the wrong prefix under the system content's hash.
+                if (i != systemMsgCount) {
+                    systemIsPrefix = false;
+                }
+                systemContent += _messages[i].content;
                 systemMsgCount++;
             }
         }
 
-        if (systemMsgCount > 0) {
+        if (systemMsgCount > 0 && systemIsPrefix) {
             size_t currentHash = std::hash<std::string>{}(systemContent);
 
             int sysTemplateLen = 0;
@@ -382,21 +425,37 @@ LLMInference::startCompletion(const char *query) {
             }
 
             if (currentHash == _cachedSystemPromptHash && !_systemPromptKVSnapshot.empty()) {
-                // Restore KV state from cached snapshot
-                LOGi("Restoring system prompt KV snapshot (hash=%zu, tokens=%d)",
-                     currentHash, _systemPromptTokenCount);
-                llmedge_kv_cache_seq_rm(_ctx, -1, -1, -1);
-                size_t nset = llmedge_state_seq_set_data(
-                    _ctx, _systemPromptKVSnapshot.data(), _systemPromptKVSnapshot.size(), 0);
-                if (nset == 0) {
-                    LOGe("Failed to restore system prompt KV snapshot, processing normally");
-                    _systemPromptKVSnapshot.clear();
-                    _cachedSystemPromptHash = 0;
-                    _systemPromptTokenCount = 0;
-                } else {
+                // Fast path: this instance decodes only on sequence 0 and never removes
+                // positions below the system prefix between turns, so when the cache
+                // still holds at least that many positions the prefix is ours — trim
+                // back to it instead of memcpy'ing the serialized state (multi-MB per
+                // turn) back in. Anything that emptied the cache (e.g. an external
+                // clearKvCache) fails the position check and takes the full restore.
+                const llama_pos cachePosMax = llmedge_kv_cache_seq_pos_max(_ctx, 0);
+                if (_systemPromptTokenCount > 0 && cachePosMax + 1 >= _systemPromptTokenCount) {
+                    LOGi("Trimming KV cache to system prompt prefix (hash=%zu, tokens=%d)",
+                         currentHash, _systemPromptTokenCount);
+                    llmedge_kv_cache_seq_rm(_ctx, 0, _systemPromptTokenCount, -1);
                     _prevLen = sysTemplateLen;
                     restoredFromSnapshot = true;
                     snapshotNPast = _systemPromptTokenCount;
+                } else {
+                    // Restore KV state from cached snapshot
+                    LOGi("Restoring system prompt KV snapshot (hash=%zu, tokens=%d)",
+                         currentHash, _systemPromptTokenCount);
+                    llmedge_kv_cache_seq_rm(_ctx, -1, -1, -1);
+                    size_t nset = llmedge_state_seq_set_data(
+                        _ctx, _systemPromptKVSnapshot.data(), _systemPromptKVSnapshot.size(), 0);
+                    if (nset == 0) {
+                        LOGe("Failed to restore system prompt KV snapshot, processing normally");
+                        _systemPromptKVSnapshot.clear();
+                        _cachedSystemPromptHash = 0;
+                        _systemPromptTokenCount = 0;
+                    } else {
+                        _prevLen = sysTemplateLen;
+                        restoredFromSnapshot = true;
+                        snapshotNPast = _systemPromptTokenCount;
+                    }
                 }
             } else if (sysTemplateLen > 0) {
                 // Decode system prompt and create a new snapshot
@@ -418,6 +477,13 @@ LLMInference::startCompletion(const char *query) {
 
                     if (llama_decode(_ctx, sysBatch) < 0) {
                         LOGe("Failed to decode system prompt for snapshot");
+                        // The failed decode may have left partial tokens resident; a
+                        // later hash match on the OLD snapshot fields would then trim
+                        // back to a foreign prefix. Drop both cache and snapshot.
+                        llmedge_kv_cache_seq_rm(_ctx, -1, -1, -1);
+                        _systemPromptKVSnapshot.clear();
+                        _cachedSystemPromptHash = 0;
+                        _systemPromptTokenCount = 0;
                     } else {
                         size_t stateSize = llmedge_state_seq_get_size(_ctx, 0);
                         _systemPromptKVSnapshot.resize(stateSize);
@@ -546,7 +612,23 @@ LLMInference::completionLoop() {
     uint32_t contextSize = llama_n_ctx(_ctx);
     _nCtxUsed = llmedge_kv_cache_seq_pos_max(_ctx, 0) + 1;
     if (_nCtxUsed + _batch->n_tokens > contextSize) {
-        throw std::runtime_error("context size reached");
+        if (_responseNumTokens <= 0) {
+            // Nothing generated yet: the prompt alone exceeds the context window,
+            // so surface an error rather than silently returning nothing.
+            throw std::runtime_error("context size reached");
+        }
+        // Mid-generation overflow: stop gracefully so the caller keeps the partial
+        // response instead of losing it to an exception. Queryable via
+        // isContextLimitReached().
+        LOGe("context window full after %ld generated tokens; ending completion", _responseNumTokens);
+        _contextLimitReached = true;
+        _eogReached = true;
+        if (_storeChats) {
+            addChatMessage(_response.c_str(), "assistant");
+        }
+        _response.clear();
+        _cacheResponseTokens.clear();
+        return "[EOG]";
     }
 
     auto start = ggml_time_us();
@@ -619,6 +701,12 @@ LLMInference::completionLoopBatch(int maxTokens) {
 void
 LLMInference::stopCompletion() {
     if (_storeChats) {
+        if (!_eogReached && !_response.empty()) {
+            // Cancelled mid-generation: the partial reply's tokens are already in
+            // the KV cache, so commit it as the assistant turn — otherwise the
+            // rendered prefix and the cache contents diverge on the next turn.
+            addChatMessage(_response.c_str(), "assistant");
+        }
         const auto renderedPrompt = formatChatMessages(_messages.size(), false);
         _prevLen = renderedPrompt.renderedLength;
         _prevFormatterMode = renderedPrompt.modeUsed;
@@ -648,6 +736,7 @@ LLMInference::clearMessages() {
     _promptTokens.clear();
     _preservePreparedKvForNextCompletion = false;
     _eogReached = false;
+    _contextLimitReached = false;
     if (_batch) {
         std::memset(_batch, 0, sizeof(llama_batch));
     }
@@ -723,7 +812,11 @@ LLMInference::~LLMInference() {
     llama_free(_ctx);
     llama_free_model(_model);
     delete _batch;
-    common_sampler_free(_sampler);
+    // common_sampler_free() dereferences its argument without a null check, so a
+    // load that failed before sampler init must not reach it with nullptr.
+    if (_sampler) {
+        common_sampler_free(_sampler);
+    }
 }
 
 // Safe accessors used by JNI/native glue. Return internal pointers; caller must not free.

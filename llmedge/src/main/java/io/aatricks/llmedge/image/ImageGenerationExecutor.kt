@@ -51,6 +51,15 @@ internal class ImageGenerationExecutor(
                     model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
                 }
 
+            // Free the encoder before the DiT loads: cache eviction only runs inside put()
+            // AFTER the phase-2 load completes (and closes asynchronously), so without this
+            // the peak is encoder+DiT — the sum the sequential mode exists to avoid.
+            requestExecutor.invalidateRuntime(
+                plan.conditioningRequest.spec,
+                plan.conditioningRequest.options,
+            )
+            AndroidLogAdapter.i(logTag, "FLUX.2 sequential: encoder runtime invalidated before diffusion phase")
+
             requestExecutor.withRuntimeModel(
                 spec = plan.diffusionRequest.spec,
                 options = plan.diffusionRequest.options,
@@ -94,6 +103,7 @@ internal class ImageGenerationExecutor(
                 logTag,
                 "Image request entering runtime acquisition: requestId=$requestId size=${params.width}x${params.height} steps=${params.steps}",
             )
+            try {
             requestExecutor.withRuntimeModel(
                 spec = request.spec,
                 options = request.options,
@@ -198,6 +208,14 @@ internal class ImageGenerationExecutor(
                         "Image request active model exit: requestId=$requestId phases=${state.lastImageRequestTrace.size}",
                     )
                 }
+            }
+            } finally {
+                // The sd.cpp context is not safe to reuse for a second generate_image: a warm
+                // cached handle crashes natively on the next txt2img (SIGSEGV, with or without a
+                // LoRA). Evict it after every generation so the next request loads a fresh
+                // context — the warm-from-disk reload is only ~5s.
+                requestExecutor.invalidateRuntime(request.spec, request.options)
+                AndroidLogAdapter.i(logTag, "Image request runtime invalidated after generation: requestId=$requestId")
             }
         }
 

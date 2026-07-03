@@ -19,6 +19,46 @@ internal interface SmolLMNativeBridgeContract {
         nGpuLayers: Int = 99,
     ): Long
 
+    /**
+     * Overload carrying the prompt micro-batch size (n_ubatch). The default
+     * implementation drops it so bridges that predate the knob keep working.
+     */
+    fun loadModel(
+        instance: SmolLM,
+        modelPath: String,
+        minP: Float,
+        temperature: Float,
+        storeChats: Boolean,
+        contextSize: Long,
+        chatTemplate: String,
+        nThreads: Int,
+        useMmap: Boolean,
+        useMlock: Boolean,
+        useVulkan: Boolean,
+        useFlashAttn: Boolean,
+        kvCacheTypeK: Int,
+        kvCacheTypeV: Int,
+        nGpuLayers: Int,
+        nUbatch: Int,
+    ): Long =
+        loadModel(
+            instance,
+            modelPath,
+            minP,
+            temperature,
+            storeChats,
+            contextSize,
+            chatTemplate,
+            nThreads,
+            useMmap,
+            useMlock,
+            useVulkan,
+            useFlashAttn,
+            kvCacheTypeK,
+            kvCacheTypeV,
+            nGpuLayers,
+        )
+
     fun setReasoningOptions(
         instance: SmolLM,
         modelPtr: Long,
@@ -93,6 +133,11 @@ internal interface SmolLMNativeBridgeContract {
         instance: SmolLM,
         modelPtr: Long,
     ): Int
+
+    fun wasContextLimitReached(
+        instance: SmolLM,
+        modelPtr: Long,
+    ): Boolean = false
 
     fun getNativeModelPtr(
         instance: SmolLM,

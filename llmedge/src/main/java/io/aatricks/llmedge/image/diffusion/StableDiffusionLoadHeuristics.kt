@@ -172,7 +172,7 @@ internal object StableDiffusionLoadHeuristics {
             }
 
             if (chosenDevice >= 0) {
-                estimatedDeviceParamsBytes = estimateModelParamsMemoryBytes(resolvedModelPath, chosenDevice)
+                estimatedDeviceParamsBytes = estimatedParamBytes
                 if (estimatedDeviceParamsBytes > 0) {
                     val memory = getVulkanDeviceMemory(chosenDevice)
                     if (memory != null && memory.size >= 2) {

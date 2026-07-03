@@ -39,7 +39,7 @@ internal class VisionRuntimeExecutor {
             is VisionPreparedInput.EmbeddingsBuffer -> {
                 onStatus?.invoke("Running vision analysis")
                 val decodeStartedNs = System.nanoTime()
-                val decodeOk = smol.decodeEmbeddingsBuffer(preparedInput.embeddings, nBatch = 1)
+                val decodeOk = smol.decodeEmbeddingsBuffer(preparedInput.embeddings, nBatch = VISION_UBATCH)
                 logStage("analyze", "decode_embeddings_buffer", decodeStartedNs)
                 check(decodeOk) {
                     "Buffer-based embedding decode failed for the active vision runtime."
@@ -54,7 +54,7 @@ internal class VisionRuntimeExecutor {
                     smol.decodePreparedEmbeddings(
                         preparedInput.embedFile.absolutePath,
                         preparedInput.metaFile.absolutePath,
-                        nBatch = 1,
+                        nBatch = VISION_UBATCH,
                     )
                 logStage("analyze", "decode_embeddings_file", decodeStartedNs)
                 check(decodeOk) {

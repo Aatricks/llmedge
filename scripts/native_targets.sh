@@ -47,7 +47,8 @@ llmedge_native_alias_outputs() {
     case "$1" in
         smollm)
             printf 'lib%s.so\n' "$LLMEDGE_TARGET_SMOLLM_V7A"
-            printf 'lib%s.so\n' "$LLMEDGE_TARGET_SMOLLM_V8"
+            printf 'lib%s.so\n' "$LLMEDGE_TARGET_SMOLLM_V8_2_FP16_DOTPROD"
+            printf 'lib%s.so\n' "$LLMEDGE_TARGET_SMOLLM_V8_4_FP16_DOTPROD_I8MM"
             ;;
     esac
 }

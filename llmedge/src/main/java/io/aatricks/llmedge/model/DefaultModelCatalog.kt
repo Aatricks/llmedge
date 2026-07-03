@@ -5,11 +5,12 @@ import io.aatricks.llmedge.huggingface.HuggingFaceHub
 internal object DefaultModelCatalog {
     val text: ModelSpec =
         huggingFaceSpec(
-            // HuggingFaceTB/SmolLM-135M-Instruct-GGUF is unavailable to anonymous clients (HTTP 401),
-            // which made every default-text consumer (e.g. the RAG session) fail to build. Use the
-            // public MaziyarPanahi mirror, which serves the same model.
-            repoId = "MaziyarPanahi/SmolLM-135M-Instruct-GGUF",
-            filename = "SmolLM-135M-Instruct.Q4_K_M.gguf",
+            // Qwen3-0.6B: smallest default that can actually follow instructions — the prior
+            // SmolLM-135M default answered RAG questions with degenerate repetition even when
+            // retrieval handed it the exact answer (S22, 2026-07-03). 22.6 tok/s CPU decode on
+            // S22, ~400 MB download. (Avoid HuggingFaceTB repos: 401 for anonymous clients.)
+            repoId = "unsloth/Qwen3-0.6B-GGUF",
+            filename = "Qwen3-0.6B-Q4_K_M.gguf",
             artifactKind = ModelArtifactKind.GGUF_MODEL,
             capabilities = setOf(ModelCapability.TEXT),
         )
@@ -41,10 +42,15 @@ internal object DefaultModelCatalog {
             capabilities = setOf(ModelCapability.IMAGE),
         )
 
+    // SmolVLM-Instruct (2.2B) Q8 instead of llava-phi-3-mini-int4: the int4 LLaVA quant
+    // produced weak, often wrong descriptions on device (a fox read as "a brown and white
+    // dog", a military vehicle as "a kitchen"). SmolVLM-Instruct is a newer VLM, ships from
+    // ggml-org (same family as the tested SmolVLM2 entries below, so the fork's vision path
+    // handles its projector), and at Q8 (~1.9 GB model + ~0.9 GB mmproj) still fits an 8 GB device.
     val visionModel: ModelSpec =
         huggingFaceSpec(
-            repoId = "xtuner/llava-phi-3-mini-gguf",
-            filename = "llava-phi-3-mini-int4.gguf",
+            repoId = "ggml-org/SmolVLM-Instruct-GGUF",
+            filename = "SmolVLM-Instruct-Q8_0.gguf",
             preferredQuantizations = emptyList(),
             artifactKind = ModelArtifactKind.GGUF_MODEL,
             capabilities = setOf(ModelCapability.TEXT, ModelCapability.VISION),
@@ -52,8 +58,8 @@ internal object DefaultModelCatalog {
 
     val visionProjector: ModelSpec =
         huggingFaceSpec(
-            repoId = "xtuner/llava-phi-3-mini-gguf",
-            filename = "llava-phi-3-mini-mmproj-f16.gguf",
+            repoId = "ggml-org/SmolVLM-Instruct-GGUF",
+            filename = "mmproj-SmolVLM-Instruct-f16.gguf",
             preferredQuantizations = emptyList(),
             artifactKind = ModelArtifactKind.PROJECTOR,
             capabilities = setOf(ModelCapability.PROJECTOR),

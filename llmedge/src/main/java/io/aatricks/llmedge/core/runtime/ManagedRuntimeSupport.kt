@@ -10,7 +10,9 @@ internal abstract class ManagedRuntimeBase : ManagedRuntime {
     private val closed = AtomicBoolean(false)
 
     protected fun ensureOpen(name: String) {
-        check(!closed.get()) { "$name has been closed" }
+        if (closed.get()) {
+            throw RuntimeClosedException("$name has been closed")
+        }
     }
 
     protected fun closeOnce(closeAction: () -> Unit) {

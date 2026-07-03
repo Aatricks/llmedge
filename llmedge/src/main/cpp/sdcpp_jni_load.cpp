@@ -9,6 +9,7 @@
 #include <string>
 
 #include "jni_thread_cache.h"
+#include "jni_utils.h"
 
 #define GGML_MAX_NAME 128
 #include "ggml_backend_probe.h"
@@ -21,8 +22,6 @@
 #include "model.h"
 
 namespace {
-std::mutex g_sd_backend_env_mutex;
-
 class ScopedEnvVar {
 public:
     ScopedEnvVar(const char* key, std::optional<std::string> value) : key_(key), had_original_(false) {
@@ -87,16 +86,25 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
         false,
         0,
         is_umt5);
+    // alloc_params_buffer() returns void in this fork; load_tensors below is the
+    // checkable failure point.
     t5->alloc_params_buffer();
 
     std::map<std::string, struct ggml_tensor*> tensors;
     t5->get_param_tensors(tensors);
     std::set<std::string> ignore_tensors;
-    model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe());
+    if (!model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe())) {
+        ALOGE("Failed to load tensors for T5 context");
+        t5->free_params_buffer();
+        delete t5;
+        ggml_backend_free(backend);
+        return nullptr;
+    }
 
     auto* handle = new SdHandle();
     handle->ctx = nullptr;
     handle->t5_ctx = t5;
+    handle->backend = backend;
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
@@ -141,16 +149,25 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
         offloadToCpu,
         model_loader.get_tensor_storage_map(),
         VERSION_FLUX2_KLEIN);
+    // alloc_params_buffer() returns void in this fork; load_tensors below is the
+    // checkable failure point.
     llm->alloc_params_buffer();
 
     std::map<std::string, struct ggml_tensor*> tensors;
     llm->get_param_tensors(tensors);
     std::set<std::string> ignore_tensors;
-    model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe());
+    if (!model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe())) {
+        ALOGE("Failed to load tensors for LLM context");
+        llm->free_params_buffer();
+        delete llm;
+        ggml_backend_free(backend);
+        return nullptr;
+    }
 
     auto* handle    = new SdHandle();
     handle->ctx     = nullptr;
     handle->llm_ctx = llm;
+    handle->backend = backend;
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
@@ -397,9 +414,19 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.vae_decode_only = jvaeDecodeOnly;
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
 
+    bool isLlmOnly = !llmPathValue.empty() && diffusionModelPathValue.empty() && (!modelPath || modelPath[0] == '\0');
+    bool isT5OnlyRequest = modelPath && modelPath[0] != '\0' &&
+                           !vaePath && !t5xxlPath && !taesdPath &&
+                           diffusionModelPathValue.empty() && llmPathValue.empty() &&
+                           (std::string(modelPath).find("t5") != std::string::npos ||
+                            std::string(modelPath).find("encoder") != std::string::npos ||
+                            std::string(modelPath).find("clip") != std::string::npos);
+
     sd_ctx_t* ctx = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_sd_backend_env_mutex);
+    if (!isLlmOnly) {
+        // Shared with the whisper loader: env mutation must be process-globally
+        // serialized (concurrent setenv/getenv across threads is UB).
+        std::lock_guard<std::mutex> lock(llmedge_process_env_mutex());
         ScopedEnvVar disableVulkan("GGML_DISABLE_VULKAN", useVulkan == JNI_TRUE ? std::nullopt : std::optional<std::string>("1"));
         ScopedEnvVar disableOpenCl("GGML_DISABLE_OPENCL", enableOpenCl == JNI_TRUE ? std::nullopt : std::optional<std::string>("1"));
         ScopedEnvVar vulkanDevice("SD_VK_DEVICE", selectedVulkanDevice);
@@ -407,9 +434,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     }
 
     if (!ctx) {
-        // Encoder-only (Qwen3) handle for FLUX.2 sequential mode: only an llm_path was provided
-        // (no diffusion/model), so new_sd_ctx can't build. Load just the encoder.
-        if (!llmPathValue.empty() && diffusionModelPathValue.empty() && (!modelPath || modelPath[0] == '\0')) {
+        if (isLlmOnly) {
             SdHandle* llmOnlyHandle = try_create_llm_only_handle(env, llmPathValue.c_str(), offloadToCpu == JNI_TRUE);
             if (llmOnlyHandle) {
                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
@@ -420,7 +445,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
                 return reinterpret_cast<jlong>(llmOnlyHandle);
             }
         }
-        if (modelPath && !vaePath && !t5xxlPath) {
+        if (isT5OnlyRequest) {
             SdHandle* t5OnlyHandle = try_create_t5_only_handle(env, modelPath, offloadToCpu == JNI_TRUE);
             if (t5OnlyHandle) {
                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
@@ -463,7 +488,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
     if (handlePtr == 0) return;
     auto* handle = reinterpret_cast<SdHandle*>(handlePtr);
     clearProgressCallback(env, handle);
-    sd_set_progress_callback(nullptr, nullptr);
+    // Do NOT clear the process-global sd progress callback here: it may belong to a
+    // different live handle (FLUX.2 split mode holds encoder + diffusion handles).
+    // Generation paths set and clear the global callback around themselves.
     if (handle->ctx) {
         free_sd_ctx(handle->ctx);
         handle->ctx = nullptr;
@@ -479,6 +506,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
         llm->free_params_buffer();
         delete llm;
         handle->llm_ctx = nullptr;
+    }
+    if (handle->backend) {
+        ggml_backend_free(static_cast<ggml_backend_t>(handle->backend));
+        handle->backend = nullptr;
     }
     delete handle;
 }

@@ -96,6 +96,7 @@ internal class VisionPipeline(
                         preparedInput = preparedInput,
                         onStatus = onStatus,
                         logStage = ::logStage,
+                        maxTokens = request.params.maxTokens,
                     )
                 } finally {
                     preparedInput.close()

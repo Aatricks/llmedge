@@ -64,6 +64,15 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_getContextSizeUsed(JNIEnv* env, job
     return llmInference->getContextSizeUsed();
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_aatricks_llmedge_text_runtime_SmolLM_wasContextLimitReached(JNIEnv* env, jobject thiz, jlong modelPtr) {
+    auto* llmInference = requireInference(env, modelPtr, "SmolLM model is not loaded");
+    if (!llmInference) {
+        return JNI_FALSE;
+    }
+    return llmInference->isContextLimitReached() ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeConfigureThreading(JNIEnv* env, jobject thiz, jlong modelPtr,
                                                          jint generationThreads, jint promptThreads) {

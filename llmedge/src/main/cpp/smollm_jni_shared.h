@@ -171,7 +171,9 @@ inline bool decodeEmbeddingsIntoKv(
         return false;
     }
 
-    const int effective_batch = std::max(n_batch, n_tokens);
+    // Chunk into n_batch-sized decodes; a single llama_decode must not exceed the
+    // context's configured batch size.
+    const int effective_batch = std::min(n_batch, n_tokens);
     const llama_pos seq_pos_max = llmedge_kv_cache_seq_pos_max(lctx, 0);
     const llama_pos n_past = seq_pos_max >= 0 ? seq_pos_max + 1 : 0;
     const int n_pos_per_embd = use_mrope ? 4 : 1;
@@ -205,6 +207,13 @@ inline bool decodeEmbeddingsIntoKv(
 
     if (use_non_causal) {
         llama_set_causal_attn(lctx, true);
+    }
+
+    if (!success) {
+        // Drop any partially decoded chunks: callers fall back to other decode
+        // paths on failure, and stacking a second copy of the image on top of a
+        // half-decoded one silently corrupts the context.
+        llmedge_kv_cache_seq_rm(lctx, 0, n_past, -1);
     }
 
     return success;

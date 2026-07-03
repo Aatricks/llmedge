@@ -104,7 +104,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCreate(JNIEnv* env, jclass,
 
     whisper_context* ctx = nullptr;
     {
-        std::lock_guard<std::mutex> lock(g_whisper_backend_preference_mutex);
+        std::lock_guard<std::mutex> lock(llmedge_process_env_mutex());
         const char* previousBackend = std::getenv("LLMEDGE_PREFERRED_GGML_BACKEND");
         std::string previousBackendValue = previousBackend ? previousBackend : "";
         const bool hadPreviousBackend = previousBackend != nullptr;
@@ -171,17 +171,31 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeDestroy(JNIEnv* env, jclass, j
     auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
     if (!handle) return;
 
-    std::lock_guard<std::mutex> lock(handle->mutex);
+    // Release the mutex before deleting the handle: deleting while the
+    // lock_guard still holds handle->mutex destroys a locked mutex (UB).
+    {
+        std::lock_guard<std::recursive_mutex> lock(handle->mutex);
 
-    llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
-    llmedge_clear_global_ref(env, handle->segmentCallbackGlobalRef);
+        llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
+        llmedge_clear_global_ref(env, handle->segmentCallbackGlobalRef);
 
-    if (handle->ctx) {
-        whisper_free(handle->ctx);
+        if (handle->ctx) {
+            whisper_free(handle->ctx);
+            handle->ctx = nullptr;
+        }
     }
 
     delete handle;
     ALOGI("Whisper context destroyed");
+}
+
+JNIEXPORT void JNICALL
+Java_io_aatricks_llmedge_speech_stt_Whisper_nativeCancelTranscription(JNIEnv*, jclass, jlong handlePtr) {
+    auto* handle = reinterpret_cast<WhisperHandle*>(handlePtr);
+    if (!handle) return;
+    // Deliberately lock-free: the transcribing thread holds handle->mutex for the
+    // whole whisper_full run; the abort flag is the only way to reach it mid-run.
+    handle->abortRequested.store(true);
 }
 
 JNIEXPORT jint JNICALL
@@ -229,7 +243,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetProgressCallback(JNIEnv* en
     auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
     if (!handle) return;
 
-    std::lock_guard<std::mutex> lock(handle->mutex);
+    std::lock_guard<std::recursive_mutex> lock(handle->mutex);
 
     // Clear existing callback
     if (handle->progressCallbackGlobalRef) {
@@ -243,6 +257,9 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetProgressCallback(JNIEnv* en
                         env,
                         callback,
                         "Unable to hold Whisper progress callback reference");
+        if (!handle->progressCallbackGlobalRef) {
+            return;
+        }
         handle->progressMethodID =
                 llmedge_get_callback_method(
                         env,
@@ -265,7 +282,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetSegmentCallback(JNIEnv* env
     auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
     if (!handle) return;
 
-    std::lock_guard<std::mutex> lock(handle->mutex);
+    std::lock_guard<std::recursive_mutex> lock(handle->mutex);
 
     // Clear existing callback
     if (handle->segmentCallbackGlobalRef) {
@@ -279,6 +296,9 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeSetSegmentCallback(JNIEnv* env
                         env,
                         callback,
                         "Unable to hold Whisper segment callback reference");
+        if (!handle->segmentCallbackGlobalRef) {
+            return;
+        }
         handle->segmentMethodID =
                 llmedge_get_callback_method(
                         env,
@@ -308,7 +328,9 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeTranscribe(JNIEnv* env, jclass
                                                    jfloat temperature,
                                                    jint beamSize,
                                                    jboolean suppressBlank,
-                                                   jboolean printProgress) {
+                                                   jboolean printProgress,
+                                                   jint audioCtx,
+                                                   jboolean noContext) {
     auto* handle = requireWhisperHandle(env, handlePtr, "Whisper context not initialized");
     if (!handle) return nullptr;
 
@@ -317,7 +339,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeTranscribe(JNIEnv* env, jclass
         return nullptr;
     }
 
-    std::lock_guard<std::mutex> lock(handle->mutex);
+    std::lock_guard<std::recursive_mutex> lock(handle->mutex);
 
     jint n_samples = env->GetArrayLength(jSamples);
     jfloat* samples = env->GetFloatArrayElements(jSamples, nullptr);
@@ -344,6 +366,18 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeTranscribe(JNIEnv* env, jclass
     wparams.print_progress = printProgress;
     wparams.print_realtime = false;
     wparams.print_timestamps = false;
+    if (audioCtx > 0) {
+        // Shrinks the encoder pass to the actual window length; used by streaming,
+        // where every step otherwise pays a full 30s-padded encode.
+        wparams.audio_ctx = audioCtx;
+    }
+    wparams.no_context = noContext;
+
+    handle->abortRequested.store(false);
+    wparams.abort_callback = [](void* user_data) -> bool {
+        return static_cast<WhisperHandle*>(user_data)->abortRequested.load();
+    };
+    wparams.abort_callback_user_data = handle;
 
     if (beamSize > 1) {
         wparams.beam_search.beam_size = beamSize;
@@ -372,7 +406,10 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeTranscribe(JNIEnv* env, jclass
     }
 
     if (result != 0) {
-        throwJavaException(env, "java/lang/RuntimeException", "Transcription failed");
+        const std::string message = handle->abortRequested.load()
+            ? "Transcription cancelled"
+            : "Transcription failed (whisper_full returned " + std::to_string(result) + ")";
+        throwJavaException(env, "java/lang/RuntimeException", message.c_str());
         return nullptr;
     }
 
@@ -403,12 +440,23 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeTranscribe(JNIEnv* env, jclass
         int64_t t0 = whisper_full_get_segment_t0(handle->ctx, i);
         int64_t t1 = whisper_full_get_segment_t1(handle->ctx, i);
 
-        jstring jText = env->NewStringUTF(text ? text : "");
+        // Transcribed text can contain 4-byte UTF-8; NewStringUTF is unsafe for it.
+        jstring jText = llmedge_new_string_utf8(env, text);
+        if (!jText) {
+            if (!env->ExceptionCheck()) {
+                throwJavaException(env, "java/lang/OutOfMemoryError", "Failed to allocate segment text");
+            }
+            return nullptr;
+        }
         jobject segment = env->NewObject(segmentClass, segmentCtor,
                                           static_cast<jint>(i),
                                           static_cast<jlong>(t0),
                                           static_cast<jlong>(t1),
                                           jText);
+        if (!segment) {
+            env->DeleteLocalRef(jText);
+            return nullptr;
+        }
         env->SetObjectArrayElement(segmentArray, i, segment);
         env->DeleteLocalRef(jText);
         env->DeleteLocalRef(segment);
@@ -431,7 +479,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeDetectLanguage(JNIEnv* env, jc
         return -1;
     }
 
-    std::lock_guard<std::mutex> lock(handle->mutex);
+    std::lock_guard<std::recursive_mutex> lock(handle->mutex);
 
     jint n_samples = env->GetArrayLength(jSamples);
     jfloat* samples = env->GetFloatArrayElements(jSamples, nullptr);
@@ -462,7 +510,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetFullText(JNIEnv* env, jclas
         return nullptr;
     }
 
-    std::lock_guard<std::mutex> lock(handle->mutex);
+    std::lock_guard<std::recursive_mutex> lock(handle->mutex);
 
     int n_segments = whisper_full_n_segments(handle->ctx);
     std::string fullText;
@@ -474,7 +522,7 @@ Java_io_aatricks_llmedge_speech_stt_Whisper_nativeGetFullText(JNIEnv* env, jclas
         }
     }
 
-    return env->NewStringUTF(fullText.c_str());
+    return llmedge_new_string_utf8(env, fullText.c_str());
 }
 
 JNIEXPORT void JNICALL

@@ -35,33 +35,6 @@ internal class TextRuntimeSession(
             }
         }
 
-    suspend fun chatTurn(
-        runtime: ManagedTextModel,
-        prompt: String,
-        systemPrompt: String?,
-        options: TextModelOptions,
-        maxTokens: Int,
-        batchSize: Int,
-        restoreState: ByteArray? = null,
-        maxStateBytes: Long,
-    ): Pair<String, ByteArray?> =
-        runtime.runExclusive(scope.inferenceDispatcher) {
-            runtime.ensureOpen()
-            if (restoreState != null) {
-                runtime.model.setStateBytes(restoreState)
-                runtime.model.setThinkingMode(options.thinkingMode)
-                options.reasoningBudget?.let(runtime.model::setReasoningBudget)
-            } else {
-                prepareModel(runtime.model, systemPrompt, options)
-            }
-            val effectiveBatchSize = resolveBlockingBatchSize(config.text, batchSize, maxTokens)
-            val response = runtime.model.getResponse(prompt, maxTokens, effectiveBatchSize)
-            updateMetrics(runtime.model.getLastGenerationMetrics())
-            val stateBytes = runtime.model.getStateBytes()?.takeIf { it.size <= maxStateBytes }
-            runtime.model.clearKvCache()
-            response to stateBytes
-        }
-
     fun streamCompletion(
         runtime: ManagedTextModel,
         prompt: String,

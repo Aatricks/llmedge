@@ -2,9 +2,18 @@
 //
 // Writes GGUF v3: ["GGUF"][u32 version=3][u64 n_tensors][u64 n_kv][KV...][tensor-info...][pad][data...].
 // Hand-rolled (no ggml dependency) so it is host-testable and works unchanged inside the JNI lib.
+//
+// Two ways to provide tensor data:
+//  - Buffered: add_tensor(name, type, ne, data, nbytes) ... write(path). Simple, but holds every
+//    tensor in RAM until write() — only suitable for small models/tests.
+//  - Streaming: add_tensor_info(name, type, ne, nbytes) for every tensor (sizes are known from
+//    shape+type up front), then write_begin(path) to emit the header/KV/infos, then one
+//    write_tensor_data(data, nbytes) per tensor in declaration order, then finish(). Peak memory
+//    is a single tensor instead of the whole model.
 #pragma once
 
 #include <cstdint>
+#include <fstream>
 #include <map>
 #include <string>
 #include <vector>
@@ -34,11 +43,30 @@ public:
 
     // ne is in ggml order: ne[0] is the fastest-varying (contiguous) dimension.
     // data points to `nbytes` of tensor payload (already in `type`'s layout).
+    // Buffered path: copies and retains the payload until write().
     void add_tensor(const std::string& name, GgmlType type, const std::vector<int64_t>& ne,
                     const void* data, uint64_t nbytes);
 
-    // Serialize to `path`. Throws std::runtime_error on I/O failure.
-    void write(const std::string& path, uint32_t alignment = 32) const;
+    // Streaming path: declare a tensor without its payload. The payload must later be
+    // supplied via write_tensor_data() in declaration order.
+    void add_tensor_info(const std::string& name, GgmlType type, const std::vector<int64_t>& ne,
+                         uint64_t nbytes);
+
+    // Streaming path: write the header, KV section, tensor-info section and padding.
+    // No further set_*/add_tensor* calls are allowed afterwards.
+    // Throws std::runtime_error on I/O failure.
+    void write_begin(const std::string& path, uint32_t alignment = 32);
+
+    // Streaming path: write the payload of the next declared tensor (in declaration
+    // order). `nbytes` must match the declared size. Throws on mismatch or I/O failure.
+    void write_tensor_data(const void* data, uint64_t nbytes);
+
+    // Streaming path: verify every declared tensor was written and close the file.
+    void finish();
+
+    // Buffered path: serialize everything to `path`. Every tensor must have been added
+    // with add_tensor (with payload). Throws std::runtime_error on I/O failure.
+    void write(const std::string& path, uint32_t alignment = 32);
 
     size_t kv_count() const { return kvs_.size(); }
     size_t tensor_count() const { return tensors_.size(); }
@@ -63,11 +91,19 @@ private:
         std::string name;
         GgmlType type;
         std::vector<int64_t> ne;
-        std::vector<uint8_t> data;
+        uint64_t nbytes = 0;
+        std::vector<uint8_t> data;  // empty on the streaming path
     };
 
     std::vector<std::pair<std::string, Kv>> kvs_;  // preserve insertion order
     std::vector<TensorInfo> tensors_;
+
+    // Streaming state (valid between write_begin() and finish()).
+    std::ofstream out_;
+    uint32_t alignment_ = 32;
+    std::vector<uint64_t> offsets_;  // per-tensor offset relative to the data section
+    size_t next_tensor_ = 0;
+    uint64_t data_written_ = 0;      // bytes written into the data section so far
 
     void put_scalar(const std::string& key, uint32_t type, const void* bytes, size_t n);
 };

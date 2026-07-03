@@ -6,8 +6,13 @@ internal class SmolLMState(
     useVulkanGpu: Boolean,
     defaultReasoningBudget: Int,
 ) {
+    @Volatile
     var nativePtr: Long = 0L
     var requestedLoadBackend: ComputeBackend? = null
+
+    /** P-core affinity mask recorded at load; re-applied from the inference thread. */
+    @Volatile
+    var pCoreMask: Long = 0L
     var selectedBackend: ComputeBackend =
         if (useVulkanGpu) {
             ComputeBackend.VULKAN
@@ -32,5 +37,6 @@ internal class SmolLMState(
         currentThinkingMode = SmolLM.ThinkingMode.DEFAULT
         currentReasoningBudget = defaultReasoningBudget
         loadedInferenceParams = null
+        pCoreMask = 0L
     }
 }

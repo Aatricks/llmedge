@@ -20,6 +20,7 @@ import android.content.Context
 import android.net.Uri
 import io.aatricks.llmedge.text.runtime.SmolLM
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Minimal on-device RAG pipeline wiring:
@@ -41,7 +42,7 @@ class RAGEngine(
 ) {
     private val embeddingProvider = EmbeddingProvider(context, embeddingConfig)
     @Volatile private var lastContext: String = ""
-    private val vectorStore = InMemoryVectorStore(File(context.filesDir, "rag_store/index.json"))
+    private val vectorStore = getOrCreateStore(File(context.filesDir, "rag_store/index.json"))
     private val indexer = RAGIndexer(context, splitter, embeddingProvider, vectorStore)
     private val retriever = RAGRetriever(embeddingProvider, vectorStore)
     private val answerer = RAGAnswerer(smolLM)
@@ -73,11 +74,22 @@ class RAGEngine(
     suspend fun retrievalPreview(question: String, topK: Int = 5): String =
         retriever.retrievalPreview(question, topK)
 
+    fun close() {
+        embeddingProvider.close()
+    }
+
     companion object {
         internal const val TAG = "RAGEngine"
         /** Hard cap on RAG answer length so small models stop before exhausting the context window. */
         internal const val MAX_ANSWER_TOKENS = 256
         internal const val SYSTEM_PROMPT =
             "You are a question answering assistant. Use only the provided context to answer. If the context does not contain the answer, say 'I don't know'."
+
+        private val storeRegistry = ConcurrentHashMap<String, InMemoryVectorStore>()
+
+        fun getOrCreateStore(file: File): InMemoryVectorStore {
+            val key = file.canonicalPath
+            return storeRegistry.computeIfAbsent(key) { InMemoryVectorStore(file) }
+        }
     }
 }

@@ -4,6 +4,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <vector>
+#include <cstdio>
 
 #include "ggml-backend.h"
 #include "mtmd-helper.h"
@@ -110,7 +111,8 @@ Java_io_aatricks_llmedge_Projector_nativeEncodeImage(JNIEnv* env, jobject thiz, 
 
     if (encoded) {
         std::string metaPath = std::string(outC.get()) + ".meta.json";
-        std::ofstream mofs(metaPath, std::ios::trunc);
+        std::string tmpMetaPath = metaPath + ".tmp";
+        std::ofstream mofs(tmpMetaPath, std::ios::trunc);
         if (mofs) {
             const mtmd_image_tokens* image_tokens = nullptr;
             for (size_t i = 0; i < mtmd_input_chunks_size(chunks); ++i) {
@@ -140,6 +142,7 @@ Java_io_aatricks_llmedge_Projector_nativeEncodeImage(JNIEnv* env, jobject thiz, 
             mofs << "  \"use_non_causal\": " << (use_non_causal ? "true" : "false") << "\n";
             mofs << "}\n";
             mofs.close();
+            std::rename(tmpMetaPath.c_str(), metaPath.c_str());
         }
     }
 
@@ -372,6 +375,9 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativePrimeImageBuffer(
     mtmd_input_chunks_free(chunks);
 
     if (eval_res != 0) {
+        // Roll back partially primed chunks so the caller's fallback path doesn't
+        // decode a second copy of the image on top of a half-decoded one.
+        llmedge_kv_cache_seq_rm(lctx, 0, n_past, -1);
         return JNI_FALSE;
     }
 
@@ -443,30 +449,34 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativeDecodePreparedEmbeddings(JNIE
     bool use_mrope = false;
     bool use_non_causal = false;
 
-    std::ifstream mif(metaC.get());
-    if (!mif) {
+    try {
+        std::ifstream mif(metaC.get());
+        if (!mif) {
+            return JNI_FALSE;
+        }
+        std::string line;
+        while (std::getline(mif, line)) {
+            auto pos = line.find_first_of(':');
+            if (pos == std::string::npos) continue;
+            std::string key = line.substr(0, pos);
+            auto strip = [](std::string s) {
+                while (!s.empty() && (s.front() == ' ' || s.front() == '"' || s.front() == '{' || s.front() == ',')) s.erase(s.begin());
+                while (!s.empty() && (s.back() == ' ' || s.back() == '"' || s.back() == ',' || s.back() == '}')) s.pop_back();
+                return s;
+            };
+            key = strip(key);
+            std::string val = strip(line.substr(pos + 1));
+            if (key == "n_tokens") n_tokens = std::stoi(val);
+            else if (key == "nx") nx = std::stoi(val);
+            else if (key == "ny") ny = std::stoi(val);
+            else if (key == "embd_dim") embd_dim = std::stoi(val);
+            else if (key == "use_mrope") use_mrope = (val == "true");
+            else if (key == "use_non_causal") use_non_causal = (val == "true");
+        }
+        mif.close();
+    } catch (...) {
         return JNI_FALSE;
     }
-    std::string line;
-    while (std::getline(mif, line)) {
-        auto pos = line.find_first_of(':');
-        if (pos == std::string::npos) continue;
-        std::string key = line.substr(0, pos);
-        auto strip = [](std::string s) {
-            while (!s.empty() && (s.front() == ' ' || s.front() == '"' || s.front() == '{' || s.front() == ',')) s.erase(s.begin());
-            while (!s.empty() && (s.back() == ' ' || s.back() == '"' || s.back() == ',' || s.back() == '}')) s.pop_back();
-            return s;
-        };
-        key = strip(key);
-        std::string val = strip(line.substr(pos + 1));
-        if (key == "n_tokens") n_tokens = std::stoi(val);
-        else if (key == "nx") nx = std::stoi(val);
-        else if (key == "ny") ny = std::stoi(val);
-        else if (key == "embd_dim") embd_dim = std::stoi(val);
-        else if (key == "use_mrope") use_mrope = (val == "true");
-        else if (key == "use_non_causal") use_non_causal = (val == "true");
-    }
-    mif.close();
 
     if (n_tokens <= 0 || embd_dim <= 0) {
         return JNI_FALSE;

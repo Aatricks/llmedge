@@ -22,6 +22,7 @@ internal class ToolAgentTurnLoop(
         working: MutableList<ConversationMessage>,
         callbacks: ToolAgentTurnCallbacks,
     ) -> ToolStepResult,
+    private val conversationWindow: io.aatricks.llmedge.text.ConversationWindow? = null,
 ) {
     suspend fun run(
         message: String,
@@ -37,6 +38,11 @@ internal class ToolAgentTurnLoop(
         var finalText = ""
 
         for (step in 1..maxSteps) {
+            conversationWindow?.let { window ->
+                val trimmed = window.trim(working)
+                working.clear()
+                working.addAll(trimmed)
+            }
             val response = produceResponse(renderWorkingPrompt(working), maxTokens, batchSize)
 
             when (val turn = ToolCallParser.classify(response)) {
@@ -119,14 +125,22 @@ internal fun formatToolResultMessage(
         append("Tool '")
         append(toolName)
         append("' returned this JSON result:\n")
+        
+        val cap = 8000
+        val cappedResult = if (result.text.length > cap) {
+            result.copy(text = result.text.take(cap) + "\n... [TRUNCATED]")
+        } else {
+            result
+        }
+        
         append(
             Json.encodeToString(
                 JsonObject.serializer(),
                 buildJsonObject {
                     put("tool", toolName)
-                    put("ok", !result.isError)
-                    put("text", result.text)
-                    put("data", result.data)
+                    put("ok", !cappedResult.isError)
+                    put("text", cappedResult.text)
+                    put("data", cappedResult.data)
                 },
             ),
         )

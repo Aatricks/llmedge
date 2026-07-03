@@ -57,25 +57,6 @@ internal class ConversationRuntimeContext(
         batchSize: Int,
     ): String = client.complete(runtime, prompt, systemPrompt, options, maxTokens, batchSize)
 
-    suspend fun chatTurn(
-        prompt: String,
-        systemPrompt: String?,
-        maxTokens: Int,
-        batchSize: Int,
-        restoreState: ByteArray? = null,
-        maxStateBytes: Long,
-    ): Pair<String, ByteArray?> =
-        client.chatTurn(
-            runtime = runtime,
-            prompt = prompt,
-            systemPrompt = systemPrompt,
-            options = options,
-            maxTokens = maxTokens,
-            batchSize = batchSize,
-            restoreState = restoreState,
-            maxStateBytes = maxStateBytes,
-        )
-
     fun streamCompletion(
         prompt: String,
         systemPrompt: String?,

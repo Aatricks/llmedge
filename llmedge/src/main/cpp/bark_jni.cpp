@@ -85,6 +85,10 @@ static void bark_progress_callback_wrapper(struct bark_context* bctx,
     static thread_local int lastStep = -1;
     static thread_local int lastProgress = -1;
     jint stepInt = static_cast<jint>(step);
+    if (stepInt < lastStep || (stepInt == lastStep && progress < lastProgress)) {
+        lastStep = -1;
+        lastProgress = -1;
+    }
     if (stepInt == lastStep && progress / 5 == lastProgress / 5 && progress != 100) {
         return;
     }
@@ -166,12 +170,17 @@ Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeDestroy(JNIEnv* env, jclass, j
     auto* handle = reinterpret_cast<BarkHandle*>(handlePtr);
     if (!handle) return;
 
-    std::lock_guard<std::mutex> lock(handle->mutex);
+    // Release the mutex before deleting the handle: deleting while the
+    // lock_guard still holds handle->mutex destroys a locked mutex (UB).
+    {
+        std::lock_guard<std::mutex> lock(handle->mutex);
 
-    llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
+        llmedge_clear_global_ref(env, handle->progressCallbackGlobalRef);
 
-    if (handle->ctx) {
-        bark_free(handle->ctx);
+        if (handle->ctx) {
+            bark_free(handle->ctx);
+            handle->ctx = nullptr;
+        }
     }
 
     delete handle;
@@ -199,6 +208,9 @@ Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeSetProgressCallback(JNIEnv* en
                         env,
                         callback,
                         "Unable to hold Bark progress callback reference");
+        if (!handle->progressCallbackGlobalRef) {
+            return;
+        }
         handle->progressMethodID =
                 llmedge_get_callback_method(
                         env,
@@ -223,6 +235,8 @@ Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeGenerate(JNIEnv* env, jclass,
     if (!handle) {
         return nullptr;
     }
+
+    std::lock_guard<std::mutex> lock(handle->mutex);
 
     if (!jText) {
         throwJavaException(env, "java/lang/IllegalArgumentException", "Text cannot be null");

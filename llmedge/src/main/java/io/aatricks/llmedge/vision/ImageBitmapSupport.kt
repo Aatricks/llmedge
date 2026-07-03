@@ -99,8 +99,8 @@ internal object ImageBitmapSupport {
             bitmap
         }
 
-    fun fileToBitmap(file: File): Bitmap =
-        decodeBitmapWithExif(file)
+    fun fileToBitmap(file: File, maxDimension: Int = 0): Bitmap =
+        decodeBitmapWithExif(file, maxDimension)
             ?: throw IOException("Failed to decode image file: ${file.absolutePath}")
 
     fun preprocessImageSource(
@@ -131,8 +131,22 @@ internal object ImageBitmapSupport {
             }
         }
 
-    private fun decodeBitmapWithExif(file: File): Bitmap? {
-        val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+    private fun decodeBitmapWithExif(file: File, maxDimension: Int = 0): Bitmap? {
+        val options = BitmapFactory.Options()
+        if (maxDimension > 0) {
+            // Subsample at decode time: a 50 MP camera JPEG decodes to ~200 MB of pixels,
+            // which blows past Android's 100 MB canvas limit and wastes heap before the
+            // vision pipeline downsizes anyway.
+            options.inJustDecodeBounds = true
+            BitmapFactory.decodeFile(file.absolutePath, options)
+            options.inJustDecodeBounds = false
+            var sample = 1
+            while (maxOf(options.outWidth, options.outHeight) / (sample * 2) >= maxDimension) {
+                sample *= 2
+            }
+            options.inSampleSize = sample
+        }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options) ?: return null
         return applyExifOrientation(bitmap, file.absolutePath)
     }
 

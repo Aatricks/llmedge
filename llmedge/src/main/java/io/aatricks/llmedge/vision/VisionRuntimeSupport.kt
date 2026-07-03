@@ -14,6 +14,13 @@ import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.text.runtime.SmolLM
 
+/**
+ * Micro-batch size for vision runtimes. Non-causal projectors (Gemma3-family)
+ * require the entire image chunk in one micro-batch, and batched decode of the
+ * embedding fallback path uses the same bound.
+ */
+internal const val VISION_UBATCH = 1024
+
 internal data class VisionRuntimeSpec(
     val model: ModelSpec,
     val projector: ModelSpec,
@@ -93,6 +100,11 @@ internal fun createVisionRuntimePool(
                                 temperature = 0.0f,
                                 useFlashAttn = config.vision.useFlashAttention,
                                 thinkingMode = SmolLM.ThinkingMode.DEFAULT,
+                                // Non-causal projectors (Gemma3-family) require the whole
+                                // image chunk in a single micro-batch: llama_decode asserts
+                                // n_ubatch >= n_tokens when causal_attn is off. 1024 covers
+                                // every current projector's per-image token count.
+                                nUbatch = VISION_UBATCH,
                             ),
                         preferredBackend = backend,
                     )

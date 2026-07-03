@@ -109,18 +109,45 @@ internal object HFDownloadSupport {
     fun isFileValidCached(targetFile: File, expectedSize: Long?, expectedSha: String?): Boolean {
         if (!targetFile.exists() || !targetFile.isFile) return false
 
-        if (!expectedSha.isNullOrEmpty()) {
-            val normalizedExpectedSha = expectedSha.trim()
-                .removePrefix("sha256:")
-                .removePrefix("SHA256:")
-                .removePrefix("SHA-256:")
-                .removePrefix("urn:sha1:")
-                .trim()
-                .lowercase()
+        val expectedShaNormalized = expectedSha?.trim()
+            ?.removePrefix("sha256:")
+            ?.removePrefix("SHA256:")
+            ?.removePrefix("SHA-256:")
+            ?.removePrefix("urn:sha1:")
+            ?.trim()
+            ?.lowercase()
+
+        if (!expectedShaNormalized.isNullOrEmpty()) {
+            val markerFile = File(targetFile.parent, "${targetFile.name}.validated")
+            var markerIsValid = false
+            if (markerFile.exists() && markerFile.isFile) {
+                try {
+                    val lines = markerFile.readLines()
+                    if (lines.size >= 3) {
+                        val cachedSha = lines[0].trim()
+                        val cachedLength = lines[1].trim().toLong()
+                        val cachedMtime = lines[2].trim().toLong()
+                        if (cachedLength == targetFile.length() &&
+                            cachedMtime == targetFile.lastModified() &&
+                            cachedSha.equals(expectedShaNormalized, ignoreCase = true)) {
+                            markerIsValid = true
+                        }
+                    }
+                } catch (_: Throwable) {
+                    // Fall back to re-hashing
+                }
+            }
+
+            if (markerIsValid) {
+                return true
+            }
 
             try {
                 val actualSha = computeSha256(targetFile)
-                if (actualSha.equals(normalizedExpectedSha, ignoreCase = true)) return true
+                if (actualSha.equals(expectedShaNormalized, ignoreCase = true)) {
+                    writeMarkerFile(targetFile, actualSha)
+                    return true
+                }
                 return false
             } catch (_: Throwable) {
                 // Fall back to size-based checks when hashing is unavailable.
@@ -132,6 +159,15 @@ internal object HFDownloadSupport {
         }
 
         return targetFile.length() > 0L
+    }
+
+    private fun writeMarkerFile(file: File, sha: String) {
+        try {
+            val markerFile = File(file.parent, "${file.name}.validated")
+            markerFile.writeText("$sha\n${file.length()}\n${file.lastModified()}")
+        } catch (_: Throwable) {
+            // ignore
+        }
     }
 
     private fun buildDownloadTarget(
@@ -189,11 +225,19 @@ internal object HFDownloadSupport {
                     displayName = target.targetFile.name,
                     onProgress = onProgress,
                 )
+            val publishTemp = File(target.targetFile.parentFile ?: target.targetFile.absoluteFile.parentFile, "${target.targetFile.name}.publish.tmp")
+            val moved = downloaded.renameTo(publishTemp)
+            if (!moved) {
+                downloaded.copyTo(publishTemp, overwrite = true)
+                downloaded.delete()
+            }
             if (target.targetFile.exists()) {
                 target.targetFile.delete()
             }
-            downloaded.copyTo(target.targetFile, overwrite = true)
-            downloaded.delete()
+            if (!publishTemp.renameTo(target.targetFile)) {
+                publishTemp.delete()
+                throw IllegalStateException("Failed to publish system download to ${target.targetFile.name}")
+            }
         } catch (t: Throwable) {
             Log.w(
                 LOG_TAG,
@@ -202,22 +246,30 @@ internal object HFDownloadSupport {
         }
     }
 
-    private fun verifyDownloadedFile(target: DownloadTarget) {
+    // internal for testing: the SHA-mismatch path must fail loudly (regression guard).
+    internal fun verifyDownloadedFile(target: DownloadTarget) {
         val expectedSize = target.expectedSize
         if ((expectedSize ?: -1L) > 0L && target.targetFile.length() != expectedSize) {
             target.targetFile.delete()
+            try { File(target.targetFile.parent, "${target.targetFile.name}.validated").delete() } catch (_: Throwable) {}
             throw IllegalStateException("Downloaded file size mismatch for ${target.modelFile.path}")
         }
 
         target.modelFile.lfs?.oid?.let { expectedShaValue ->
-            try {
-                val actualSha = computeSha256(target.targetFile)
-                if (!actualSha.equals(expectedShaValue, ignoreCase = true)) {
-                    target.targetFile.delete()
-                    throw IllegalStateException("Downloaded file sha mismatch for ${target.modelFile.path}")
+            val actualSha =
+                try {
+                    computeSha256(target.targetFile)
+                } catch (_: Throwable) {
+                    // Size validation above is still a strong signal if hashing is unavailable.
+                    null
                 }
-            } catch (_: Throwable) {
-                // Size validation above is still a strong signal if hashing is unavailable.
+            if (actualSha != null && !actualSha.equals(expectedShaValue, ignoreCase = true)) {
+                target.targetFile.delete()
+                try { File(target.targetFile.parent, "${target.targetFile.name}.validated").delete() } catch (_: Throwable) {}
+                throw IllegalStateException("Downloaded file sha mismatch for ${target.modelFile.path}")
+            }
+            if (actualSha != null) {
+                writeMarkerFile(target.targetFile, actualSha)
             }
         }
     }
@@ -225,7 +277,7 @@ internal object HFDownloadSupport {
     private fun computeSha256(file: File): String {
         val md = java.security.MessageDigest.getInstance("SHA-256")
         file.inputStream().use { fis ->
-            val buffer = ByteArray(8 * 1024)
+            val buffer = ByteArray(128 * 1024)
             var bytesRead = fis.read(buffer)
             while (bytesRead >= 0) {
                 md.update(buffer, 0, bytesRead)

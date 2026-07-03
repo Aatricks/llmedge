@@ -13,7 +13,7 @@ import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
  * Configurable mock implementation of StableDiffusion.NativeBridge for testing.
  * Allows different test scenarios to be simulated.
  */
-class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
+open class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
     override fun txt2img(
         handle: Long,
         prompt: String,

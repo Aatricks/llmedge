@@ -50,7 +50,22 @@ internal class HFModelSearch(
         DESCENDING(-1),
     }
 
+    @Volatile
     private var nextPageUrl: String? = null
+
+    private data class SearchKey(
+        val query: String,
+        val filter: String,
+        val author: String?,
+        val sort: ModelSortParam,
+        val direction: ModelSearchDirection,
+        val limit: Int,
+        val full: Boolean,
+        val config: Boolean,
+    )
+
+    @Volatile
+    private var lastSearchKey: SearchKey? = null
 
     suspend fun searchModels(
         query: String,
@@ -62,6 +77,12 @@ internal class HFModelSearch(
         full: Boolean = true,
         config: Boolean = true,
     ): List<ModelSearchResult> {
+        val currentKey = SearchKey(query, filter, author, sort, direction, limit, full, config)
+        if (currentKey != lastSearchKey) {
+            nextPageUrl = null
+        }
+        lastSearchKey = currentKey
+
         val response =
             nextPageUrl?.let { client.get(it) } ?: run {
                 client.get(HFEndpoints.listModelsEndpoint()) {
@@ -81,7 +102,7 @@ internal class HFModelSearch(
             }
 
         if (!response.status.isSuccess()) {
-            return emptyList()
+            throw IllegalStateException("Hugging Face API returned error status: ${response.status.value}")
         }
 
         updatePagination(response.headers["Link"])
@@ -90,6 +111,7 @@ internal class HFModelSearch(
 
     fun resetPagination() {
         nextPageUrl = null
+        lastSearchKey = null
     }
 
     private fun updatePagination(linkHeader: String?) {

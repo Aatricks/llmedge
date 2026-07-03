@@ -130,7 +130,7 @@ void sd_video_progress_wrapper(int step, int steps, float time, void* data) {
     }
 
     if (handle->cancellationRequested.load()) {
-        throw std::runtime_error("Video generation cancelled");
+        throw std::runtime_error("Generation cancelled");
     }
 
     if (!handle->progressCallbackGlobalRef || !handle->jvm || !handle->progressMethodID) {

@@ -1,9 +1,12 @@
 package io.aatricks.llmedge.tools
 
+import java.io.BufferedReader
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
@@ -220,33 +223,62 @@ private class ProcessBuilderBashCommandExecutor : BashCommandExecutor {
                         environment().putAll(request.environment)
                     }.start()
 
-            supervisorScope {
-                val stdoutDeferred =
-                    async(Dispatchers.IO) {
-                        process.inputStream.bufferedReader().use { it.readText() }
-                    }
-                val stderrDeferred =
-                    async(Dispatchers.IO) {
-                        process.errorStream.bufferedReader().use { it.readText() }
+            try {
+                supervisorScope {
+                    val stdoutDeferred =
+                        async(Dispatchers.IO) {
+                            process.inputStream.bufferedReader().use { it.readTextBounded() }
+                        }
+                    val stderrDeferred =
+                        async(Dispatchers.IO) {
+                            process.errorStream.bufferedReader().use { it.readTextBounded() }
+                        }
+
+                    val finished =
+                        runInterruptible {
+                            process.waitFor(request.timeoutMillis, TimeUnit.MILLISECONDS)
+                        }
+                    if (!finished) {
+                        process.destroy()
+                        if (process.isAlive) {
+                            process.destroyForcibly()
+                        }
+                        process.waitFor()
                     }
 
-                val finished = process.waitFor(request.timeoutMillis, TimeUnit.MILLISECONDS)
-                if (!finished) {
-                    process.destroy()
-                    if (process.isAlive) {
-                        process.destroyForcibly()
-                    }
-                    process.waitFor()
+                    BashExecutionResult(
+                        exitCode = if (finished) process.exitValue() else null,
+                        stdout = stdoutDeferred.await(),
+                        stderr = stderrDeferred.await(),
+                        timedOut = !finished,
+                    )
                 }
-
-                BashExecutionResult(
-                    exitCode = if (finished) process.exitValue() else null,
-                    stdout = stdoutDeferred.await(),
-                    stderr = stderrDeferred.await(),
-                    timedOut = !finished,
-                )
+            } catch (e: CancellationException) {
+                // A cancelled tool call must not leave the subprocess running.
+                process.destroyForcibly()
+                throw e
             }
         }
+
+    private fun BufferedReader.readTextBounded(): String {
+        // Cap what is held in memory: a runaway command (`yes`, `find /`) would
+        // otherwise buffer its full output in heap before the caller's truncation.
+        // Keep draining past the cap so the child never blocks on a full pipe.
+        val sb = StringBuilder()
+        val buffer = CharArray(8 * 1024)
+        while (true) {
+            val n = read(buffer)
+            if (n == -1) break
+            if (sb.length < MAX_CAPTURED_OUTPUT_CHARS) {
+                sb.append(buffer, 0, minOf(n, MAX_CAPTURED_OUTPUT_CHARS - sb.length))
+            }
+        }
+        return sb.toString()
+    }
+
+    private companion object {
+        private const val MAX_CAPTURED_OUTPUT_CHARS = 1 shl 20 // 1M chars
+    }
 }
 
 private fun List<String>.toJsonArray() =

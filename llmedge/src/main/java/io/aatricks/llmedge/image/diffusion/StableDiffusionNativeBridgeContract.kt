@@ -31,7 +31,7 @@ internal interface StableDiffusionNativeBridgeContract {
         easyCacheReuseThreshold: Float,
         easyCacheStartPercent: Float,
         easyCacheEndPercent: Float,
-    ): IntArray? = null
+    ): IntArray? = throw UnsatisfiedLinkError()
 
     fun txt2vid(
         handle: Long,
@@ -64,6 +64,24 @@ internal interface StableDiffusionNativeBridgeContract {
         height: Int,
         clipSkip: Int,
     ): PrecomputedCondition? = null
+
+    fun precomputeCondition(
+        handle: Long,
+        prompt: String,
+        negative: String,
+        width: Int,
+        height: Int,
+        clipSkip: Int,
+        isVideo: Boolean,
+    ): PrecomputedCondition? =
+        precomputeCondition(
+            handle = handle,
+            prompt = prompt,
+            negative = negative,
+            width = width,
+            height = height,
+            clipSkip = clipSkip,
+        )
 
     fun txt2vidWithPrecomputedCondition(
         handle: Long,
@@ -135,6 +153,41 @@ internal interface StableDiffusionNativeBridgeContract {
         easyCacheStartPercent: Float,
         easyCacheEndPercent: Float,
     ): ByteArray? =
+        txt2ImgWithPrecomputedCondition(
+            handle = handle,
+            prompt = prompt,
+            negative = negative,
+            width = width,
+            height = height,
+            steps = steps,
+            cfg = cfg,
+            seed = seed,
+            vaeTiling = true,
+            cond = cond,
+            uncond = uncond,
+            easyCacheEnabled = easyCacheEnabled,
+            easyCacheReuseThreshold = easyCacheReuseThreshold,
+            easyCacheStartPercent = easyCacheStartPercent,
+            easyCacheEndPercent = easyCacheEndPercent,
+        )
+
+    fun txt2ImgWithPrecomputedCondition(
+        handle: Long,
+        prompt: String,
+        negative: String,
+        width: Int,
+        height: Int,
+        steps: Int,
+        cfg: Float,
+        seed: Long,
+        vaeTiling: Boolean,
+        cond: PrecomputedCondition?,
+        uncond: PrecomputedCondition?,
+        easyCacheEnabled: Boolean,
+        easyCacheReuseThreshold: Float,
+        easyCacheStartPercent: Float,
+        easyCacheEndPercent: Float,
+    ): ByteArray? =
         txt2img(
             handle,
             prompt,
@@ -144,7 +197,7 @@ internal interface StableDiffusionNativeBridgeContract {
             steps,
             cfg,
             seed,
-            true,
+            vaeTiling,
             easyCacheEnabled,
             easyCacheReuseThreshold,
             easyCacheStartPercent,

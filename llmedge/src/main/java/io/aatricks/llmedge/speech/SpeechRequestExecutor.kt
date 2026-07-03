@@ -9,7 +9,6 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicReference
 
 internal class SpeechRequestExecutor(
     private val scope: LLMEdgeScope,
@@ -55,11 +54,18 @@ internal class SpeechRequestExecutor(
         params: Whisper.StreamingParams,
         loadOptions: WhisperLoadOptions,
     ): StreamingTranscriptionSession {
+        // Lease (pin) the runtime for the whole session: the transcriber keeps calling
+        // into it long after this function returns, so plain acquire would let cache
+        // pressure close it mid-stream.
+        val lease = whisperPool.acquireLeased(model, loadOptions)
         val transcriber =
-            withWhisperRuntime(model, loadOptions) { runtime ->
-                runtime.whisper.createStreamingTranscriber(params)
+            try {
+                lease.runtime.whisper.createStreamingTranscriber(params)
+            } catch (t: Throwable) {
+                lease.close()
+                throw t
             }
-        return scope.resources.register(StreamingTranscriptionSession(transcriber))
+        return scope.resources.register(StreamingTranscriptionSession(transcriber, lease))
     }
 
     suspend fun synthesize(
@@ -78,7 +84,6 @@ internal class SpeechRequestExecutor(
         params: BarkTTS.GenerateParams,
         loadOptions: BarkLoadOptions,
     ): Flow<AudioStreamEvent> = callbackFlow {
-        val activeRuntime = AtomicReference<ManagedBarkModel?>()
         trySend(AudioStreamEvent.Started)
         val job =
             scope.coroutineScope.launch {
@@ -87,7 +92,6 @@ internal class SpeechRequestExecutor(
                     options = loadOptions,
                     dispatcher = scope.inferenceDispatcher,
                 ) { runtime, _ ->
-                    activeRuntime.set(runtime)
                     runtime.bark.setProgressCallback { step, progress ->
                         trySend(AudioStreamEvent.Progress(step, progress))
                     }
@@ -100,13 +104,11 @@ internal class SpeechRequestExecutor(
                         close(t)
                     } finally {
                         runtime.bark.setProgressCallback(null)
-                        activeRuntime.compareAndSet(runtime, null)
                     }
                 }
             }
         awaitClose {
             job.cancel()
-            activeRuntime.getAndSet(null)?.bark?.setProgressCallback(null)
         }
     }
 

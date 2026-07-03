@@ -22,7 +22,13 @@ internal object VisionPromptSupport {
         }
 
     fun appearsVisionCapable(modelPath: String): Boolean {
-        metadataIndicatesVision(modelPath)?.let { return it }
+        // A negative metadata result is NOT authoritative: a LLaVA base model's GGUF
+        // architecture is just its LLM backbone (phi3/llama/mistral) — the vision
+        // capability lives in the separate mmproj/projector. So the filename signal must
+        // still be honored when metadata reads non-vision, rather than short-circuited.
+        if (metadataIndicatesVision(modelPath) == true) {
+            return true
+        }
         return visionMarkers.any(File(modelPath).name.lowercase()::contains)
     }
 

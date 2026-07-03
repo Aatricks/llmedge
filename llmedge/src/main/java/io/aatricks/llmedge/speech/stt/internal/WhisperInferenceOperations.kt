@@ -21,6 +21,8 @@ internal object WhisperInferenceOperations {
             beamSize: Int,
             suppressBlank: Boolean,
             printProgress: Boolean,
+            audioCtx: Int,
+            noContext: Boolean,
         ) -> Array<Whisper.TranscriptionSegment>?,
     ): List<Whisper.TranscriptionSegment> {
         require(samples.isNotEmpty()) { "Audio samples cannot be empty" }
@@ -40,6 +42,8 @@ internal object WhisperInferenceOperations {
                 params.beamSize,
                 params.suppressBlank,
                 params.printProgress,
+                params.audioCtx,
+                params.noContext,
             )
                 ?: throw InferenceFailedException(
                     operation = "Whisper transcription",

@@ -94,7 +94,16 @@ internal object ImageRuntimeRequestPlanner {
                             model = encoderSpec,
                             encoderOnly = true,
                         ),
-                    options = baseOptions.copy(nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING)),
+                    options =
+                        baseOptions.copy(
+                            nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
+                            // The conditioning pass is one 512-token forward; on a GPU backend the
+                            // multi-GB encoder gets a second copy in (UMA) device memory that
+                            // keepClipOnCpu does not cover — measured on S22: kernel OOM-kill at
+                            // ~2.3 GB RSS entering the Qwen forward. CPU keeps sequential mode's
+                            // peak-RAM promise, which is this plan's entire purpose.
+                            allowGpu = false,
+                        ),
                 ),
             diffusionRequest =
                 PlannedDiffusionRuntimeRequest(

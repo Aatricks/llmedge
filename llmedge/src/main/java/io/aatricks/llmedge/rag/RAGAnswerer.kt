@@ -2,6 +2,7 @@ package io.aatricks.llmedge.rag
 
 import android.util.Log
 import io.aatricks.llmedge.text.runtime.SmolLM
+import io.aatricks.llmedge.text.stripThinkBlocks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -23,7 +24,8 @@ internal class RAGAnswerer(
         // Cap the answer length. Without a cap (maxTokens = -1) small models that rarely emit EOS
         // keep generating until prompt+output fills the context window, which the native loop
         // surfaces as a hard "context size reached" IllegalStateException instead of an answer.
-        smolLM.getResponse(prompt, maxTokens = RAGEngine.MAX_ANSWER_TOKENS).trim()
+        // Reasoning models emit (possibly empty) <think> blocks even with thinking disabled.
+        smolLM.getResponse(prompt, maxTokens = RAGEngine.MAX_ANSWER_TOKENS).stripThinkBlocks().trim()
     }
 
     private fun ensureSystemPrompt() {

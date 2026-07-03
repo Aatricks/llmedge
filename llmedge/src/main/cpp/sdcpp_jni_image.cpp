@@ -24,6 +24,8 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
                            "StableDiffusion diffusion context is null (T5-only handle). Load a diffusion model (or use *WithPrecomputedCondition) before calling txt2img.");
         return nullptr;
     }
+    handle->cancellationRequested.store(false);
+    SdProgressCallbackGuard callbackGuard(handle);
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
     const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
     SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
@@ -60,7 +62,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     } catch (const std::exception& e) {
         if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
         if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
-        throwJavaException(env, "java/lang/RuntimeException", e.what());
+        const char* clazz = handle->cancellationRequested.load()
+                ? "java/util/concurrent/CancellationException"
+                : "java/lang/RuntimeException";
+        throwJavaException(env, clazz, e.what());
         return nullptr;
     }
 
@@ -69,6 +74,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
 
     if (!out || !out[0].data) {
         ALOGE("generate_image failed");
+        if (out) free(out);
         return nullptr;
     }
 
@@ -89,6 +95,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     free(out[0].data);
     free(out);
 
+    handle->cancellationRequested.store(false);
     return jbytes;
 }
 
@@ -111,6 +118,8 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
                            "StableDiffusion diffusion context is null (T5-only handle).");
         return nullptr;
     }
+    handle->cancellationRequested.store(false);
+    SdProgressCallbackGuard callbackGuard(handle);
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
     const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
     SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
@@ -147,7 +156,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
     } catch (const std::exception& e) {
         if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
         if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
-        throwJavaException(env, "java/lang/RuntimeException", e.what());
+        const char* clazz = handle->cancellationRequested.load()
+                ? "java/util/concurrent/CancellationException"
+                : "java/lang/RuntimeException";
+        throwJavaException(env, clazz, e.what());
         return nullptr;
     }
 
@@ -156,6 +168,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
 
     if (!out || !out[0].data) {
         ALOGE("generate_image failed");
+        if (out) free(out);
         return nullptr;
     }
 
@@ -169,5 +182,6 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
     free(out[0].data);
     free(out);
 
+    handle->cancellationRequested.store(false);
     return result;
 }

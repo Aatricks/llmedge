@@ -118,7 +118,26 @@ internal object StableDiffusionNativeBridgeSupport {
                 height: Int,
                 clipSkip: Int,
             ): PrecomputedCondition? =
-                instance.nativePrecomputeCondition(handle, prompt, negative, width, height, clipSkip)
+                precomputeCondition(
+                    handle = handle,
+                    prompt = prompt,
+                    negative = negative,
+                    width = width,
+                    height = height,
+                    clipSkip = clipSkip,
+                    isVideo = false,
+                )
+
+            override fun precomputeCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                clipSkip: Int,
+                isVideo: Boolean,
+            ): PrecomputedCondition? =
+                instance.nativePrecomputeCondition(handle, prompt, negative, width, height, clipSkip, isVideo)
                     ?.let(StableDiffusionConditionInterop::fromNativeRaw)
 
             override fun txt2vidWithPrecomputedCondition(
@@ -197,6 +216,41 @@ internal object StableDiffusionNativeBridgeSupport {
                 easyCacheStartPercent: Float,
                 easyCacheEndPercent: Float,
             ): ByteArray? =
+                txt2ImgWithPrecomputedCondition(
+                    handle = handle,
+                    prompt = prompt,
+                    negative = negative,
+                    width = width,
+                    height = height,
+                    steps = steps,
+                    cfg = cfg,
+                    seed = seed,
+                    vaeTiling = true,
+                    cond = cond,
+                    uncond = uncond,
+                    easyCacheEnabled = easyCacheEnabled,
+                    easyCacheReuseThreshold = easyCacheReuseThreshold,
+                    easyCacheStartPercent = easyCacheStartPercent,
+                    easyCacheEndPercent = easyCacheEndPercent,
+                )
+
+            override fun txt2ImgWithPrecomputedCondition(
+                handle: Long,
+                prompt: String,
+                negative: String,
+                width: Int,
+                height: Int,
+                steps: Int,
+                cfg: Float,
+                seed: Long,
+                vaeTiling: Boolean,
+                cond: PrecomputedCondition?,
+                uncond: PrecomputedCondition?,
+                easyCacheEnabled: Boolean,
+                easyCacheReuseThreshold: Float,
+                easyCacheStartPercent: Float,
+                easyCacheEndPercent: Float,
+            ): ByteArray? =
                 instance.nativeTxt2ImgWithPrecomputedCondition(
                     handle,
                     prompt,
@@ -206,6 +260,7 @@ internal object StableDiffusionNativeBridgeSupport {
                     steps,
                     cfg,
                     seed,
+                    vaeTiling,
                     StableDiffusionConditionInterop.toNativeArray(cond),
                     StableDiffusionConditionInterop.toNativeArray(uncond),
                     easyCacheEnabled,

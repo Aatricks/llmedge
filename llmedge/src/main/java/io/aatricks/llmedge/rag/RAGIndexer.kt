@@ -18,10 +18,13 @@ internal class RAGIndexer(
         Log.d(RAGEngine.TAG, "PDF extracted chars=${text.length}")
         val chunks = splitter.split(text)
         Log.d(RAGEngine.TAG, "Chunk count=${chunks.size}")
+        if (chunks.isEmpty()) {
+            Log.w(RAGEngine.TAG, "No text extracted from PDF at $uri. The document may be image-only. Consider running OCR.")
+        }
         val entries =
-            chunks.map { chunk ->
+            chunks.mapIndexed { idx, chunk ->
                 VectorEntry(
-                    id = UUID.randomUUID().toString(),
+                    id = getDeterministicId(uri.toString(), idx, chunk),
                     text = chunk,
                     embedding = embeddingProvider.encode(chunk),
                 )
@@ -29,5 +32,12 @@ internal class RAGIndexer(
         vectorStore.addAll(entries)
         vectorStore.save()
         entries.size
+    }
+
+    private fun getDeterministicId(documentUri: String, chunkIndex: Int, chunkText: String): String {
+        val input = "$documentUri:$chunkIndex:$chunkText"
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val bytes = md.digest(input.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 }
