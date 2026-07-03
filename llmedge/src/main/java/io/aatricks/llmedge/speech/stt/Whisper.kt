@@ -116,7 +116,16 @@ class Whisper internal constructor(
             /** Suppress blank tokens at the beginning of segments */
             val suppressBlank: Boolean = true,
             /** Print progress to console */
-            val printProgress: Boolean = false
+            val printProgress: Boolean = false,
+            /**
+             * Encoder audio context size override. 0 = full context (30s). Streaming
+             * sets this to the actual window length so short windows don't pay a
+             * full 30s-padded encoder pass. Values below the real audio length
+             * degrade accuracy at the window edge.
+             */
+            val audioCtx: Int = 0,
+            /** Do not condition the decoder on the previous transcription. */
+            val noContext: Boolean = false
     )
 
     /** Callback for transcription progress updates. */
@@ -137,6 +146,7 @@ class Whisper internal constructor(
     // close() would be a double free.
     private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
     private val nativeCallLock = Any()
+    private val cancelLock = Any()
 
     private inline fun <T> withNativeHandle(block: (Long) -> T): T =
         synchronized(nativeCallLock) {
@@ -187,7 +197,7 @@ class Whisper internal constructor(
         WhisperInferenceOperations.transcribe(
             samples = samples,
             params = params,
-        ) { pcm, threads, translate, language, detectLanguage, tokenTimestamps, maxLen, splitOnWord, temperature, beamSize, suppressBlank, printProgress ->
+        ) { pcm, threads, translate, language, detectLanguage, tokenTimestamps, maxLen, splitOnWord, temperature, beamSize, suppressBlank, printProgress, audioCtx, noContext ->
             withNativeHandle { h ->
                 nativeTranscribe(
                     h,
@@ -203,6 +213,8 @@ class Whisper internal constructor(
                     beamSize,
                     suppressBlank,
                     printProgress,
+                    audioCtx,
+                    noContext,
                 )
             }
         }
@@ -380,12 +392,30 @@ class Whisper internal constructor(
         suspend fun processNextChunk(): List<TranscriptionSegment> = state.processNextChunk()
     }
 
-    override fun close() {
-        synchronized(nativeCallLock) {
-            if (!closed.compareAndSet(false, true)) {
-                return
+    /**
+     * Request cancellation of an in-flight [transcribe] call: the blocked call throws
+     * a RuntimeException("Transcription cancelled") once the native abort callback
+     * observes the request. Safe from any thread; a no-op when idle or closed.
+     */
+    fun cancel() {
+        synchronized(cancelLock) {
+            if (!closed.get()) {
+                nativeCancelTranscription(handle)
             }
-            nativeDestroy(handle)
+        }
+    }
+
+    override fun close() {
+        // cancelLock is taken outside nativeCallLock so cancel() (which only takes
+        // cancelLock) can never observe a freed handle, and never blocks on a
+        // transcription that holds nativeCallLock.
+        synchronized(cancelLock) {
+            synchronized(nativeCallLock) {
+                if (!closed.compareAndSet(false, true)) {
+                    return
+                }
+                nativeDestroy(handle)
+            }
         }
     }
 
@@ -423,8 +453,11 @@ class Whisper internal constructor(
             temperature: Float,
             beamSize: Int,
             suppressBlank: Boolean,
-            printProgress: Boolean
+            printProgress: Boolean,
+            audioCtx: Int,
+            noContext: Boolean
     ): Array<TranscriptionSegment>?
+    private external fun nativeCancelTranscription(handle: Long)
     private external fun nativeDetectLanguage(
             handle: Long,
             samples: FloatArray,
