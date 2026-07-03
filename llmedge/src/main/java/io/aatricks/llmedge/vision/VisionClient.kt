@@ -23,6 +23,7 @@ data class VisionRequest(
     val numThreads: Int? = null,
     /** Single-token generation threads for the underlying SmolLM runtime. */
     val generationThreads: Int? = null,
+    val params: VisionParams = VisionParams(),
 ) {
     val promptThreads: Int?
         get() = numThreads
@@ -149,6 +150,7 @@ class VisionClient internal constructor(
         projector: ModelSpec = defaultProjector,
         numThreads: Int = defaultPromptThreads,
         generationThreads: Int = defaultGenerationThreads,
+        params: VisionParams = VisionParams(),
         onStatus: ((String) -> Unit)? = null,
     ): String =
         analyze(
@@ -159,6 +161,7 @@ class VisionClient internal constructor(
                 projector = projector,
                 numThreads = numThreads,
                 generationThreads = generationThreads,
+                params = params,
             ),
             onStatus,
         )

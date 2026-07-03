@@ -20,8 +20,8 @@ package io.aatricks.llmedge.rag
  * Produces overlapping chunks from a long text using whitespace boundaries.
  */
 class TextSplitter(
-    private val chunkSize: Int = 400,
-    private val chunkOverlap: Int = 80,
+    private val chunkSize: Int = 80,
+    private val chunkOverlap: Int = 16,
 ) {
     init {
         require(chunkSize > 0) { "chunkSize must be > 0" }
@@ -32,6 +32,32 @@ class TextSplitter(
         if (text.isBlank()) return emptyList()
         val tokens = text.split(Regex("\\s+"))
         if (tokens.isEmpty()) return emptyList()
+
+        val averageWordLength = 5
+        val limit = 4 * averageWordLength
+        val hasNoUsableWhitespace = tokens.any { it.length > limit }
+
+        if (hasNoUsableWhitespace) {
+            val codePoints = mutableListOf<String>()
+            var i = 0
+            while (i < text.length) {
+                val codePoint = text.codePointAt(i)
+                val charCount = Character.charCount(codePoint)
+                codePoints.add(text.substring(i, i + charCount))
+                i += charCount
+            }
+            val result = mutableListOf<String>()
+            var start = 0
+            val stride = (chunkSize - chunkOverlap).coerceAtLeast(1)
+            while (start < codePoints.size) {
+                val end = (start + chunkSize).coerceAtMost(codePoints.size)
+                result.add(codePoints.subList(start, end).joinToString(""))
+                if (end == codePoints.size) break
+                start += stride
+            }
+            return result
+        }
+
         val result = mutableListOf<String>()
         var start = 0
         val stride = (chunkSize - chunkOverlap).coerceAtLeast(1)

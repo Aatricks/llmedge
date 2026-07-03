@@ -4,6 +4,7 @@ import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.mockk.mockk
 
 class InMemoryVectorStoreTest {
     @Test
@@ -120,5 +121,101 @@ class InMemoryVectorStoreTest {
 
         assertEquals(2, reader.size())
         assertTrue(reader.head(2).map { it.id }.containsAll(listOf("one", "two")))
+    }
+
+    @Test
+    fun `oversized-blob save rejection`() {
+        val persistFile = File.createTempFile("rag-store-oversized", ".json")
+        persistFile.deleteOnExit()
+        val store = InMemoryVectorStore(persistFile)
+        val largeText = "a".repeat(16 * 1024 * 1024 + 1)
+        val entry = VectorEntry("id", largeText, floatArrayOf(1f, 2f))
+        
+        var threwInUpsert = false
+        try {
+            store.upsert(entry)
+        } catch (e: IllegalArgumentException) {
+            threwInUpsert = true
+        }
+        assertTrue("Upsert should reject oversized text", threwInUpsert)
+    }
+
+    @Test
+    fun `oversized-blob addAll rejection`() {
+        val store = InMemoryVectorStore()
+        val largeText = "a".repeat(16 * 1024 * 1024 + 1)
+        val entry = VectorEntry("id", largeText, floatArrayOf(1f, 2f))
+        var threwInAddAll = false
+        try {
+            store.addAll(listOf(entry))
+        } catch (e: IllegalArgumentException) {
+            threwInAddAll = true
+        }
+        assertTrue("addAll should reject oversized text", threwInAddAll)
+    }
+
+    @Test
+    fun `dim-mismatch upsert rejection and cosine-mismatch returns 0`() {
+        val store = InMemoryVectorStore()
+        store.upsert(VectorEntry("id1", "text1", floatArrayOf(1f, 2f)))
+        
+        var threwInUpsert = false
+        try {
+            store.upsert(VectorEntry("id2", "text2", floatArrayOf(1f, 2f, 3f)))
+        } catch (e: IllegalArgumentException) {
+            threwInUpsert = true
+        }
+        assertTrue("Should reject entry with different dimension", threwInUpsert)
+        
+        val scores = store.topKWithScores(floatArrayOf(1f, 2f, 3f), 1)
+        if (scores.isNotEmpty()) {
+            assertEquals(0f, scores.first().second)
+        }
+    }
+
+    @Test
+    fun `deterministic chunk ids on re-index`() = kotlinx.coroutines.runBlocking {
+        io.mockk.mockkStatic(android.util.Log::class)
+        io.mockk.every { android.util.Log.d(any<String>(), any<String>()) } returns 0
+        io.mockk.every { android.util.Log.w(any<String>(), any<String>()) } returns 0
+
+        val context = mockk<android.content.Context>(relaxed = true)
+        val uri = mockk<android.net.Uri>()
+        io.mockk.every { uri.toString() } returns "content://mock/test.pdf"
+
+        io.mockk.mockkObject(PDFReader)
+        io.mockk.coEvery { PDFReader.readAllText(context, uri) } returns "Some test text for PDF"
+
+        val embeddingProvider = mockk<EmbeddingProvider>()
+        io.mockk.coEvery { embeddingProvider.encode(any()) } returns floatArrayOf(0.1f, 0.2f)
+
+        val persistFile = File.createTempFile("rag-store-deterministic", ".json")
+        persistFile.deleteOnExit()
+        val store = InMemoryVectorStore(persistFile)
+
+        val indexer = RAGIndexer(context, TextSplitter(), embeddingProvider, store)
+
+        val firstCount = indexer.indexPdf(uri)
+        assertEquals(1, firstCount)
+        assertEquals(1, store.size())
+        val firstEntry = store.head(1).first()
+
+        val secondCount = indexer.indexPdf(uri)
+        assertEquals(1, secondCount)
+        assertEquals(1, store.size())
+        val secondEntry = store.head(1).first()
+
+        assertEquals(firstEntry.id, secondEntry.id)
+        
+        io.mockk.unmockkObject(PDFReader)
+        io.mockk.unmockkStatic(android.util.Log::class)
+    }
+
+    @Test
+    fun `shared store instance across two RAGEngine constructions on the same path`() {
+        val file = File("/tmp/test_store_shared")
+        val store1 = RAGEngine.getOrCreateStore(file)
+        val store2 = RAGEngine.getOrCreateStore(file)
+        assertTrue("Should share the same vector store instance", store1 === store2)
     }
 }

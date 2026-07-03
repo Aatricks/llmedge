@@ -40,6 +40,7 @@ class RAGSession internal constructor(
 
     override fun close() {
         runtime.close()
+        engine.close()
     }
 }
 

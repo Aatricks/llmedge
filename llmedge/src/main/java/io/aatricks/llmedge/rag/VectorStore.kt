@@ -40,18 +40,21 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
     private val idIndex = HashMap<String, Int>()
     private val cachedNorms = mutableListOf<Float>()
     private val gson = Gson()
+    private var storeDimension: Int = 0
+    private var isLoaded = false
 
     // Guards entries/idIndex/cachedNorms/partitionIndex: nothing upstream serializes
     // indexing (addAll/upsert) against queries (topK) or save(), and ArrayList/HashMap
     // are unsafe under concurrent structural modification.
     private val lock = Any()
+    private val saveLock = Any()
 
     companion object {
         private const val BRUTE_FORCE_THRESHOLD = 500
 
         // "LEVS" (llmedge vector store) + version header for the binary persist format.
         private val BINARY_MAGIC = byteArrayOf(0x4C, 0x45, 0x56, 0x53)
-        private const val BINARY_VERSION = 1
+        private const val BINARY_VERSION = 2
 
         // Sanity bounds so a corrupt length field fails parsing instead of OOMing.
         private const val MAX_BLOB_BYTES = 16 * 1024 * 1024
@@ -62,7 +65,19 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
     private var partitionIndex: PartitionIndex? = null
 
     fun upsert(entry: VectorEntry) {
+        val idBytes = entry.id.toByteArray(Charsets.UTF_8)
+        val textBytes = entry.text.toByteArray(Charsets.UTF_8)
+        require(idBytes.size <= MAX_BLOB_BYTES) { "Chunk ID is too large: ${idBytes.size} bytes (max $MAX_BLOB_BYTES)" }
+        require(textBytes.size <= MAX_BLOB_BYTES) { "Chunk text is too large: ${textBytes.size} bytes (max $MAX_BLOB_BYTES)" }
         synchronized(lock) {
+            if (storeDimension == 0 && entries.isEmpty()) {
+                storeDimension = entry.embedding.size
+            }
+            if (storeDimension > 0) {
+                require(entry.embedding.size == storeDimension) {
+                    "Dimension mismatch: entry dimension ${entry.embedding.size} does not match store dimension $storeDimension. Please re-index your documents."
+                }
+            }
             val existingIdx = idIndex[entry.id]
             if (existingIdx != null) {
                 entries[existingIdx] = entry
@@ -78,8 +93,22 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
     }
 
     fun addAll(newEntries: List<VectorEntry>) {
+        for (entry in newEntries) {
+            val idBytes = entry.id.toByteArray(Charsets.UTF_8)
+            val textBytes = entry.text.toByteArray(Charsets.UTF_8)
+            require(idBytes.size <= MAX_BLOB_BYTES) { "Chunk ID is too large: ${idBytes.size} bytes (max $MAX_BLOB_BYTES)" }
+            require(textBytes.size <= MAX_BLOB_BYTES) { "Chunk text is too large: ${textBytes.size} bytes (max $MAX_BLOB_BYTES)" }
+        }
         synchronized(lock) {
+            if (storeDimension == 0 && entries.isEmpty() && newEntries.isNotEmpty()) {
+                storeDimension = newEntries[0].embedding.size
+            }
             for (entry in newEntries) {
+                if (storeDimension > 0) {
+                    require(entry.embedding.size == storeDimension) {
+                        "Dimension mismatch: entry dimension ${entry.embedding.size} does not match store dimension $storeDimension. Please re-index your documents."
+                    }
+                }
                 val existingIdx = idIndex[entry.id]
                 if (existingIdx != null) {
                     entries[existingIdx] = entry
@@ -182,9 +211,9 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
     }
 
     private fun cosine(a: FloatArray, an: Float, b: FloatArray, bn: Float): Float {
+        if (a.size != b.size) return 0f
         var dot = 0f
-        val n = minOf(a.size, b.size)
-        for (i in 0 until n) {
+        for (i in a.indices) {
             dot += a[i] * b[i]
         }
         val denom = an * bn
@@ -193,65 +222,90 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
 
     fun save() {
         val file = persistFile ?: return
-        val snapshot = synchronized(lock) { entries.toList() }
-        file.parentFile?.mkdirs()
-        // Compact binary format (embeddings as raw floats instead of boxed JSON
-        // numbers: ~4-6x smaller and much faster to (de)serialize at 10k+ chunks).
-        // Written to a temp file and renamed so a crash mid-write can't leave a
-        // truncated index behind.
-        val tmp = File(file.parentFile, "${file.name}.tmp")
-        DataOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { out ->
-            out.write(BINARY_MAGIC)
-            out.writeInt(BINARY_VERSION)
-            out.writeInt(snapshot.size)
-            for (e in snapshot) {
-                writeBlob(out, e.id.toByteArray(Charsets.UTF_8))
-                writeBlob(out, e.text.toByteArray(Charsets.UTF_8))
-                out.writeInt(e.embedding.size)
-                val bytes = ByteBuffer.allocate(e.embedding.size * 4)
-                bytes.asFloatBuffer().put(e.embedding)
-                out.write(bytes.array())
+        synchronized(saveLock) {
+            val snapshot = synchronized(lock) { entries.toList() }
+            val currentDim = synchronized(lock) { storeDimension }
+            file.parentFile?.mkdirs()
+            // Compact binary format (embeddings as raw floats instead of boxed JSON
+            // numbers: ~4-6x smaller and much faster to (de)serialize at 10k+ chunks).
+            // Written to a temp file and renamed so a crash mid-write can't leave a
+            // truncated index behind.
+            val tmp = File(file.parentFile, "${file.name}.${System.nanoTime()}.tmp")
+            try {
+                DataOutputStream(BufferedOutputStream(FileOutputStream(tmp))).use { out ->
+                    out.write(BINARY_MAGIC)
+                    out.writeInt(BINARY_VERSION)
+                    out.writeInt(currentDim)
+                    out.writeInt(snapshot.size)
+                    for (e in snapshot) {
+                        writeBlob(out, e.id.toByteArray(Charsets.UTF_8))
+                        writeBlob(out, e.text.toByteArray(Charsets.UTF_8))
+                        out.writeInt(e.embedding.size)
+                        val bytes = ByteBuffer.allocate(e.embedding.size * 4)
+                        bytes.asFloatBuffer().put(e.embedding)
+                        out.write(bytes.array())
+                    }
+                }
+                if (!tmp.renameTo(file)) {
+                    tmp.copyTo(file, overwrite = true)
+                    tmp.delete()
+                }
+            } catch (e: Throwable) {
+                tmp.delete()
+                throw e
             }
-        }
-        if (!tmp.renameTo(file)) {
-            tmp.copyTo(file, overwrite = true)
-            tmp.delete()
         }
     }
 
     fun load() {
         val file = persistFile ?: return
         if (!file.exists()) return
-        val list: List<VectorEntry> =
+        synchronized(lock) {
+            if (isLoaded) return
+        }
+        val loadedData: LoadedData =
             try {
                 if (hasBinaryMagic(file)) {
                     loadBinary(file)
                 } else {
-                    // Pre-binary stores were Gson JSON; migrate them transparently
-                    // (the next save() rewrites in the binary format).
-                    loadLegacyJson(file) ?: return
+                    val list = loadLegacyJson(file)
+                    if (list == null) {
+                        file.delete()
+                        return
+                    }
+                    LoadedData(list, 0)
                 }
-            } catch (_: Throwable) {
-                // A corrupt index (e.g. process death mid-save before this class wrote
-                // atomically) must not break every future session: start empty and let
-                // the next save replace the bad file.
-                file.delete()
+            } catch (e: Throwable) {
+                if (e is Error) throw e
+                if (e is com.google.gson.JsonSyntaxException ||
+                    e is IllegalArgumentException ||
+                    e is IllegalStateException ||
+                    e is java.io.EOFException ||
+                    e is java.io.StreamCorruptedException) {
+                    file.delete()
+                }
                 return
             }
         synchronized(lock) {
+            if (isLoaded) return
             entries.clear()
             idIndex.clear()
             cachedNorms.clear()
             invalidateIndex()
-            for ((i, entry) in list.withIndex()) {
+            storeDimension = loadedData.dimension
+            for ((i, entry) in loadedData.entries.withIndex()) {
                 entries.add(entry)
                 cachedNorms.add(norm(entry.embedding))
                 idIndex[entry.id] = i
             }
+            isLoaded = true
         }
     }
 
+    private class LoadedData(val entries: List<VectorEntry>, val dimension: Int)
+
     private fun writeBlob(out: DataOutputStream, bytes: ByteArray) {
+        require(bytes.size <= MAX_BLOB_BYTES) { "Chunk is too large: ${bytes.size} bytes (max $MAX_BLOB_BYTES)" }
         out.writeInt(bytes.size)
         out.write(bytes)
     }
@@ -264,26 +318,27 @@ class InMemoryVectorStore(private val persistFile: File? = null) {
         return head.contentEquals(BINARY_MAGIC)
     }
 
-    private fun loadBinary(file: File): List<VectorEntry> {
+    private fun loadBinary(file: File): LoadedData {
         DataInputStream(BufferedInputStream(FileInputStream(file))).use { input ->
             input.skipBytes(BINARY_MAGIC.size)
             val version = input.readInt()
-            require(version == BINARY_VERSION) { "Unsupported vector store version $version" }
+            require(version == 1 || version == 2) { "Unsupported vector store version $version" }
+            val dim = if (version == 2) input.readInt() else 0
             val count = input.readInt()
             require(count >= 0) { "Corrupt vector store entry count" }
             val result = ArrayList<VectorEntry>(count)
             repeat(count) {
                 val id = String(readBlob(input), Charsets.UTF_8)
                 val text = String(readBlob(input), Charsets.UTF_8)
-                val dim = input.readInt()
-                require(dim in 0..MAX_EMBEDDING_DIM) { "Corrupt embedding length $dim" }
-                val raw = ByteArray(dim * 4)
+                val entryDim = input.readInt()
+                require(entryDim in 0..MAX_EMBEDDING_DIM) { "Corrupt embedding length $entryDim" }
+                val raw = ByteArray(entryDim * 4)
                 input.readFully(raw)
-                val embedding = FloatArray(dim)
+                val embedding = FloatArray(entryDim)
                 ByteBuffer.wrap(raw).asFloatBuffer().get(embedding)
                 result.add(VectorEntry(id, text, embedding))
             }
-            return result
+            return LoadedData(result, dim)
         }
     }
 

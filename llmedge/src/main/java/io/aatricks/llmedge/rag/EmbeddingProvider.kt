@@ -21,8 +21,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
 import com.ml.shubham0204.sentence_embeddings.SentenceEmbedding
+import java.io.File
+import java.security.MessageDigest
+import kotlinx.coroutines.runBlocking
 
 data class EmbeddingConfig(
     val modelAssetPath: String = "embeddings/all-minilm-l6-v2/model.onnx",
@@ -30,7 +32,7 @@ data class EmbeddingConfig(
     val useTokenTypeIds: Boolean = false,
     val outputTensorName: String = "sentence_embedding",
     val useFP16: Boolean = false,
-    val useXNNPack: Boolean = false,
+    val useXNNPack: Boolean = true,
 )
 
 class EmbeddingProvider(private val context: Context, private var config: EmbeddingConfig = EmbeddingConfig()) {
@@ -38,28 +40,52 @@ class EmbeddingProvider(private val context: Context, private var config: Embedd
     private var initialized = false
     private var modelFilePath: String? = null
     private var tokenizerBytesCache: ByteArray? = null
+    private var closed = false
 
     // Serializes init/encode: the token_type_ids fallback mutates `config` and
     // re-inits `se`, which must not happen while another encode is in flight
     // (concurrent indexing vs. querying share this provider).
     private val sessionMutex = Mutex()
 
+    private fun getUniqueFileName(assetPath: String): String {
+        val basename = File(assetPath).name
+        val hash = try {
+            val md = MessageDigest.getInstance("MD5")
+            val bytes = md.digest(assetPath.toByteArray(Charsets.UTF_8))
+            bytes.joinToString("") { "%02x".format(it) }.take(8)
+        } catch (e: Exception) {
+            assetPath.hashCode().toString(16)
+        }
+        return "${hash}_$basename"
+    }
+
     private suspend fun copyAssetToFiles(assetPath: String, outFile: File) = withContext(Dispatchers.IO) {
         if (outFile.exists()) return@withContext
         outFile.parentFile?.mkdirs()
-        context.assets.open(assetPath).use { input ->
-            outFile.outputStream().use { output ->
-                input.copyTo(output)
+        val tmpFile = File(outFile.parent, "${outFile.name}.${System.nanoTime()}.tmp")
+        try {
+            context.assets.open(assetPath).use { input ->
+                tmpFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
             }
+            if (!tmpFile.renameTo(outFile)) {
+                tmpFile.copyTo(outFile, overwrite = true)
+                tmpFile.delete()
+            }
+        } catch (e: Throwable) {
+            tmpFile.delete()
+            throw e
         }
     }
 
     suspend fun init() = sessionMutex.withLock {
+        check(!closed) { "EmbeddingProvider is closed" }
         withContext(Dispatchers.IO) {
             if (initialized) return@withContext
             val modelsDir = File(context.filesDir, "embedding_models")
-            val modelFile = File(modelsDir, File(config.modelAssetPath).name)
-            val tokenizerFile = File(modelsDir, File(config.tokenizerAssetPath).name)
+            val modelFile = File(modelsDir, getUniqueFileName(config.modelAssetPath))
+            val tokenizerFile = File(modelsDir, getUniqueFileName(config.tokenizerAssetPath))
             copyAssetToFiles(config.modelAssetPath, modelFile)
             copyAssetToFiles(config.tokenizerAssetPath, tokenizerFile)
 
@@ -85,6 +111,7 @@ class EmbeddingProvider(private val context: Context, private var config: Embedd
     }
 
     suspend fun encode(text: String): FloatArray = sessionMutex.withLock {
+        check(!closed) { "EmbeddingProvider is closed" }
         withContext(Dispatchers.IO) {
             check(initialized) { "EmbeddingProvider.init() must be called first" }
             try {
@@ -117,5 +144,16 @@ class EmbeddingProvider(private val context: Context, private var config: Embedd
             useXNNPack = config.useXNNPack,
             normalizeEmbeddings = true,
         )
+    }
+
+    fun close() = runBlocking {
+        sessionMutex.withLock {
+            if (!closed) {
+                if (initialized) {
+                    se.close()
+                }
+                closed = true
+            }
+        }
     }
 }

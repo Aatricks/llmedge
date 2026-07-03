@@ -56,7 +56,7 @@ class VisionPipelineTest {
         every { projector.isReady() } returns true
         every { projector.nativeHandle() } returns 77L
         every { smol.primeImageBuffer(77L, any(), 1) } returns true
-        every { smol.getResponse("Describe the image", -1, SmolLM.DEFAULT_BLOCKING_BATCH_SIZE) } returns "warm-response"
+        every { smol.getResponse("Describe the image", any(), SmolLM.DEFAULT_BLOCKING_BATCH_SIZE) } returns "warm-response"
         every { smol.getEstimatedNativeMemoryBytes() } returns 1024L
         every { smol.getEstimatedStateMemoryBytes() } returns 64L
 
