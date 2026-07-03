@@ -29,7 +29,7 @@ data class TextRuntimeConfig(
     val promptThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
     val generationThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.TOKEN_GENERATION),
     val batchSize: Int = SmolLM.DEFAULT_BLOCKING_BATCH_SIZE,
-    val streamBatchSize: Int = 4,
+    val streamBatchSize: Int = 1,
     val contextSize: Long? = null,
     val minP: Float = 0.1f,
     val temperature: Float = 0.8f,

@@ -102,7 +102,10 @@ class SmolLMInferenceTest {
         val out = smol.getResponse("test prompt")
         assertEquals("Hello world", out)
         assertEquals(0, bridge.completionLoopCalls)
-        assertEquals(2, bridge.completionLoopBatchCalls)
+        // 1 call returns the text, then the stepper polls a bounded number of
+        // consecutive empty batches (legacy bridges return "" both while buffering
+        // UTF-8 and at end-of-stream) before treating the stream as finished.
+        assertEquals(5, bridge.completionLoopBatchCalls)
 
         // Test flow: the default stream batch groups a few tokens per native call,
         // so assert on the reassembled text rather than per-token emission.

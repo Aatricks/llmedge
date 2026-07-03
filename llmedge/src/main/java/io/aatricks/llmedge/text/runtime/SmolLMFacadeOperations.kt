@@ -64,7 +64,7 @@ internal object SmolLMFacadeOperations {
 
     // Emitting a few tokens per native call amortizes the JNI round-trip without
     // noticeably chunking the stream (4 tokens is well under typical frame budgets).
-    private const val DEFAULT_STREAM_BATCH = 4
+    private const val DEFAULT_STREAM_BATCH = 1
 
     fun getResponseAsFlow(
         instance: SmolLM,

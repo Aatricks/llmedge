@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.flowOn
 
 internal object SmolLMCompletionSupport {
     private const val EOG = "[EOG]"
+    private const val MAX_CONSECUTIVE_EMPTY_BATCHES = 4
 
     /**
      * Fetches completion pieces, preferring the byte-array native path: generated text can
@@ -24,6 +25,7 @@ internal object SmolLMCompletionSupport {
      */
     private class CompletionStepper(private val instance: SmolLM) {
         private var bytesSupported = true
+        private var consecutiveEmptyBatches = 0
 
         /**
          * Returns the next piece, or null when the stream is over. An empty string
@@ -51,7 +53,17 @@ internal object SmolLMCompletionSupport {
                 }
                 if (count > 1) {
                     val piece = instance.bridge.completionLoopBatch(instance, nativePtr, count)
-                    return if (piece == EOG || piece.isEmpty()) null else piece
+                    if (piece == EOG) return null
+                    // The real native returns "" mid-generation while it buffers an
+                    // incomplete UTF-8 sequence (EOG is always the explicit marker),
+                    // but legacy/fake bridges return "" at end-of-stream. A buffered
+                    // sequence resolves within a few tokens, so poll a bounded number
+                    // of consecutive empties before treating it as the end.
+                    if (piece.isEmpty()) {
+                        return if (++consecutiveEmptyBatches >= MAX_CONSECUTIVE_EMPTY_BATCHES) null else piece
+                    }
+                    consecutiveEmptyBatches = 0
+                    return piece
                 }
                 val piece = instance.bridge.completionLoop(instance, nativePtr)
                 return if (piece == EOG) null else piece
