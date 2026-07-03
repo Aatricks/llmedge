@@ -103,6 +103,7 @@ internal class ImageGenerationExecutor(
                 logTag,
                 "Image request entering runtime acquisition: requestId=$requestId size=${params.width}x${params.height} steps=${params.steps}",
             )
+            try {
             requestExecutor.withRuntimeModel(
                 spec = request.spec,
                 options = request.options,
@@ -207,6 +208,14 @@ internal class ImageGenerationExecutor(
                         "Image request active model exit: requestId=$requestId phases=${state.lastImageRequestTrace.size}",
                     )
                 }
+            }
+            } finally {
+                // The sd.cpp context is not safe to reuse for a second generate_image: a warm
+                // cached handle crashes natively on the next txt2img (SIGSEGV, with or without a
+                // LoRA). Evict it after every generation so the next request loads a fresh
+                // context — the warm-from-disk reload is only ~5s.
+                requestExecutor.invalidateRuntime(request.spec, request.options)
+                AndroidLogAdapter.i(logTag, "Image request runtime invalidated after generation: requestId=$requestId")
             }
         }
 
