@@ -209,5 +209,12 @@ inline bool decodeEmbeddingsIntoKv(
         llama_set_causal_attn(lctx, true);
     }
 
+    if (!success) {
+        // Drop any partially decoded chunks: callers fall back to other decode
+        // paths on failure, and stacking a second copy of the image on top of a
+        // half-decoded one silently corrupts the context.
+        llmedge_kv_cache_seq_rm(lctx, 0, n_past, -1);
+    }
+
     return success;
 }

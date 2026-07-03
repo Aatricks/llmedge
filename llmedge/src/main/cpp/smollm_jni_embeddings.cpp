@@ -372,6 +372,9 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_nativePrimeImageBuffer(
     mtmd_input_chunks_free(chunks);
 
     if (eval_res != 0) {
+        // Roll back partially primed chunks so the caller's fallback path doesn't
+        // decode a second copy of the image on top of a half-decoded one.
+        llmedge_kv_cache_seq_rm(lctx, 0, n_past, -1);
         return JNI_FALSE;
     }
 
