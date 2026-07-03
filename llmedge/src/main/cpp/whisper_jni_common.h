@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <jni.h>
 #include <mutex>
 
@@ -12,7 +13,11 @@ struct WhisperHandle {
     jmethodID progressMethodID = nullptr;
     jobject segmentCallbackGlobalRef = nullptr;
     jmethodID segmentMethodID = nullptr;
-    std::mutex mutex;
+    // Recursive: whisper_full invokes the segment/progress callbacks inline on the
+    // transcribing thread, and a Kotlin callback calling back into any Whisper
+    // method would otherwise self-deadlock on a plain mutex.
+    std::recursive_mutex mutex;
+    std::atomic<bool> abortRequested{false};
 };
 
 void throwJavaException(JNIEnv* env, const char* className, const char* message);

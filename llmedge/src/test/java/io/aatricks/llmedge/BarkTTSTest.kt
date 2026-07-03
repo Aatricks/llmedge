@@ -136,4 +136,23 @@ class BarkTTSTest {
         assertTrue(entries.contains(BarkTTS.EncodingStep.COARSE))
         assertTrue(entries.contains(BarkTTS.EncodingStep.FINE))
     }
+
+    @Test
+    fun `double-close is idempotent and doesn't invoke nativeDestroy twice`() {
+        val tts = BarkTTS.createFromHandleForRuntime(12345L)
+        // First call should attempt to call nativeDestroy and fail with UnsatisfiedLinkError
+        try {
+            tts.close()
+            fail("Expected UnsatisfiedLinkError because native library is not loaded")
+        } catch (e: UnsatisfiedLinkError) {
+            // expected
+        }
+
+        // Second call should return early without calling nativeDestroy (no exception thrown)
+        try {
+            tts.close()
+        } catch (e: UnsatisfiedLinkError) {
+            fail("Expected second close to be a no-op, but it called nativeDestroy again")
+        }
+    }
 }

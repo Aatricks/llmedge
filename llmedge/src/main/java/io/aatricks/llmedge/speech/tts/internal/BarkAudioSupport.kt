@@ -9,7 +9,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 internal class BarkPcmBuffers {
-    var pcmBuffer: ByteBuffer? = null
     val wavHeaderBuffer: ByteBuffer = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
 }
 
@@ -49,28 +48,22 @@ internal object BarkAudioSupport {
         val file = File(filePath)
         file.parentFile?.mkdirs()
 
-        FileOutputStream(file).use { fos ->
-            fos.write(createWavHeader(samples.size, sampleRate, buffers.wavHeaderBuffer))
+        synchronized(buffers) {
+            FileOutputStream(file).use { fos ->
+                fos.write(createWavHeader(samples.size, sampleRate, buffers.wavHeaderBuffer))
 
-            val requiredBytes = samples.size * 2
-            val buffer =
-                buffers.pcmBuffer
-                    ?.takeIf { it.capacity() >= requiredBytes }
-                    ?.apply {
-                        clear()
-                        order(ByteOrder.LITTLE_ENDIAN)
-                    }
-                    ?: ByteBuffer.allocate(requiredBytes)
-                        .order(ByteOrder.LITTLE_ENDIAN)
-                        .also { buffers.pcmBuffer = it }
+                val shortSamples = ShortArray(samples.size)
+                for (i in samples.indices) {
+                    val clamped = samples[i].coerceIn(-1.0f, 1.0f)
+                    shortSamples[i] = (clamped * 32767.0f).toInt().toShort()
+                }
 
-            for (sample in samples) {
-                val clamped = sample.coerceIn(-1.0f, 1.0f)
-                val pcm16 = (clamped * 32767.0f).toInt().toShort()
-                buffer.putShort(pcm16)
+                val requiredBytes = samples.size * 2
+                val buffer = ByteBuffer.allocate(requiredBytes).order(ByteOrder.LITTLE_ENDIAN)
+                buffer.asShortBuffer().put(shortSamples)
+
+                fos.write(buffer.array(), 0, requiredBytes)
             }
-            // Reused buffers can be larger than this synthesis; only write the fresh bytes.
-            fos.write(buffer.array(), 0, requiredBytes)
         }
     }
 

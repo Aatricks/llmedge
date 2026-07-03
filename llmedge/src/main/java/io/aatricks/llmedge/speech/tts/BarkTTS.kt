@@ -61,6 +61,15 @@ import kotlinx.coroutines.withContext
 class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
     private val pcmBuffers = BarkPcmBuffers()
 
+    private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val nativeCallLock = Any()
+
+    private inline fun <T> withNativeHandle(block: (Long) -> T): T =
+        synchronized(nativeCallLock) {
+            check(!closed.get()) { "BarkTTS instance has been closed" }
+            block(handle)
+        }
+
     /** Encoding step during synthesis. */
     enum class EncodingStep(val value: Int) {
         SEMANTIC(0),
@@ -125,18 +134,20 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
     /** Set a callback to receive progress updates during generation. */
     fun setProgressCallback(callback: ProgressCallback?) {
         this.progressCallback = callback
-        if (callback != null) {
-            nativeSetProgressCallback(
-                    handle,
-                    object : Any() {
-                        @Suppress("unused")
-                        fun onProgress(step: Int, progress: Int) {
-                            callback.onProgress(EncodingStep.fromInt(step), progress)
+        withNativeHandle { h ->
+            if (callback != null) {
+                nativeSetProgressCallback(
+                        h,
+                        object : Any() {
+                            @Suppress("unused")
+                            fun onProgress(step: Int, progress: Int) {
+                                callback.onProgress(EncodingStep.fromInt(step), progress)
+                            }
                         }
-                    }
-            )
-        } else {
-            nativeSetProgressCallback(handle, null)
+                )
+            } else {
+                nativeSetProgressCallback(h, null)
+            }
         }
     }
 
@@ -151,8 +162,12 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
         return BarkAudioSupport.generate(
             text = text,
             params = params,
-            nativeGenerate = { input, threads -> nativeGenerate(handle, input, threads) },
-            nativeGetSampleRate = { nativeGetSampleRate(handle) },
+            nativeGenerate = { input, threads ->
+                withNativeHandle { h -> nativeGenerate(h, input, threads) }
+            },
+            nativeGetSampleRate = {
+                withNativeHandle { h -> nativeGetSampleRate(h) }
+            },
         )
     }
 
@@ -165,16 +180,16 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
                     .flowOn(Dispatchers.IO)
 
     /** Get the sample rate used by the model. */
-    fun getSampleRate(): Int = nativeGetSampleRate(handle)
+    fun getSampleRate(): Int = withNativeHandle { h -> nativeGetSampleRate(h) }
 
     /** Get model load time in microseconds. */
-    fun getLoadTime(): Long = nativeGetLoadTime(handle)
+    fun getLoadTime(): Long = withNativeHandle { h -> nativeGetLoadTime(h) }
 
     /** Get model evaluation time in microseconds from last generation. */
-    fun getEvalTime(): Long = nativeGetEvalTime(handle)
+    fun getEvalTime(): Long = withNativeHandle { h -> nativeGetEvalTime(h) }
 
     /** Reset internal statistics. */
-    fun resetStatistics() = nativeResetStatistics(handle)
+    fun resetStatistics() = withNativeHandle { h -> nativeResetStatistics(h) }
 
     /**
      * Save audio samples to a WAV file.
@@ -198,7 +213,12 @@ class BarkTTS private constructor(private val handle: Long) : AutoCloseable {
     }
 
     override fun close() {
-        nativeDestroy(handle)
+        synchronized(nativeCallLock) {
+            if (!closed.compareAndSet(false, true)) {
+                return
+            }
+            nativeDestroy(handle)
+        }
     }
 
     // Native method declarations

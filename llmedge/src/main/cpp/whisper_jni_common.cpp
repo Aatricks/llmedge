@@ -77,7 +77,9 @@ void whisper_new_segment_callback_wrapper(
     int start = n_segments - n_new;
 
     if (n_new > 16) {
-        env->EnsureLocalCapacity(n_new + 4);
+        if (env->EnsureLocalCapacity(n_new + 4) < 0) {
+            return;
+        }
     }
 
     for (int i = start; i < n_segments; ++i) {
@@ -88,6 +90,12 @@ void whisper_new_segment_callback_wrapper(
         // Transcribed text is model output and can contain 4-byte UTF-8, which
         // NewStringUTF rejects — build the String from raw UTF-8 bytes instead.
         jstring jText = llmedge_new_string_utf8(env, text);
+        if (!jText) {
+            if (env->ExceptionCheck()) {
+                break;
+            }
+            continue;
+        }
         env->CallVoidMethod(
             handle->segmentCallbackGlobalRef,
             handle->segmentMethodID,
