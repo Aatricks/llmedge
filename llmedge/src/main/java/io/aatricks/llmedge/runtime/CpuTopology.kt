@@ -222,10 +222,11 @@ object CpuTopology {
 
         return when (taskType) {
             TaskType.PROMPT_PROCESSING -> {
-                // Prompt processing benefits from larger batches on capable devices
+                // Prompt processing benefits from larger batches on capable devices.
+                // S22 (4 P-cores) measured TTFT on a ~1800-token prompt: n_ubatch 128 = 27.5s,
+                // 256 = 18.1s, 512 = 14.5s — so 4+ P-cores gets 512.
                 val coreBased = when {
-                    coreInfo.performanceCores >= 8 -> 512
-                    coreInfo.performanceCores >= 4 -> 256
+                    coreInfo.performanceCores >= 4 -> 512
                     else -> 128
                 }
                 // Reduce if model is large relative to available memory

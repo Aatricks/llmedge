@@ -32,6 +32,9 @@ data class TextModelOptions(
     val thinkingMode: SmolLM.ThinkingMode = SmolLM.ThinkingMode.DEFAULT,
     val reasoningBudget: Int? = null,
     val useVulkan: Boolean? = null,
+    val kvCacheTypeK: SmolLM.KvCacheType? = null,
+    val kvCacheTypeV: SmolLM.KvCacheType? = null,
+    val nUbatch: Int? = null,
 )
 
 data class TextGenerationRequest(
@@ -60,6 +63,9 @@ internal fun TextModelOptions.toInferenceParams(
         useFlashAttn = useFlashAttention ?: config.text.useFlashAttention,
         thinkingMode = thinkingMode,
         reasoningBudget = reasoningBudget,
+        kvCacheTypeK = kvCacheTypeK ?: config.text.kvCacheTypeK,
+        kvCacheTypeV = kvCacheTypeV ?: config.text.kvCacheTypeV,
+        nUbatch = nUbatch ?: config.text.nUbatch,
     )
 
 class TextClient internal constructor(

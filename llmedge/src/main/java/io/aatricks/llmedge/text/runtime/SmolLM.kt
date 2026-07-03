@@ -287,7 +287,15 @@ class SmolLM internal constructor(
              * prefill on capable devices at the cost of larger compute buffers. 0 = default (128).
              */
             val nUbatch: Int = 0,
-    )
+    ) {
+        init {
+            // Q8_KV is a K-cache-only layout in the ik_llama.cpp fork; selecting it for the
+            // V cache aborts natively inside context creation (SIGABRT, unrecoverable).
+            require(kvCacheTypeV != KvCacheType.Q8_KV) {
+                "KvCacheType.Q8_KV is only supported for kvCacheTypeK; use Q8_0 or F16 for kvCacheTypeV."
+            }
+        }
+    }
 
     /**
      * Summary of the most recent response generation.

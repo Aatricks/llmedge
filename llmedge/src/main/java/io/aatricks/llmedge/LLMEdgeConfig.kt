@@ -36,12 +36,27 @@ data class TextRuntimeConfig(
     val useMmap: Boolean = true,
     val useMlock: Boolean = false,
     val useFlashAttention: Boolean = true,
+    /**
+     * KV cache type for keys. [SmolLM.KvCacheType.Q8_KV] measured +4-6% decode and ~-12% load
+     * heap vs F16 on S22 CPU, but is CPU-only (GPU load attempts fall back to CPU), so the
+     * SDK default stays F16.
+     */
+    val kvCacheTypeK: SmolLM.KvCacheType = SmolLM.KvCacheType.DEFAULT,
+    /** KV cache type for values. Q8_KV is rejected here (K-cache-only layout). */
+    val kvCacheTypeV: SmolLM.KvCacheType = SmolLM.KvCacheType.DEFAULT,
+    /**
+     * Micro-batch size for prompt processing (llama.cpp n_ubatch). 0 = engine default (128).
+     * Larger values trade compute-buffer memory for prefill speed on long (e.g. RAG) prompts:
+     * S22 measured 27.5s -> 14.5s TTFT on a ~1800-token prompt going 128 -> 512.
+     */
+    val nUbatch: Int = CpuTopology.recommendBatchSize(CpuTopology.TaskType.PROMPT_PROCESSING),
 ) {
     init {
         require(promptThreads > 0) { "Text prompt threads must be positive." }
         require(generationThreads > 0) { "Text generation threads must be positive." }
         require(batchSize > 0) { "Text batch size must be positive." }
         require(streamBatchSize > 0) { "Text stream batch size must be positive." }
+        require(nUbatch >= 0) { "Text nUbatch must be >= 0." }
     }
 }
 
