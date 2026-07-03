@@ -54,11 +54,18 @@ internal class SpeechRequestExecutor(
         params: Whisper.StreamingParams,
         loadOptions: WhisperLoadOptions,
     ): StreamingTranscriptionSession {
+        // Lease (pin) the runtime for the whole session: the transcriber keeps calling
+        // into it long after this function returns, so plain acquire would let cache
+        // pressure close it mid-stream.
+        val lease = whisperPool.acquireLeased(model, loadOptions)
         val transcriber =
-            withWhisperRuntime(model, loadOptions) { runtime ->
-                runtime.whisper.createStreamingTranscriber(params)
+            try {
+                lease.runtime.whisper.createStreamingTranscriber(params)
+            } catch (t: Throwable) {
+                lease.close()
+                throw t
             }
-        return scope.resources.register(StreamingTranscriptionSession(transcriber))
+        return scope.resources.register(StreamingTranscriptionSession(transcriber, lease))
     }
 
     suspend fun synthesize(

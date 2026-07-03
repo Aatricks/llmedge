@@ -33,7 +33,8 @@ class ModelCache<T : AutoCloseable>(
             val loadTimeMs: Long,
             val sizeProvider: (() -> Long)? = null,
             var lastUsedMs: Long = System.currentTimeMillis(),
-            var hitCount: Int = 0
+            var hitCount: Int = 0,
+            var pinCount: Int = 0
     )
 
     /** Cache statistics */
@@ -125,7 +126,9 @@ class ModelCache<T : AutoCloseable>(
                 logOversizedInsertIfNeeded(key, resolvedSizeBytes)
             } else {
                 while (cache.isNotEmpty() && shouldEvict(resolvedSizeBytes)) {
-                    evictLRULocked(toClose)
+                    // Pinned entries are skipped; stop when nothing evictable remains
+                    // (the insert then intentionally overshoots the budget).
+                    if (!evictLRULocked(toClose)) break
                 }
                 if (cache.isEmpty() && shouldEvict(resolvedSizeBytes)) {
                     logOversizedInsertIfNeeded(key, resolvedSizeBytes)
@@ -181,6 +184,28 @@ class ModelCache<T : AutoCloseable>(
         }
     }
 
+    /**
+     * Pin an entry so LRU eviction skips it while a long-lived session (e.g. streaming
+     * transcription) holds the runtime. Pins are advisory against eviction only:
+     * [clear] and [remove] still close pinned entries.
+     *
+     * @return true if the entry was present and is now pinned
+     */
+    fun pin(key: String): Boolean = lock.write {
+        val entry = cache[key] ?: return@write false
+        entry.pinCount++
+        true
+    }
+
+    /** Release one pin taken with [pin]. Safe to call for absent keys. */
+    fun unpin(key: String) {
+        lock.write {
+            cache[key]?.let { entry ->
+                if (entry.pinCount > 0) entry.pinCount--
+            }
+        }
+    }
+
     /** Evict least recently used entry, closing the evicted model outside the lock */
     fun evictLRU() {
         val toClose = mutableListOf<T>()
@@ -190,23 +215,23 @@ class ModelCache<T : AutoCloseable>(
         closeModels(toClose)
     }
 
-    /** Internal eviction that collects models to close — must be called while holding write lock */
-    private fun evictLRULocked(toClose: MutableList<T>) {
-        if (cache.isEmpty()) return
+    /**
+     * Evict the least recently used unpinned entry — must be called while holding write lock.
+     * @return true if an entry was evicted, false if every entry is pinned (or cache is empty)
+     */
+    private fun evictLRULocked(toClose: MutableList<T>): Boolean {
+        val lruKey = cache.entries.firstOrNull { it.value.pinCount == 0 }?.key ?: return false
+        val lruEntry = cache.remove(lruKey) ?: return false
 
-        val lruKey = cache.keys.first()
-        val lruEntry = cache.remove(lruKey)
-
-        lruEntry?.let { entry ->
-            totalCachedBytes -= entry.sizeBytes
-            evictions.incrementAndGet()
-            AndroidLogAdapter.i(
-                    TAG,
-                    "Evicted LRU '$lruKey' (used ${entry.hitCount} times, " +
-                            "${entry.sizeBytes / 1024 / 1024}MB)"
-            )
-            toClose.add(entry.model)
-        }
+        totalCachedBytes -= lruEntry.sizeBytes
+        evictions.incrementAndGet()
+        AndroidLogAdapter.i(
+                TAG,
+                "Evicted LRU '$lruKey' (used ${lruEntry.hitCount} times, " +
+                        "${lruEntry.sizeBytes / 1024 / 1024}MB)"
+        )
+        toClose.add(lruEntry.model)
+        return true
     }
 
     /** Close models outside any lock to avoid blocking concurrent readers */

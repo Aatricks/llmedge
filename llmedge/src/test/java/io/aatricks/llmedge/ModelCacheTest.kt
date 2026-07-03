@@ -118,6 +118,45 @@ class ModelCacheTest {
     }
 
     @Test
+    fun `pinned entry survives eviction pressure and unpin re-enables eviction`() {
+        val cache = ModelCache<DummyModel>(maxCacheSize = 1, maxMemoryMB = 1024)
+
+        val first = DummyModel()
+        val second = DummyModel()
+        val third = DummyModel()
+
+        cache.put("first", first, 10L)
+        assertTrue(cache.pin("first"))
+
+        // maxCacheSize=1 would evict "first", but the pin protects it.
+        cache.put("second", second, 10L)
+        assertFalse(first.closed)
+        assertTrue(cache.contains("first"))
+        assertTrue(cache.contains("second"))
+
+        cache.unpin("first")
+        cache.put("third", third, 10L)
+        // With the pin gone, LRU eviction drains back down.
+        assertTrue(first.closed)
+        assertTrue(cache.contains("third"))
+    }
+
+    @Test
+    fun `pin returns false for absent keys and clear closes pinned entries`() {
+        val cache = ModelCache<DummyModel>(maxCacheSize = 2, maxMemoryMB = 1024)
+        assertFalse(cache.pin("missing"))
+        cache.unpin("missing") // must not throw
+
+        val first = DummyModel()
+        cache.put("first", first, 10L)
+        assertTrue(cache.pin("first"))
+
+        cache.clear()
+        assertTrue(first.closed)
+        assertFalse(cache.contains("first"))
+    }
+
+    @Test
     fun `oversized insert after eviction does not loop forever`() {
         val cache = ModelCache<DummyModel>(maxCacheSize = 1, maxMemoryMB = 4096)
         cache.systemMemoryProvider = { 64L }

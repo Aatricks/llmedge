@@ -95,6 +95,7 @@ data class SpeechSynthesisRequest(
 
 class StreamingTranscriptionSession internal constructor(
     private val transcriber: Whisper.StreamingTranscriber,
+    private val runtimeLease: AutoCloseable? = null,
 ) : AutoCloseable {
     fun events(): Flow<Whisper.TranscriptionSegment> = transcriber.start()
 
@@ -107,7 +108,11 @@ class StreamingTranscriptionSession internal constructor(
     }
 
     override fun close() {
-        stop()
+        try {
+            stop()
+        } finally {
+            runtimeLease?.close()
+        }
     }
 }
 

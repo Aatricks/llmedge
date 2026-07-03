@@ -6,10 +6,29 @@ import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.ModelCacheFactory
 import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ModelCache
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
 
 internal typealias RuntimeAcquireResult<TRuntime> = RuntimeCoordinator.AcquireResult<TRuntime>
+
+/**
+ * Holds a runtime for a long-lived session. While the lease is open the backing cache
+ * entry is pinned (LRU eviction skips it); closing the lease releases the pin — or closes
+ * the runtime outright when the lease had to fall back to an uncached load. Idempotent.
+ */
+internal class RuntimeLease<TRuntime : ManagedRuntime>(
+    val runtime: TRuntime,
+    private val release: () -> Unit,
+) : AutoCloseable {
+    private val released = AtomicBoolean(false)
+
+    override fun close() {
+        if (released.compareAndSet(false, true)) {
+            release()
+        }
+    }
+}
 
 internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
     private val cache: ModelCache<TRuntime>,
@@ -48,6 +67,27 @@ internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
         spec: TSpec,
         options: TOptions,
     ): TRuntime = coordinator.loadDetached(spec, options)
+
+    /**
+     * Acquire a runtime and pin its cache entry until the returned lease is closed, so
+     * cache pressure from other loads cannot close it mid-session. If the entry is evicted
+     * between acquire and pin (or the runtime was never cached), falls back to a detached
+     * load that the lease itself owns and closes.
+     */
+    suspend fun acquireLeased(
+        spec: TSpec,
+        options: TOptions,
+    ): RuntimeLease<TRuntime> {
+        repeat(2) {
+            val result = coordinator.acquireDetailed(spec, options)
+            val key = RuntimeCacheKeyBuilder.withBackend(result.keyPrefix, result.backend)
+            if (cache.pin(key)) {
+                return RuntimeLease(result.runtime) { cache.unpin(key) }
+            }
+        }
+        val detached = coordinator.loadDetached(spec, options)
+        return RuntimeLease(detached) { detached.close() }
+    }
 
     fun invalidate(
         spec: TSpec,
