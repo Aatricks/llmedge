@@ -42,10 +42,15 @@ internal object DefaultModelCatalog {
             capabilities = setOf(ModelCapability.IMAGE),
         )
 
+    // SmolVLM-Instruct (2.2B) Q8 instead of llava-phi-3-mini-int4: the int4 LLaVA quant
+    // produced weak, often wrong descriptions on device (a fox read as "a brown and white
+    // dog", a military vehicle as "a kitchen"). SmolVLM-Instruct is a newer VLM, ships from
+    // ggml-org (same family as the tested SmolVLM2 entries below, so the fork's vision path
+    // handles its projector), and at Q8 (~1.9 GB model + ~0.9 GB mmproj) still fits an 8 GB device.
     val visionModel: ModelSpec =
         huggingFaceSpec(
-            repoId = "xtuner/llava-phi-3-mini-gguf",
-            filename = "llava-phi-3-mini-int4.gguf",
+            repoId = "ggml-org/SmolVLM-Instruct-GGUF",
+            filename = "SmolVLM-Instruct-Q8_0.gguf",
             preferredQuantizations = emptyList(),
             artifactKind = ModelArtifactKind.GGUF_MODEL,
             capabilities = setOf(ModelCapability.TEXT, ModelCapability.VISION),
@@ -53,8 +58,8 @@ internal object DefaultModelCatalog {
 
     val visionProjector: ModelSpec =
         huggingFaceSpec(
-            repoId = "xtuner/llava-phi-3-mini-gguf",
-            filename = "llava-phi-3-mini-mmproj-f16.gguf",
+            repoId = "ggml-org/SmolVLM-Instruct-GGUF",
+            filename = "mmproj-SmolVLM-Instruct-f16.gguf",
             preferredQuantizations = emptyList(),
             artifactKind = ModelArtifactKind.PROJECTOR,
             capabilities = setOf(ModelCapability.PROJECTOR),
