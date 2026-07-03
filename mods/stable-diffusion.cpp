@@ -23,6 +23,21 @@
 
 #include <atomic>
 
+struct GgmlContextGuard {
+    struct ggml_context* ctx = nullptr;
+    explicit GgmlContextGuard(struct ggml_context* c) : ctx(c) {}
+    ~GgmlContextGuard() {
+        if (ctx) {
+            ggml_free(ctx);
+        }
+    }
+    void release() {
+        ctx = nullptr;
+    }
+    GgmlContextGuard(const GgmlContextGuard&) = delete;
+    GgmlContextGuard& operator=(const GgmlContextGuard&) = delete;
+};
+
 static std::atomic<bool> g_sd_vulkan_enabled{true};
 static std::atomic<bool> g_sd_opencl_enabled{true};
 static std::atomic<int> g_sd_vulkan_device{-1};
@@ -2997,6 +3012,7 @@ SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx,
         LOG_ERROR("ggml_init() failed");
         return nullptr;
     }
+    GgmlContextGuard work_ctx_guard(work_ctx);
 
     ConditionerParams condition_params;
     condition_params.text            = SAFE_STR(text);
@@ -3016,7 +3032,6 @@ SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx,
 
     sd_condition_raw_t* out = (sd_condition_raw_t*)calloc(1, sizeof(sd_condition_raw_t));
     if (!out) {
-        ggml_free(work_ctx);
         return nullptr;
     }
 
@@ -3024,7 +3039,6 @@ SD_API sd_condition_raw_t* sd_precompute_condition(sd_ctx_t* sd_ctx,
     sd_tensor_raw_from_ggml_tensor(out->c_vector, cond.c_vector);
     sd_tensor_raw_from_ggml_tensor(out->c_concat, cond.c_concat);
 
-    ggml_free(work_ctx);
     return out;
 }
 
@@ -3460,6 +3474,7 @@ SD_API sd_image_t* sd_generate_image_with_precomputed_condition(sd_ctx_t* sd_ctx
         LOG_ERROR("ggml_init() failed");
         return nullptr;
     }
+    GgmlContextGuard work_ctx_guard(work_ctx);
 
     int64_t seed = sd_img_gen_params->seed;
     if (seed < 0) {
@@ -3632,6 +3647,7 @@ SD_API sd_image_t* sd_generate_image_with_precomputed_condition(sd_ctx_t* sd_ctx
     size_t t1 = ggml_time_ms();
     LOG_INFO("sd_generate_image_with_precomputed_condition completed in %.2fs", (t1 - t0) * 1.0f / 1000);
 
+    work_ctx_guard.release();
     return out;
 }
 
@@ -3669,6 +3685,7 @@ sd_image_t* generate_image(sd_ctx_t* sd_ctx, const sd_img_gen_params_t* sd_img_g
         LOG_ERROR("ggml_init() failed");
         return nullptr;
     }
+    GgmlContextGuard work_ctx_guard(work_ctx);
 
     int64_t seed = sd_img_gen_params->seed;
     if (seed < 0) {
@@ -3920,6 +3937,7 @@ sd_image_t* generate_image(sd_ctx_t* sd_ctx, const sd_img_gen_params_t* sd_img_g
 
     LOG_INFO("generate_image completed in %.2fs", (t2 - t0) * 1.0f / 1000);
 
+    work_ctx_guard.release();
     return result_images;
 }
 
@@ -4017,6 +4035,7 @@ SD_API sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx
         LOG_ERROR("ggml_init() failed");
         return nullptr;
     }
+    GgmlContextGuard work_ctx_guard(work_ctx);
 
     int64_t seed = sd_vid_gen_params->seed;
     if (seed < 0) {
@@ -4360,7 +4379,6 @@ SD_API sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx
 
     sd_image_t* result_images = (sd_image_t*)calloc(vid->ne[2], sizeof(sd_image_t));
     if (result_images == nullptr) {
-        ggml_free(work_ctx);
         return nullptr;
     }
     *num_frames_out = vid->ne[2];
@@ -4371,7 +4389,6 @@ SD_API sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx
         result_images[i].channel = 3;
         result_images[i].data    = ggml_tensor_to_sd_image(vid, i, true);
     }
-    ggml_free(work_ctx);
 
     LOG_INFO("sd_generate_video_with_precomputed_condition completed in %.2fs", (t5 - t0) * 1.0f / 1000);
     return result_images;
@@ -4466,6 +4483,7 @@ SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* s
         LOG_ERROR("ggml_init() failed");
         return nullptr;
     }
+    GgmlContextGuard work_ctx_guard(work_ctx);
 
     int64_t seed = sd_vid_gen_params->seed;
     if (seed < 0) {
@@ -4811,7 +4829,6 @@ SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* s
 
     sd_image_t* result_images = (sd_image_t*)calloc(vid->ne[2], sizeof(sd_image_t));
     if (result_images == nullptr) {
-        ggml_free(work_ctx);
         return nullptr;
     }
     *num_frames_out = vid->ne[2];
@@ -4822,7 +4839,6 @@ SD_API sd_image_t* generate_video(sd_ctx_t* sd_ctx, const sd_vid_gen_params_t* s
         result_images[i].channel = 3;
         result_images[i].data    = ggml_tensor_to_sd_image(vid, i, true);
     }
-    ggml_free(work_ctx);
 
     LOG_INFO("generate_video completed in %.2fs", (t5 - t0) * 1.0f / 1000);
 

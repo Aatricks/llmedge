@@ -106,9 +106,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
     handle->stepsPerFrame = 0;
     handle->totalSteps = sample.sample_steps > 0 ? sample.sample_steps : 0;
 
-    if (!handle->progressCallbackGlobalRef) {
-        sd_set_progress_callback(sd_video_progress_wrapper, handle);
-    }
+    SdProgressCallbackGuard callbackGuard(handle);
 
     sd_image_t* frames = nullptr;
     int numFrames = 0;
@@ -130,16 +128,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
             free_sd_generated_frames(frames, numFrames);
         }
         throwJavaException(env, "java/lang/IllegalStateException", "Video generation failed");
-        if (!handle->progressCallbackGlobalRef) {
-            sd_set_progress_callback(nullptr, nullptr);
-        }
         return nullptr;
     }
 
     jobjectArray result = convert_sd_frames_to_java(env, frames, numFrames);
-    if (!handle->progressCallbackGlobalRef) {
-        sd_set_progress_callback(nullptr, nullptr);
-    }
     handle->cancellationRequested.store(false);
     return result;
 }

@@ -301,8 +301,8 @@ internal object StableDiffusionLoadSupport {
         instance.updateModelMetadata(resolved.metadata)
 
         if (instance.state.modelMetadata?.mobileSupported == false) {
-            instance.close()
             val paramCount = instance.state.modelMetadata?.parameterCount ?: "14B"
+            instance.close()
             throw UnsupportedModelException(
                 "$paramCount models are not supported on mobile devices. " +
                     "Please use 1.3B or 5B model variants instead. " +

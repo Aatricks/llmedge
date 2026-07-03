@@ -252,3 +252,25 @@ static inline SdResolvedPromptLoras resolve_prompt_loras(
 
     return resolved;
 }
+
+struct SdProgressCallbackGuard {
+    SdHandle* handle;
+    bool installed;
+
+    explicit SdProgressCallbackGuard(SdHandle* h) : handle(h), installed(false) {
+        if (handle && !handle->progressCallbackGlobalRef) {
+            sd_set_progress_callback(sd_video_progress_wrapper, handle);
+            installed = true;
+        }
+    }
+
+    ~SdProgressCallbackGuard() {
+        if (installed) {
+            sd_set_progress_callback(nullptr, nullptr);
+        }
+    }
+
+    // Prevent copy/move
+    SdProgressCallbackGuard(const SdProgressCallbackGuard&) = delete;
+    SdProgressCallbackGuard& operator=(const SdProgressCallbackGuard&) = delete;
+};

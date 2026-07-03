@@ -21,8 +21,15 @@ static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condA
     }
 
     auto* cond = static_cast<sd_condition_raw_t*>(calloc(1, sizeof(sd_condition_raw_t)));
+    if (!cond) {
+        throwJavaException(env, "java/lang/OutOfMemoryError", "Failed to allocate memory for condition");
+        return nullptr;
+    }
+
+    bool success = true;
 
     auto extract_tensor = [&](int data_idx, int dims_idx, sd_tensor_raw_t& raw) {
+        if (!success) return;
         jfloatArray dataArr = static_cast<jfloatArray>(env->GetObjectArrayElement(condArr, data_idx));
         jintArray dimsArr = static_cast<jintArray>(env->GetObjectArrayElement(condArr, dims_idx));
 
@@ -32,12 +39,30 @@ static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condA
 
             raw.ndims = std::min(static_cast<int>(dimsLen), 4);
             jint* dims = env->GetIntArrayElements(dimsArr, nullptr);
+            int64_t expected_len = 1;
             for (int i = 0; i < raw.ndims; ++i) {
                 raw.ne[i] = dims[i];
+                expected_len *= dims[i];
             }
             env->ReleaseIntArrayElements(dimsArr, dims, JNI_ABORT);
 
+            if (expected_len != dataLen) {
+                throwJavaException(env, "java/lang/IllegalArgumentException", "Dimension product mismatch with data length");
+                success = false;
+                if (dataArr) env->DeleteLocalRef(dataArr);
+                if (dimsArr) env->DeleteLocalRef(dimsArr);
+                return;
+            }
+
             raw.data = static_cast<float*>(malloc(dataLen * sizeof(float)));
+            if (!raw.data) {
+                throwJavaException(env, "java/lang/OutOfMemoryError", "Failed to allocate memory for tensor data");
+                success = false;
+                if (dataArr) env->DeleteLocalRef(dataArr);
+                if (dimsArr) env->DeleteLocalRef(dimsArr);
+                return;
+            }
+
             jfloat* data = env->GetFloatArrayElements(dataArr, nullptr);
             memcpy(raw.data, data, dataLen * sizeof(float));
             env->ReleaseFloatArrayElements(dataArr, data, JNI_ABORT);
@@ -51,8 +76,20 @@ static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condA
     };
 
     extract_tensor(0, 1, cond->c_crossattn);
+    if (!success) {
+        sd_free_condition(cond);
+        return nullptr;
+    }
     extract_tensor(2, 3, cond->c_vector);
+    if (!success) {
+        sd_free_condition(cond);
+        return nullptr;
+    }
     extract_tensor(4, 5, cond->c_concat);
+    if (!success) {
+        sd_free_condition(cond);
+        return nullptr;
+    }
 
     return cond;
 }
@@ -61,7 +98,8 @@ extern "C" JNIEXPORT jobjectArray JNICALL
 Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeCondition(
         JNIEnv* env, jobject thiz, jlong handlePtr,
         jstring jPrompt, jstring jNegative,
-        jint width, jint height, jint clipSkip) {
+        jint width, jint height, jint clipSkip,
+        jboolean jIsVideo) {
     (void)thiz;
 
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
@@ -79,7 +117,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
         SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
         if (handle->ctx) {
             try {
-                cond = sd_precompute_condition(handle->ctx, resolved.prompt.c_str(), clipSkip, width, height, true);
+                cond = sd_precompute_condition(handle->ctx, resolved.prompt.c_str(), clipSkip, width, height, jIsVideo == JNI_TRUE);
             } catch (const std::exception& e) {
                 releaseStrings();
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
@@ -89,16 +127,22 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
             auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
             try {
                 struct ggml_init_params params;
-                params.mem_size = 1024 * 1024 * 1024;
+                params.mem_size = 128 * 1024 * 1024;
                 params.mem_buffer = nullptr;
                 params.no_alloc = false;
                 struct ggml_context* work_ctx = ggml_init(params);
+                if (!work_ctx) {
+                    releaseStrings();
+                    throwJavaException(env, "java/lang/RuntimeException", "Failed to initialize ggml_context");
+                    return nullptr;
+                }
 
                 ConditionerParams cparams;
                 cparams.text = resolved.prompt.c_str();
                 cparams.clip_skip = clipSkip;
                 cparams.width = width;
                 cparams.height = height;
+                cparams.zero_out_masked = (jIsVideo == JNI_TRUE);
 
                 SDCondition sd_cond =
                         t5->get_learned_condition(work_ctx, sd_get_num_physical_cores_safe(), cparams);
@@ -123,8 +167,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                         raw.ndims = 0;
                         return;
                     }
-                    for (size_t i = 0; i < n; ++i) {
-                        raw.data[i] = ggml_get_f32_1d(t, static_cast<int>(i));
+                    if (ggml_is_contiguous(t) && t->type == GGML_TYPE_F32) {
+                        memcpy(raw.data, t->data, sizeof(float) * n);
+                    } else {
+                        for (size_t i = 0; i < n; ++i) {
+                            raw.data[i] = ggml_get_f32_1d(t, static_cast<int>(i));
+                        }
                     }
                 };
 
@@ -143,16 +191,22 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
             auto* llm = static_cast<LLMEmbedder*>(handle->llm_ctx);
             try {
                 struct ggml_init_params params;
-                params.mem_size = 1024 * 1024 * 1024;
+                params.mem_size = 128 * 1024 * 1024;
                 params.mem_buffer = nullptr;
                 params.no_alloc = false;
                 struct ggml_context* work_ctx = ggml_init(params);
+                if (!work_ctx) {
+                    releaseStrings();
+                    throwJavaException(env, "java/lang/RuntimeException", "Failed to initialize ggml_context");
+                    return nullptr;
+                }
 
                 ConditionerParams cparams;
                 cparams.text      = resolved.prompt.c_str();
                 cparams.clip_skip = clipSkip;
                 cparams.width     = width;
                 cparams.height    = height;
+                cparams.zero_out_masked = (jIsVideo == JNI_TRUE);
 
                 SDCondition sd_cond =
                         llm->get_learned_condition(work_ctx, sd_get_num_physical_cores_safe(), cparams);
@@ -173,7 +227,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                         raw.ndims = 0;
                         return;
                     }
-                    for (size_t i = 0; i < n; ++i) raw.data[i] = ggml_get_f32_1d(t, static_cast<int>(i));
+                    if (ggml_is_contiguous(t) && t->type == GGML_TYPE_F32) {
+                        memcpy(raw.data, t->data, sizeof(float) * n);
+                    } else {
+                        for (size_t i = 0; i < n; ++i) raw.data[i] = ggml_get_f32_1d(t, static_cast<int>(i));
+                    }
                 };
 
                 if (sd_cond.c_crossattn) tensor_to_raw_f32(sd_cond.c_crossattn, cond->c_crossattn);
@@ -266,6 +324,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
         jstring jPrompt, jstring jNegative,
         jint width, jint height,
         jint steps, jfloat cfg, jlong seed,
+        jboolean jVaeTiling,
         jobjectArray condArr, jobjectArray uncondArr,
         jboolean jEasyCacheEnabled, jfloat jEasyCacheReuseThreshold, jfloat jEasyCacheStartPercent, jfloat jEasyCacheEndPercent) {
     (void)thiz;
@@ -279,6 +338,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
         throwJavaException(env, "java/lang/IllegalStateException", "StableDiffusion context is null");
         return nullptr;
     }
+
+    handle->cancellationRequested.store(false);
+    SdProgressCallbackGuard callbackGuard(handle);
 
     const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
     const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
@@ -316,6 +378,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
     gen.batch_count = 1;
     gen.loras = resolved.loras.empty() ? nullptr : resolved.loras.data();
     gen.lora_count = static_cast<uint32_t>(resolved.loras.size());
+    gen.vae_tiling_params.enabled = jVaeTiling ? true : false;
     apply_easycache_compat(&gen.cache,
                            jEasyCacheEnabled == JNI_TRUE,
                            static_cast<float>(jEasyCacheReuseThreshold),
@@ -329,7 +392,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
         releaseStrings();
         sd_free_condition(cond);
         if (uncond) sd_free_condition(uncond);
-        throwJavaException(env, "java/lang/RuntimeException", e.what());
+        const char* clazz = handle->cancellationRequested.load()
+                ? "java/util/concurrent/CancellationException"
+                : "java/lang/RuntimeException";
+        throwJavaException(env, clazz, e.what());
         return nullptr;
     }
 
@@ -340,6 +406,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
     if (!out || !out[0].data) {
         ALOGE("generate_image failed");
         if (out) free(out);
+        handle->cancellationRequested.store(false);
         return nullptr;
     }
 
@@ -348,6 +415,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
     if (!jbytes) {
         free(out[0].data);
         free(out);
+        handle->cancellationRequested.store(false);
         return nullptr;
     }
     env->SetByteArrayRegion(jbytes, 0, static_cast<jsize>(byteCount), reinterpret_cast<jbyte*>(out[0].data));
@@ -355,6 +423,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
     free(out[0].data);
     free(out);
 
+    handle->cancellationRequested.store(false);
     return jbytes;
 }
 
@@ -460,9 +529,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2VidWithPrecom
     handle->stepsPerFrame = 0;
     handle->totalSteps = sample.sample_steps > 0 ? sample.sample_steps : 0;
 
-    if (!handle->progressCallbackGlobalRef) {
-        sd_set_progress_callback(sd_video_progress_wrapper, handle);
-    }
+    SdProgressCallbackGuard callbackGuard(handle);
 
     sd_image_t* frames = nullptr;
     int numFrames = 0;
@@ -490,16 +557,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2VidWithPrecom
     if (!frames || numFrames <= 0) {
         if (frames) free_sd_generated_frames(frames, numFrames);
         throwJavaException(env, "java/lang/IllegalStateException", "Video generation failed");
-        if (!handle->progressCallbackGlobalRef) {
-            sd_set_progress_callback(nullptr, nullptr);
-        }
         return nullptr;
     }
 
     jobjectArray result = convert_sd_frames_to_java(env, frames, numFrames);
-    if (!handle->progressCallbackGlobalRef) {
-        sd_set_progress_callback(nullptr, nullptr);
-    }
     handle->cancellationRequested.store(false);
     return result;
 }

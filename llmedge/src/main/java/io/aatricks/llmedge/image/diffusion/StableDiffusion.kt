@@ -143,6 +143,7 @@ class StableDiffusion internal constructor(
             steps: Int,
             cfg: Float,
             seed: Long,
+            vaeTiling: Boolean = true,
             cond: PrecomputedCondition?,
             uncond: PrecomputedCondition?,
             easyCacheEnabled: Boolean = false,
@@ -159,6 +160,7 @@ class StableDiffusion internal constructor(
                 steps,
                 cfg,
                 seed,
+                vaeTiling,
                 cond,
                 uncond,
                 easyCacheEnabled,
@@ -778,6 +780,7 @@ class StableDiffusion internal constructor(
             width: Int,
             height: Int,
             clipSkip: Int,
+            isVideo: Boolean,
     ): Array<Any?>?
 
     @JvmName("nativeTxt2VidWithPrecomputedCondition")
@@ -816,6 +819,7 @@ class StableDiffusion internal constructor(
             steps: Int,
             cfg: Float,
             seed: Long,
+            vaeTiling: Boolean,
             cond: Array<Any?>?,
             uncond: Array<Any?>?,
             easyCacheEnabled: Boolean = false,

@@ -83,7 +83,7 @@ internal object StableDiffusionExecutor {
     suspend fun txt2img(instance: StableDiffusion, params: GenerateParams): Bitmap =
         run {
             val dispatchQueuedAtNanos = System.nanoTime()
-            withContext(Dispatchers.IO) {
+            withContext(StableDiffusion.diffusionDispatcher) {
                 val dispatchDelayMs = ((System.nanoTime() - dispatchQueuedAtNanos) / 1_000_000L).coerceAtLeast(0L)
                 instance.traceImagePhase(
                     ImageGenerationPhase.EXECUTOR_ENTER,
@@ -97,6 +97,7 @@ internal object StableDiffusionExecutor {
                 val memoryBefore = instance.readNativeMemoryMbForExecution()
 
                 try {
+                    var argbSupported = true
                     val argbPixels =
                         try {
                             AndroidLogAdapter.i(
@@ -138,6 +139,7 @@ internal object StableDiffusionExecutor {
                                 )
                             }
                         } catch (_: UnsatisfiedLinkError) {
+                            argbSupported = false
                             AndroidLogAdapter.w(
                                 LOG_TAG,
                                 "txt2img ARGB JNI binding unavailable; falling back to RGB byte path",
@@ -181,6 +183,13 @@ internal object StableDiffusionExecutor {
                             "ARGB path completed totalMs=${((System.nanoTime() - startNanos) / 1_000_000L).coerceAtLeast(0L)}",
                         )
                         return@withContext bitmap
+                    }
+
+                    if (argbSupported) {
+                        throw InferenceFailedException(
+                            operation = "Stable Diffusion image generation (ARGB path)",
+                            detail = "The native runtime reported a generation failure.",
+                        )
                     }
 
                     AndroidLogAdapter.i(
@@ -329,14 +338,20 @@ internal object StableDiffusionExecutor {
         clipSkip: Int,
     ): PrecomputedCondition? =
         withContext(StableDiffusion.diffusionDispatcher) {
-            instance.bridge.precomputeCondition(
-                instance.state.handle,
-                prompt,
-                negative,
-                width,
-                height,
-                clipSkip,
-            )
+            instance.state.generationMutex.withLock {
+                if (instance.state.closed.get()) {
+                    throw IllegalStateException("StableDiffusion is closed")
+                }
+                instance.bridge.precomputeCondition(
+                    instance.state.handle,
+                    prompt,
+                    negative,
+                    width,
+                    height,
+                    clipSkip,
+                    instance.isVideoModel(),
+                )
+            }
         }
 
     suspend fun txt2VidWithPrecomputedCondition(
@@ -404,12 +419,14 @@ internal object StableDiffusionExecutor {
                 )
             instance.warnIfLowMemoryForExecution(estimatedBytes)
 
+            if (params.initImage != null) {
+                require(params.initImage.width == params.width && params.initImage.height == params.height) {
+                    "Init image dimensions (${params.initImage.width}x${params.initImage.height}) must equal the generation dimensions (${params.width}x${params.height})"
+                }
+            }
+
             val (initBytes, initWidth, initHeight) =
                 params.initImage?.let { instance.bitmapToRgbBytesForExecution(it) } ?: Triple(null, 0, 0)
-
-            if (onProgress != null) {
-                instance.bridge.setProgressCallback(instance.state.handle, onProgress)
-            }
 
             try {
                 val startNanos = System.nanoTime()
@@ -417,12 +434,24 @@ internal object StableDiffusionExecutor {
                 val frameBytes =
                     try {
                         instance.state.generationMutex.withLock {
-                            instance.state.cancellationRequested.set(false)
-                            generateFrames(initBytes, initWidth, initHeight)
-                                ?: throw InferenceFailedException(
-                                    operation = "Video generation",
-                                    detail = "",
-                                )
+                            if (instance.state.closed.get()) {
+                                throw IllegalStateException("StableDiffusion is closed")
+                            }
+                            if (onProgress != null) {
+                                instance.bridge.setProgressCallback(instance.state.handle, onProgress)
+                            }
+                            try {
+                                instance.state.cancellationRequested.set(false)
+                                generateFrames(initBytes, initWidth, initHeight)
+                                    ?: throw InferenceFailedException(
+                                        operation = "Video generation",
+                                        detail = "",
+                                    )
+                            } finally {
+                                if (onProgress != null) {
+                                    instance.bridge.setProgressCallback(instance.state.handle, null)
+                                }
+                            }
                         }
                     } catch (t: Throwable) {
                         if (instance.state.cancellationRequested.get()) {

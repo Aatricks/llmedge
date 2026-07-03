@@ -50,6 +50,13 @@ internal class DiffusionRequestExecutor(
             }
         }
 
+    fun invalidateRuntime(
+        spec: DiffusionRuntimeSpec,
+        options: DiffusionLoadOptions,
+    ) {
+        runtimePool.invalidate(spec, options)
+    }
+
     suspend fun <T> withActiveModel(
         model: StableDiffusion,
         execute: suspend (StableDiffusion) -> T,

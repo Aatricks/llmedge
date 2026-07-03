@@ -86,16 +86,28 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
         false,
         0,
         is_umt5);
-    t5->alloc_params_buffer();
+    if (!t5->alloc_params_buffer()) {
+        ALOGE("Failed to allocate params buffer for T5 context");
+        delete t5;
+        ggml_backend_free(backend);
+        return nullptr;
+    }
 
     std::map<std::string, struct ggml_tensor*> tensors;
     t5->get_param_tensors(tensors);
     std::set<std::string> ignore_tensors;
-    model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe());
+    if (!model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe())) {
+        ALOGE("Failed to load tensors for T5 context");
+        t5->free_params_buffer();
+        delete t5;
+        ggml_backend_free(backend);
+        return nullptr;
+    }
 
     auto* handle = new SdHandle();
     handle->ctx = nullptr;
     handle->t5_ctx = t5;
+    handle->backend = backend;
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
@@ -140,16 +152,28 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
         offloadToCpu,
         model_loader.get_tensor_storage_map(),
         VERSION_FLUX2_KLEIN);
-    llm->alloc_params_buffer();
+    if (!llm->alloc_params_buffer()) {
+        ALOGE("Failed to allocate params buffer for LLM context");
+        delete llm;
+        ggml_backend_free(backend);
+        return nullptr;
+    }
 
     std::map<std::string, struct ggml_tensor*> tensors;
     llm->get_param_tensors(tensors);
     std::set<std::string> ignore_tensors;
-    model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe());
+    if (!model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe())) {
+        ALOGE("Failed to load tensors for LLM context");
+        llm->free_params_buffer();
+        delete llm;
+        ggml_backend_free(backend);
+        return nullptr;
+    }
 
     auto* handle    = new SdHandle();
     handle->ctx     = nullptr;
     handle->llm_ctx = llm;
+    handle->backend = backend;
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
@@ -396,8 +420,16 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.vae_decode_only = jvaeDecodeOnly;
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
 
+    bool isLlmOnly = !llmPathValue.empty() && diffusionModelPathValue.empty() && (!modelPath || modelPath[0] == '\0');
+    bool isT5OnlyRequest = modelPath && modelPath[0] != '\0' &&
+                           !vaePath && !t5xxlPath && !taesdPath &&
+                           diffusionModelPathValue.empty() && llmPathValue.empty() &&
+                           (std::string(modelPath).find("t5") != std::string::npos ||
+                            std::string(modelPath).find("encoder") != std::string::npos ||
+                            std::string(modelPath).find("clip") != std::string::npos);
+
     sd_ctx_t* ctx = nullptr;
-    {
+    if (!isLlmOnly) {
         // Shared with the whisper loader: env mutation must be process-globally
         // serialized (concurrent setenv/getenv across threads is UB).
         std::lock_guard<std::mutex> lock(llmedge_process_env_mutex());
@@ -408,9 +440,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     }
 
     if (!ctx) {
-        // Encoder-only (Qwen3) handle for FLUX.2 sequential mode: only an llm_path was provided
-        // (no diffusion/model), so new_sd_ctx can't build. Load just the encoder.
-        if (!llmPathValue.empty() && diffusionModelPathValue.empty() && (!modelPath || modelPath[0] == '\0')) {
+        if (isLlmOnly) {
             SdHandle* llmOnlyHandle = try_create_llm_only_handle(env, llmPathValue.c_str(), offloadToCpu == JNI_TRUE);
             if (llmOnlyHandle) {
                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
@@ -421,7 +451,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
                 return reinterpret_cast<jlong>(llmOnlyHandle);
             }
         }
-        if (modelPath && !vaePath && !t5xxlPath) {
+        if (isT5OnlyRequest) {
             SdHandle* t5OnlyHandle = try_create_t5_only_handle(env, modelPath, offloadToCpu == JNI_TRUE);
             if (t5OnlyHandle) {
                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
@@ -482,6 +512,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
         llm->free_params_buffer();
         delete llm;
         handle->llm_ctx = nullptr;
+    }
+    if (handle->backend) {
+        ggml_backend_free(static_cast<ggml_backend_t>(handle->backend));
+        handle->backend = nullptr;
     }
     delete handle;
 }

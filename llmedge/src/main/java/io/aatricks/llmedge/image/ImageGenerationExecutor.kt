@@ -51,6 +51,15 @@ internal class ImageGenerationExecutor(
                     model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
                 }
 
+            // Free the encoder before the DiT loads: cache eviction only runs inside put()
+            // AFTER the phase-2 load completes (and closes asynchronously), so without this
+            // the peak is encoder+DiT — the sum the sequential mode exists to avoid.
+            requestExecutor.invalidateRuntime(
+                plan.conditioningRequest.spec,
+                plan.conditioningRequest.options,
+            )
+            AndroidLogAdapter.i(logTag, "FLUX.2 sequential: encoder runtime invalidated before diffusion phase")
+
             requestExecutor.withRuntimeModel(
                 spec = plan.diffusionRequest.spec,
                 options = plan.diffusionRequest.options,
