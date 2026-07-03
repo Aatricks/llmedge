@@ -1206,6 +1206,12 @@ class TextClientTest {
             )
 
             advanceUntilIdle()
+            // Evicted models close on real Dispatchers.IO, which advanceUntilIdle does not
+            // drain — await instead of asserting a race (observed flaky on CI runners).
+            val evictionDeadline = System.currentTimeMillis() + 5_000
+            while (closeCalls < 1 && System.currentTimeMillis() < evictionDeadline) {
+                Thread.sleep(10)
+            }
             assertEquals(1, closeCalls)
 
             client.close()
