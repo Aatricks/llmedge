@@ -232,6 +232,10 @@ class TextClient internal constructor(
         }
     }
 
+    internal fun invalidate(model: ModelSpec, options: TextModelOptions) {
+        requestExecutor.invalidate(model, options)
+    }
+
     internal suspend fun loadDetached(model: ModelSpec, options: TextModelOptions): ManagedTextModel =
         requestExecutor.loadDetached(model, options)
 

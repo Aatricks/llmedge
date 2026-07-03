@@ -131,6 +131,9 @@ class DeviceToolFactory(private val context: Context) {
                 data = jsonObject("url" to url),
             )
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) {
+                throw e
+            }
             ToolResult.error(
                 text = "Error: Could not open URL - ${e.message}",
                 data =

@@ -233,7 +233,11 @@ class ModelCache<T : AutoCloseable>(
         }
     }
 
-    /** Clear all cached models */
+    /**
+     * Clear all cached models. Closes synchronously — deferring the closes to a
+     * scope would let a shutdown cancel them and leak native runtimes — and close()
+     * waits for in-flight generations, so call this off the main thread.
+     */
     fun clear() {
         val toClose: List<T>
         lock.write {
@@ -254,18 +258,22 @@ class ModelCache<T : AutoCloseable>(
         }
     }
 
-    /** Remove specific entry from cache */
+    /**
+     * Remove specific entry from cache. Closes synchronously so callers (e.g. the
+     * FLUX.2 sequential invalidate) can rely on the runtime being freed on return;
+     * close() waits for in-flight generations, so call off the main thread.
+     */
     fun remove(key: String): Boolean {
         val entry: CacheEntry<T>?
         lock.write {
             entry = cache.remove(key)
             if (entry != null) {
-                totalCachedBytes -= entry!!.sizeBytes
+                totalCachedBytes -= entry.sizeBytes
             }
         }
         if (entry != null) {
             try {
-                entry!!.model.close()
+                entry.model.close()
                 AndroidLogAdapter.i(TAG, "Removed '$key' from cache")
                 return true
             } catch (e: Exception) {

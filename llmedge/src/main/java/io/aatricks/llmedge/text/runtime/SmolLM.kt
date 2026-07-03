@@ -508,12 +508,12 @@ class SmolLM internal constructor(
     override fun close() {
         // Serialize with native calls (see nativeCallLock) so close() cannot free the
         // handle while a completion step is inside the native layer, and zero the
-        // handle before freeing so a second close() is a no-op instead of a double free.
+        // handle after successful close to prevent double frees.
         synchronized(nativeCallLock) {
             val nativePtr = runtimeState.nativePtr
-            runtimeState.nativePtr = 0L
             if (nativePtr != 0L) {
                 bridge.close(this, nativePtr)
+                runtimeState.nativePtr = 0L
             }
             runtimeState.reset(SmolLMRuntimeDefaults.DEFAULT_REASONING_BUDGET)
         }

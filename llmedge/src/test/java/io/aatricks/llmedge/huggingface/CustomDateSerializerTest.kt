@@ -55,4 +55,26 @@ class CustomDateSerializerTest {
         val deserialized = json.decodeFromString(CustomDateSerializer(), jsonString)
         assertEquals(expected, deserialized)
     }
+
+    @Test
+    fun `deserialize ISO offset date time and fractional digit variants`() {
+        val strings = listOf(
+            "\"2023-12-25T15:30:45Z\"",
+            "\"2023-12-25T15:30:45.1Z\"",
+            "\"2023-12-25T15:30:45.123456Z\"",
+            "\"2023-12-25T15:30:45+00:00\""
+        )
+        for (str in strings) {
+            val deserialized = json.decodeFromString(CustomDateSerializer(), str)
+            org.junit.Assert.assertNotNull(deserialized)
+        }
+    }
+
+    @Test
+    fun `deserialize invalid format falls back to epoch`() {
+        val invalidJson = "\"invalid-date-string\""
+        val expected = LocalDateTime.ofEpochSecond(0L, 0, ZoneOffset.UTC)
+        val deserialized = json.decodeFromString(CustomDateSerializer(), invalidJson)
+        assertEquals(expected, deserialized)
+    }
 }

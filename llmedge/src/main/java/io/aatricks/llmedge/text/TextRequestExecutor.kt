@@ -4,6 +4,7 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
 import io.aatricks.llmedge.core.InferenceFailedException
 import io.aatricks.llmedge.core.runtime.BackendFailureClassifier
+import io.aatricks.llmedge.core.runtime.RuntimeClosedException
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.model.ModelSpec
 import kotlinx.coroutines.flow.Flow
@@ -30,11 +31,10 @@ internal class TextRequestExecutor(
             generateWithRuntimeRetry(request)
         } catch (error: InferenceFailedException) {
             retryGenerateIfNeeded(request, error)
-        } catch (raced: IllegalStateException) {
+        } catch (raced: RuntimeClosedException) {
             // A cached runtime can be evicted and closed between acquire() and the
             // mutex-guarded execution. Nothing ran yet in that case, so re-acquire once
             // (the pool will load a fresh runtime) instead of surfacing a raw internal error.
-            if (!isClosedRuntimeError(raced)) throw raced
             AndroidLogAdapter.w(
                 logTag,
                 "Text runtime was evicted before use; re-acquiring once for '${request.model.cacheKey}'",
@@ -52,10 +52,10 @@ internal class TextRequestExecutor(
             try {
                 try {
                     streamInto(runtime, request, response)
-                } catch (raced: IllegalStateException) {
+                } catch (raced: RuntimeClosedException) {
                     // Eviction race: the runtime was closed between acquire() and use.
                     // Nothing has been emitted from the model yet, so retry once.
-                    if (!isClosedRuntimeError(raced) || response.isNotEmpty()) throw raced
+                    if (response.isNotEmpty()) throw raced
                     AndroidLogAdapter.w(
                         logTag,
                         "Text runtime was evicted before use; re-acquiring once for '${request.model.cacheKey}'",
@@ -87,9 +87,6 @@ internal class TextRequestExecutor(
                 emit(TextStreamEvent.Chunk(chunk))
             }
     }
-
-    private fun isClosedRuntimeError(error: IllegalStateException): Boolean =
-        error.message?.endsWith("has been closed") == true
 
     suspend fun acquire(
         model: ModelSpec,

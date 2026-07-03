@@ -51,4 +51,26 @@ class ToolCallParserTest {
 
         assertEquals(ParsedModelTurn.FinalText("Just answer normally."), turn)
     }
+
+    @Test
+    fun `classify handles brace-leading invalid JSON as invalid tool invocation`() {
+        val turn = ToolCallParser.classify("""{"tool": "weather", "arguments": { invalid }""")
+        assertTrue(turn is ParsedModelTurn.InvalidToolInvocation)
+    }
+
+    @Test
+    fun `classify detects single embedded balanced top level JSON object`() {
+        val text = """
+            Here is the tool you should call:
+            {
+              "tool": "get_time",
+              "arguments": {}
+            }
+            Let me know if you need anything else.
+        """.trimIndent()
+        val turn = ToolCallParser.classify(text)
+        assertTrue(turn is ParsedModelTurn.ToolInvocation)
+        val call = (turn as ParsedModelTurn.ToolInvocation).call
+        assertEquals("get_time", call.tool)
+    }
 }

@@ -17,6 +17,9 @@ internal inline fun <T> runBackendAttempts(
         } catch (bindingError: NativeBindingException) {
             throw bindingError
         } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) {
+                throw error
+            }
             lastError = error
             onFailure(backend, error)
         }

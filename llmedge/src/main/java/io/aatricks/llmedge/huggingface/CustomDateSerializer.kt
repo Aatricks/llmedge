@@ -44,6 +44,26 @@ class CustomDateSerializer : KSerializer<LocalDateTime> {
 
     override fun deserialize(decoder: Decoder): LocalDateTime {
         val stringRepr = decoder.decodeString()
-        return LocalDateTime.parse(stringRepr, utcFormatter)
+        return try {
+            try {
+                val temporalAccessor = DateTimeFormatter.ISO_INSTANT.parse(stringRepr)
+                val instant = java.time.Instant.from(temporalAccessor)
+                LocalDateTime.ofInstant(instant, ZoneOffset.UTC)
+            } catch (_: Throwable) {
+                try {
+                    val temporalAccessor = DateTimeFormatter.ISO_OFFSET_DATE_TIME.parse(stringRepr)
+                    val instant = java.time.Instant.from(temporalAccessor)
+                    LocalDateTime.ofInstant(instant, ZoneOffset.UTC)
+                } catch (_: Throwable) {
+                    try {
+                        LocalDateTime.parse(stringRepr)
+                    } catch (_: Throwable) {
+                        LocalDateTime.parse(stringRepr, utcFormatter)
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            LocalDateTime.ofEpochSecond(0L, 0, ZoneOffset.UTC)
+        }
     }
 }

@@ -28,8 +28,10 @@ internal object GgufModelMetadataSupport {
             }
         }
         val metadata = loadMetadata(file)
-        synchronized(lock) {
-            metadataCache[file.absolutePath] = metadata
+        if (metadata != null) {
+            synchronized(lock) {
+                metadataCache[file.absolutePath] = metadata
+            }
         }
         return metadata
     }

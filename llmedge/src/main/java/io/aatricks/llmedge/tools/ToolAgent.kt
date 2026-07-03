@@ -142,5 +142,6 @@ class ToolAgent internal constructor(
             commitTurn = ::commitTurn,
             produceResponse = produceResponse,
             handleToolInvocation = ::handleToolInvocation,
+            conversationWindow = memory,
         )
 }

@@ -1215,4 +1215,123 @@ class TextClientTest {
             edgeScope.close()
         }
     }
+
+    @Test
+    fun `generate retries when RuntimeClosedException is thrown during execution`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile = createTempGgufFile(context.cacheDir)
+        val modelSpec = ModelSpec.localFile(modelFile)
+        val resolver =
+            object : ModelRepository {
+                override suspend fun resolve(
+                    context: Context,
+                    spec: ModelSpec,
+                    onProgress: ((io.aatricks.llmedge.core.ProgressEvent.Downloading) -> Unit)?,
+                ): File = modelFile
+            }
+
+        var loadCalls = 0
+        var generateCalls = 0
+
+        SmolLM.overrideNativeBridgeForTests {
+            object : SmolLM.NativeBridge {
+                private var queue = ArrayDeque<String>()
+
+                private fun nextPiece(): String = queue.removeFirst()
+
+                override fun loadModel(
+                    instance: SmolLM,
+                    modelPath: String,
+                    minP: Float,
+                    temperature: Float,
+                    storeChats: Boolean,
+                    contextSize: Long,
+                    chatTemplate: String,
+                    nThreads: Int,
+                    useMmap: Boolean,
+                    useMlock: Boolean,
+                    useVulkan: Boolean,
+                    useFlashAttn: Boolean,
+                    kvCacheTypeK: Int,
+                    kvCacheTypeV: Int,
+                    nGpuLayers: Int,
+                ): Long {
+                    loadCalls++
+                    return 2L
+                }
+
+                override fun setReasoningOptions(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    disableThinking: Boolean,
+                    reasoningBudget: Int,
+                ) = Unit
+
+                override fun addChatMessage(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    message: String,
+                    role: String,
+                ) = Unit
+
+                override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = 1f
+                override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = 1L
+                override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = 1L
+                override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 1
+                override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0L
+
+                override fun nativeDecodePreparedEmbeddings(
+                    instance: SmolLM,
+                    modelPtr: Long,
+                    embdPath: String,
+                    metaPath: String,
+                    nBatch: Int,
+                ): Boolean = true
+
+                override fun close(instance: SmolLM, modelPtr: Long) {}
+
+                override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {
+                    generateCalls++
+                    if (generateCalls == 1) {
+                        // Simulates the eviction race: the runtime reports closed
+                        // before anything ran. Note a real blocking invalidate()
+                        // cannot be issued from inside the generation — close waits
+                        // on the runtime mutex the generation holds.
+                        throw io.aatricks.llmedge.core.runtime.RuntimeClosedException("Evicted")
+                    }
+                    queue = ArrayDeque(listOf("retry-success", "[EOG]"))
+                }
+
+                override fun completionLoop(instance: SmolLM, modelPtr: Long): String = nextPiece()
+                override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String =
+                    completionLoop(instance, modelPtr)
+                override fun stopCompletion(instance: SmolLM, modelPtr: Long) = Unit
+                override fun clearKvCache(instance: SmolLM, modelPtr: Long) = Unit
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            TextClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                modelResolver = resolver,
+            )
+
+        try {
+            val response = client.generate(
+                prompt = "test-prompt",
+                model = modelSpec,
+            )
+            assertEquals("retry-success", response)
+            // The retry re-acquires from the cache (the runtime was not actually
+            // evicted here), so no second load happens.
+            assertEquals(1, loadCalls)
+            assertEquals(2, generateCalls)
+        } finally {
+            client.close()
+            edgeScope.close()
+        }
+    }
 }

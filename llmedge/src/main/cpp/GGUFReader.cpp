@@ -43,6 +43,13 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_getGGUFContextNativeHandle(JNIEnv* env, jobject thiz, jstring modelPath) {
     jboolean         isCopy        = true;
     const char*      modelPathCStr = env->GetStringUTFChars(modelPath, &isCopy);
+    if (modelPathCStr == nullptr) {
+        jclass exClass = env->FindClass("java/lang/RuntimeException");
+        if (exClass != nullptr) {
+            env->ThrowNew(exClass, "Failed to get model path characters");
+        }
+        return 0;
+    }
     gguf_context*    ggufContext   = llmedge_gguf_open_file(modelPathCStr);
     env->ReleaseStringUTFChars(modelPath, modelPathCStr);
     return reinterpret_cast<jlong>(ggufContext);

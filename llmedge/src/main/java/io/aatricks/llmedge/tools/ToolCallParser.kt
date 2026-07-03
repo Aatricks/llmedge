@@ -35,7 +35,15 @@ internal object ToolCallParser {
         }
 
         extractToolEnvelope(normalized)?.let { candidate ->
-            return parseCandidate(candidate)
+            val parsed = parseCandidate(candidate)
+            if (parsed is ParsedModelTurn.FinalText && candidate.startsWith("{")) {
+                return ParsedModelTurn.InvalidToolInvocation("Failed to parse tool call JSON.")
+            }
+            return parsed
+        }
+
+        if (normalized.startsWith("{")) {
+            return ParsedModelTurn.InvalidToolInvocation("Failed to parse tool call JSON.")
         }
 
         return ParsedModelTurn.FinalText(normalized)
@@ -77,6 +85,38 @@ internal object ToolCallParser {
                 .toRegex(setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
                 .matchEntire(text)
 
-        return fencedMatch?.groupValues?.get(1)
+        fencedMatch?.groupValues?.get(1)?.let { return it }
+
+        findEmbeddedJson(text)?.let { return it }
+
+        return null
+    }
+
+    private fun findEmbeddedJson(text: String): String? {
+        var depth = 0
+        var startIndex = -1
+        val candidates = mutableListOf<String>()
+
+        for (i in text.indices) {
+            val char = text[i]
+            if (char == '{') {
+                if (depth == 0) {
+                    startIndex = i
+                }
+                depth++
+            } else if (char == '}') {
+                if (depth > 0) {
+                    depth--
+                    if (depth == 0 && startIndex != -1) {
+                        val candidate = text.substring(startIndex, i + 1)
+                        if (candidate.contains("\"tool\"") || candidate.contains("\"tool_name\"")) {
+                            candidates.add(candidate)
+                        }
+                    }
+                }
+            }
+        }
+
+        return if (candidates.size == 1) candidates[0] else null
     }
 }

@@ -5,20 +5,23 @@ internal class SessionTranscript(
 ) {
     private val history = mutableListOf<ConversationMessage>()
 
-    fun previewWithUser(message: String): List<ConversationMessage> =
+    fun previewWithUser(message: String): List<ConversationMessage> = synchronized(this) {
         memory.trim(history + ConversationMessage(ConversationRole.USER, message))
+    }
 
     fun commitTurn(
         message: String,
         response: String?,
-    ) {
+    ) = synchronized(this) {
         history += ConversationMessage(ConversationRole.USER, message)
         response?.let { history += ConversationMessage(ConversationRole.ASSISTANT, it) }
     }
 
-    fun clear() {
+    fun clear() = synchronized(this) {
         history.clear()
     }
 
-    fun snapshot(): List<ConversationMessage> = history.toList()
+    fun snapshot(): List<ConversationMessage> = synchronized(this) {
+        history.toList()
+    }
 }

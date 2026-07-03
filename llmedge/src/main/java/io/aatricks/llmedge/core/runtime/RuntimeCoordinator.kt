@@ -152,6 +152,9 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
                     modelLoadTimeMs = elapsedMillis(loadStartNanos),
                 )
             } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) {
+                    throw error
+                }
                 lastError = error
                 if (backendCandidate == ComputeBackend.CPU) {
                     throw error

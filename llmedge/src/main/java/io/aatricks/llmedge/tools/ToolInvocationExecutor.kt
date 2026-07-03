@@ -2,13 +2,23 @@ package io.aatricks.llmedge.tools
 
 import io.aatricks.llmedge.text.ConversationMessage
 import io.aatricks.llmedge.text.ConversationRole
+import kotlinx.coroutines.CancellationException
 
 internal class ToolInvocationExecutor(
     tools: List<Tool>,
     private val policy: ToolPolicy,
     private val conversationPreview: (String) -> List<ConversationMessage>,
 ) {
-    private val toolsByName = tools.associateBy(Tool::name)
+    private val toolsByName: Map<String, Tool>
+
+    init {
+        val names = tools.map { it.name }
+        if (names.size != names.distinct().size) {
+            val duplicates = names.groupBy { it }.filter { it.value.size > 1 }.keys
+            throw IllegalArgumentException("Duplicate tool names registered: $duplicates")
+        }
+        toolsByName = tools.associateBy(Tool::name)
+    }
 
     suspend fun handle(
         message: String,
@@ -94,14 +104,16 @@ internal class ToolInvocationExecutor(
         }
 
         callbacks.onToolExecuting(call)
-        val result =
-            runCatching { tool.handler(call.arguments) }
-                .getOrElse { error ->
-                    ToolResult.error(
-                        "Error executing tool '${tool.name}': ${error.message ?: "Unknown error."}",
-                        toolErrorData("execution_failed", error.message ?: "Unknown error."),
-                    )
-                }
+        val result = try {
+            tool.handler(call.arguments)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (error: Throwable) {
+            ToolResult.error(
+                "Error executing tool '${tool.name}': ${error.message ?: "Unknown error."}",
+                toolErrorData("execution_failed", error.message ?: "Unknown error."),
+            )
+        }
 
         working += ConversationMessage(ConversationRole.TOOL, formatToolResultMessage(call.tool, result))
         callbacks.onToolResultReceived(call, result)
