@@ -74,7 +74,14 @@ object ImageUtils {
     fun applyExifOrientation(bitmap: Bitmap, imagePath: String): Bitmap =
         ImageBitmapSupport.applyExifOrientation(bitmap, imagePath)
 
-    fun fileToBitmap(file: File): Bitmap = ImageBitmapSupport.fileToBitmap(file)
+    /**
+     * Decode an image file, applying EXIF orientation. Pass [maxDimension] > 0 to subsample
+     * large camera captures at decode time (a 50 MP JPEG otherwise decodes to ~200 MB of
+     * pixels — over Android's canvas draw limit). 0 keeps the full resolution.
+     */
+    @JvmOverloads
+    fun fileToBitmap(file: File, maxDimension: Int = 0): Bitmap =
+        ImageBitmapSupport.fileToBitmap(file, maxDimension)
 
     suspend fun imageToByteArray(
         context: Context,

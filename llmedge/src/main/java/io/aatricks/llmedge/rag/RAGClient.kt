@@ -87,7 +87,9 @@ class RAGClient internal constructor(
         model: ModelSpec = config.models.text,
         embeddingConfig: EmbeddingConfig = EmbeddingConfig(),
         splitter: TextSplitter = TextSplitter(),
-        options: TextModelOptions = TextModelOptions(),
+        // Thinking off by default: reasoning models (the Qwen3 default) would otherwise spend
+        // the whole 256-token answer budget inside a <think> block.
+        options: TextModelOptions = TextModelOptions(thinkingMode = SmolLM.ThinkingMode.DISABLED),
     ): RAGSession {
         val runtime = runtimePool.loadDetached(model, options)
         val session =

@@ -5,11 +5,12 @@ import io.aatricks.llmedge.huggingface.HuggingFaceHub
 internal object DefaultModelCatalog {
     val text: ModelSpec =
         huggingFaceSpec(
-            // HuggingFaceTB/SmolLM-135M-Instruct-GGUF is unavailable to anonymous clients (HTTP 401),
-            // which made every default-text consumer (e.g. the RAG session) fail to build. Use the
-            // public MaziyarPanahi mirror, which serves the same model.
-            repoId = "MaziyarPanahi/SmolLM-135M-Instruct-GGUF",
-            filename = "SmolLM-135M-Instruct.Q4_K_M.gguf",
+            // Qwen3-0.6B: smallest default that can actually follow instructions — the prior
+            // SmolLM-135M default answered RAG questions with degenerate repetition even when
+            // retrieval handed it the exact answer (S22, 2026-07-03). 22.6 tok/s CPU decode on
+            // S22, ~400 MB download. (Avoid HuggingFaceTB repos: 401 for anonymous clients.)
+            repoId = "unsloth/Qwen3-0.6B-GGUF",
+            filename = "Qwen3-0.6B-Q4_K_M.gguf",
             artifactKind = ModelArtifactKind.GGUF_MODEL,
             capabilities = setOf(ModelCapability.TEXT),
         )
