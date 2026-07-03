@@ -355,7 +355,13 @@ LLMInference::startCompletion(const char *query) {
         finalQuery.find("<|user|>") != std::string::npos ||
         finalQuery.find("<|assistant|>") != std::string::npos ||
         finalQuery.find("<|im_start|>") != std::string::npos;
-    if (suppressThinking && !looksStructuredPrompt && finalQuery.find("/no_think") == std::string::npos) {
+    // The "/no_think" soft switch is a Qwen convention; templates without it treat
+    // the literal as user text, so only inject when the template understands it.
+    const bool templateSupportsNoThink =
+        _chatTemplateSrc.find("enable_thinking") != std::string::npos ||
+        _chatTemplateSrc.find("no_think") != std::string::npos;
+    if (suppressThinking && templateSupportsNoThink && !looksStructuredPrompt &&
+        finalQuery.find("/no_think") == std::string::npos) {
         if (!finalQuery.empty()) {
             finalQuery.insert(0, "/no_think\n");
         } else {
@@ -368,6 +374,13 @@ LLMInference::startCompletion(const char *query) {
     _formattedMessages.assign(renderedPrompt.prompt.begin(), renderedPrompt.prompt.end());
     if (_prevLen > 0 && renderedPrompt.modeUsed != _prevFormatterMode) {
         LOGi("Chat formatter changed between turns; resetting cached prompt prefix");
+        _prevLen = 0;
+    }
+    if (_prevLen > newLen) {
+        // Templates that re-render prior turns shorter (e.g. stripping <think>
+        // content from stored assistant replies) would make the incremental slice
+        // below start past its end — replay the whole prompt instead.
+        LOGi("Rendered prompt shrank below cached prefix (%d < %d); resetting prefix", newLen, _prevLen);
         _prevLen = 0;
     }
 
@@ -464,6 +477,13 @@ LLMInference::startCompletion(const char *query) {
 
                     if (llama_decode(_ctx, sysBatch) < 0) {
                         LOGe("Failed to decode system prompt for snapshot");
+                        // The failed decode may have left partial tokens resident; a
+                        // later hash match on the OLD snapshot fields would then trim
+                        // back to a foreign prefix. Drop both cache and snapshot.
+                        llmedge_kv_cache_seq_rm(_ctx, -1, -1, -1);
+                        _systemPromptKVSnapshot.clear();
+                        _cachedSystemPromptHash = 0;
+                        _systemPromptTokenCount = 0;
                     } else {
                         size_t stateSize = llmedge_state_seq_get_size(_ctx, 0);
                         _systemPromptKVSnapshot.resize(stateSize);
@@ -681,6 +701,12 @@ LLMInference::completionLoopBatch(int maxTokens) {
 void
 LLMInference::stopCompletion() {
     if (_storeChats) {
+        if (!_eogReached && !_response.empty()) {
+            // Cancelled mid-generation: the partial reply's tokens are already in
+            // the KV cache, so commit it as the assistant turn — otherwise the
+            // rendered prefix and the cache contents diverge on the next turn.
+            addChatMessage(_response.c_str(), "assistant");
+        }
         const auto renderedPrompt = formatChatMessages(_messages.size(), false);
         _prevLen = renderedPrompt.renderedLength;
         _prevFormatterMode = renderedPrompt.modeUsed;
