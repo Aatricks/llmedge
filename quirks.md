@@ -22,8 +22,8 @@ This section documents known quirks, limitations, and troubleshooting steps for 
 
 **Library selection:**
 
-- The library automatically selects the best native `.so` based on CPU features (FP16, dotprod, SVE, i8mm)
-- Logs show which library was loaded (e.g., `libsmollm_v8_4_fp16_dotprod.so`)
+- The library automatically selects the best native `.so` based on CPU features (FP16, dotprod, i8mm)
+- Logs show which library was loaded (e.g., `libsmollm_v8_4_fp16_dotprod_i8mm.so`)
 - Platform ABI mismatches can cause `UnsatisfiedLinkError`
 
 **Common errors:**

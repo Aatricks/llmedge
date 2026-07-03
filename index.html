@@ -561,7 +561,7 @@
 <li>Native C++ inference via <a href="https://github.com/ggerganov/llama.cpp">llama.cpp</a> (GGUF model support)</li>
 <li>On-device safetensors → GGUF conversion (Llama arch + GPT2-BPE) with optional quantization, plus low-end <code>ModelPresets</code> (BitNet b1.58 2B4T, SmolVLM2-256M)</li>
 <li>Kotlin API for Android with coroutines and Flow support</li>
-<li>Automatic CPU feature detection (FP16, dotprod, SVE, i8mm)</li>
+<li>Automatic CPU feature detection (FP16, dotprod, i8mm)</li>
 <li>Optional Android GPU acceleration with experimental OpenCL preferred first, Vulkan fallback second, and CPU fallback last</li>
 <li>Memory-aware context size capping</li>
 <li><strong>Optimized Inference</strong>: KV cache reuse for compact multi-turn chats, plus <code>ChatSession</code> for bounded Kotlin-managed replay when reasoning traces would otherwise exhaust context.</li>
