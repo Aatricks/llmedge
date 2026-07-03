@@ -25,7 +25,12 @@ data class ExecutionConfig(
 
 data class TextRuntimeConfig(
     val cache: RuntimeCacheConfig = RuntimeCacheConfig(maxEntries = 2, maxMemoryMb = 2048),
-    val useVulkan: Boolean = true,
+    /**
+     * CPU by default: the vendored ik_llama.cpp fork's strength is its CPU (IQK) kernels, and
+     * its Vulkan path measured far slower on-device (S22 Xclipse 920: smollm-135M 4.4 vs 78
+     * tok/s, Qwen3-0.6B 3.4 vs 22.6 tok/s). Opt in per-host on hardware where Vulkan wins.
+     */
+    val useVulkan: Boolean = false,
     val promptThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
     val generationThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.TOKEN_GENERATION),
     val batchSize: Int = SmolLM.DEFAULT_BLOCKING_BATCH_SIZE,
@@ -71,7 +76,8 @@ data class ImageRuntimeConfig(
 
 data class VisionRuntimeConfig(
     val cache: RuntimeCacheConfig = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 2048),
-    val useVulkan: Boolean = true,
+    /** CPU by default for the same reason as [TextRuntimeConfig.useVulkan] (same engine). */
+    val useVulkan: Boolean = false,
     val promptThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
     val generationThreads: Int = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.TOKEN_GENERATION),
     val useFlashAttention: Boolean = true,
