@@ -13,8 +13,6 @@ class ChatSession internal constructor(
     private val options: TextModelOptions,
 ) {
     private val support = ConversationSessionSupport(client, model, options, memory)
-    private var lastStateSnapshot: ByteArray? = null
-    private var snapshotWindowSize: Int = 0
 
     suspend fun prepare() {
         support.prepare()
@@ -26,36 +24,12 @@ class ChatSession internal constructor(
         batchSize: Int = 0,
     ): String =
         support.withRuntime {
+            // Every turn renders the full window: the pooled runtime runs with
+            // storeChats=false, so no native chat state survives between turns.
             val window = previewWithUser(message)
-
-            // Incremental path: restore from snapshot when the window grew by exactly
-            // one message (the new user message) and no old messages were trimmed.
-            val canRestore = lastStateSnapshot != null && window.size == snapshotWindowSize + 1
-
-            val (reply, newState) = if (canRestore) {
-                chatTurn(
-                    prompt = message,
-                    systemPrompt = null,
-                    maxTokens = maxTokens,
-                    batchSize = batchSize,
-                    restoreState = lastStateSnapshot,
-                    maxStateBytes = 64L * 1024L * 1024L,
-                )
-            } else {
-                val prompt = PromptRenderer.render(window)
-                chatTurn(
-                    prompt = prompt,
-                    systemPrompt = systemPrompt,
-                    maxTokens = maxTokens,
-                    batchSize = batchSize,
-                    restoreState = null,
-                    maxStateBytes = 64L * 1024L * 1024L,
-                )
-            }
-
+            val prompt = PromptRenderer.render(window)
+            val reply = complete(prompt, systemPrompt, maxTokens, batchSize)
             commitTurn(message, reply)
-            lastStateSnapshot = newState
-            snapshotWindowSize = window.size + 1
             reply
         }
 
@@ -65,16 +39,12 @@ class ChatSession internal constructor(
             val prompt = PromptRenderer.render(window)
             val fullText = StringBuilder()
             emit(TextStreamEvent.Started(prompt))
-            // Streaming path: always does full replay (state snapshot not feasible mid-stream)
             streamCompletion(prompt, systemPrompt, batchSize).collect { chunk ->
                 fullText.append(chunk)
                 emit(TextStreamEvent.Chunk(chunk))
             }
             val response = fullText.toString()
             commitTurn(message, response)
-            // Invalidate snapshot after streaming since we can't capture state mid-stream
-            lastStateSnapshot = null
-            snapshotWindowSize = 0
             emit(TextStreamEvent.Completed(response))
         }
     }

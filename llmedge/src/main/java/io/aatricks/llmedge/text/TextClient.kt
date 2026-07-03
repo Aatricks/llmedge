@@ -68,8 +68,6 @@ class TextClient internal constructor(
 ) : OwnedFeatureClient(featureContext, ownedBootstrap) {
     companion object {
         private const val LOG_TAG = "TextClient"
-        /** Cap for chat state snapshots — skip snapshotting if state exceeds 64 MB. */
-        private const val MAX_CHAT_STATE_BYTES = 64L * 1024L * 1024L
         private val FACTORY = featureClientFactory(::TextClient)
 
         @Deprecated(
@@ -218,37 +216,6 @@ class TextClient internal constructor(
         batchSize: Int,
     ): String =
         runtimeSession.complete(runtime, prompt, systemPrompt, options, maxTokens, batchSize)
-
-    /**
-     * Chat-oriented completion that captures the KV-cache state after generation
-     * so callers can restore it on the next turn, avoiding full re-tokenization.
-     *
-     * @param restoreState If non-null, restores this state before generation instead
-     *                     of re-preparing the model from scratch.
-     * @return Pair of (response text, state snapshot). The snapshot may be null if
-     *         the native runtime does not support state capture or the state exceeds
-     *         [maxStateBytes].
-     */
-    internal suspend fun chatTurn(
-        runtime: ManagedTextModel,
-        prompt: String,
-        systemPrompt: String?,
-        options: TextModelOptions,
-        maxTokens: Int,
-        batchSize: Int,
-        restoreState: ByteArray? = null,
-        maxStateBytes: Long = MAX_CHAT_STATE_BYTES,
-    ): Pair<String, ByteArray?> =
-        runtimeSession.chatTurn(
-            runtime = runtime,
-            prompt = prompt,
-            systemPrompt = systemPrompt,
-            options = options,
-            maxTokens = maxTokens,
-            batchSize = batchSize,
-            restoreState = restoreState,
-            maxStateBytes = maxStateBytes,
-        )
 
     internal fun streamCompletion(
         runtime: ManagedTextModel,

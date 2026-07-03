@@ -755,7 +755,7 @@ class TextClientTest {
     }
 
     @Test
-    fun `chat session state snapshots stay inside the mocked native bridge`() = runTest {
+    fun `chat session replays the full conversation window every turn`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
@@ -772,9 +772,9 @@ class TextClientTest {
                     }
             }
 
-        var getStateCalls = 0
-        var setStateCalls = 0
-        val restoredStates = mutableListOf<String>()
+        var stateNativeCalls = 0
+        var replyCounter = 0
+        val prompts = mutableListOf<String>()
 
         SmolLM.overrideNativeBridgeForTests {
             object : SmolLM.NativeBridge {
@@ -819,16 +819,18 @@ class TextClientTest {
                     metaPath: String,
                     nBatch: Int,
                 ): Boolean = true
-                override fun getStateBytes(instance: SmolLM, modelPtr: Long): ByteArray =
-                    "snapshot-${++getStateCalls}".encodeToByteArray()
+                override fun getStateBytes(instance: SmolLM, modelPtr: Long): ByteArray {
+                    stateNativeCalls++
+                    return ByteArray(0)
+                }
                 override fun setStateBytes(instance: SmolLM, modelPtr: Long, state: ByteArray): Boolean {
-                    setStateCalls++
-                    restoredStates += state.decodeToString()
+                    stateNativeCalls++
                     return true
                 }
                 override fun close(instance: SmolLM, modelPtr: Long) = Unit
                 override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {
-                    queue = ArrayDeque(listOf("reply-${getStateCalls + 1}", "[EOG]"))
+                    prompts += prompt
+                    queue = ArrayDeque(listOf("reply-${++replyCounter}", "[EOG]"))
                 }
                 override fun completionLoop(instance: SmolLM, modelPtr: Long): String = queue.removeFirst()
                 override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String =
@@ -854,9 +856,15 @@ class TextClientTest {
 
             assertEquals("reply-1", first)
             assertEquals("reply-2", second)
-            assertEquals(2, getStateCalls)
-            assertEquals(1, setStateCalls)
-            assertEquals(listOf("snapshot-1"), restoredStates)
+            // Every turn replays the full window: the second prompt must carry the
+            // whole conversation so far, and native state snapshotting is unused
+            // (the old restore path silently dropped all history: the runtime runs
+            // storeChats=false, so restored KV state was wiped on startCompletion).
+            assertEquals(2, prompts.size)
+            assertTrue(prompts[1].contains("Hi"))
+            assertTrue(prompts[1].contains("reply-1"))
+            assertTrue(prompts[1].contains("And again"))
+            assertEquals(0, stateNativeCalls)
         } finally {
             client.close()
             edgeScope.close()
