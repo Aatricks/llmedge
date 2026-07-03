@@ -86,12 +86,9 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
         false,
         0,
         is_umt5);
-    if (!t5->alloc_params_buffer()) {
-        ALOGE("Failed to allocate params buffer for T5 context");
-        delete t5;
-        ggml_backend_free(backend);
-        return nullptr;
-    }
+    // alloc_params_buffer() returns void in this fork; load_tensors below is the
+    // checkable failure point.
+    t5->alloc_params_buffer();
 
     std::map<std::string, struct ggml_tensor*> tensors;
     t5->get_param_tensors(tensors);
@@ -152,12 +149,9 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
         offloadToCpu,
         model_loader.get_tensor_storage_map(),
         VERSION_FLUX2_KLEIN);
-    if (!llm->alloc_params_buffer()) {
-        ALOGE("Failed to allocate params buffer for LLM context");
-        delete llm;
-        ggml_backend_free(backend);
-        return nullptr;
-    }
+    // alloc_params_buffer() returns void in this fork; load_tensors below is the
+    // checkable failure point.
+    llm->alloc_params_buffer();
 
     std::map<std::string, struct ggml_tensor*> tensors;
     llm->get_param_tensors(tensors);
