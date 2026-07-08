@@ -18,6 +18,7 @@
 #include "ggml-vulkan.h"
 #endif
 #include "conditioner.hpp"
+#include "ggml_extend_backend.h"
 #include "ggml-backend.h"
 #include "model.h"
 
@@ -73,7 +74,7 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
     (void)useVulkan;
 #endif
     if (!backend) {
-        backend = ggml_backend_cpu_init();
+        backend = sd_backend_cpu_init();
     }
     if (!backend) {
         ALOGE("Unable to initialize backend for T5-only context");
@@ -81,21 +82,30 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
     }
 
     bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
+    ggml_backend_t params_backend = offloadToCpu ? sd_backend_cpu_init() : backend;
     auto* t5 = new T5CLIPEmbedder(
         backend,
-        offloadToCpu,
+        params_backend,
         model_loader.get_tensor_storage_map(),
-        false,
+        offloadToCpu,
         0,
         is_umt5);
-    // alloc_params_buffer() returns void in this fork; load_tensors below is the
-    // checkable failure point.
-    t5->alloc_params_buffer();
-
     std::map<std::string, struct ggml_tensor*> tensors;
     t5->get_param_tensors(tensors);
-    std::set<std::string> ignore_tensors;
-    if (!model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe())) {
+
+    std::vector<MmapTensorStore> mmap_stores = model_loader.mmap_tensors(tensors, {}, false);
+    bool load_ok = true;
+    if (mmap_stores.empty()) {
+        ALOGW("mmap failed or disabled for T5, falling back to loading into allocated memory buffer");
+        t5->alloc_params_buffer();
+        std::set<std::string> ignore_tensors;
+        load_ok = model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe(), false);
+    } else {
+        ALOGI("Successfully memory-mapped T5 tensors directly (skipped separate buffer allocation)");
+        t5->alloc_params_buffer();
+    }
+
+    if (!load_ok) {
         ALOGE("Failed to load tensors for T5 context");
         t5->free_params_buffer();
         delete t5;
@@ -107,6 +117,7 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
     handle->ctx = nullptr;
     handle->t5_ctx = t5;
     handle->backend = backend;
+    handle->mmap_stores = std::move(mmap_stores);
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
@@ -141,26 +152,35 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
     (void)useVulkan;
 #endif
     if (!backend) {
-        backend = ggml_backend_cpu_init();
+        backend = sd_backend_cpu_init();
     }
     if (!backend) {
         ALOGE("Unable to initialize backend for LLM-only context");
         return nullptr;
     }
 
+    ggml_backend_t params_backend = offloadToCpu ? sd_backend_cpu_init() : backend;
     auto* llm = new LLMEmbedder(
         backend,
-        offloadToCpu,
+        params_backend,
         model_loader.get_tensor_storage_map(),
         VERSION_FLUX2_KLEIN);
-    // alloc_params_buffer() returns void in this fork; load_tensors below is the
-    // checkable failure point.
-    llm->alloc_params_buffer();
-
     std::map<std::string, struct ggml_tensor*> tensors;
     llm->get_param_tensors(tensors);
-    std::set<std::string> ignore_tensors;
-    if (!model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe())) {
+
+    std::vector<MmapTensorStore> mmap_stores = model_loader.mmap_tensors(tensors, {}, false);
+    bool load_ok = true;
+    if (mmap_stores.empty()) {
+        ALOGW("mmap failed or disabled for LLM, falling back to loading into allocated memory buffer");
+        llm->alloc_params_buffer();
+        std::set<std::string> ignore_tensors;
+        load_ok = model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe(), false);
+    } else {
+        ALOGI("Successfully memory-mapped LLM tensors directly (skipped separate buffer allocation)");
+        llm->alloc_params_buffer();
+    }
+
+    if (!load_ok) {
         ALOGE("Failed to load tensors for LLM context");
         llm->free_params_buffer();
         delete llm;
@@ -172,6 +192,7 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
     handle->ctx     = nullptr;
     handle->llm_ctx = llm;
     handle->backend = backend;
+    handle->mmap_stores = std::move(mmap_stores);
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
@@ -402,6 +423,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
 
     sd_ctx_params_t p{};
     sd_ctx_params_init(&p);
+    p.enable_mmap = true;
     p.model_path = modelPath ? modelPath : "";
     p.vae_path = vaePath ? vaePath : "";
     p.t5xxl_path = t5xxlPath;

@@ -111,7 +111,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
     sd_image_t* frames = nullptr;
     int numFrames = 0;
     try {
-        frames = generate_video(handle->ctx, &gen, &numFrames);
+        bool ok = generate_video(handle->ctx, &gen, &frames, &numFrames, nullptr);
+        if (!ok) {
+            frames = nullptr;
+            numFrames = 0;
+        }
     } catch (const std::exception& e) {
         releaseStrings();
         const char* clazz = handle->cancellationRequested.load()
