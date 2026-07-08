@@ -39,7 +39,7 @@ internal object ImageRuntimeRequestPlanner {
                     subsystem = ComputeSubsystem.IMAGE,
                     // Keep GPU backends eligible by default. preferPerformanceMode tunes
                     // heuristics, but should not silently force CPU or CPU-offloaded weights.
-                    allowGpu = true,
+                    allowGpu = config.image.useVulkan,
                     nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                     // Split models (FLUX.2 Klein) bundle a multi-GB DiT + Qwen3 encoder; offload to
                     // CPU and keep the encoder/VAE off-GPU so they fit mobile memory budgets.
@@ -73,7 +73,7 @@ internal object ImageRuntimeRequestPlanner {
         val baseOptions =
             DiffusionLoadOptions(
                 subsystem = ComputeSubsystem.IMAGE,
-                allowGpu = true,
+                allowGpu = config.image.useVulkan,
                 nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION),
                 offloadToCpu = true,
                 keepClipOnCpu = true,
@@ -222,7 +222,7 @@ internal object ImageRuntimeRequestPlanner {
         offloadAllToCpu: Boolean,
         vaeDecodeOnly: Boolean,
     ): DiffusionLoadOptions {
-        val allowGpu = params.taehv == null
+        val allowGpu = params.taehv == null && config.image.useVulkan
         return DiffusionLoadOptions(
             subsystem = ComputeSubsystem.VIDEO,
             allowGpu = allowGpu,

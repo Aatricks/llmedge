@@ -50,7 +50,7 @@ private:
     std::string original_value_;
 };
 
-static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, bool offloadToCpu) {
+static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, bool offloadToCpu, bool useVulkan) {
     if (!modelPath) {
         return nullptr;
     }
@@ -66,9 +66,11 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
 
     ggml_backend_t backend = nullptr;
 #ifdef SD_USE_VULKAN
-    if (ggml_backend_vk_get_device_count() > 0) {
+    if (useVulkan && ggml_backend_vk_get_device_count() > 0) {
         backend = ggml_backend_vk_init(0);
     }
+#else
+    (void)useVulkan;
 #endif
     if (!backend) {
         backend = ggml_backend_cpu_init();
@@ -117,7 +119,7 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
 // Encoder-only handle for FLUX.2 sequential mode (llmedge Lever 1): loads ONLY the Qwen3 text
 // encoder (no diffusion transformer), so the precompute phase peaks at the encoder size instead of
 // encoder+DiT. Mirrors try_create_t5_only_handle but builds an LLMEmbedder.
-static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bool offloadToCpu) {
+static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bool offloadToCpu, bool useVulkan) {
     if (!llmPath) {
         return nullptr;
     }
@@ -132,9 +134,11 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
 
     ggml_backend_t backend = nullptr;
 #ifdef SD_USE_VULKAN
-    if (ggml_backend_vk_get_device_count() > 0) {
+    if (useVulkan && ggml_backend_vk_get_device_count() > 0) {
         backend = ggml_backend_vk_init(0);
     }
+#else
+    (void)useVulkan;
 #endif
     if (!backend) {
         backend = ggml_backend_cpu_init();
@@ -435,7 +439,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
 
     if (!ctx) {
         if (isLlmOnly) {
-            SdHandle* llmOnlyHandle = try_create_llm_only_handle(env, llmPathValue.c_str(), offloadToCpu == JNI_TRUE);
+            SdHandle* llmOnlyHandle = try_create_llm_only_handle(env, llmPathValue.c_str(), offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE);
             if (llmOnlyHandle) {
                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
@@ -446,7 +450,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
             }
         }
         if (isT5OnlyRequest) {
-            SdHandle* t5OnlyHandle = try_create_t5_only_handle(env, modelPath, offloadToCpu == JNI_TRUE);
+            SdHandle* t5OnlyHandle = try_create_t5_only_handle(env, modelPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE);
             if (t5OnlyHandle) {
                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
