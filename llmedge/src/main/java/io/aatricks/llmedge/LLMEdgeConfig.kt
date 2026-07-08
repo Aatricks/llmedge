@@ -72,6 +72,14 @@ data class SpeechRuntimeConfig(
 data class ImageRuntimeConfig(
     val cache: RuntimeCacheConfig = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 4096),
     val preferPerformanceMode: Boolean = false,
+    /**
+     * GPU (Vulkan, or OpenCL where built in) stays eligible by default: diffusion is compute-bound
+     * and the sd.cpp Vulkan path is the fast one on most devices — unlike text/vision, whose ik
+     * fork favors CPU. Set false to force the CPU backend for image/video generation: the escape
+     * hatch for devices whose Vulkan driver loads fine but deadlocks at the first compute dispatch
+     * (observed on PowerVR DXT-48, Pixel 10 / Tensor G5), where no automatic fallback can trigger.
+     */
+    val useVulkan: Boolean = true,
 )
 
 data class VisionRuntimeConfig(

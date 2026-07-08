@@ -762,6 +762,7 @@ Troubleshooting
 - If you see "Vulkan 1.2 required" or linker errors for Vulkan symbols, confirm `minSdk` is set to 30 or higher in `llmedge/build.gradle.kts` and that your NDK provides the expected Vulkan headers.
 - If experimental OpenCL is not available, or if a GPU backend fails to initialize or execute, llmedge falls back to Vulkan or CPU automatically. For text, Whisper, and image/video, a failing backend is blacklisted per subsystem for the rest of the process and the next backend is retried once.
 - If your device lacks both usable OpenCL and Vulkan support, the native code falls back to the CPU backend.
+- If the Vulkan driver initializes but the first generate hangs forever at the first compute dispatch (observed on PowerVR DXT-48 / Pixel 10 Tensor G5), the automatic fallback cannot trigger — load succeeds, so no failure is observed. Force the CPU backend for image/video generation with `LLMEdgeConfig(image = ImageRuntimeConfig(useVulkan = false))`.
 
 #### Notes:
 
