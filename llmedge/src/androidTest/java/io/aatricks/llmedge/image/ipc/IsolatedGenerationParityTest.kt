@@ -11,6 +11,9 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.image.ImageGenerationRequest
 import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelArtifactKind
+import io.aatricks.llmedge.model.ModelCapability
+import io.aatricks.llmedge.model.ModelHints
 import io.aatricks.llmedge.model.ModelSpec
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -70,6 +73,59 @@ class IsolatedGenerationParityTest {
             "outputs diverged: only $matching/$total pixels identical",
             matching >= (total * 0.98).toInt(),
         )
+    }
+
+    @Test
+    fun isolatedFlux2SequentialGenerate() {
+        val ditPath = "/data/local/tmp/bonsai-flux2-klein-ternary-q2_k.gguf"
+        val encoderPath = "/data/local/tmp/Qwen_3_4b-Q3_K_M.gguf"
+        val vaePath = "/data/local/tmp/flux2-vae.safetensors"
+
+        assumeTrue(
+            "Model files missing on device",
+            File(ditPath).exists() && File(encoderPath).exists() && File(vaePath).exists(),
+        )
+
+        val request =
+            ImageGenerationRequest(
+                prompt = "a red fox in snow",
+                width = 256,
+                height = 256,
+                steps = 2,
+                cfgScale = 1.0f,
+                seed = 42L,
+                model =
+                    ModelSpec.localFile(
+                        ditPath,
+                        ModelHints(
+                            artifactKind = ModelArtifactKind.DIFFUSION_MODEL,
+                            capabilities = setOf(ModelCapability.IMAGE),
+                        ),
+                    ),
+                vae =
+                    ModelSpec.localFile(
+                        vaePath,
+                        ModelHints(
+                            artifactKind = ModelArtifactKind.VAE,
+                            capabilities = setOf(ModelCapability.IMAGE),
+                        ),
+                    ),
+                textEncoder =
+                    ModelSpec.localFile(
+                        encoderPath,
+                        ModelHints(
+                            artifactKind = ModelArtifactKind.TEXT_ENCODER,
+                            capabilities = setOf(ModelCapability.TEXT, ModelCapability.IMAGE),
+                        ),
+                    ),
+                splitDiffusionModel = true,
+                sequential = true,
+            )
+
+        val isolated = generateWith(DiffusionWorkerMode.ISOLATED_PROCESS, request)
+        assertEquals(256, isolated.width)
+        assertEquals(256, isolated.height)
+        assertTrue("isolated output must not be uniform", isNotUniform(isolated))
     }
 
     private fun generateWith(

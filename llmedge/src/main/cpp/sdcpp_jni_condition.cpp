@@ -44,6 +44,8 @@ static sd_condition_raw_t* reconstruct_condition(JNIEnv* env, jobjectArray condA
                 raw.ne[i] = dims[i];
                 expected_len *= dims[i];
             }
+            ALOGI("Reconstructed raw tensor: ndims=%d, ne=[%lld, %lld, %lld, %lld]",
+                  raw.ndims, (long long)raw.ne[0], (long long)raw.ne[1], (long long)raw.ne[2], (long long)raw.ne[3]);
             env->ReleaseIntArrayElements(dimsArr, dims, JNI_ABORT);
 
             if (expected_len != dataLen) {
@@ -126,17 +128,6 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
         } else if (handle->t5_ctx) {
             auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
             try {
-                struct ggml_init_params params;
-                params.mem_size = 128 * 1024 * 1024;
-                params.mem_buffer = nullptr;
-                params.no_alloc = false;
-                struct ggml_context* work_ctx = ggml_init(params);
-                if (!work_ctx) {
-                    releaseStrings();
-                    throwJavaException(env, "java/lang/RuntimeException", "Failed to initialize ggml_context");
-                    return nullptr;
-                }
-
                 ConditionerParams cparams;
                 cparams.text = resolved.prompt.c_str();
                 cparams.clip_skip = clipSkip;
@@ -145,42 +136,32 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                 cparams.zero_out_masked = (jIsVideo == JNI_TRUE);
 
                 SDCondition sd_cond =
-                        t5->get_learned_condition(work_ctx, sd_get_num_physical_cores_safe(), cparams);
+                        t5->get_learned_condition(sd_get_num_physical_cores_safe(), cparams);
 
                 cond = static_cast<sd_condition_raw_t*>(calloc(1, sizeof(sd_condition_raw_t)));
                 if (!cond) {
-                    ggml_free(work_ctx);
                     throw std::runtime_error("Out of memory allocating condition");
                 }
 
-                auto tensor_to_raw_f32 = [](struct ggml_tensor* t, sd_tensor_raw_t& raw) {
-                    if (!t) {
-                        return;
-                    }
-                    raw.ndims = ggml_n_dims(t);
-                    for (int i = 0; i < 4; ++i) {
-                        raw.ne[i] = t->ne[i];
-                    }
-                    const size_t n = static_cast<size_t>(ggml_nelements(t));
+                auto tensor_to_raw_f32 = [](const sd::Tensor<float>& t, sd_tensor_raw_t& raw) {
+                    if (t.empty()) return;
+                    raw.ndims = (int)t.dim();
+                    for (int i = 0; i < t.dim(); ++i) raw.ne[i] = t.shape()[i];
+                    ALOGI("Precomputed condition tensor to raw (T5): ndims=%d, shape=[%lld, %lld, %lld, %lld]",
+                          raw.ndims, (long long)raw.ne[0], (long long)raw.ne[1], (long long)raw.ne[2], (long long)raw.ne[3]);
+                    const size_t n = static_cast<size_t>(t.numel());
                     raw.data = static_cast<float*>(malloc(sizeof(float) * n));
                     if (!raw.data) {
                         raw.ndims = 0;
                         return;
                     }
-                    if (ggml_is_contiguous(t) && t->type == GGML_TYPE_F32) {
-                        memcpy(raw.data, t->data, sizeof(float) * n);
-                    } else {
-                        for (size_t i = 0; i < n; ++i) {
-                            raw.data[i] = ggml_get_f32_1d(t, static_cast<int>(i));
-                        }
-                    }
+                    memcpy(raw.data, t.data(), sizeof(float) * n);
                 };
 
-                if (sd_cond.c_crossattn) tensor_to_raw_f32(sd_cond.c_crossattn, cond->c_crossattn);
-                if (sd_cond.c_vector) tensor_to_raw_f32(sd_cond.c_vector, cond->c_vector);
-                if (sd_cond.c_concat) tensor_to_raw_f32(sd_cond.c_concat, cond->c_concat);
+                if (!sd_cond.c_crossattn.empty()) tensor_to_raw_f32(sd_cond.c_crossattn, cond->c_crossattn);
+                if (!sd_cond.c_vector.empty()) tensor_to_raw_f32(sd_cond.c_vector, cond->c_vector);
+                if (!sd_cond.c_concat.empty()) tensor_to_raw_f32(sd_cond.c_concat, cond->c_concat);
 
-                ggml_free(work_ctx);
             } catch (const std::exception& e) {
                 releaseStrings();
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
@@ -190,17 +171,6 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
             // FLUX.2 sequential mode: encoder-only (Qwen3) handle precomputes the conditioning.
             auto* llm = static_cast<LLMEmbedder*>(handle->llm_ctx);
             try {
-                struct ggml_init_params params;
-                params.mem_size = 128 * 1024 * 1024;
-                params.mem_buffer = nullptr;
-                params.no_alloc = false;
-                struct ggml_context* work_ctx = ggml_init(params);
-                if (!work_ctx) {
-                    releaseStrings();
-                    throwJavaException(env, "java/lang/RuntimeException", "Failed to initialize ggml_context");
-                    return nullptr;
-                }
-
                 ConditionerParams cparams;
                 cparams.text      = resolved.prompt.c_str();
                 cparams.clip_skip = clipSkip;
@@ -209,36 +179,32 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                 cparams.zero_out_masked = (jIsVideo == JNI_TRUE);
 
                 SDCondition sd_cond =
-                        llm->get_learned_condition(work_ctx, sd_get_num_physical_cores_safe(), cparams);
+                        llm->get_learned_condition(sd_get_num_physical_cores_safe(), cparams);
 
                 cond = static_cast<sd_condition_raw_t*>(calloc(1, sizeof(sd_condition_raw_t)));
                 if (!cond) {
-                    ggml_free(work_ctx);
                     throw std::runtime_error("Out of memory allocating condition");
                 }
 
-                auto tensor_to_raw_f32 = [](struct ggml_tensor* t, sd_tensor_raw_t& raw) {
-                    if (!t) return;
-                    raw.ndims = ggml_n_dims(t);
-                    for (int i = 0; i < 4; ++i) raw.ne[i] = t->ne[i];
-                    const size_t n = static_cast<size_t>(ggml_nelements(t));
+                auto tensor_to_raw_f32 = [](const sd::Tensor<float>& t, sd_tensor_raw_t& raw) {
+                    if (t.empty()) return;
+                    raw.ndims = (int)t.dim();
+                    for (int i = 0; i < t.dim(); ++i) raw.ne[i] = t.shape()[i];
+                    ALOGI("Precomputed condition tensor to raw (LLM): ndims=%d, shape=[%lld, %lld, %lld, %lld]",
+                          raw.ndims, (long long)raw.ne[0], (long long)raw.ne[1], (long long)raw.ne[2], (long long)raw.ne[3]);
+                    const size_t n = static_cast<size_t>(t.numel());
                     raw.data = static_cast<float*>(malloc(sizeof(float) * n));
                     if (!raw.data) {
                         raw.ndims = 0;
                         return;
                     }
-                    if (ggml_is_contiguous(t) && t->type == GGML_TYPE_F32) {
-                        memcpy(raw.data, t->data, sizeof(float) * n);
-                    } else {
-                        for (size_t i = 0; i < n; ++i) raw.data[i] = ggml_get_f32_1d(t, static_cast<int>(i));
-                    }
+                    memcpy(raw.data, t.data(), sizeof(float) * n);
                 };
 
-                if (sd_cond.c_crossattn) tensor_to_raw_f32(sd_cond.c_crossattn, cond->c_crossattn);
-                if (sd_cond.c_vector) tensor_to_raw_f32(sd_cond.c_vector, cond->c_vector);
-                if (sd_cond.c_concat) tensor_to_raw_f32(sd_cond.c_concat, cond->c_concat);
+                if (!sd_cond.c_crossattn.empty()) tensor_to_raw_f32(sd_cond.c_crossattn, cond->c_crossattn);
+                if (!sd_cond.c_vector.empty()) tensor_to_raw_f32(sd_cond.c_vector, cond->c_vector);
+                if (!sd_cond.c_concat.empty()) tensor_to_raw_f32(sd_cond.c_concat, cond->c_concat);
 
-                ggml_free(work_ctx);
             } catch (const std::exception& e) {
                 releaseStrings();
                 throwJavaException(env, "java/lang/RuntimeException", e.what());

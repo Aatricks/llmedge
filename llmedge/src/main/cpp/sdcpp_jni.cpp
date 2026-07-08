@@ -15,5 +15,7 @@ extern "C" SD_API sd_image_t* sd_generate_video_with_precomputed_condition(
         const sd_condition_raw_t*,
         const sd_condition_raw_t*,
         int* num_frames_out) {
-    return generate_video(sd_ctx, params, num_frames_out);
+    sd_image_t* frames = nullptr;
+    generate_video(sd_ctx, params, &frames, num_frames_out, nullptr);
+    return frames;
 }
