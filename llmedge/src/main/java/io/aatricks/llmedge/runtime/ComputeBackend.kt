@@ -51,4 +51,9 @@ internal object BackendRuntimePolicy {
             openClAvailable = openClAvailable,
             vulkanAvailable = vulkanAvailable,
         )
+
+    /** Seed the in-memory blacklist from persisted verdicts (host) or a WorkerInitConfig (worker). */
+    fun seed(entries: Iterable<Pair<ComputeSubsystem, ComputeBackend>>) {
+        entries.forEach { (subsystem, backend) -> registry.blacklist(subsystem, backend) }
+    }
 }

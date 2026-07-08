@@ -69,6 +69,53 @@ data class SpeechRuntimeConfig(
     val cache: RuntimeCacheConfig = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 1024),
 )
 
+/** Where the diffusion (image/video) stack runs. */
+enum class DiffusionWorkerMode {
+    /** Historical behavior: native generation runs inside the app process. */
+    IN_PROCESS,
+
+    /**
+     * Generation runs in the library-owned `:llmedge_sd` process. Native crashes and GPU-driver
+     * hangs are contained there: the host observes a typed failure (or a transparent retry)
+     * instead of an app crash or a permanent freeze.
+     */
+    ISOLATED_PROCESS,
+}
+
+/** What to do when the watchdog kills a hung worker mid-request. */
+enum class HangRecoveryPolicy {
+    /** Transparently reissue the request on the CPU backend in a fresh worker; fail if that also dies. */
+    RETRY_CPU_THEN_FAIL,
+
+    /** Fail the request with [io.aatricks.llmedge.core.GenerationHangException]; the persisted verdict makes the NEXT request use CPU. */
+    FAIL_FAST,
+}
+
+/**
+ * Watchdog tuning for [DiffusionWorkerMode.ISOLATED_PROCESS]. A hang verdict requires BOTH no
+ * phase/step heartbeat for the phase's stall window AND a flat worker CPU delta over that window —
+ * a legitimate cold shader compile pegs a core (observed ~310s on Pixel 8), while a driver
+ * dispatch deadlock sits at 0% (observed on PowerVR DXT-48 / Pixel 10). RESOLVING (model
+ * download) is exempt from the flat-CPU rule.
+ */
+data class WorkerWatchdogConfig(
+    val enabled: Boolean = true,
+    val cpuSampleIntervalMs: Long = 2_000,
+    val resolvingStallTimeoutMs: Long = 30 * 60_000,
+    val loadingStallTimeoutMs: Long = 90_000,
+    val generatingStallTimeoutMs: Long = 90_000,
+    val stepStallTimeoutMs: Long = 300_000,
+    val hardWallTimeoutMs: Long = 30 * 60_000,
+    val cancelKillGraceMs: Long = 5_000,
+    /** CPU busy fraction (of one core) below which the worker counts as idle. */
+    val flatCpuThreshold: Double = 0.02,
+) {
+    init {
+        require(cpuSampleIntervalMs > 0) { "cpuSampleIntervalMs must be positive." }
+        require(flatCpuThreshold in 0.0..1.0) { "flatCpuThreshold must be within [0,1]." }
+    }
+}
+
 data class ImageRuntimeConfig(
     val cache: RuntimeCacheConfig = RuntimeCacheConfig(maxEntries = 1, maxMemoryMb = 4096),
     val preferPerformanceMode: Boolean = false,
@@ -80,6 +127,16 @@ data class ImageRuntimeConfig(
      * (observed on PowerVR DXT-48, Pixel 10 / Tensor G5), where no automatic fallback can trigger.
      */
     val useVulkan: Boolean = true,
+    /**
+     * Opt-in for now: [DiffusionWorkerMode.ISOLATED_PROCESS] runs image/video generation in a
+     * library-owned worker process so native crashes and driver hangs cannot take the app down.
+     * The default flips to ISOLATED_PROCESS in a future minor release.
+     */
+    val workerMode: DiffusionWorkerMode = DiffusionWorkerMode.IN_PROCESS,
+    val watchdog: WorkerWatchdogConfig = WorkerWatchdogConfig(),
+    val hangRecoveryPolicy: HangRecoveryPolicy = HangRecoveryPolicy.RETRY_CPU_THEN_FAIL,
+    /** Persist watchdog hang verdicts (keyed by Build.FINGERPRINT) so later sessions skip the broken backend. */
+    val persistBackendVerdicts: Boolean = true,
 )
 
 data class VisionRuntimeConfig(

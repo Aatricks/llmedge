@@ -21,6 +21,7 @@ internal class VideoGenerationExecutor(
     private val generationMutex: Mutex,
     private val state: ImageClientState,
     private val requestExecutor: DiffusionRequestExecutor,
+    private val phaseListener: DiffusionPhaseListener? = null,
 ) {
     fun generate(params: VideoGenerationRequest): Flow<GenerationStreamEvent> =
         callbackFlow {
@@ -83,7 +84,8 @@ internal class VideoGenerationExecutor(
             spec = request.spec,
             options = request.options,
             retryMessage = "Retrying video generation on the next backend after a backend-specific failure for",
-        ) { model, _, _ ->
+        ) { model, _, acquire ->
+            phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
             val easyCache = model.resolveEasyCacheParams(params.easyCache)
             model.txt2vid(
                 params =
@@ -93,6 +95,7 @@ internal class VideoGenerationExecutor(
                     ),
                 onProgress =
                     VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
+                        phaseListener?.onStep(step, totalSteps)
                         onProgress?.invoke(
                             "Generating frame $currentFrame/$totalFrames",
                             step,
@@ -143,8 +146,9 @@ internal class VideoGenerationExecutor(
             spec = diffusionRequest.spec,
             options = diffusionRequest.options,
             retryMessage = "Retrying sequential video diffusion on the next backend after a backend-specific failure for",
-        ) { model, _, _ ->
+        ) { model, _, acquire ->
             onProgress?.invoke("Loading diffusion model", 0, params.steps)
+            phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
             val easyCache = model.resolveEasyCacheParams(params.easyCache)
             model.txt2VidWithPrecomputedCondition(
                 params =
@@ -156,6 +160,7 @@ internal class VideoGenerationExecutor(
                 uncond = conditioning.second,
                 onProgress =
                     VideoProgressCallback { step, totalSteps, currentFrame, totalFrames, _ ->
+                        phaseListener?.onStep(step, totalSteps)
                         onProgress?.invoke(
                             "Generating frame $currentFrame/$totalFrames",
                             step,
