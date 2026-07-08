@@ -46,3 +46,34 @@ class ModelFileNotFoundException(
 ) : FileNotFoundException("$modelKind file not found: $modelPath")
 
 class UnsupportedModelException(detail: String) : UnsupportedOperationException(detail)
+
+/** Failures of the isolated diffusion worker process (DiffusionWorkerMode.ISOLATED_PROCESS). */
+open class WorkerProcessException(message: String, cause: Throwable? = null) :
+    LLMEdgeException(message, cause)
+
+class WorkerBindException(detail: String, cause: Throwable? = null) :
+    WorkerProcessException("Failed to bind the diffusion worker service: $detail", cause)
+
+class WorkerCrashedException(
+    val backend: String?,
+    val exitReason: Int?,
+) : WorkerProcessException(
+    "Diffusion worker process died during generation" +
+        (backend?.let { " (backend=$it)" } ?: "") +
+        (exitReason?.let { " (exitReason=$it)" } ?: ""),
+)
+
+class WorkerKilledByMemoryException : WorkerProcessException(
+    "Diffusion worker process was killed by the low-memory killer. " +
+        "Consider forceSequentialLoad, CPU offload options, or a smaller model.",
+)
+
+class GenerationHangException(
+    val backend: String?,
+    val phase: String,
+    val stallMs: Long,
+) : WorkerProcessException(
+    "Generation hung in phase $phase for ${stallMs}ms with an idle worker" +
+        (backend?.let { " (backend=$it)" } ?: "") +
+        "; the worker process was killed. This usually indicates a broken GPU driver.",
+)

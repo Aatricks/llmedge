@@ -71,6 +71,7 @@ internal class ManagedDiffusionModel(
 internal class DiffusionRuntimeLoader(
     private val context: Context,
     private val resolver: ModelRepository,
+    private val phaseListener: DiffusionPhaseListener? = null,
 ) {
     companion object {
         private const val LOG_TAG = "DiffusionRuntimeLoader"
@@ -81,6 +82,9 @@ internal class DiffusionRuntimeLoader(
         options: DiffusionLoadOptions,
         backend: ComputeBackend,
     ): ManagedDiffusionModel {
+        // RESOLVING may legitimately sit CPU-flat for minutes (network download); the watchdog
+        // exempts it from the flat-CPU hang rule, so it must be distinguishable from LOADING.
+        phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.RESOLVING_MODEL, backend.name)
         val resolvedModel = resolver.resolve(context, spec.model)
         val resolvedVae = spec.vae?.let { resolver.resolve(context, it) }
         val resolvedTextEncoder = spec.textEncoder?.let { resolver.resolve(context, it) }
@@ -173,6 +177,7 @@ internal class DiffusionRuntimeLoader(
             LOG_TAG,
             "Creating managed ${backend.name} runtime for ${resolvedModel.name} flash=$flashAttn sequential=${options.sequentialLoad}",
         )
+        phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.LOADING, backend.name)
         val model =
             StableDiffusion.loadWithRuntimeBackend(
                 context = context,
@@ -227,6 +232,7 @@ internal fun createDiffusionRuntimePool(
     scope: LLMEdgeScope,
     config: LLMEdgeConfig,
     resolver: ModelRepository,
+    phaseListener: DiffusionPhaseListener? = null,
 ): RuntimePool<DiffusionRuntimeSpec, DiffusionLoadOptions, ManagedDiffusionModel> =
     createCachedRuntimePool(
         context = context,
@@ -255,7 +261,7 @@ internal fun createDiffusionRuntimePool(
                         "loraMode=${options.loraApplyMode.id}",
                     )
                 },
-                loadRuntime = DiffusionRuntimeLoader(context, resolver)::load,
+                loadRuntime = DiffusionRuntimeLoader(context, resolver, phaseListener)::load,
                 activeBackend = { it.backend },
                 candidateRequest = { options ->
                     BackendCandidateResolver.Request(

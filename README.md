@@ -762,7 +762,16 @@ Troubleshooting
 - If you see "Vulkan 1.2 required" or linker errors for Vulkan symbols, confirm `minSdk` is set to 30 or higher in `llmedge/build.gradle.kts` and that your NDK provides the expected Vulkan headers.
 - If experimental OpenCL is not available, or if a GPU backend fails to initialize or execute, llmedge falls back to Vulkan or CPU automatically. For text, Whisper, and image/video, a failing backend is blacklisted per subsystem for the rest of the process and the next backend is retried once.
 - If your device lacks both usable OpenCL and Vulkan support, the native code falls back to the CPU backend.
-- If the Vulkan driver initializes but the first generate hangs forever at the first compute dispatch (observed on PowerVR DXT-48 / Pixel 10 Tensor G5), the automatic fallback cannot trigger — load succeeds, so no failure is observed. Force the CPU backend for image/video generation with `LLMEdgeConfig(image = ImageRuntimeConfig(useVulkan = false))`.
+- If the Vulkan driver initializes but the first generate hangs forever at the first compute dispatch (observed on PowerVR DXT-48 / Pixel 10 Tensor G5), the automatic fallback cannot trigger — load succeeds, so no failure is observed. Force the CPU backend for image/video generation with `LLMEdgeConfig(image = ImageRuntimeConfig(useVulkan = false))`, or enable process isolation (below) so the library detects and recovers from the hang automatically.
+
+Process isolation for image/video generation (opt-in)
+
+`LLMEdgeConfig(image = ImageRuntimeConfig(workerMode = DiffusionWorkerMode.ISOLATED_PROCESS))` runs the diffusion stack in a library-owned `:llmedge_sd` worker process:
+
+- A native crash in the diffusion stack surfaces as a typed `WorkerCrashedException` (with one automatic CPU retry) instead of killing the app.
+- A GPU driver that hangs at dispatch is detected by a watchdog — no progress heartbeat while the worker's CPU time stays flat (a legitimate cold shader compile pegs a core and is never killed) — the worker is killed, and per `hangRecoveryPolicy` the request is transparently retried on CPU (default) or failed with `GenerationHangException`.
+- Hang verdicts persist across sessions (keyed to the OS build fingerprint, so a system/driver update re-enables the GPU automatically). `ImageClient.resetBackendVerdicts(context)` clears them manually.
+- The public `ImageClient` API is unchanged; `DiffusionWorkerMode.IN_PROCESS` remains the default for now. Apps that already host llmedge in their own service process should stay in-process to avoid a redundant extra process.
 
 #### Notes:
 

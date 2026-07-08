@@ -22,6 +22,7 @@ internal class ImageGenerationExecutor(
     private val state: ImageClientState,
     private val requestExecutor: DiffusionRequestExecutor,
     private val logTag: String,
+    private val phaseListener: DiffusionPhaseListener? = null,
 ) {
     suspend fun generate(params: ImageGenerationRequest): Bitmap {
         if (params.sequential && params.splitDiffusionModel && params.textEncoder != null) {
@@ -47,7 +48,8 @@ internal class ImageGenerationExecutor(
                     spec = plan.conditioningRequest.spec,
                     options = plan.conditioningRequest.options,
                     retryMessage = "Retrying FLUX.2 sequential conditioning on the next backend for",
-                ) { model, _, _ ->
+                ) { model, _, acquire ->
+                    phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
                     model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
                 }
 
@@ -64,7 +66,13 @@ internal class ImageGenerationExecutor(
                 spec = plan.diffusionRequest.spec,
                 options = plan.diffusionRequest.options,
                 retryMessage = "Retrying FLUX.2 sequential diffusion on the next backend for",
-            ) { model, _, _ ->
+            ) { model, _, acquire ->
+                phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
+                phaseListener?.let { listener ->
+                    model.setProgressCallback { step, totalSteps, _, _, _ ->
+                        listener.onStep(step, totalSteps)
+                    }
+                }
                 val rgb =
                     model.txt2ImgWithPrecomputedCondition(
                         prompt = params.prompt,
@@ -146,20 +154,30 @@ internal class ImageGenerationExecutor(
                         ImageGenerationPhase.TXT2IMG_ENTER,
                         "ImageClient dispatching to StableDiffusion.txt2img",
                     )
+                    phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
+                    phaseListener?.let { listener ->
+                        model.setProgressCallback { step, totalSteps, _, _, _ ->
+                            listener.onStep(step, totalSteps)
+                        }
+                    }
                     val generationStartNanos = System.nanoTime()
                     val bitmap =
-                        model.txt2img(
-                            GenerateParams(
-                                prompt = params.prompt,
-                                negative = params.negative,
-                                width = params.width,
-                                height = params.height,
-                                steps = params.steps,
-                                cfgScale = params.cfgScale,
-                                seed = params.seed,
-                                easyCacheParams = easyCache,
-                            ),
-                        )
+                        try {
+                            model.txt2img(
+                                GenerateParams(
+                                    prompt = params.prompt,
+                                    negative = params.negative,
+                                    width = params.width,
+                                    height = params.height,
+                                    steps = params.steps,
+                                    cfgScale = params.cfgScale,
+                                    seed = params.seed,
+                                    easyCacheParams = easyCache,
+                                ),
+                            )
+                        } finally {
+                            if (phaseListener != null) model.setProgressCallback(null)
+                        }
                     val generateMs = elapsedMillis(generationStartNanos)
                     val requestMetrics =
                         ImageRequestMetrics(

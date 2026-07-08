@@ -20,6 +20,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     id("org.jetbrains.kotlin.plugin.serialization") version "2.0.0"
+    id("org.jetbrains.kotlin.plugin.parcelize")
     id("jacoco")
     id("com.vanniktech.maven.publish") version "0.34.0"
 }
@@ -137,6 +138,9 @@ android {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
         }
+    }
+    buildFeatures {
+        aidl = true
     }
     packaging {
         jniLibs {

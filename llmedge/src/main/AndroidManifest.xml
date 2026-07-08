@@ -17,4 +17,16 @@
 
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <application>
+        <!--
+          Optional worker process for image/video generation (DiffusionWorkerMode.ISOLATED_PROCESS).
+          Inert until bound: the :llmedge_sd process only spawns when a client binds the service.
+          Not android:isolatedProcess - the worker needs the app's storage to read model files.
+        -->
+        <service
+            android:name="io.aatricks.llmedge.image.ipc.DiffusionWorkerService"
+            android:process=":llmedge_sd"
+            android:exported="false" />
+    </application>
+
 </manifest>

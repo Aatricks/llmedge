@@ -2,6 +2,7 @@ package io.aatricks.llmedge.image
 
 import android.content.Context
 import android.graphics.Bitmap
+import io.aatricks.llmedge.DiffusionWorkerMode
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.ClientBootstrapContext
 import io.aatricks.llmedge.core.FeatureContext
@@ -14,14 +15,15 @@ import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
 import io.aatricks.llmedge.image.diffusion.LoraApplyMode
 import io.aatricks.llmedge.image.diffusion.SampleMethod
 import io.aatricks.llmedge.image.diffusion.Scheduler
+import io.aatricks.llmedge.image.ipc.DiffusionEngine
+import io.aatricks.llmedge.image.ipc.InProcessDiffusionEngine
+import io.aatricks.llmedge.image.ipc.IsolatedDiffusionEngine
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.BackendRuntimePolicy
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.sync.Mutex
 
 data class ImageGenerationRequest(
     val prompt: String,
@@ -109,30 +111,34 @@ class ImageClient internal constructor(
         internal fun resetVideoVulkanBlacklistForTests() {
             BackendRuntimePolicy.resetForTests()
         }
+
+        /**
+         * Clears persisted backend hang verdicts (recorded by the isolated-worker watchdog) and
+         * the in-memory blacklist, re-enabling GPU backends on the next load. Verdicts also clear
+         * automatically when the OS fingerprint changes (system/driver update).
+         */
+        @JvmStatic
+        fun resetBackendVerdicts(context: Context) {
+            io.aatricks.llmedge.image.ipc.BackendVerdictStore(context).reset()
+            BackendRuntimePolicy.resetForTests()
+        }
     }
 
-    private val runtimePool = createDiffusionRuntimePool(appContext, edgeScope, config, modelRepository)
-    private val generationMutex = Mutex()
-    private val imageRequestIds = AtomicLong(0L)
-    private val state = ImageClientState()
-    private val requestExecutor = DiffusionRequestExecutor(runtimePool, state, LOG_TAG)
-    private val imageGenerationExecutor =
-        ImageGenerationExecutor(
-            config = config,
-            generationMutex = generationMutex,
-            imageRequestIds = imageRequestIds,
-            state = state,
-            requestExecutor = requestExecutor,
-            logTag = LOG_TAG,
-        )
-    private val videoGenerationExecutor =
-        VideoGenerationExecutor(
-            scope = edgeScope,
-            config = config,
-            generationMutex = generationMutex,
-            state = state,
-            requestExecutor = requestExecutor,
-        )
+    init {
+        // Seed persisted hang verdicts into the in-memory blacklist for BOTH modes, so an
+        // in-process client on a device with a recorded GPU hang also avoids the broken backend.
+        if (config.image.persistBackendVerdicts) {
+            BackendRuntimePolicy.seed(io.aatricks.llmedge.image.ipc.BackendVerdictStore(appContext).load())
+        }
+    }
+
+    private val engine: DiffusionEngine =
+        when (config.image.workerMode) {
+            DiffusionWorkerMode.IN_PROCESS ->
+                InProcessDiffusionEngine(appContext, edgeScope, config, modelRepository, LOG_TAG)
+            DiffusionWorkerMode.ISOLATED_PROCESS ->
+                IsolatedDiffusionEngine(appContext, edgeScope, config)
+        }
 
     /**
      * Generate a single bitmap from text.
@@ -145,7 +151,7 @@ class ImageClient internal constructor(
      */
     suspend fun generate(
         params: ImageGenerationRequest,
-    ): Bitmap = imageGenerationExecutor.generate(params)
+    ): Bitmap = engine.generate(params)
 
     /**
      * Stream progress and final frames for text-to-video generation.
@@ -157,22 +163,20 @@ class ImageClient internal constructor(
      */
     fun generateVideo(
         params: VideoGenerationRequest,
-    ): Flow<GenerationStreamEvent> = videoGenerationExecutor.generate(params)
+    ): Flow<GenerationStreamEvent> = engine.generateVideo(params)
 
     /** Request cancellation for the active generation, if any. */
     fun cancelGeneration() {
-        state.activeModel?.cancelGeneration()
+        engine.cancelGeneration()
     }
 
-    fun getLastGenerationMetrics(): GenerationMetrics? = state.lastGenerationMetrics
+    fun getLastGenerationMetrics(): GenerationMetrics? = engine.lastGenerationMetrics()
 
-    internal fun getLastImageRequestTraceForTests(): List<ImageGenerationTraceEvent> = state.lastImageRequestTrace
+    internal fun getLastImageRequestTraceForTests(): List<ImageGenerationTraceEvent> = engine.lastImageRequestTraceForTests()
 
     override fun close() {
         closeOwned {
-            cancelGeneration()
-            state.activeModel = null
-            runtimePool.close()
+            engine.close()
         }
     }
 }
