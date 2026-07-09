@@ -25,6 +25,7 @@ set(WHISPER_GGML_SOURCES
         ${WHISPER_GGML_DIR}/src/ggml-alloc.c
         ${WHISPER_GGML_DIR}/src/ggml-backend.cpp
         ${WHISPER_GGML_DIR}/src/ggml-backend-reg.cpp
+        ${WHISPER_GGML_DIR}/src/ggml-backend-meta.cpp
         ${WHISPER_GGML_DIR}/src/ggml-opt.cpp
         ${WHISPER_GGML_DIR}/src/ggml-quants.c
         ${WHISPER_GGML_DIR}/src/ggml-threading.cpp
@@ -38,8 +39,21 @@ set(WHISPER_GGML_SOURCES
         ${WHISPER_GGML_DIR}/src/ggml-cpu/unary-ops.cpp
         ${WHISPER_GGML_DIR}/src/ggml-cpu/binary-ops.cpp
         ${WHISPER_GGML_DIR}/src/ggml-cpu/repack.cpp
-        ${WHISPER_GGML_DIR}/src/ggml-cpu/arch/arm/quants.c
 )
+
+if (ANDROID_ABI MATCHES "^(arm64-v8a|armeabi-v7a)$")
+        list(APPEND WHISPER_GGML_SOURCES
+                ${WHISPER_GGML_DIR}/src/ggml-cpu/arch/arm/quants.c
+                ${WHISPER_GGML_DIR}/src/ggml-cpu/arch/arm/repack.cpp
+                ${WHISPER_GGML_DIR}/src/ggml-cpu/arch/arm/cpu-feats.cpp
+        )
+elseif (ANDROID_ABI MATCHES "^(x86_64|x86)$")
+        list(APPEND WHISPER_GGML_SOURCES
+                ${WHISPER_GGML_DIR}/src/ggml-cpu/arch/x86/quants.c
+                ${WHISPER_GGML_DIR}/src/ggml-cpu/arch/x86/repack.cpp
+                ${WHISPER_GGML_DIR}/src/ggml-cpu/arch/x86/cpu-feats.cpp
+        )
+endif()
 
 set(WHISPER_SOURCES
         ${WHISPER_DIR}/src/whisper.cpp
