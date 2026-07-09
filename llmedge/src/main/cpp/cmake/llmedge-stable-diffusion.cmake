@@ -191,6 +191,10 @@ add_subdirectory(${SD_DIR} ${CMAKE_CURRENT_BINARY_DIR}/stable-diffusion.cpp)
 if (TARGET ggml-vulkan AND vulkan_hpp_SOURCE_DIR)
     target_include_directories(ggml-vulkan PRIVATE ${vulkan_hpp_SOURCE_DIR})
 endif()
+if (SD_VULKAN)
+    include("${LLMEDGE_CPP_ROOT}/cmake/llmedge-spirv-headers.cmake")
+    llmedge_attach_spirv_headers(ggml-vulkan)
+endif()
 
 add_library(${LLMEDGE_TARGET_SDCPP} SHARED
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni_common.cpp
