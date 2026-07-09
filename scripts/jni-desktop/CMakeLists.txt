@@ -262,6 +262,10 @@ if(WHISPER_DESKTOP_JNI)
             ${JNI_LIBRARIES}
         )
 
+        if(APPLE)
+            set_target_properties(${LLMEDGE_TARGET_WHISPER_JNI} PROPERTIES SUFFIX ".so")
+        endif()
+
         message(STATUS "Whisper desktop JNI configured")
     else()
         message(WARNING "whisper.cpp not found at ${WHISPER_ROOT}, skipping whisper_jni")
