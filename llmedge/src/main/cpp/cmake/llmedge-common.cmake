@@ -34,28 +34,22 @@ file(GLOB LLMEDGE_COMMON_SOURCES CONFIGURE_DEPENDS
         "${COMMON_DIR}/*.cpp"
         "${COMMON_DIR}/jinja/*.cpp"
 )
+# reasoning-budget.cpp is #included directly by sampling.cpp (upstream ik_llama), so
+# compiling it standalone as well produces duplicate symbols at link time. Drop it
+# from the glob; sampling.cpp provides its definitions.
+list(REMOVE_ITEM LLMEDGE_COMMON_SOURCES "${COMMON_DIR}/reasoning-budget.cpp")
 set(LLMEDGE_IQK_BASE_SOURCES
         ${GGML_DIR}/src/iqk/iqk_quantize.cpp
         ${GGML_DIR}/src/iqk/iqk_cpu_ops.cpp
         ${GGML_DIR}/src/iqk/iqk_mul_mat.cpp
         ${GGML_DIR}/src/iqk/iqk_flash_attn.cpp
 )
-set(LLMEDGE_IQK_DOTPROD_SOURCES
-        ${GGML_DIR}/src/iqk/iqk_gemm_floats.cpp
-        ${GGML_DIR}/src/iqk/iqk_gemm_kquants.cpp
-        ${GGML_DIR}/src/iqk/iqk_gemm_ktquants.cpp
-        ${GGML_DIR}/src/iqk/iqk_gemm_iquants.cpp
-        ${GGML_DIR}/src/iqk/iqk_gemm_iqk_quants.cpp
-        ${GGML_DIR}/src/iqk/iqk_gemm_1bit.cpp
-        ${GGML_DIR}/src/iqk/iqk_gemm_legacy_quants.cpp
-        ${GGML_DIR}/src/iqk/fa/iqk_fa_576_512.cpp
-        ${GGML_DIR}/src/iqk/fa/iqk_fa_320_256.cpp
-        ${GGML_DIR}/src/iqk/fa/iqk_fa_192_128.cpp
-        ${GGML_DIR}/src/iqk/fa/iqk_fa_192_192.cpp
-        ${GGML_DIR}/src/iqk/fa/iqk_fa_256_256.cpp
-        ${GGML_DIR}/src/iqk/fa/iqk_fa_128_128.cpp
-        ${GGML_DIR}/src/iqk/fa/iqk_fa_96_96.cpp
-        ${GGML_DIR}/src/iqk/fa/iqk_fa_64_64.cpp
+# iqk gemm + flash-attention kernels. Globbed (not hardcoded) so new upstream
+# variants (e.g. iqk_fa_512_512 added in this bump) are picked up automatically;
+# a missing kernel shows up as an undefined iqk_* symbol at link time.
+file(GLOB LLMEDGE_IQK_DOTPROD_SOURCES
+        "${GGML_DIR}/src/iqk/iqk_gemm_*.cpp"
+        "${GGML_DIR}/src/iqk/fa/*.cpp"
 )
 # The patched IQK sources rely on IQK_FORCE_IMPLEMENT in two cases:
 # - desktop x86 host builds, where upstream gating does not enable the implementation by default
@@ -140,6 +134,16 @@ if(EXISTS "${LLAMA_DIR}/src/models")
         file(GLOB LLAMA_MODEL_SOURCES "${LLAMA_DIR}/src/models/*.cpp")
         if(LLAMA_MODEL_SOURCES)
                 list(APPEND SMOLLM_SOURCES ${LLAMA_MODEL_SOURCES})
+        endif()
+endif()
+
+# ik_llama.cpp keeps per-model graph builders in src/graphs/*.cpp (declared in
+# llama-build-context.h, dispatched from llama-build-context.cpp); without these the
+# link fails with undefined llm_build_context::build_<model> symbols.
+if(EXISTS "${LLAMA_DIR}/src/graphs")
+        file(GLOB LLAMA_GRAPH_SOURCES "${LLAMA_DIR}/src/graphs/*.cpp")
+        if(LLAMA_GRAPH_SOURCES)
+                list(APPEND SMOLLM_SOURCES ${LLAMA_GRAPH_SOURCES})
         endif()
 endif()
 
