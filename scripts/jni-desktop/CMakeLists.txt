@@ -42,6 +42,13 @@ if(BUILD_SDCPP)
     # Add stable-diffusion.cpp
     add_subdirectory(${SD_ROOT} stable-diffusion)
 
+    # Newer ggml-vulkan.cpp needs SPIRV-Headers (namespace spv); provide them from the
+    # same pinned source the Android build uses.
+    if(SD_VULKAN)
+        include("${LLMEDGE_CPP_ROOT}/cmake/llmedge-spirv-headers.cmake")
+        llmedge_attach_spirv_headers(ggml-vulkan)
+    endif()
+
     # Build sdcpp shared library. Compile the full split JNI source set (matching the Android
     # build in cmake/llmedge-stable-diffusion.cmake) so the desktop library actually exports the
     # JNI entry points (nativeCreate, txt2img, ...) and host image/video E2E tests can load it.
