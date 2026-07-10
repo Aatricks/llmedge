@@ -84,12 +84,16 @@ target_compile_options(${LLMEDGE_TARGET_BARK_JNI} PUBLIC
         -funroll-loops
 )
 
-# No OpenMP here: see llmedge-whisper.cmake — a second static libomp in the
-# process aborts in libomp's duplicate-runtime check.
+# Bark's bundled ggml threads its graph compute through OpenMP; without it,
+# the fallback creates a disposable threadpool per graph and generation slows
+# ~20x on device. Use the single shared libomp.so (llmedge-openmp.cmake) so
+# there is still only one OpenMP runtime in the process.
+target_compile_definitions(${LLMEDGE_TARGET_BARK_JNI} PRIVATE GGML_USE_OPENMP)
+llmedge_link_shared_openmp(${LLMEDGE_TARGET_BARK_JNI})
 target_link_libraries(${LLMEDGE_TARGET_BARK_JNI}
         android log
 )
 
 target_link_options(${LLMEDGE_TARGET_BARK_JNI} PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
 
-message(STATUS "Bark.cpp JNI wrapper configured (direct source build)")
+message(STATUS "Bark.cpp JNI wrapper configured (direct source build, shared OpenMP)")

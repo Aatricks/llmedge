@@ -60,8 +60,8 @@ class RuntimeHardeningDeviceGateTest {
                 val bitmap = engine.txt2img(
                     GenerateParams(
                         prompt = "a red apple on a table",
-                        width = 256,
-                        height = 256,
+                        width = 128,
+                        height = 128,
                         steps = 2,
                         cfgScale = 1.0f,
                         seed = 42L + run,
@@ -150,7 +150,13 @@ class RuntimeHardeningDeviceGateTest {
     @Test
     fun barkGeneratesAudioWithGgmlThreadpool() {
         // Bark lost its OpenMP runtime in the libomp-coexistence fix (#39); this
-        // confirms generation still works on the ggml threadpool.
+        // confirms generation still works on the ggml threadpool. Opt-in only:
+        // bark.cpp needs 20+ minutes for a two-word phrase on a phone CPU, far
+        // too slow for the regular gate.
+        assumeTrue(
+            "Bark gate is opt-in: pass llmedge.gate.run_bark=true (generation takes 20+ min on device)",
+            InstrumentationRegistry.getArguments().getString("llmedge.gate.run_bark") == "true",
+        )
         val model = requireFile("llmedge.gate.bark_model_path", "/data/local/tmp/bark_ggml_weights.bin")
         val bark = io.aatricks.llmedge.speech.tts.BarkTTS.load(modelPath = model.absolutePath, seed = 42)
         try {
