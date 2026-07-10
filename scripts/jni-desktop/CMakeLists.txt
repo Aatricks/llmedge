@@ -59,6 +59,7 @@ if(BUILD_SDCPP)
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni_image.cpp
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni_load.cpp
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni_video.cpp
+        ${LLMEDGE_CPP_ROOT}/jni_thread_cache.cpp
     )
 
     target_include_directories(${LLMEDGE_TARGET_SDCPP} PRIVATE
@@ -191,6 +192,7 @@ if(BUILD_BARK)
 
         add_library(${LLMEDGE_TARGET_BARK_JNI} SHARED
             ${LLMEDGE_CPP_ROOT}/bark_jni.cpp
+            ${LLMEDGE_CPP_ROOT}/jni_thread_cache.cpp
         )
 
         target_include_directories(${LLMEDGE_TARGET_BARK_JNI} PRIVATE
@@ -252,6 +254,7 @@ if(WHISPER_DESKTOP_JNI)
         add_library(${LLMEDGE_TARGET_WHISPER_JNI} SHARED
             ${LLMEDGE_CPP_ROOT}/whisper_jni_common.cpp
             ${LLMEDGE_CPP_ROOT}/whisper_jni.cpp
+            ${LLMEDGE_CPP_ROOT}/jni_thread_cache.cpp
         )
 
         target_include_directories(${LLMEDGE_TARGET_WHISPER_JNI} PRIVATE
