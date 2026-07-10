@@ -45,14 +45,15 @@ function(build_library target_name)
             -ffunction-sections -fdata-sections
     )
 
-    # Enable OpenMP for multi-threaded ggml matrix operations
+    # Enable OpenMP for multi-threaded ggml matrix operations. Linked against
+    # the single shared libomp.so (llmedge-openmp.cmake) — a second static
+    # copy in the process aborts in libomp's duplicate-runtime check.
     target_compile_definitions(${target_name} PRIVATE GGML_USE_OPENMP)
-    target_compile_options(${target_name} PUBLIC -fopenmp)
+    llmedge_link_shared_openmp(${target_name})
 
     target_link_libraries(
             ${target_name}
             android log dl
-            -fopenmp -static-openmp
             ${LLMEDGE_GGML_EXTRA_LIBS}
     )
 
