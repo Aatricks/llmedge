@@ -1,3 +1,4 @@
+#include "jni_utils.h"
 #include "sdcpp_jni_shared.h"
 
 #include <algorithm>
@@ -8,7 +9,11 @@
 #include <stdexcept>
 #include <vector>
 
+// conditioner.hpp drags in the full header-only sd.cpp model graph code, which the
+// host-native test harness cannot link (it stubs libstable-diffusion instead).
+#ifndef SD_JNI_TESTING
 #include "conditioner.hpp"
+#endif
 #include "ggml-backend.h"
 #include "model.h"
 
@@ -104,12 +109,14 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
         jboolean jIsVideo) {
     (void)thiz;
 
-    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
-    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+    // Standard UTF-8 (not GetStringUTFChars' Modified UTF-8) so emoji and other
+    // supplementary characters reach the native tokenizer as valid bytes.
+    const std::string promptUtf8 = llmedge_jstring_to_utf8(env, jPrompt);
+    const std::string negativeUtf8 = llmedge_jstring_to_utf8(env, jNegative);
+    const char* prompt = promptUtf8.c_str();
+    const char* negative = negativeUtf8.c_str();
 
     auto releaseStrings = [&]() {
-        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
     };
 
     sd_condition_raw_t* cond = nullptr;
@@ -125,7 +132,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
                 return nullptr;
             }
-        } else if (handle->t5_ctx) {
+        }
+#ifndef SD_JNI_TESTING
+        else if (handle->t5_ctx) {
             auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
             try {
                 ConditionerParams cparams;
@@ -210,7 +219,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
                 return nullptr;
             }
-        } else {
+        }
+#endif
+        else {
             throwJavaException(env, "java/lang/IllegalStateException", "Invalid handle state");
             releaseStrings();
             return nullptr;
@@ -308,13 +319,15 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgWithPrecom
     handle->cancellationRequested.store(false);
     SdProgressCallbackGuard callbackGuard(handle);
 
-    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
-    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+    // Standard UTF-8 (not GetStringUTFChars' Modified UTF-8) so emoji and other
+    // supplementary characters reach the native tokenizer as valid bytes.
+    const std::string promptUtf8 = llmedge_jstring_to_utf8(env, jPrompt);
+    const std::string negativeUtf8 = llmedge_jstring_to_utf8(env, jNegative);
+    const char* prompt = promptUtf8.c_str();
+    const char* negative = negativeUtf8.c_str();
     SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
 
     auto releaseStrings = [&]() {
-        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
     };
 
     sd_condition_raw_t* cond = reconstruct_condition(env, condArr);
@@ -423,12 +436,14 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2VidWithPrecom
     handle->totalFrames = std::max(1, static_cast<int>(videoFrames));
     handle->currentFrame = 0;
 
-    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
-    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+    // Standard UTF-8 (not GetStringUTFChars' Modified UTF-8) so emoji and other
+    // supplementary characters reach the native tokenizer as valid bytes.
+    const std::string promptUtf8 = llmedge_jstring_to_utf8(env, jPrompt);
+    const std::string negativeUtf8 = llmedge_jstring_to_utf8(env, jNegative);
+    const char* prompt = promptUtf8.c_str();
+    const char* negative = negativeUtf8.c_str();
 
     auto releaseStrings = [&]() {
-        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
     };
 
     sd_sample_params_t sample{};

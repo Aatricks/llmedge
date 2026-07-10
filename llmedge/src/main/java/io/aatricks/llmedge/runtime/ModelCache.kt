@@ -197,6 +197,19 @@ class ModelCache<T : AutoCloseable>(
         true
     }
 
+    /**
+     * Pin an entry conditional on the exact instance.
+     * @return true if the entry was present, matches expectedModel exactly, and is now pinned
+     */
+    fun pin(key: String, expectedModel: T): Boolean = lock.write {
+        val entry = cache[key] ?: return@write false
+        if (entry.model !== expectedModel) {
+            return@write false
+        }
+        entry.pinCount++
+        true
+    }
+
     /** Release one pin taken with [pin]. Safe to call for absent keys. */
     fun unpin(key: String) {
         lock.write {

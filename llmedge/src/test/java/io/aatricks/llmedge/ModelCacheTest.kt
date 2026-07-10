@@ -157,6 +157,27 @@ class ModelCacheTest {
     }
 
     @Test
+    fun `conditional pin matches exact instance`() {
+        val cache = ModelCache<DummyModel>(maxCacheSize = 2, maxMemoryMB = 1024)
+        val first = DummyModel()
+        val replacement = DummyModel()
+
+        cache.put("first", first, 10L)
+
+        // pin with replacement model should fail
+        assertFalse(cache.pin("first", replacement))
+
+        // pin with correct model should succeed
+        assertTrue(cache.pin("first", first))
+
+        // Let's test that replacement cannot be pinned even if we put it afterward without unpinning
+        cache.unpin("first")
+        cache.put("first", replacement, 10L)
+        assertFalse(cache.pin("first", first))
+        assertTrue(cache.pin("first", replacement))
+    }
+
+    @Test
     fun `oversized insert after eviction does not loop forever`() {
         val cache = ModelCache<DummyModel>(maxCacheSize = 1, maxMemoryMB = 4096)
         cache.systemMemoryProvider = { 64L }

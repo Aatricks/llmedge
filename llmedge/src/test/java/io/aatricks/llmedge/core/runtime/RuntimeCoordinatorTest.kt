@@ -101,6 +101,56 @@ class RuntimeCoordinatorTest {
         assertEquals(ComputeBackend.VULKAN, runtime.backend)
     }
 
+    @Test
+    fun `non-backend failure during load falls through and does not blacklist gpu candidate`() = runTest {
+        var loadCalls = 0
+        val attemptedBackends = mutableListOf<ComputeBackend>()
+        val coordinator = createCoordinator { _, _, backend ->
+            loadCalls++
+            attemptedBackends += backend
+            if (backend == ComputeBackend.OPENCL) {
+                throw IllegalStateException("model load failed: file not found")
+            }
+            FakeRuntime(backend)
+        }
+
+        val options = FakeOptions(allowGpu = true, openClAvailable = true)
+        val first = coordinator.acquire("model", options)
+        assertEquals(ComputeBackend.CPU, first.backend)
+        assertEquals(2, loadCalls)
+        assertEquals(listOf(ComputeBackend.OPENCL, ComputeBackend.CPU), attemptedBackends)
+
+        attemptedBackends.clear()
+        val second = coordinator.acquire("model2", options)
+        assertEquals(ComputeBackend.CPU, second.backend)
+        assertEquals(listOf(ComputeBackend.OPENCL, ComputeBackend.CPU), attemptedBackends)
+    }
+
+    @Test
+    fun `backend failure during load falls through and blacklists gpu candidate`() = runTest {
+        var loadCalls = 0
+        val attemptedBackends = mutableListOf<ComputeBackend>()
+        val coordinator = createCoordinator { _, _, backend ->
+            loadCalls++
+            attemptedBackends += backend
+            if (backend == ComputeBackend.OPENCL) {
+                throw IllegalStateException("backend device lost")
+            }
+            FakeRuntime(backend)
+        }
+
+        val options = FakeOptions(allowGpu = true, openClAvailable = true)
+        val first = coordinator.acquire("model", options)
+        assertEquals(ComputeBackend.CPU, first.backend)
+        assertEquals(2, loadCalls)
+        assertEquals(listOf(ComputeBackend.OPENCL, ComputeBackend.CPU), attemptedBackends)
+
+        attemptedBackends.clear()
+        val second = coordinator.acquire("model2", options)
+        assertEquals(ComputeBackend.CPU, second.backend)
+        assertEquals(listOf(ComputeBackend.CPU), attemptedBackends)
+    }
+
     private fun createCoordinator(
         loader: suspend (String, FakeOptions, ComputeBackend) -> FakeRuntime,
     ): RuntimeCoordinator<String, FakeOptions, FakeRuntime> =

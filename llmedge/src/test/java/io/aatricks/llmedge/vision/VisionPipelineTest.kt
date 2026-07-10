@@ -154,4 +154,59 @@ class VisionPipelineTest {
             projectorFile.delete()
         }
     }
+
+    @Test
+    fun `projector readiness failure closes smol and projector exactly once`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val resolver = mockk<ModelRepository>()
+        val config =
+            LLMEdgeConfig(
+                text = TextRuntimeConfig(useVulkan = false, promptThreads = 4, generationThreads = 2),
+                vision = VisionRuntimeConfig(useVulkan = false, promptThreads = 4, generationThreads = 2),
+            )
+        val smol = mockk<SmolLM>(relaxed = true)
+        val projector = mockk<Projector>(relaxed = true)
+        val model = mockk<ModelSpec>()
+        val projectorSpec = mockk<ModelSpec>()
+        val modelFile = File.createTempFile("llava-fail-model", ".gguf").apply { writeText("model") }
+        val projectorFile = File.createTempFile("llava-fail-projector", ".mmproj.gguf").apply { writeText("projector") }
+        val edgeScope = LLMEdgeScope(this, config.text.promptThreads)
+
+        coEvery { resolver.resolve(context, model) } returns modelFile
+        coEvery { resolver.resolve(context, projectorSpec) } returns projectorFile
+        every { model.cacheKey } returns "fail-model"
+        every { projectorSpec.cacheKey } returns "fail-projector"
+        coEvery { smol.load(any(), any(), any()) } returns Unit
+        every { smol.getNativeModelPointer() } returns 33L
+        every { smol.getActiveBackend() } returns io.aatricks.llmedge.runtime.ComputeBackend.CPU
+        every { projector.isReady() } returns false // Simulate readiness failure
+
+        val pipeline =
+            VisionPipeline(
+                context = context,
+                scope = edgeScope,
+                resolver = resolver,
+                config = config,
+                smolLmFactory = { smol },
+                projectorFactory = { projector },
+            )
+
+        var threwExpected = false
+        try {
+            pipeline.prepare(model = model, projector = projectorSpec, promptThreads = 4, generationThreads = 2)
+        } catch (e: IllegalStateException) {
+            if (e.message?.contains("Native projector initialization failed") == true) {
+                threwExpected = true
+            }
+        } finally {
+            pipeline.close()
+            edgeScope.close()
+            modelFile.delete()
+            projectorFile.delete()
+        }
+
+        assertEquals(true, threwExpected)
+        verify(exactly = 1) { smol.close() }
+        verify(exactly = 1) { projector.close() }
+    }
 }

@@ -243,17 +243,19 @@ Java_io_aatricks_llmedge_speech_tts_BarkTTS_nativeGenerate(JNIEnv* env, jclass,
         return nullptr;
     }
 
-    const char* text = env->GetStringUTFChars(jText, nullptr);
-    if (!text) {
+    // Standard UTF-8 (not GetStringUTFChars' Modified UTF-8) so emoji and other
+    // supplementary characters reach the native tokenizer as valid bytes.
+    std::string textUtf8;
+    if (!llmedge_jstring_to_utf8(env, jText, &textUtf8)) {
         throwJavaException(env, "java/lang/RuntimeException", "Failed to get text string");
         return nullptr;
     }
+    const char* text = textUtf8.c_str();
 
     ALOGI("Generating audio for text: \"%s\", threads=%d", text, nThreads);
 
     // Generate audio
     bool success = bark_generate_audio(handle->ctx, text, nThreads);
-    env->ReleaseStringUTFChars(jText, text);
 
     if (!success) {
         ALOGE("Failed to generate audio");

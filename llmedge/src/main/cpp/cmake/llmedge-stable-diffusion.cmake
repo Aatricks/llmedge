@@ -203,6 +203,7 @@ add_library(${LLMEDGE_TARGET_SDCPP} SHARED
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni.cpp
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni_load.cpp
         ${LLMEDGE_CPP_ROOT}/sdcpp_jni_video.cpp
+        ${LLMEDGE_CPP_ROOT}/jni_thread_cache.cpp
 )
 
 target_include_directories(${LLMEDGE_TARGET_SDCPP}

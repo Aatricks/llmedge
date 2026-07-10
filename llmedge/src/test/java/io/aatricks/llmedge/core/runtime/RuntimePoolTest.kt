@@ -115,6 +115,30 @@ class RuntimePoolTest {
         assertEquals(1, closeCalls)
     }
 
+    @Test
+    fun `acquireLeased does not pin a replacement entry with same key when identities differ`() = runTest {
+        val pool = createPool { _, _, backend ->
+            FakeRuntime(backend)
+        }
+
+        val options = FakeOptions(allowGpu = false)
+        val spec = "model"
+
+        val result = pool.coordinator.acquireDetailed(spec, options)
+        val key = RuntimeCacheKeyBuilder.withBackend(result.keyPrefix, result.backend)
+
+        val replacementInstance = FakeRuntime(ComputeBackend.CPU)
+        pool.cache.put(key, replacementInstance, 1L)
+
+        // pin with the old runtime instance must fail because the cache now holds replacementInstance
+        val pinSuccessOld = pool.cache.pin(key, result.runtime)
+        assertFalse("Should not pin when instance differs", pinSuccessOld)
+
+        // pin with matching replacementInstance must succeed
+        val pinSuccessNew = pool.cache.pin(key, replacementInstance)
+        assertTrue("Should pin when instance matches", pinSuccessNew)
+    }
+
     private fun createPool(
         loader: suspend (String, FakeOptions, ComputeBackend) -> FakeRuntime,
     ): RuntimePool<String, FakeOptions, FakeRuntime> =

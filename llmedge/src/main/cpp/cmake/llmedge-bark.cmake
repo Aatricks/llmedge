@@ -35,6 +35,7 @@ set(BARK_JNI_ALL_SOURCES
         ${ENCODEC_SOURCES}
         ${BARK_SOURCES}
         ${LLMEDGE_CPP_ROOT}/bark_jni.cpp
+        ${LLMEDGE_CPP_ROOT}/jni_thread_cache.cpp
 )
 
 add_library(${LLMEDGE_TARGET_BARK_JNI} SHARED ${BARK_JNI_ALL_SOURCES})

@@ -159,7 +159,9 @@ internal class RuntimeCoordinator<TSpec, TOptions, TRuntime : ManagedRuntime>(
                 if (backendCandidate == ComputeBackend.CPU) {
                     throw error
                 }
-                RuntimeLoadPolicy.recordBackendFailureIfNeeded(request, backendCandidate)
+                if (BackendFailureClassifier.isBackendFailure(error)) {
+                    RuntimeLoadPolicy.recordBackendFailureIfNeeded(request, backendCandidate)
+                }
             }
         }
         throw lastError ?: IllegalStateException("Runtime load failed without a reported cause")
