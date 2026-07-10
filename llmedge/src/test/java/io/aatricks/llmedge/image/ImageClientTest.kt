@@ -894,7 +894,7 @@ class ImageClientTest {
     }
 
     @Test
-    fun `image generation evicts the runtime after each request so the SD context is never reused`() = runTest {
+    fun `image generation reuses the cached runtime across requests`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val modelFile = java.io.File.createTempFile("cached-image-model", ".gguf", context.filesDir).apply { writeBytes(byteArrayOf(0x01)) }
 
@@ -984,10 +984,10 @@ class ImageClientTest {
                 metrics += requireNotNull(client.getLastGenerationMetrics()?.imageRequestMetrics)
             }
 
-            // The SD context is evicted after every generation (a warm cached sd_ctx crashes
-            // natively on a second txt2img), so each request loads fresh — two loads, and the
-            // second request is a cold miss, not a warm hit.
-            coVerify(exactly = 2) {
+            // Warm reuse: the sd.cpp context keeps its weights now that
+            // free_params_immediately is off, so the second request is a cache
+            // hit with no second load.
+            coVerify(exactly = 1) {
                 StableDiffusion.loadWithRuntimeBackend(
                     any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
                     any(),
@@ -997,8 +997,7 @@ class ImageClientTest {
             assertFalse(metrics.first().cacheHit)
             assertTrue(metrics.first().modelLoadMs > 0L)
             assertTrue(metrics.first().runtimeAcquireMs >= metrics.first().modelLoadMs)
-            assertFalse(metrics.last().cacheHit)
-            assertTrue(metrics.last().modelLoadMs > 0L)
+            assertTrue(metrics.last().cacheHit)
         } finally {
             client.close()
             edgeScope.close()
