@@ -101,6 +101,10 @@ jobs:
         ./scripts/run_text_e2e.sh
 
     - name: Run E2E Tests (Image, classic checkpoint)
+      env:
+        # libsdcpp is built with Vulkan, but the runner has no Vulkan driver —
+        # without this, backend registration aborts with vk::IncompatibleDriverError.
+        GGML_DISABLE_VULKAN: "1"
       run: |
         source scripts/native_targets.sh
         export LLMEDGE_TEST_SD_MODEL_PATH="${{ github.workspace }}/models/sd_turbo-f16-q8_0.gguf"
