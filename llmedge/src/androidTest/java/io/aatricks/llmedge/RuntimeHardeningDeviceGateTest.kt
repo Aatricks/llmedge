@@ -10,7 +10,10 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -103,6 +106,33 @@ class RuntimeHardeningDeviceGateTest {
             // tokenizer received invalid Modified-UTF-8 bytes for it.
             val response = smol.getResponse("Repeat this exactly: hello 😀 world", maxTokens = 48)
             assertTrue("Empty response to emoji prompt", response.isNotBlank())
+        } finally {
+            smol.close()
+        }
+    }
+
+    @Test
+    fun smolLmFlowCancellationAndStopCompletionEndGeneration() = runBlocking {
+        val model = requireFile("llmedge.gate.text_model_path", "/data/local/tmp/smollm135.gguf")
+        val smol = SmolLM()
+        try {
+            smol.load(model.absolutePath, SmolLM.InferenceParams(storeChats = false))
+
+            // Cancelling the flow (take) must end the stream cleanly.
+            val taken = withTimeout(120_000) {
+                smol.getResponseAsFlow("Write a very long story about the sea.").take(5).toList()
+            }
+            assertTrue("take(5) returned ${taken.size} pieces", taken.size == 5)
+
+            // stopCompletion() from the collector must end an in-flight generation.
+            val pieces = mutableListOf<String>()
+            withTimeout(120_000) {
+                smol.getResponseAsFlow("Write another very long story about the sea.").collect {
+                    pieces.add(it)
+                    if (pieces.size == 5) smol.stopCompletion()
+                }
+            }
+            assertTrue("Generation did not stop promptly (got ${pieces.size} pieces)", pieces.size in 5..40)
         } finally {
             smol.close()
         }

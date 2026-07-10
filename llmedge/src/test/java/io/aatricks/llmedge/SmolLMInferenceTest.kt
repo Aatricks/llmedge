@@ -1,5 +1,6 @@
 package io.aatricks.llmedge
 
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -134,5 +135,84 @@ class SmolLMInferenceTest {
         assertEquals("Hi", bridge.messages[0].second)
         assertEquals("system", bridge.messages[1].first)
         assertEquals("Assistant test", bridge.messages[2].second)
+    }
+
+    /** Bridge that streams tokens forever until stopCompletion is called. */
+    private class EndlessBridge : SmolLM.NativeBridge {
+        var stopCalls = 0
+
+        override fun loadModel(
+            instance: SmolLM,
+            modelPath: String,
+            minP: Float,
+            temperature: Float,
+            storeChats: Boolean,
+            contextSize: Long,
+            chatTemplate: String,
+            nThreads: Int,
+            useMmap: Boolean,
+            useMlock: Boolean,
+            useVulkan: Boolean,
+            useFlashAttn: Boolean,
+            kvCacheTypeK: Int,
+            kvCacheTypeV: Int,
+            nGpuLayers: Int,
+        ): Long = 1L
+
+        override fun setReasoningOptions(instance: SmolLM, modelPtr: Long, disableThinking: Boolean, reasoningBudget: Int) {}
+        override fun addChatMessage(instance: SmolLM, modelPtr: Long, message: String, role: String) {}
+        override fun getResponseGenerationSpeed(instance: SmolLM, modelPtr: Long): Float = 1f
+        override fun getResponseGeneratedTokenCount(instance: SmolLM, modelPtr: Long): Long = 1
+        override fun getResponseGenerationDurationMicros(instance: SmolLM, modelPtr: Long): Long = 1L
+        override fun getContextSizeUsed(instance: SmolLM, modelPtr: Long): Int = 1
+        override fun getNativeModelPtr(instance: SmolLM, modelPtr: Long): Long = 0L
+        override fun nativeDecodePreparedEmbeddings(instance: SmolLM, modelPtr: Long, embdPath: String, metaPath: String, nBatch: Int): Boolean = true
+        override fun close(instance: SmolLM, modelPtr: Long) {}
+        override fun startCompletion(instance: SmolLM, modelPtr: Long, prompt: String) {}
+        override fun completionLoop(instance: SmolLM, modelPtr: Long): String = "tok "
+        override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String = "tok "
+        override fun stopCompletion(instance: SmolLM, modelPtr: Long) {
+            stopCalls++
+        }
+        override fun clearKvCache(instance: SmolLM, modelPtr: Long) {}
+    }
+
+    @Test
+    fun test_flow_cancellation_via_take_is_not_wrapped_as_failure() = runBlocking {
+        val bridge = EndlessBridge()
+        SmolLM.overrideNativeBridgeForTests { _ -> bridge }
+        val smol = SmolLM.createLoadedForTests(1L, useVulkan = false)
+
+        // take() cancels the flow after 3 emissions; this must terminate the
+        // stream cleanly, not surface as InferenceFailedException.
+        val pieces = smol.getResponseAsFlow("q", kotlinx.coroutines.Dispatchers.Unconfined, 1)
+            .take(3)
+            .toList()
+
+        assertEquals(3, pieces.size)
+        assertEquals(1, bridge.stopCalls)
+    }
+
+    @Test
+    fun test_native_failure_in_completion_loop_is_wrapped() = runBlocking {
+        val bridge = object : SmolLM.NativeBridge by EndlessBridge() {
+            override fun completionLoopBatch(instance: SmolLM, modelPtr: Long, maxTokens: Int): String =
+                throw IllegalStateException("native loop failed")
+            override fun completionLoop(instance: SmolLM, modelPtr: Long): String =
+                throw IllegalStateException("native loop failed")
+        }
+        SmolLM.overrideNativeBridgeForTests { _ -> bridge }
+        val smol = SmolLM.createLoadedForTests(1L, useVulkan = false)
+
+        var thrown: Throwable? = null
+        try {
+            smol.getResponseAsFlow("q", kotlinx.coroutines.Dispatchers.Unconfined, 1).toList()
+        } catch (e: Throwable) {
+            thrown = e
+        }
+        assertEquals(
+            io.aatricks.llmedge.core.InferenceFailedException::class.java,
+            thrown?.javaClass,
+        )
     }
 }
