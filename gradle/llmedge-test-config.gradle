@@ -60,7 +60,6 @@ android {
                     "*ImageGenerationTest",
                     "*VideoGenerationTest",
                     "*StableDiffusionTxt2VidTest",
-                    "*StableDiffusionTxt2ImgTest",
                     "*VideoI2VAndLoraE2ETest",
                     "*VideoGenerationSequentialE2ETest",
                     "*VideoGenerationHQTest",

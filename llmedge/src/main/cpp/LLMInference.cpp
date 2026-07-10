@@ -283,11 +283,6 @@ LLMInference::formatChatMessages(size_t messageCount, bool addGenerationPrompt) 
 }
 
 float
-LLMInference::getResponseGenerationTime() const {
-    return getResponseTokensPerSecond();
-}
-
-float
 LLMInference::getResponseTokensPerSecond() const {
     if (_responseGenerationTime <= 0 || _responseNumTokens <= 0) {
         return 0.f;

@@ -86,6 +86,15 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
 set(LLAMA_LLGUIDANCE OFF CACHE BOOL "" FORCE)
 set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    # ik_llama's iqk FA templates use fp16 intrinsics unconditionally on arm64;
+    # match the desktop harness (scripts/jni-desktop/CMakeLists.txt) arch flags.
+    # Metal defaults ON on macOS but ik_llama's dflash path doesn't compile
+    # against it here — these are CPU-only host tests.
+    set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+    set(GGML_METAL OFF CACHE BOOL "" FORCE)
+    add_compile_options(-march=armv8.2-a+fp16+dotprod)
+endif()
 add_subdirectory(${LLAMA_DIR} llama.cpp EXCLUDE_FROM_ALL)
 
 add_executable(smollm_chat_template_tests
