@@ -6,7 +6,7 @@ Java_io_aatricks_llmedge_text_runtime_SmolLM_getResponseGenerationSpeed(JNIEnv* 
     if (!llmInference) {
         return 0.0f;
     }
-    return llmInference->getResponseGenerationTime();
+    return llmInference->getResponseTokensPerSecond();
 }
 
 extern "C" JNIEXPORT jlong JNICALL

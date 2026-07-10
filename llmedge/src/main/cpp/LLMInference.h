@@ -100,7 +100,6 @@ class LLMInference {
 
     void addChatMessage(const char* message, const char* role);
 
-    float getResponseGenerationTime() const;
 
     float getResponseTokensPerSecond() const;
 
