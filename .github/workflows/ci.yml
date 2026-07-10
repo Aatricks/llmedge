@@ -99,3 +99,10 @@ jobs:
         LLMEDGE_TEST_TEXT_MODEL_PATH: ${{ github.workspace }}/models/SmolLM2-135M-Instruct-Q8_0.gguf
       run: |
         ./scripts/run_text_e2e.sh
+
+    - name: Run E2E Tests (Image, classic checkpoint)
+      run: |
+        source scripts/native_targets.sh
+        export LLMEDGE_TEST_SD_MODEL_PATH="${{ github.workspace }}/models/sd_turbo-f16-q8_0.gguf"
+        export LLMEDGE_BUILD_NATIVE_LIB_PATH="${{ github.workspace }}/llmedge/build/native/linux-x86_64/$(llmedge_native_output_name sdcpp)"
+        ./gradlew :llmedge:testDebugUnitTest --tests "*ImageGenerationClassicLinuxE2ETest"

@@ -54,17 +54,21 @@ class RuntimeHardeningDeviceGateTest {
         val sd = StableDiffusion.load(context = context, modelPath = model.absolutePath)
         sd.use { engine ->
             engine.setProgressCallback { _, _, _, _, _ -> progressCalls.incrementAndGet() }
-            val bitmap = engine.txt2img(
-                GenerateParams(
-                    prompt = "a red apple on a table",
-                    width = 256,
-                    height = 256,
-                    steps = 2,
-                    cfgScale = 1.0f,
-                    seed = 42L,
-                ),
-            )
-            assertTrue("txt2img returned empty bitmap", bitmap.width > 0 && bitmap.height > 0)
+            // Two generations on the same instance: warm sd_ctx reuse crashed on
+            // device before 863491a and was untested for every runtime.
+            repeat(2) { run ->
+                val bitmap = engine.txt2img(
+                    GenerateParams(
+                        prompt = "a red apple on a table",
+                        width = 256,
+                        height = 256,
+                        steps = 2,
+                        cfgScale = 1.0f,
+                        seed = 42L + run,
+                    ),
+                )
+                assertTrue("run $run: txt2img returned empty bitmap", bitmap.width > 0 && bitmap.height > 0)
+            }
         }
         assertTrue(
             "Native progress callback never fired (JNI thread-cache regression)",
@@ -83,10 +87,13 @@ class RuntimeHardeningDeviceGateTest {
         try {
             whisper.setSegmentCallback { _, _, _, _ -> segmentCalls.incrementAndGet() }
             whisper.setProgressCallback { progressCalls.incrementAndGet() }
-            val segments = whisper.transcribe(readWavMono16k(wav))
-            assertTrue("Transcription produced no segments", segments.isNotEmpty())
-            val text = segments.joinToString(" ") { it.text }.lowercase()
-            assertTrue("Unexpected transcript: $text", "country" in text)
+            val samples = readWavMono16k(wav)
+            repeat(2) { run ->
+                val segments = whisper.transcribe(samples)
+                assertTrue("run $run: transcription produced no segments", segments.isNotEmpty())
+                val text = segments.joinToString(" ") { it.text }.lowercase()
+                assertTrue("run $run: unexpected transcript: $text", "country" in text)
+            }
         } finally {
             whisper.close()
         }
@@ -104,8 +111,10 @@ class RuntimeHardeningDeviceGateTest {
             smol.load(model.absolutePath, SmolLM.InferenceParams(storeChats = false))
             // U+1F600 crosses JNI as a surrogate pair; before the UTF-8 fix the
             // tokenizer received invalid Modified-UTF-8 bytes for it.
-            val response = smol.getResponse("Repeat this exactly: hello 😀 world", maxTokens = 48)
-            assertTrue("Empty response to emoji prompt", response.isNotBlank())
+            repeat(2) { run ->
+                val response = smol.getResponse("Repeat this exactly: hello 😀 world", maxTokens = 48)
+                assertTrue("run $run: empty response to emoji prompt", response.isNotBlank())
+            }
         } finally {
             smol.close()
         }
@@ -135,6 +144,21 @@ class RuntimeHardeningDeviceGateTest {
             assertTrue("Generation did not stop promptly (got ${pieces.size} pieces)", pieces.size in 5..40)
         } finally {
             smol.close()
+        }
+    }
+
+    @Test
+    fun barkGeneratesAudioWithGgmlThreadpool() {
+        // Bark lost its OpenMP runtime in the libomp-coexistence fix (#39); this
+        // confirms generation still works on the ggml threadpool.
+        val model = requireFile("llmedge.gate.bark_model_path", "/data/local/tmp/bark_ggml_weights.bin")
+        val bark = io.aatricks.llmedge.speech.tts.BarkTTS.load(modelPath = model.absolutePath, seed = 42)
+        try {
+            val audio = bark.generate("Hello world.")
+            assertTrue("Bark produced no samples", audio.samples.isNotEmpty())
+            assertTrue("Bark produced silent audio", audio.samples.any { it != 0f })
+        } finally {
+            bark.close()
         }
     }
 

@@ -28,3 +28,14 @@ if [ ! -f "SmolLM2-135M-Instruct-Q8_0.gguf" ]; then
 fi
 echo "SmolLM2 model downloaded."
 
+# 3. Image Model: SD-Turbo (~1.3GB) — only if there is comfortable headroom
+if [ "$AVAILABLE_SPACE_KB" -gt $((8 * 1024 * 1024)) ]; then
+    echo "Downloading SD-Turbo model..."
+    if [ ! -f "sd_turbo-f16-q8_0.gguf" ]; then
+        curl -L -o sd_turbo-f16-q8_0.gguf https://huggingface.co/Green-Sky/SD-Turbo-GGUF/resolve/main/sd_turbo-f16-q8_0.gguf
+    fi
+    echo "SD-Turbo model downloaded."
+else
+    echo "Skipping SD-Turbo download (insufficient disk space); image E2E will be skipped."
+fi
+
