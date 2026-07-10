@@ -13,7 +13,8 @@ on:
         type: string
 
 permissions:
-  contents: read
+  # write: the publish job attaches the built AAR to the GitHub release.
+  contents: write
 
 jobs:
   maven-central:
@@ -116,3 +117,21 @@ jobs:
         run: |
           ./gradlew --no-daemon publishAndReleaseToMavenCentral \
             -PVERSION_NAME="${PUBLISH_VERSION}"
+
+      # Attach the exact artifact that went to Maven Central, so the release
+      # page never diverges from what users resolve from Central.
+      - name: Attach AAR to GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          AAR="llmedge/build/outputs/aar/llmedge-release.aar"
+          if [[ ! -f "${AAR}" ]]; then
+            echo "Expected AAR not found at ${AAR}" >&2
+            exit 1
+          fi
+          ASSET="llmedge-${PUBLISH_VERSION}.aar"
+          cp "${AAR}" "${ASSET}"
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 \
+            || gh release create "${GITHUB_REF_NAME}" --generate-notes
+          gh release upload "${GITHUB_REF_NAME}" "${ASSET}" --clobber
