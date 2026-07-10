@@ -249,7 +249,21 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceCo
     (void)env;
     (void)clazz;
 #ifdef SD_USE_VULKAN
-    return (jint)ggml_backend_vk_get_device_count();
+    // Probing must never kill the process: honor the registry kill switch and
+    // catch loader failures (a Vulkan loader with no working driver throws
+    // vk::IncompatibleDriverError out of instance creation).
+    if (std::getenv("GGML_DISABLE_VULKAN") != nullptr) {
+        return 0;
+    }
+    try {
+        return (jint)ggml_backend_vk_get_device_count();
+    } catch (const std::exception& e) {
+        ALOGW("Vulkan device probe failed, falling back to 0 devices: %s", e.what());
+        return 0;
+    } catch (...) {
+        ALOGW("Vulkan device probe failed with a non-standard exception; falling back to 0 devices");
+        return 0;
+    }
 #else
     return 0;
 #endif
@@ -260,7 +274,13 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceMe
     (void)clazz;
 #ifdef SD_USE_VULKAN
     size_t free_mem = 0, total_mem = 0;
-    ggml_backend_vk_get_device_memory((int)deviceIndex, &free_mem, &total_mem);
+    try {
+        ggml_backend_vk_get_device_memory((int)deviceIndex, &free_mem, &total_mem);
+    } catch (const std::exception& e) {
+        ALOGW("Vulkan memory probe failed: %s", e.what());
+        free_mem = 0;
+        total_mem = 0;
+    }
     jlongArray arr = env->NewLongArray(2);
     if (!arr) return nullptr;
     jlong vals[2];
@@ -283,7 +303,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeGetVulkanDeviceDe
 #ifdef SD_USE_VULKAN
     char desc[256];
     desc[0] = '\0';
-    ggml_backend_vk_get_device_description((int)deviceIndex, desc, sizeof(desc));
+    try {
+        ggml_backend_vk_get_device_description((int)deviceIndex, desc, sizeof(desc));
+    } catch (const std::exception& e) {
+        ALOGW("Vulkan description probe failed: %s", e.what());
+    }
     if (desc[0] == '\0') {
         return nullptr;
     }
