@@ -17,7 +17,11 @@
 #if defined(SD_USE_VULKAN)
 #include "ggml-vulkan.h"
 #endif
+// conditioner.hpp drags in the full header-only sd.cpp model graph code, which the
+// host-native test harness cannot link (it stubs libstable-diffusion instead).
+#ifndef SD_JNI_TESTING
 #include "conditioner.hpp"
+#endif
 #include "ggml_extend_backend.h"
 #include "ggml-backend.h"
 #include "model.h"
@@ -52,6 +56,10 @@ private:
 };
 
 static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, bool offloadToCpu, bool useVulkan) {
+#ifdef SD_JNI_TESTING
+    (void)env; (void)modelPath; (void)offloadToCpu; (void)useVulkan;
+    return nullptr;
+#else
     if (!modelPath) {
         return nullptr;
     }
@@ -125,12 +133,17 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
 
     ALOGI("Created T5-only context for sequential prompt conditioning");
     return handle;
+#endif
 }
 
 // Encoder-only handle for FLUX.2 sequential mode (llmedge Lever 1): loads ONLY the Qwen3 text
 // encoder (no diffusion transformer), so the precompute phase peaks at the encoder size instead of
 // encoder+DiT. Mirrors try_create_t5_only_handle but builds an LLMEmbedder.
 static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bool offloadToCpu, bool useVulkan) {
+#ifdef SD_JNI_TESTING
+    (void)env; (void)llmPath; (void)offloadToCpu; (void)useVulkan;
+    return nullptr;
+#else
     if (!llmPath) {
         return nullptr;
     }
@@ -199,6 +212,7 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
     }
     ALOGI("Created LLM-only (Qwen3) context for sequential FLUX.2 conditioning");
     return handle;
+#endif
 }
 
 void sd_android_log_cb(enum sd_log_level_t level, const char* text, void* data) {
@@ -521,6 +535,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
         free_sd_ctx(handle->ctx);
         handle->ctx = nullptr;
     }
+#ifndef SD_JNI_TESTING
     if (handle->t5_ctx) {
         auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
         t5->free_params_buffer();
@@ -533,6 +548,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
         delete llm;
         handle->llm_ctx = nullptr;
     }
+#endif
     if (handle->backend) {
         ggml_backend_free(static_cast<ggml_backend_t>(handle->backend));
         handle->backend = nullptr;

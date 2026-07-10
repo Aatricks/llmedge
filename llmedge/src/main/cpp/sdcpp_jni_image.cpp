@@ -1,3 +1,4 @@
+#include "jni_utils.h"
 #include "sdcpp_jni_shared.h"
 
 #include <cstddef>
@@ -26,8 +27,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     }
     handle->cancellationRequested.store(false);
     SdProgressCallbackGuard callbackGuard(handle);
-    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
-    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+    // Standard UTF-8 (not GetStringUTFChars' Modified UTF-8) so emoji and other
+    // supplementary characters reach the native tokenizer as valid bytes.
+    const std::string promptUtf8 = llmedge_jstring_to_utf8(env, jPrompt);
+    const std::string negativeUtf8 = llmedge_jstring_to_utf8(env, jNegative);
+    const char* prompt = promptUtf8.c_str();
+    const char* negative = negativeUtf8.c_str();
     SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
 
     sd_sample_params_t sample{};
@@ -60,17 +65,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     try {
         out = generate_image(handle->ctx, &gen);
     } catch (const std::exception& e) {
-        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
         const char* clazz = handle->cancellationRequested.load()
                 ? "java/util/concurrent/CancellationException"
                 : "java/lang/RuntimeException";
         throwJavaException(env, clazz, e.what());
         return nullptr;
     }
-
-    if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-    if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
 
     if (!out || !out[0].data) {
         ALOGE("generate_image failed");
@@ -120,8 +120,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
     }
     handle->cancellationRequested.store(false);
     SdProgressCallbackGuard callbackGuard(handle);
-    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
-    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+    // Standard UTF-8 (not GetStringUTFChars' Modified UTF-8) so emoji and other
+    // supplementary characters reach the native tokenizer as valid bytes.
+    const std::string promptUtf8 = llmedge_jstring_to_utf8(env, jPrompt);
+    const std::string negativeUtf8 = llmedge_jstring_to_utf8(env, jNegative);
+    const char* prompt = promptUtf8.c_str();
+    const char* negative = negativeUtf8.c_str();
     SdResolvedPromptLoras resolved = resolve_prompt_loras(prompt, negative, handle->loraModelDir);
 
     sd_sample_params_t sample{};
@@ -154,17 +158,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
     try {
         out = generate_image(handle->ctx, &gen);
     } catch (const std::exception& e) {
-        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
         const char* clazz = handle->cancellationRequested.load()
                 ? "java/util/concurrent/CancellationException"
                 : "java/lang/RuntimeException";
         throwJavaException(env, clazz, e.what());
         return nullptr;
     }
-
-    if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-    if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
 
     if (!out || !out[0].data) {
         ALOGE("generate_image failed");

@@ -31,7 +31,7 @@ internal class RuntimeLease<TRuntime : ManagedRuntime>(
 }
 
 internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
-    private val cache: ModelCache<TRuntime>,
+    internal val cache: ModelCache<TRuntime>,
     private val cacheKeyPrefix: (TSpec, TOptions) -> String,
     private val loadRuntime: suspend (TSpec, TOptions, ComputeBackend) -> TRuntime,
     private val activeBackend: (TRuntime) -> ComputeBackend,
@@ -81,7 +81,7 @@ internal class RuntimePool<TSpec, TOptions, TRuntime : ManagedRuntime>(
         repeat(2) {
             val result = coordinator.acquireDetailed(spec, options)
             val key = RuntimeCacheKeyBuilder.withBackend(result.keyPrefix, result.backend)
-            if (cache.pin(key)) {
+            if (cache.pin(key, result.runtime)) {
                 return RuntimeLease(result.runtime) { cache.unpin(key) }
             }
         }

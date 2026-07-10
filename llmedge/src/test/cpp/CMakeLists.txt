@@ -35,6 +35,7 @@ add_library(sd_jni_under_test STATIC
     ../../main/cpp/sdcpp_jni.cpp
     ../../main/cpp/sdcpp_jni_load.cpp
     ../../main/cpp/sdcpp_jni_video.cpp
+    ../../main/cpp/jni_thread_cache.cpp
     sd_test_stubs.cpp
 )
 

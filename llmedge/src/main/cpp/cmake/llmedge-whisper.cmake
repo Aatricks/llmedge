@@ -59,6 +59,7 @@ set(WHISPER_SOURCES
         ${WHISPER_DIR}/src/whisper.cpp
         ${LLMEDGE_CPP_ROOT}/whisper_jni_common.cpp
         ${LLMEDGE_CPP_ROOT}/whisper_jni.cpp
+        ${LLMEDGE_CPP_ROOT}/jni_thread_cache.cpp
 )
 
 set(WHISPER_JNI_ALL_SOURCES

@@ -226,4 +226,102 @@ class StableDiffusionTxt2ImgTest {
 
         org.junit.Assert.assertTrue(sd.state.closed.get())
     }
+
+    @Test
+    fun `txt2img on closed instance throws IllegalStateException and does not call bridge`() = runTest {
+        var bridgeCalled = false
+        StableDiffusion.overrideNativeBridgeForTests { _ ->
+            object : StableDiffusion.NativeBridge {
+                override fun txt2imgArgb(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): IntArray? {
+                    bridgeCalled = true
+                    return intArrayOf()
+                }
+
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray? {
+                    bridgeCalled = true
+                    return byteArrayOf()
+                }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = null
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) {}
+                override fun cancelGeneration(handle: Long) {}
+                override fun precomputeCondition(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    clipSkip: Int,
+                ): PrecomputedCondition? = null
+            }
+        }
+
+        val sd = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType).apply { isAccessible = true }
+            .newInstance(1L)
+
+        // Close the instance
+        sd.close()
+
+        var threwExpected = false
+        try {
+            sd.txt2img(GenerateParams(prompt = "hi", width = 64, height = 64, steps = 1))
+        } catch (e: IllegalStateException) {
+            if (e.message == "StableDiffusion is closed") {
+                threwExpected = true
+            }
+        }
+
+        assertEquals(true, threwExpected)
+        org.junit.Assert.assertFalse("Bridge txt2img must not be called after close", bridgeCalled)
+    }
 }

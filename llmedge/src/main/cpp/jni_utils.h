@@ -2,8 +2,10 @@
 
 #include <jni.h>
 
+#include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 // Single process-wide mutex for setenv/unsetenv/getenv around backend selection.
 // POSIX environment mutation is not thread-safe against concurrent getenv, and the
@@ -89,6 +91,62 @@ inline jstring llmedge_new_string_utf8(JNIEnv* env, const char* utf8) {
     env->DeleteLocalRef(string_class);
     env->DeleteLocalRef(bytes);
     return result;
+}
+
+// Convert a java.lang.String to *standard* UTF-8. GetStringUTFChars yields
+// Modified UTF-8 (supplementary characters such as emoji become 6-byte
+// surrogate sequences, U+0000 becomes 0xC0 0x80), which native tokenizers
+// reject as invalid bytes — so go through UTF-16 and encode real UTF-8.
+// Returns false only if the UTF-16 chars could not be obtained (a Java
+// exception is then pending). A null jstring converts to "" and returns true.
+inline bool llmedge_jstring_to_utf8(JNIEnv* env, jstring value, std::string* out) {
+    out->clear();
+    if (!value) {
+        return true;
+    }
+    const jsize len = env->GetStringLength(value);
+    const jchar* chars = env->GetStringChars(value, nullptr);
+    if (!chars) {
+        return false;
+    }
+    out->reserve(static_cast<size_t>(len) * 3);
+    for (jsize i = 0; i < len; ++i) {
+        uint32_t cp = chars[i];
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < len) {
+            const uint32_t low = chars[i + 1];
+            if (low >= 0xDC00 && low <= 0xDFFF) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+                ++i;
+            }
+        }
+        if (cp >= 0xD800 && cp <= 0xDFFF) {
+            cp = 0xFFFD;  // unpaired surrogate -> replacement character
+        }
+        if (cp < 0x80) {
+            out->push_back(static_cast<char>(cp));
+        } else if (cp < 0x800) {
+            out->push_back(static_cast<char>(0xC0 | (cp >> 6)));
+            out->push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else if (cp < 0x10000) {
+            out->push_back(static_cast<char>(0xE0 | (cp >> 12)));
+            out->push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out->push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else {
+            out->push_back(static_cast<char>(0xF0 | (cp >> 18)));
+            out->push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+            out->push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out->push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        }
+    }
+    env->ReleaseStringChars(value, chars);
+    return true;
+}
+
+// Convenience overload for call sites that treat conversion failure as "".
+inline std::string llmedge_jstring_to_utf8(JNIEnv* env, jstring value) {
+    std::string out;
+    llmedge_jstring_to_utf8(env, value, &out);
+    return out;
 }
 
 inline jobject llmedge_new_global_ref_or_throw(JNIEnv* env, jobject target, const char* oom_message) {

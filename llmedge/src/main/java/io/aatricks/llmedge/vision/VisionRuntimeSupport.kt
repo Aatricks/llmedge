@@ -89,37 +89,56 @@ internal fun createVisionRuntimePool(
                         VisionPromptSupport.unsupportedReason(spec.model, spec.projector)
                     }
                     val smol = smolLmFactory(backend == ComputeBackend.VULKAN)
-                    smol.load(
-                        modelPath = modelFile.absolutePath,
-                        params =
-                            SmolLM.InferenceParams(
-                                numThreads = options.promptThreads.coerceAtLeast(1),
-                                generationThreads = options.generationThreads.coerceAtLeast(1),
-                                contextSize = null,
-                                storeChats = false,
-                                temperature = 0.0f,
-                                useFlashAttn = config.vision.useFlashAttention,
-                                thinkingMode = SmolLM.ThinkingMode.DEFAULT,
-                                // Non-causal projectors (Gemma3-family) require the whole
-                                // image chunk in a single micro-batch: llama_decode asserts
-                                // n_ubatch >= n_tokens when causal_attn is off. 1024 covers
-                                // every current projector's per-image token count.
-                                nUbatch = VISION_UBATCH,
-                            ),
-                        preferredBackend = backend,
-                    )
+                    var loadedSmol: SmolLM? = null
+                    var initializedProjector: Projector? = null
+                    try {
+                        smol.load(
+                            modelPath = modelFile.absolutePath,
+                            params =
+                                SmolLM.InferenceParams(
+                                    numThreads = options.promptThreads.coerceAtLeast(1),
+                                    generationThreads = options.generationThreads.coerceAtLeast(1),
+                                    contextSize = null,
+                                    storeChats = false,
+                                    temperature = 0.0f,
+                                    useFlashAttn = config.vision.useFlashAttention,
+                                    thinkingMode = SmolLM.ThinkingMode.DEFAULT,
+                                    // Non-causal projectors (Gemma3-family) require the whole
+                                    // image chunk in a single micro-batch: llama_decode asserts
+                                    // n_ubatch >= n_tokens when causal_attn is off. 1024 covers
+                                    // every current projector's per-image token count.
+                                    nUbatch = VISION_UBATCH,
+                                ),
+                            preferredBackend = backend,
+                        )
+                        loadedSmol = smol
 
-                    val projector = projectorFactory()
-                    projector.init(projectorFile.absolutePath, smol.getNativeModelPointer())
-                    check(projector.isReady()) {
-                        "Native projector initialization failed for ${projectorFile.name}. Ensure the mmproj file matches the selected model and that projector bindings are available."
+                        val projector = projectorFactory()
+                        initializedProjector = projector
+                        projector.init(projectorFile.absolutePath, smol.getNativeModelPointer())
+                        check(projector.isReady()) {
+                            "Native projector initialization failed for ${projectorFile.name}. Ensure the mmproj file matches the selected model and that projector bindings are available."
+                        }
+
+                        val runtime = ManagedVisionRuntime(
+                            fileSizeBytes = modelFile.length() + projectorFile.length(),
+                            smol = smol,
+                            projector = projector,
+                        )
+                        loadedSmol = null
+                        initializedProjector = null
+                        runtime
+                    } catch (t: Throwable) {
+                        try {
+                            initializedProjector?.close()
+                        } catch (e: Exception) {
+                        }
+                        try {
+                            loadedSmol?.close()
+                        } catch (e: Exception) {
+                        }
+                        throw t
                     }
-
-                    ManagedVisionRuntime(
-                        fileSizeBytes = modelFile.length() + projectorFile.length(),
-                        smol = smol,
-                        projector = projector,
-                    )
                 },
                 activeBackend = { it.smol.getActiveBackend() },
                 candidateRequest = {

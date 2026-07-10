@@ -19,28 +19,29 @@ inline void throwInvalidHandle(JNIEnv* env, const char* owner) {
     throwJavaException(env, "java/lang/IllegalStateException", owner);
 }
 
+// Converts through llmedge_jstring_to_utf8 so user text (prompts, chat
+// messages) reaches native tokenizers as standard UTF-8, not the Modified
+// UTF-8 that GetStringUTFChars produces for supplementary characters.
 class ScopedUtfChars {
   public:
-    ScopedUtfChars(JNIEnv* env, jstring value) : env_(env), value_(value) {
-        chars_ = value_ ? env_->GetStringUTFChars(value_, nullptr) : nullptr;
-    }
-
-    ~ScopedUtfChars() {
-        if (chars_) {
-            env_->ReleaseStringUTFChars(value_, chars_);
+    ScopedUtfChars(JNIEnv* env, jstring value) {
+        if (!value) {
+            return;
         }
+        has_value_ = true;
+        converted_ = llmedge_jstring_to_utf8(env, value, &utf8_);
     }
 
     ScopedUtfChars(const ScopedUtfChars&) = delete;
     ScopedUtfChars& operator=(const ScopedUtfChars&) = delete;
 
-    const char* get() const { return chars_; }
-    bool ok() const { return value_ == nullptr || chars_ != nullptr; }
+    const char* get() const { return has_value_ && converted_ ? utf8_.c_str() : nullptr; }
+    bool ok() const { return !has_value_ || converted_; }
 
   private:
-    JNIEnv* env_;
-    jstring value_;
-    const char* chars_ = nullptr;
+    bool has_value_ = false;
+    bool converted_ = false;
+    std::string utf8_;
 };
 
 inline LLMInference* requireInference(JNIEnv* env, jlong modelPtr, const char* operation) {

@@ -122,6 +122,9 @@ internal object StableDiffusionExecutor {
                                     ImageGenerationPhase.JNI_ARGB_ENTER,
                                     "calling native ARGB image generation",
                                 )
+                                if (instance.state.closed.get()) {
+                                    throw IllegalStateException("StableDiffusion is closed")
+                                }
                                 instance.bridge.txt2imgArgb(
                                     instance.state.handle,
                                     params.prompt,
@@ -216,6 +219,9 @@ internal object StableDiffusionExecutor {
                                     ImageGenerationPhase.JNI_RGB_ENTER,
                                     "calling native RGB image generation",
                                 )
+                                if (instance.state.closed.get()) {
+                                    throw IllegalStateException("StableDiffusion is closed")
+                                }
                                 instance.bridge.txt2img(
                                     instance.state.handle,
                                     params.prompt,

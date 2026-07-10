@@ -31,7 +31,7 @@ void sd_set_preview_callback(sd_preview_cb_t, enum preview_t, int, bool, bool, v
     // Not used in tests.
 }
 
-int32_t get_num_physical_cores() {
+int32_t sd_get_num_physical_cores() {
     return 4;
 }
 
@@ -119,7 +119,8 @@ sd_image_t* generate_image(sd_ctx_t*, const sd_img_gen_params_t* params) {
     return images;
 }
 
-sd_image_t* generate_video(sd_ctx_t*, const sd_vid_gen_params_t* params, int* num_frames_out) {
+bool generate_video(sd_ctx_t*, const sd_vid_gen_params_t* params,
+                    sd_image_t** frames_out, int* num_frames_out, sd_audio_t** audio_out) {
     const int frames = params->video_frames > 0 ? params->video_frames : 4;
     *num_frames_out = frames;
     auto* images = static_cast<sd_image_t*>(std::malloc(sizeof(sd_image_t) * frames));
@@ -136,10 +137,16 @@ sd_image_t* generate_video(sd_ctx_t*, const sd_vid_gen_params_t* params, int* nu
             }
         }
     }
-    return images;
+    *frames_out = images;
+    if (audio_out) {
+        *audio_out = nullptr;
+    }
+    return true;
 }
 
-upscaler_ctx_t* new_upscaler_ctx(const char*, bool, bool, int, int) { return nullptr; }
+void free_sd_audio(sd_audio_t*) {}
+
+upscaler_ctx_t* new_upscaler_ctx(const char*, bool, bool, int, int, const char*, const char*) { return nullptr; }
 void free_upscaler_ctx(upscaler_ctx_t*) {}
 sd_image_t upscale(upscaler_ctx_t*, sd_image_t input_image, uint32_t) { return input_image; }
 int get_upscale_factor(upscaler_ctx_t*) { return 1; }
@@ -234,15 +241,16 @@ void sd_free_condition(sd_condition_raw_t* cond) {
     free(cond);
 }
 
-sd_image_t* sd_generate_video_with_precomputed_condition(sd_ctx_t* sd_ctx,
-                                                        const sd_vid_gen_params_t* sd_vid_gen_params,
-                                                        const sd_condition_raw_t* cond,
-                                                        const sd_condition_raw_t* uncond,
-                                                        int* num_frames_out) {
+// sd_generate_video_with_precomputed_condition is provided by sdcpp_jni.cpp
+// (compatibility shim) and forwards to the generate_video stub above.
+
+sd_image_t* sd_generate_image_with_precomputed_condition(sd_ctx_t* sd_ctx,
+                                                         const sd_img_gen_params_t* sd_img_gen_params,
+                                                         const sd_condition_raw_t* cond,
+                                                         const sd_condition_raw_t* uncond) {
     (void)cond;
     (void)uncond;
-    // For test purposes: forward to the standard generate_video stub
-    return generate_video(sd_ctx, sd_vid_gen_params, num_frames_out);
+    return generate_image(sd_ctx, sd_img_gen_params);
 }
 
 }  // extern "C"

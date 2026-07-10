@@ -37,12 +37,14 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
     handle->totalFrames = std::max(1, static_cast<int>(videoFrames));
     handle->currentFrame = 0;
 
-    const char* prompt = jPrompt ? env->GetStringUTFChars(jPrompt, nullptr) : "";
-    const char* negative = jNegative ? env->GetStringUTFChars(jNegative, nullptr) : "";
+    // Standard UTF-8 (not GetStringUTFChars' Modified UTF-8) so emoji and other
+    // supplementary characters reach the native tokenizer as valid bytes.
+    const std::string promptUtf8 = llmedge_jstring_to_utf8(env, jPrompt);
+    const std::string negativeUtf8 = llmedge_jstring_to_utf8(env, jNegative);
+    const char* prompt = promptUtf8.c_str();
+    const char* negative = negativeUtf8.c_str();
 
     auto releaseStrings = [&]() {
-        if (jPrompt) env->ReleaseStringUTFChars(jPrompt, prompt);
-        if (jNegative) env->ReleaseStringUTFChars(jNegative, negative);
     };
 
     sd_sample_params_t sample{};
