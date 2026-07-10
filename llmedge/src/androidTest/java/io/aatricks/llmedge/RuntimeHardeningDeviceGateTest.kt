@@ -51,7 +51,10 @@ class RuntimeHardeningDeviceGateTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val progressCalls = AtomicInteger(0)
 
-        val sd = StableDiffusion.load(context = context, modelPath = model.absolutePath)
+        // Pass llmedge.gate.sd_vulkan=true to exercise warm-context reuse on the
+        // Vulkan backend (where the original second-generation crash was seen).
+        val useVulkan = InstrumentationRegistry.getArguments().getString("llmedge.gate.sd_vulkan") == "true"
+        val sd = StableDiffusion.load(context = context, modelPath = model.absolutePath, forceVulkan = useVulkan)
         sd.use { engine ->
             engine.setProgressCallback { _, _, _, _, _ -> progressCalls.incrementAndGet() }
             // Two generations on the same instance: warm sd_ctx reuse crashed on
