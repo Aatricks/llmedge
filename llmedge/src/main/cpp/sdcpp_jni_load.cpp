@@ -469,7 +469,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     // Split-model components (FLUX.2 Klein etc.). Empty string == not provided.
     p.diffusion_model_path = diffusionModelPathValue.c_str();
     p.llm_path = llmPathValue.c_str();
-    p.free_params_immediately = true;
+    // MUST stay false: free_params_immediately frees each module's weight
+    // buffer after its stage, so a second generate_image on the same handle
+    // reads freed memory (SIGSEGV in the UNet's first conv — this was the
+    // "warm sd_ctx unsafe to reuse" crash, on every backend, not just Vulkan).
+    // llmedge's ModelCache owns weight lifetime via eviction instead.
+    p.free_params_immediately = false;
     p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
     p.offload_params_to_cpu = offloadToCpu;
     p.keep_clip_on_cpu = keepClipOnCpu;
