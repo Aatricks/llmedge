@@ -74,7 +74,6 @@ target_compile_definitions(${LLMEDGE_TARGET_WHISPER_JNI} PRIVATE
         WHISPER_VERSION="1.0.0"
         GGML_VERSION="0.9.4"
         GGML_COMMIT="unknown"
-        GGML_USE_OPENMP
 )
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
@@ -95,17 +94,20 @@ target_include_directories(${LLMEDGE_TARGET_WHISPER_JNI}
 
 target_compile_features(${LLMEDGE_TARGET_WHISPER_JNI} PUBLIC c_std_11 cxx_std_17)
 
-target_compile_options(${LLMEDGE_TARGET_WHISPER_JNI} PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3 -fopenmp)
+target_compile_options(${LLMEDGE_TARGET_WHISPER_JNI} PUBLIC -fvisibility=hidden -fvisibility-inlines-hidden -ffunction-sections -fdata-sections -O3)
 
 if (LLMEDGE_OPENCL_ENABLED)
         llmedge_enable_android_opencl(${LLMEDGE_TARGET_WHISPER_JNI} "${WHISPER_GGML_DIR}")
 endif()
 
+# No OpenMP here: each -static-openmp library embeds its own libomp, and
+# libomp aborts the process when a second copy registers (e.g. whisper loaded
+# after smollm). ggml's internal threadpool is used instead; only the smollm
+# targets keep OpenMP.
 target_link_libraries(${LLMEDGE_TARGET_WHISPER_JNI}
         android log
-        -fopenmp -static-openmp
 )
 
 target_link_options(${LLMEDGE_TARGET_WHISPER_JNI} PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
 
-message(STATUS "Whisper.cpp JNI wrapper configured (direct source build with bundled ggml, OpenMP enabled)")
+message(STATUS "Whisper.cpp JNI wrapper configured (direct source build with bundled ggml, ggml threadpool)")

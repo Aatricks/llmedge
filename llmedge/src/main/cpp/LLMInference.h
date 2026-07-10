@@ -4,6 +4,7 @@
 #include "chat.h"
 #include "common.h"
 #include "sampling.h"
+#include <atomic>
 #include <string>
 #include <vector>
 #include <functional>
@@ -74,6 +75,11 @@ class LLMInference {
     // subsequent calls to completionLoop() return "[EOG]" immediately
     // instead of attempting another llama_decode with stale batch data.
     bool _eogReached = false;
+
+    // Set by stopCompletion() (possibly from another thread, between native
+    // calls) so the next completionLoop() ends the stream instead of decoding.
+    // Cleared by startCompletion().
+    std::atomic<bool> _stopRequested{false};
 
     // Set when a completion ended because the context window filled up
     // mid-generation (the partial response was still returned to the caller).

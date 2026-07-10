@@ -95,28 +95,36 @@ internal object SmolLMCompletionSupport {
     ): Flow<String> =
         flow {
             try {
-                startCompletionLocked(instance, query)
+                // Wrap only the native calls: emit() throws when a downstream
+                // operator cancels the flow (take/first), and a catch around it
+                // would turn normal cancellation into InferenceFailedException.
+                wrapNativeFailure { startCompletionLocked(instance, query) }
                 val stepper = CompletionStepper(instance)
                 val step = batchSize.coerceAtLeast(1)
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    val piece = stepper.next(step) ?: break
+                    val piece = wrapNativeFailure { stepper.next(step) } ?: break
                     // An empty piece means the native side is buffering an incomplete
                     // UTF-8 sequence; keep looping until it resolves or the stream ends.
                     if (piece.isNotEmpty()) {
                         emit(piece)
                     }
                 }
-            } catch (e: IllegalStateException) {
-                throw InferenceFailedException(
-                    operation = "SmolLM streaming completion",
-                    detail = e.message ?: "The native completion loop failed.",
-                    cause = e,
-                )
             } finally {
                 stopCompletionLocked(instance)
             }
         }.flowOn(dispatcher)
+
+    private inline fun <T> wrapNativeFailure(block: () -> T): T =
+        try {
+            block()
+        } catch (e: IllegalStateException) {
+            throw InferenceFailedException(
+                operation = "SmolLM streaming completion",
+                detail = e.message ?: "The native completion loop failed.",
+                cause = e,
+            )
+        }
 
     fun getResponse(
         instance: SmolLM,

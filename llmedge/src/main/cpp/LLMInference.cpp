@@ -328,6 +328,7 @@ LLMInference::isContextLimitReached() const {
 
 void
 LLMInference::startCompletion(const char *query) {
+    _stopRequested.store(false, std::memory_order_relaxed);
     if (!_storeChats) {
         for (auto it = _messages.begin(); it != _messages.end();) {
             if (std::strcmp(it->role, "system") != 0) {
@@ -600,6 +601,9 @@ LLMInference::_isValidUtf8(const char *response) {
 
 std::string
 LLMInference::completionLoop() {
+    if (_stopRequested.load(std::memory_order_relaxed)) {
+        _eogReached = true;
+    }
     if (_eogReached) {
         return "[EOG]";
     }
@@ -700,6 +704,7 @@ LLMInference::completionLoopBatch(int maxTokens) {
 
 void
 LLMInference::stopCompletion() {
+    _stopRequested.store(true, std::memory_order_relaxed);
     if (_storeChats) {
         if (!_eogReached && !_response.empty()) {
             // Cancelled mid-generation: the partial reply's tokens are already in

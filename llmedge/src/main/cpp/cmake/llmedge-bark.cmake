@@ -81,17 +81,15 @@ target_compile_options(${LLMEDGE_TARGET_BARK_JNI} PUBLIC
         -ffunction-sections
         -fdata-sections
         -O3
-        -fopenmp
         -funroll-loops
 )
 
-target_compile_definitions(${LLMEDGE_TARGET_BARK_JNI} PRIVATE GGML_USE_OPENMP)
-
+# No OpenMP here: see llmedge-whisper.cmake — a second static libomp in the
+# process aborts in libomp's duplicate-runtime check.
 target_link_libraries(${LLMEDGE_TARGET_BARK_JNI}
         android log
-        -fopenmp -static-openmp
 )
 
 target_link_options(${LLMEDGE_TARGET_BARK_JNI} PRIVATE -Wl,--gc-sections -flto -Wl,--exclude-libs,ALL)
 
-message(STATUS "Bark.cpp JNI wrapper configured (direct source build with OpenMP)")
+message(STATUS "Bark.cpp JNI wrapper configured (direct source build)")

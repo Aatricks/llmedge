@@ -506,7 +506,12 @@ class SmolLM internal constructor(
         batchSize: Int = DEFAULT_BLOCKING_BATCH_SIZE,
     ): String = SmolLMFacadeOperations.getResponse(this, query, maxTokens, batchSize)
 
-    /** Public helper to stop a currently running completion loop (best effort). */
+    /**
+     * Stops a currently running completion: the in-flight [getResponse] or
+     * [getResponseAsFlow] ends at its next step (any partial response is kept as
+     * the assistant turn when chats are stored). Cancelling the collecting
+     * coroutine has the same effect for flows.
+     */
     fun stopCompletion() = SmolLMFacadeOperations.stopCompletion(this)
 
     /**
