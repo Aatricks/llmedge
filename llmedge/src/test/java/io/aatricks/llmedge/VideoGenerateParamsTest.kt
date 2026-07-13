@@ -2,6 +2,7 @@ package io.aatricks.llmedge
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import io.aatricks.llmedge.image.diffusion.Scheduler
@@ -25,6 +26,17 @@ class VideoGenerateParamsTest {
     }
 
     @Test
+    fun `Wan documented 480x832 resolution passes validation`() {
+        val params = VideoGenerateParams(
+            prompt = "a cat",
+            width = 480,
+            height = 832,
+        )
+
+        assertTrue(params.validate().isSuccess)
+    }
+
+    @Test
     fun `blank prompt fails validation`() {
         val params = VideoGenerateParams(prompt = " ")
 
@@ -32,13 +44,15 @@ class VideoGenerateParamsTest {
     }
 
     @Test
-    fun `width must be multiple of 64`() {
-        val params = VideoGenerateParams(
-            prompt = "valid",
-            width = 510,
-        )
+    fun `width must be multiple of 32`() {
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            VideoGenerateParams(
+                prompt = "valid",
+                width = 510,
+            )
+        }
 
-        assertValidationFails(params, "Width must be a multiple of 64")
+        assertEquals("Width must be a multiple of 32", failure.message)
     }
 
     @Test
@@ -48,7 +62,7 @@ class VideoGenerateParamsTest {
             height = 128,
         )
 
-        assertValidationFails(params, "Height must be a multiple of 64")
+        assertValidationFails(params, "Height must be a multiple of 32")
     }
 
     @Test
@@ -153,7 +167,7 @@ class VideoGenerateParamsTest {
             height = 960,
         )
 
-        assertValidationFails(params, "Width must be a multiple of 64 in range 256..960")
+        assertValidationFails(params, "Width must be a multiple of 32 in range 256..960")
     }
 
     @Test
@@ -204,7 +218,7 @@ class VideoGenerateParamsTest {
             width = 192,
         )
 
-        assertValidationFails(params, "Width must be a multiple of 64 in range 256..960")
+        assertValidationFails(params, "Width must be a multiple of 32 in range 256..960")
     }
 
     @Test
