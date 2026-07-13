@@ -13,6 +13,7 @@ import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
 import io.aatricks.llmedge.core.runtime.runtimePoolProfile
 import io.aatricks.llmedge.image.diffusion.LoraApplyMode
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.model.ModelArtifactKind
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
@@ -120,6 +121,7 @@ internal class DiffusionRuntimeLoader(
                 resolvedTaehv,
             )
         val preferredFlash = options.flashAttn
+        val diffusionModelOnly = spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL
         try {
             return createManagedModel(
                 options = options,
@@ -130,6 +132,7 @@ internal class DiffusionRuntimeLoader(
                 resolvedTaehv = resolvedTaehv,
                 fileSizeBytes = fileSizeBytes,
                 flashAttn = preferredFlash,
+                diffusionModelOnly = diffusionModelOnly,
                 splitDiffusionModel = spec.splitDiffusionModel,
                 encoderOnly = spec.encoderOnly,
             )
@@ -151,6 +154,7 @@ internal class DiffusionRuntimeLoader(
                     resolvedTaehv = resolvedTaehv,
                     fileSizeBytes = fileSizeBytes,
                     flashAttn = false,
+                    diffusionModelOnly = diffusionModelOnly,
                     splitDiffusionModel = spec.splitDiffusionModel,
                 encoderOnly = spec.encoderOnly,
                 )
@@ -170,6 +174,7 @@ internal class DiffusionRuntimeLoader(
         resolvedTaehv: File?,
         fileSizeBytes: Long,
         flashAttn: Boolean,
+        diffusionModelOnly: Boolean,
         splitDiffusionModel: Boolean,
         encoderOnly: Boolean,
     ): ManagedDiffusionModel {
@@ -182,11 +187,11 @@ internal class DiffusionRuntimeLoader(
             StableDiffusion.loadWithRuntimeBackend(
                 context = context,
                 // encoderOnly: load just the Qwen3 encoder via llm_path (no model/diffusion/vae).
-                modelPath = if (splitDiffusionModel || encoderOnly) null else resolvedModel.absolutePath,
+                modelPath = if (splitDiffusionModel || diffusionModelOnly || encoderOnly) null else resolvedModel.absolutePath,
                 vaePath = if (encoderOnly) null else resolvedVae?.absolutePath,
                 t5xxlPath = if (splitDiffusionModel || encoderOnly) null else resolvedTextEncoder?.absolutePath,
                 taesdPath = if (encoderOnly) null else resolvedTaehv?.absolutePath,
-                diffusionModelPath = if (splitDiffusionModel) resolvedModel.absolutePath else null,
+                diffusionModelPath = if (splitDiffusionModel || diffusionModelOnly) resolvedModel.absolutePath else null,
                 llmPath =
                     when {
                         encoderOnly -> resolvedModel.absolutePath
