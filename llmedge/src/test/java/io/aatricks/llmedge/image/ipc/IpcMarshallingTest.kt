@@ -118,4 +118,47 @@ class IpcMarshallingTest {
         assertEquals(metrics, decoded)
         assertEquals(metrics.imageRequestMetrics, decoded.imageRequestMetrics)
     }
+
+    @Test
+    fun `image request with custom clip specs survives codec and parcel round trip`() {
+        val request =
+            ImageGenerationRequest(
+                prompt = "a cute puppy",
+                negative = "low quality",
+                width = 512,
+                height = 512,
+                steps = 20,
+                cfgScale = 7.0f,
+                seed = 999L,
+                flashAttention = true,
+                forceSequentialLoad = false,
+                model = ModelSpec.LocalFile(File("/model.gguf")),
+                vae = ModelSpec.LocalFile(File("/vae.safetensors")),
+                clipL = ModelSpec.LocalFile(File("/clip_l.safetensors")),
+                clipG = ModelSpec.LocalFile(File("/clip_g.safetensors")),
+                splitDiffusionModel = true,
+                sequential = false,
+            )
+        val decoded = IpcCodecs.fromIpc(parcelRoundTrip(IpcCodecs.toIpc(request)))
+        assertEquals(request, decoded)
+    }
+
+    @Test
+    fun `video request with highNoiseDiffusionModel survives codec and parcel round trip`() {
+        val request =
+            io.aatricks.llmedge.image.VideoGenerationRequest(
+                prompt = "ocean waves",
+                negative = "still",
+                width = 256,
+                height = 256,
+                videoFrames = 16,
+                steps = 25,
+                cfgScale = 6.0f,
+                seed = 12345L,
+                highNoiseDiffusionModel = ModelSpec.LocalFile(File("/high_noise.safetensors")),
+                model = ModelSpec.LocalFile(File("/wan.gguf")),
+            )
+        val decoded = IpcCodecs.fromIpc(parcelRoundTrip(IpcCodecs.toIpc(request)))
+        assertEquals(request, decoded)
+    }
 }

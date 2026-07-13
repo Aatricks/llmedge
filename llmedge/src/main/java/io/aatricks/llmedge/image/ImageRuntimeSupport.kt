@@ -13,6 +13,7 @@ import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
 import io.aatricks.llmedge.core.runtime.runtimePoolProfile
 import io.aatricks.llmedge.image.diffusion.LoraApplyMode
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths
 import io.aatricks.llmedge.model.ModelArtifactKind
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
@@ -32,6 +33,14 @@ internal data class DiffusionRuntimeSpec(
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
     val taehv: ModelSpec? = null,
+    val clipL: ModelSpec? = null,
+    val clipG: ModelSpec? = null,
+    val clipVision: ModelSpec? = null,
+    val llmVision: ModelSpec? = null,
+    val controlNet: ModelSpec? = null,
+    val photoMaker: ModelSpec? = null,
+    val embeddingsConnectors: ModelSpec? = null,
+    val highNoiseDiffusionModel: ModelSpec? = null,
     val diffusionModelOnly: Boolean = false,
     // FLUX.2 Klein split model: route [model] to diffusion_model_path and [textEncoder] (Qwen3)
     // to llm_path instead of the default model_path / t5xxl_path slots.
@@ -91,6 +100,14 @@ internal class DiffusionRuntimeLoader(
         val resolvedVae = spec.vae?.let { resolver.resolve(context, it) }
         val resolvedTextEncoder = spec.textEncoder?.let { resolver.resolve(context, it) }
         val resolvedTaehv = spec.taehv?.let { resolver.resolve(context, it) }
+        val resolvedClipL = spec.clipL?.let { resolver.resolve(context, it) }
+        val resolvedClipG = spec.clipG?.let { resolver.resolve(context, it) }
+        val resolvedClipVision = spec.clipVision?.let { resolver.resolve(context, it) }
+        val resolvedLlmVision = spec.llmVision?.let { resolver.resolve(context, it) }
+        val resolvedControlNet = spec.controlNet?.let { resolver.resolve(context, it) }
+        val resolvedPhotoMaker = spec.photoMaker?.let { resolver.resolve(context, it) }
+        val resolvedEmbeddingsConnectors = spec.embeddingsConnectors?.let { resolver.resolve(context, it) }
+        val resolvedHighNoiseDiffusionModel = spec.highNoiseDiffusionModel?.let { resolver.resolve(context, it) }
         return loadManagedModel(
             spec = spec,
             options = options,
@@ -99,6 +116,14 @@ internal class DiffusionRuntimeLoader(
             resolvedVae = resolvedVae,
             resolvedTextEncoder = resolvedTextEncoder,
             resolvedTaehv = resolvedTaehv,
+            resolvedClipL = resolvedClipL,
+            resolvedClipG = resolvedClipG,
+            resolvedClipVision = resolvedClipVision,
+            resolvedLlmVision = resolvedLlmVision,
+            resolvedControlNet = resolvedControlNet,
+            resolvedPhotoMaker = resolvedPhotoMaker,
+            resolvedEmbeddingsConnectors = resolvedEmbeddingsConnectors,
+            resolvedHighNoiseDiffusionModel = resolvedHighNoiseDiffusionModel,
         )
     }
 
@@ -113,6 +138,14 @@ internal class DiffusionRuntimeLoader(
         resolvedVae: File?,
         resolvedTextEncoder: File?,
         resolvedTaehv: File?,
+        resolvedClipL: File?,
+        resolvedClipG: File?,
+        resolvedClipVision: File?,
+        resolvedLlmVision: File?,
+        resolvedControlNet: File?,
+        resolvedPhotoMaker: File?,
+        resolvedEmbeddingsConnectors: File?,
+        resolvedHighNoiseDiffusionModel: File?,
     ): ManagedDiffusionModel {
         val fileSizeBytes =
             estimateFileSizeBytes(
@@ -120,11 +153,20 @@ internal class DiffusionRuntimeLoader(
                 resolvedVae,
                 resolvedTextEncoder,
                 resolvedTaehv,
+                resolvedClipL,
+                resolvedClipG,
+                resolvedClipVision,
+                resolvedLlmVision,
+                resolvedControlNet,
+                resolvedPhotoMaker,
+                resolvedEmbeddingsConnectors,
+                resolvedHighNoiseDiffusionModel,
             )
         val preferredFlash = options.flashAttn
         val diffusionModelOnly =
             spec.diffusionModelOnly ||
-                spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL
+                (spec.role != DiffusionRuntimeRole.IMAGE &&
+                    spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL)
         try {
             return createManagedModel(
                 options = options,
@@ -133,6 +175,14 @@ internal class DiffusionRuntimeLoader(
                 resolvedVae = resolvedVae,
                 resolvedTextEncoder = resolvedTextEncoder,
                 resolvedTaehv = resolvedTaehv,
+                resolvedClipL = resolvedClipL,
+                resolvedClipG = resolvedClipG,
+                resolvedClipVision = resolvedClipVision,
+                resolvedLlmVision = resolvedLlmVision,
+                resolvedControlNet = resolvedControlNet,
+                resolvedPhotoMaker = resolvedPhotoMaker,
+                resolvedEmbeddingsConnectors = resolvedEmbeddingsConnectors,
+                resolvedHighNoiseDiffusionModel = resolvedHighNoiseDiffusionModel,
                 fileSizeBytes = fileSizeBytes,
                 flashAttn = preferredFlash,
                 diffusionModelOnly = diffusionModelOnly,
@@ -155,6 +205,14 @@ internal class DiffusionRuntimeLoader(
                     resolvedVae = resolvedVae,
                     resolvedTextEncoder = resolvedTextEncoder,
                     resolvedTaehv = resolvedTaehv,
+                    resolvedClipL = resolvedClipL,
+                    resolvedClipG = resolvedClipG,
+                    resolvedClipVision = resolvedClipVision,
+                    resolvedLlmVision = resolvedLlmVision,
+                    resolvedControlNet = resolvedControlNet,
+                    resolvedPhotoMaker = resolvedPhotoMaker,
+                    resolvedEmbeddingsConnectors = resolvedEmbeddingsConnectors,
+                    resolvedHighNoiseDiffusionModel = resolvedHighNoiseDiffusionModel,
                     fileSizeBytes = fileSizeBytes,
                     flashAttn = false,
                     diffusionModelOnly = diffusionModelOnly,
@@ -175,6 +233,14 @@ internal class DiffusionRuntimeLoader(
         resolvedVae: File?,
         resolvedTextEncoder: File?,
         resolvedTaehv: File?,
+        resolvedClipL: File?,
+        resolvedClipG: File?,
+        resolvedClipVision: File?,
+        resolvedLlmVision: File?,
+        resolvedControlNet: File?,
+        resolvedPhotoMaker: File?,
+        resolvedEmbeddingsConnectors: File?,
+        resolvedHighNoiseDiffusionModel: File?,
         fileSizeBytes: Long,
         flashAttn: Boolean,
         diffusionModelOnly: Boolean,
@@ -186,6 +252,22 @@ internal class DiffusionRuntimeLoader(
             "Creating managed ${backend.name} runtime for ${resolvedModel.name} flash=$flashAttn sequential=${options.sequentialLoad}",
         )
         phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.LOADING, backend.name)
+        val componentPaths = if (encoderOnly) {
+            null
+        } else {
+            val paths = StableDiffusionComponentPaths(
+                clipLPath = resolvedClipL?.absolutePath,
+                clipGPath = resolvedClipG?.absolutePath,
+                clipVisionPath = resolvedClipVision?.absolutePath,
+                llmVisionPath = resolvedLlmVision?.absolutePath,
+                highNoiseDiffusionModelPath = resolvedHighNoiseDiffusionModel?.absolutePath,
+                embeddingsConnectorsPath = resolvedEmbeddingsConnectors?.absolutePath,
+                audioVaePath = null,
+                controlNetPath = resolvedControlNet?.absolutePath,
+                photoMakerPath = resolvedPhotoMaker?.absolutePath
+            )
+            if (paths.isAllNull()) null else paths
+        }
         val model =
             StableDiffusion.loadWithRuntimeBackend(
                 context = context,
@@ -213,6 +295,7 @@ internal class DiffusionRuntimeLoader(
                 loraModelDir = options.loraModelDir,
                 loraApplyMode = options.loraApplyMode,
                 preferredBackend = backend,
+                componentPaths = componentPaths,
             )
         AndroidLogAdapter.i(
             LOG_TAG,
@@ -255,6 +338,14 @@ internal fun createDiffusionRuntimePool(
                         spec.vae?.cacheKey,
                         spec.textEncoder?.cacheKey,
                         spec.taehv?.cacheKey,
+                        spec.clipL?.cacheKey,
+                        spec.clipG?.cacheKey,
+                        spec.clipVision?.cacheKey,
+                        spec.llmVision?.cacheKey,
+                        spec.controlNet?.cacheKey,
+                        spec.photoMaker?.cacheKey,
+                        spec.embeddingsConnectors?.cacheKey,
+                        spec.highNoiseDiffusionModel?.cacheKey,
                         "diffusionOnly=${spec.diffusionModelOnly}",
                         "threads=${options.nThreads}",
                         "gpu=${options.allowGpu}",

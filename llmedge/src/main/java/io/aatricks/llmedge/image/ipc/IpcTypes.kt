@@ -61,6 +61,13 @@ internal data class IpcImageRequest(
     val model: IpcModelSpec?,
     val vae: IpcModelSpec?,
     val textEncoder: IpcModelSpec?,
+    val clipL: IpcModelSpec?,
+    val clipG: IpcModelSpec?,
+    val clipVision: IpcModelSpec?,
+    val llmVision: IpcModelSpec?,
+    val controlNet: IpcModelSpec?,
+    val photoMaker: IpcModelSpec?,
+    val embeddingsConnectors: IpcModelSpec?,
     val diffusionModelOnly: Boolean,
     val splitDiffusionModel: Boolean,
     val sequential: Boolean,
@@ -93,6 +100,7 @@ internal data class IpcVideoRequest(
     val model: IpcModelSpec?,
     val vae: IpcModelSpec?,
     val textEncoder: IpcModelSpec?,
+    val highNoiseDiffusionModel: IpcModelSpec?,
 ) : Parcelable
 
 /** ARGB_8888 pixel frames packed contiguously into one ashmem region. */

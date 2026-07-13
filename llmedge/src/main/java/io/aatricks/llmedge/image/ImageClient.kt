@@ -44,6 +44,13 @@ data class ImageGenerationRequest(
     // true the runtime routes [model] -> diffusion_model_path and [textEncoder] -> llm_path.
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
+    val clipL: ModelSpec? = null,
+    val clipG: ModelSpec? = null,
+    val clipVision: ModelSpec? = null,
+    val llmVision: ModelSpec? = null,
+    val controlNet: ModelSpec? = null,
+    val photoMaker: ModelSpec? = null,
+    val embeddingsConnectors: ModelSpec? = null,
     // Standalone DiT checkpoints (for example MiniT2I) are routed through
     // diffusion_model_path while [textEncoder] remains in the T5 slot.
     val diffusionModelOnly: Boolean = false,
@@ -77,6 +84,7 @@ data class VideoGenerationRequest(
     val model: ModelSpec? = null,
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
+    val highNoiseDiffusionModel: ModelSpec? = null,
 ) {
     fun actualFrameCount(): Int = (videoFrames - 1) / 4 * 4 + 1
 }

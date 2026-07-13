@@ -276,6 +276,15 @@ class StableDiffusion internal constructor(
                 request.taesdPath,
                 request.diffusionModelPath,
                 request.llmPath,
+                request.clipLPath,
+                request.clipGPath,
+                request.clipVisionPath,
+                request.llmVisionPath,
+                request.highNoiseDiffusionModelPath,
+                request.embeddingsConnectorsPath,
+                request.audioVaePath,
+                request.controlNetPath,
+                request.photoMakerPath,
                 request.nThreads,
                 request.enableOpenCl,
                 request.useVulkan,
@@ -297,6 +306,15 @@ class StableDiffusion internal constructor(
                 taesdPath: String?,
                 diffusionModelPath: String?,
                 llmPath: String?,
+                clipLPath: String?,
+                clipGPath: String?,
+                clipVisionPath: String?,
+                llmVisionPath: String?,
+                highNoiseDiffusionModelPath: String?,
+                embeddingsConnectorsPath: String?,
+                audioVaePath: String?,
+                controlNetPath: String?,
+                photoMakerPath: String?,
                 nThreads: Int,
                 enableOpenCl: Boolean,
                 useVulkan: Boolean,
@@ -362,6 +380,7 @@ class StableDiffusion internal constructor(
                 flowShift: Float = Float.POSITIVE_INFINITY,
                 loraModelDir: String? = null,
                 loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
+                componentPaths: StableDiffusionComponentPaths? = null,
         ): StableDiffusion =
             StableDiffusionLoader.load(
                 context = context,
@@ -394,6 +413,7 @@ class StableDiffusion internal constructor(
                         loraApplyMode = loraApplyMode,
                         preferredBackend = null,
                         allowBackendFallbackToCpu = true,
+                        componentPaths = componentPaths,
                     ),
             )
 
@@ -423,6 +443,7 @@ class StableDiffusion internal constructor(
                 // on by mocks/tests) is preserved.
                 diffusionModelPath: String? = null,
                 llmPath: String? = null,
+                componentPaths: StableDiffusionComponentPaths? = null,
         ): StableDiffusion =
             StableDiffusionLoader.load(
                 context = context,
@@ -455,6 +476,7 @@ class StableDiffusion internal constructor(
                         loraApplyMode = loraApplyMode,
                         preferredBackend = preferredBackend,
                         allowBackendFallbackToCpu = false,
+                        componentPaths = componentPaths,
                     ),
             )
 
@@ -510,6 +532,7 @@ class StableDiffusion internal constructor(
                         loraApplyMode = loraApplyMode,
                         preferredBackend = null,
                         allowBackendFallbackToCpu = true,
+                        componentPaths = null,
                     ),
                 onProgress = onProgress,
             )
@@ -542,6 +565,7 @@ class StableDiffusion internal constructor(
             loraApplyMode: LoraApplyMode,
             preferredBackend: ComputeBackend?,
             allowBackendFallbackToCpu: Boolean,
+            componentPaths: StableDiffusionComponentPaths? = null,
         ): StableDiffusionLoadRequest =
             StableDiffusionLoadRequest(
                 assets =
@@ -558,6 +582,7 @@ class StableDiffusion internal constructor(
                         forceDownload = forceDownload,
                         preferSystemDownloader = preferSystemDownloader,
                         loraModelDir = loraModelDir,
+                        componentPaths = componentPaths,
                     ),
                 runtime =
                     StableDiffusionRuntimeRequest(

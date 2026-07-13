@@ -32,6 +32,13 @@ internal object ImageRuntimeRequestPlanner {
                     model = params.model ?: config.models.image,
                     vae = params.vae,
                     textEncoder = params.textEncoder,
+                    clipL = params.clipL,
+                    clipG = params.clipG,
+                    clipVision = params.clipVision,
+                    llmVision = params.llmVision,
+                    controlNet = params.controlNet,
+                    photoMaker = params.photoMaker,
+                    embeddingsConnectors = params.embeddingsConnectors,
                     diffusionModelOnly = params.diffusionModelOnly,
                     splitDiffusionModel = params.splitDiffusionModel,
                 ),
@@ -213,6 +220,7 @@ internal object ImageRuntimeRequestPlanner {
             vae = if (usingCustomTae) null else (params.vae ?: config.models.video.vae),
             textEncoder = if (includeTextEncoder) params.textEncoder ?: config.models.video.textEncoder else null,
             taehv = params.taehv,
+            highNoiseDiffusionModel = params.highNoiseDiffusionModel,
         )
     }
 

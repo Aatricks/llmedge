@@ -25,6 +25,7 @@ internal data class StableDiffusionResolvedAssets(
     val llmPath: String? = null,
     // Encoder-only (FLUX.2 sequential precompute phase): load ONLY the Qwen3 encoder, no DiT.
     val encoderOnly: Boolean = false,
+    val componentPaths: StableDiffusionComponentPaths? = null,
 )
 
 internal object StableDiffusionLoadSupport {
@@ -33,14 +34,14 @@ internal object StableDiffusionLoadSupport {
     suspend fun resolveRequestedAssets(
         context: Context,
         request: StableDiffusionAssetRequest,
-        validateResolvedAssets: (String, String?, String?, String?, String?) -> Unit,
+        validateResolvedAssets: (String, String?, String?, String?, String?, StableDiffusionComponentPaths?) -> Unit,
         inferVideoModelMetadata: suspend (String, String?, String?) -> VideoModelMetadata,
         onFallback: (String) -> Unit = {},
     ): StableDiffusionResolvedAssets =
         withContext(Dispatchers.IO) {
             // Encoder-only (FLUX.2 sequential precompute): only an llmPath is supplied. Load just the
             // Qwen3 encoder so the precompute phase peaks at the encoder size, not encoder+DiT.
-            if (request.diffusionModelPath == null && request.modelPath == null && request.llmPath != null) {
+            if (request.diffusionModelPath == null && request.modelPath == null && request.llmPath != null && (request.componentPaths == null || request.componentPaths.isAllNull())) {
                 return@withContext StableDiffusionResolvedAssets(
                     modelPath = request.llmPath,
                     vaePath = null,
@@ -49,6 +50,7 @@ internal object StableDiffusionLoadSupport {
                     diffusionModelPath = null,
                     encoderOnly = true,
                     metadata = inferVideoModelMetadata(request.llmPath, request.modelId, request.filename),
+                    componentPaths = null,
                 )
             }
 
@@ -62,6 +64,7 @@ internal object StableDiffusionLoadSupport {
                     request.t5xxlPath,
                     request.taesdPath,
                     request.loraModelDir,
+                    request.componentPaths,
                 )
                 return@withContext StableDiffusionResolvedAssets(
                     modelPath = request.diffusionModelPath,
@@ -75,6 +78,7 @@ internal object StableDiffusionLoadSupport {
                             request.modelId,
                             request.filename,
                         ),
+                    componentPaths = request.componentPaths,
                 )
             }
 
@@ -85,6 +89,7 @@ internal object StableDiffusionLoadSupport {
                     request.t5xxlPath,
                     request.taesdPath,
                     request.loraModelDir,
+                    request.componentPaths,
                 )
                 return@withContext StableDiffusionResolvedAssets(
                     modelPath = request.modelPath,
@@ -96,6 +101,7 @@ internal object StableDiffusionLoadSupport {
                             request.modelId,
                             request.filename,
                         ),
+                    componentPaths = request.componentPaths,
                 )
             }
 
@@ -160,6 +166,7 @@ internal object StableDiffusionLoadSupport {
                 request.t5xxlPath,
                 request.taesdPath,
                 request.loraModelDir,
+                request.componentPaths,
             )
 
             StableDiffusionResolvedAssets(
@@ -167,6 +174,7 @@ internal object StableDiffusionLoadSupport {
                 vaePath = request.vaePath,
                 t5xxlPath = request.t5xxlPath,
                 metadata = inferVideoModelMetadata(resolvedModelPath, resolvedModelId, request.filename),
+                componentPaths = request.componentPaths,
             )
         }
 
@@ -174,7 +182,7 @@ internal object StableDiffusionLoadSupport {
         context: Context,
         request: StableDiffusionAssetRequest,
         onProgress: ((name: String, downloaded: Long, total: Long?) -> Unit)?,
-        validateResolvedAssets: (String, String?, String?, String?, String?) -> Unit,
+        validateResolvedAssets: (String, String?, String?, String?, String?, StableDiffusionComponentPaths?) -> Unit,
         inferVideoModelMetadata: suspend (String, String?, String?) -> VideoModelMetadata,
         registryEntry: WanModelEntry? = null,
     ): StableDiffusionResolvedAssets =
@@ -205,6 +213,7 @@ internal object StableDiffusionLoadSupport {
                 resolvedT5xxlPath,
                 request.taesdPath,
                 request.loraModelDir,
+                request.componentPaths,
             )
 
             StableDiffusionResolvedAssets(
@@ -214,6 +223,7 @@ internal object StableDiffusionLoadSupport {
                 metadata =
                     registryEntry?.toVideoModelMetadata(resolvedModelPath.substringAfterLast('/'))
                         ?: inferVideoModelMetadata(resolvedModelPath, modelId, request.filename),
+                componentPaths = request.componentPaths,
             )
         }
 
@@ -234,6 +244,7 @@ internal object StableDiffusionLoadSupport {
         t5xxlPath: String?,
         taesdPath: String?,
         loraModelDir: String?,
+        componentPaths: StableDiffusionComponentPaths? = null,
     ) {
         StableDiffusionLoadHeuristics.validateResolvedAssets(
             modelPath = modelPath,
@@ -241,6 +252,7 @@ internal object StableDiffusionLoadSupport {
             t5xxlPath = t5xxlPath,
             taesdPath = taesdPath,
             loraModelDir = loraModelDir,
+            componentPaths = componentPaths,
         )
     }
 
@@ -404,6 +416,15 @@ internal object StableDiffusionLoadSupport {
             taesdPath = request.assets.taesdPath,
             diffusionModelPath = resolved.diffusionModelPath,
             llmPath = resolved.llmPath,
+            clipLPath = resolved.componentPaths?.clipLPath,
+            clipGPath = resolved.componentPaths?.clipGPath,
+            clipVisionPath = resolved.componentPaths?.clipVisionPath,
+            llmVisionPath = resolved.componentPaths?.llmVisionPath,
+            highNoiseDiffusionModelPath = resolved.componentPaths?.highNoiseDiffusionModelPath,
+            embeddingsConnectorsPath = resolved.componentPaths?.embeddingsConnectorsPath,
+            audioVaePath = resolved.componentPaths?.audioVaePath,
+            controlNetPath = resolved.componentPaths?.controlNetPath,
+            photoMakerPath = resolved.componentPaths?.photoMakerPath,
             nThreads = request.runtime.nThreads,
             enableOpenCl = backend == ComputeBackend.OPENCL,
             useVulkan = backend == ComputeBackend.VULKAN,

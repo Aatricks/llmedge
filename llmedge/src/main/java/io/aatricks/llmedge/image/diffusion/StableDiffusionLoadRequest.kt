@@ -2,6 +2,29 @@ package io.aatricks.llmedge.image.diffusion
 
 import io.aatricks.llmedge.runtime.ComputeBackend
 
+data class StableDiffusionComponentPaths(
+    val clipLPath: String? = null,
+    val clipGPath: String? = null,
+    val clipVisionPath: String? = null,
+    val llmVisionPath: String? = null,
+    val highNoiseDiffusionModelPath: String? = null,
+    val embeddingsConnectorsPath: String? = null,
+    val audioVaePath: String? = null,
+    val controlNetPath: String? = null,
+    val photoMakerPath: String? = null
+) {
+    fun isAllNull(): Boolean =
+        clipLPath == null &&
+        clipGPath == null &&
+        clipVisionPath == null &&
+        llmVisionPath == null &&
+        highNoiseDiffusionModelPath == null &&
+        embeddingsConnectorsPath == null &&
+        audioVaePath == null &&
+        controlNetPath == null &&
+        photoMakerPath == null
+}
+
 internal data class StableDiffusionAssetRequest(
     val modelId: String? = null,
     val filename: String? = null,
@@ -16,6 +39,7 @@ internal data class StableDiffusionAssetRequest(
     val forceDownload: Boolean = false,
     val preferSystemDownloader: Boolean = true,
     val loraModelDir: String? = null,
+    val componentPaths: StableDiffusionComponentPaths? = null,
 )
 
 internal data class StableDiffusionRuntimeRequest(
@@ -52,6 +76,15 @@ internal data class StableDiffusionNativeLoadRequest(
     val taesdPath: String?,
     val diffusionModelPath: String? = null,
     val llmPath: String? = null,
+    val clipLPath: String? = null,
+    val clipGPath: String? = null,
+    val clipVisionPath: String? = null,
+    val llmVisionPath: String? = null,
+    val highNoiseDiffusionModelPath: String? = null,
+    val embeddingsConnectorsPath: String? = null,
+    val audioVaePath: String? = null,
+    val controlNetPath: String? = null,
+    val photoMakerPath: String? = null,
     val nThreads: Int,
     val enableOpenCl: Boolean,
     val useVulkan: Boolean,

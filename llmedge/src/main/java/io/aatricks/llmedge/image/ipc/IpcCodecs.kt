@@ -115,6 +115,13 @@ internal object IpcCodecs {
             model = request.model?.let(::toIpc),
             vae = request.vae?.let(::toIpc),
             textEncoder = request.textEncoder?.let(::toIpc),
+            clipL = request.clipL?.let(::toIpc),
+            clipG = request.clipG?.let(::toIpc),
+            clipVision = request.clipVision?.let(::toIpc),
+            llmVision = request.llmVision?.let(::toIpc),
+            controlNet = request.controlNet?.let(::toIpc),
+            photoMaker = request.photoMaker?.let(::toIpc),
+            embeddingsConnectors = request.embeddingsConnectors?.let(::toIpc),
             diffusionModelOnly = request.diffusionModelOnly,
             splitDiffusionModel = request.splitDiffusionModel,
             sequential = request.sequential,
@@ -143,6 +150,13 @@ internal object IpcCodecs {
             model = request.model?.let(::fromIpc),
             vae = request.vae?.let(::fromIpc),
             textEncoder = request.textEncoder?.let(::fromIpc),
+            clipL = request.clipL?.let(::fromIpc),
+            clipG = request.clipG?.let(::fromIpc),
+            clipVision = request.clipVision?.let(::fromIpc),
+            llmVision = request.llmVision?.let(::fromIpc),
+            controlNet = request.controlNet?.let(::fromIpc),
+            photoMaker = request.photoMaker?.let(::fromIpc),
+            embeddingsConnectors = request.embeddingsConnectors?.let(::fromIpc),
             diffusionModelOnly = request.diffusionModelOnly,
             splitDiffusionModel = request.splitDiffusionModel,
             sequential = request.sequential,
@@ -175,6 +189,7 @@ internal object IpcCodecs {
             model = request.model?.let(::toIpc),
             vae = request.vae?.let(::toIpc),
             textEncoder = request.textEncoder?.let(::toIpc),
+            highNoiseDiffusionModel = request.highNoiseDiffusionModel?.let(::toIpc),
         )
 
     fun fromIpc(request: IpcVideoRequest): VideoGenerationRequest =
@@ -207,6 +222,7 @@ internal object IpcCodecs {
             model = request.model?.let(::fromIpc),
             vae = request.vae?.let(::fromIpc),
             textEncoder = request.textEncoder?.let(::fromIpc),
+            highNoiseDiffusionModel = request.highNoiseDiffusionModel?.let(::fromIpc),
         )
 
     fun toIpc(metrics: GenerationMetrics): IpcGenerationMetrics {

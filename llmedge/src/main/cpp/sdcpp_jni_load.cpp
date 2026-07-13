@@ -380,6 +380,15 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         jstring jTaesdPath,
         jstring jDiffusionModelPath,
         jstring jLlmPath,
+        jstring jClipLPath,
+        jstring jClipGPath,
+        jstring jClipVisionPath,
+        jstring jLlmVisionPath,
+        jstring jHighNoiseDiffusionModelPath,
+        jstring jEmbeddingsConnectorsPath,
+        jstring jAudioVaePath,
+        jstring jControlNetPath,
+        jstring jPhotoMakerPath,
         jint nThreads,
         jboolean enableOpenCl,
         jboolean useVulkan,
@@ -409,6 +418,42 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     const std::string llmPathValue = llmPathRaw ? llmPathRaw : "";
     if (jLlmPath && llmPathRaw) env->ReleaseStringUTFChars(jLlmPath, llmPathRaw);
 
+    const char* clipLPathRaw = jClipLPath ? env->GetStringUTFChars(jClipLPath, nullptr) : nullptr;
+    const std::string clipLPathValue = clipLPathRaw ? clipLPathRaw : "";
+    if (jClipLPath && clipLPathRaw) env->ReleaseStringUTFChars(jClipLPath, clipLPathRaw);
+
+    const char* clipGPathRaw = jClipGPath ? env->GetStringUTFChars(jClipGPath, nullptr) : nullptr;
+    const std::string clipGPathValue = clipGPathRaw ? clipGPathRaw : "";
+    if (jClipGPath && clipGPathRaw) env->ReleaseStringUTFChars(jClipGPath, clipGPathRaw);
+
+    const char* clipVisionPathRaw = jClipVisionPath ? env->GetStringUTFChars(jClipVisionPath, nullptr) : nullptr;
+    const std::string clipVisionPathValue = clipVisionPathRaw ? clipVisionPathRaw : "";
+    if (jClipVisionPath && clipVisionPathRaw) env->ReleaseStringUTFChars(jClipVisionPath, clipVisionPathRaw);
+
+    const char* llmVisionPathRaw = jLlmVisionPath ? env->GetStringUTFChars(jLlmVisionPath, nullptr) : nullptr;
+    const std::string llmVisionPathValue = llmVisionPathRaw ? llmVisionPathRaw : "";
+    if (jLlmVisionPath && llmVisionPathRaw) env->ReleaseStringUTFChars(jLlmVisionPath, llmVisionPathRaw);
+
+    const char* highNoiseDiffusionModelPathRaw = jHighNoiseDiffusionModelPath ? env->GetStringUTFChars(jHighNoiseDiffusionModelPath, nullptr) : nullptr;
+    const std::string highNoiseDiffusionModelPathValue = highNoiseDiffusionModelPathRaw ? highNoiseDiffusionModelPathRaw : "";
+    if (jHighNoiseDiffusionModelPath && highNoiseDiffusionModelPathRaw) env->ReleaseStringUTFChars(jHighNoiseDiffusionModelPath, highNoiseDiffusionModelPathRaw);
+
+    const char* embeddingsConnectorsPathRaw = jEmbeddingsConnectorsPath ? env->GetStringUTFChars(jEmbeddingsConnectorsPath, nullptr) : nullptr;
+    const std::string embeddingsConnectorsPathValue = embeddingsConnectorsPathRaw ? embeddingsConnectorsPathRaw : "";
+    if (jEmbeddingsConnectorsPath && embeddingsConnectorsPathRaw) env->ReleaseStringUTFChars(jEmbeddingsConnectorsPath, embeddingsConnectorsPathRaw);
+
+    const char* audioVaePathRaw = jAudioVaePath ? env->GetStringUTFChars(jAudioVaePath, nullptr) : nullptr;
+    const std::string audioVaePathValue = audioVaePathRaw ? audioVaePathRaw : "";
+    if (jAudioVaePath && audioVaePathRaw) env->ReleaseStringUTFChars(jAudioVaePath, audioVaePathRaw);
+
+    const char* controlNetPathRaw = jControlNetPath ? env->GetStringUTFChars(jControlNetPath, nullptr) : nullptr;
+    const std::string controlNetPathValue = controlNetPathRaw ? controlNetPathRaw : "";
+    if (jControlNetPath && controlNetPathRaw) env->ReleaseStringUTFChars(jControlNetPath, controlNetPathRaw);
+
+    const char* photoMakerPathRaw = jPhotoMakerPath ? env->GetStringUTFChars(jPhotoMakerPath, nullptr) : nullptr;
+    const std::string photoMakerPathValue = photoMakerPathRaw ? photoMakerPathRaw : "";
+    if (jPhotoMakerPath && photoMakerPathRaw) env->ReleaseStringUTFChars(jPhotoMakerPath, photoMakerPathRaw);
+
     sd_set_log_callback(sd_android_log_cb, nullptr);
 
     ALOGI("Initializing Stable Diffusion with:");
@@ -418,6 +463,15 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     ALOGI("  taesdPath=%s", taesdPath ? taesdPath : "NULL");
     ALOGI("  diffusionModelPath=%s", diffusionModelPathValue.empty() ? "NULL" : diffusionModelPathValue.c_str());
     ALOGI("  llmPath=%s", llmPathValue.empty() ? "NULL" : llmPathValue.c_str());
+    ALOGI("  clipLPath=%s", clipLPathValue.empty() ? "NULL" : clipLPathValue.c_str());
+    ALOGI("  clipGPath=%s", clipGPathValue.empty() ? "NULL" : clipGPathValue.c_str());
+    ALOGI("  clipVisionPath=%s", clipVisionPathValue.empty() ? "NULL" : clipVisionPathValue.c_str());
+    ALOGI("  llmVisionPath=%s", llmVisionPathValue.empty() ? "NULL" : llmVisionPathValue.c_str());
+    ALOGI("  highNoiseDiffusionModelPath=%s", highNoiseDiffusionModelPathValue.empty() ? "NULL" : highNoiseDiffusionModelPathValue.c_str());
+    ALOGI("  embeddingsConnectorsPath=%s", embeddingsConnectorsPathValue.empty() ? "NULL" : embeddingsConnectorsPathValue.c_str());
+    ALOGI("  audioVaePath=%s", audioVaePathValue.empty() ? "NULL" : audioVaePathValue.c_str());
+    ALOGI("  controlNetPath=%s", controlNetPathValue.empty() ? "NULL" : controlNetPathValue.c_str());
+    ALOGI("  photoMakerPath=%s", photoMakerPathValue.empty() ? "NULL" : photoMakerPathValue.c_str());
     ALOGI("  loraModelDir=%s, loraApplyMode=%d", loraModelDirValue.empty() ? "NULL" : loraModelDirValue.c_str(), static_cast<int>(jLoraApplyMode));
     ALOGI("  enableOpenCl=%s, useVulkan=%s, offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
           enableOpenCl ? "true" : "false",
@@ -465,6 +519,15 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     // Split-model components (FLUX.2 Klein etc.). Empty string == not provided.
     p.diffusion_model_path = diffusionModelPathValue.c_str();
     p.llm_path = llmPathValue.c_str();
+    p.clip_l_path = clipLPathValue.c_str();
+    p.clip_g_path = clipGPathValue.c_str();
+    p.clip_vision_path = clipVisionPathValue.c_str();
+    p.llm_vision_path = llmVisionPathValue.c_str();
+    p.high_noise_diffusion_model_path = highNoiseDiffusionModelPathValue.c_str();
+    p.embeddings_connectors_path = embeddingsConnectorsPathValue.c_str();
+    p.audio_vae_path = audioVaePathValue.c_str();
+    p.control_net_path = controlNetPathValue.c_str();
+    p.photo_maker_path = photoMakerPathValue.c_str();
     p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
     p.diffusion_flash_attn = flashAttn;
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
@@ -479,13 +542,23 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.backend = backendSpec.c_str();
     p.params_backend = paramsBackendSpec.c_str();
 
-    bool isLlmOnly = !llmPathValue.empty() && diffusionModelPathValue.empty() && (!modelPath || modelPath[0] == '\0');
+    bool hasExtraComponentPaths = !clipLPathValue.empty() ||
+                                  !clipGPathValue.empty() ||
+                                  !clipVisionPathValue.empty() ||
+                                  !llmVisionPathValue.empty() ||
+                                  !highNoiseDiffusionModelPathValue.empty() ||
+                                  !embeddingsConnectorsPathValue.empty() ||
+                                  !audioVaePathValue.empty() ||
+                                  !controlNetPathValue.empty() ||
+                                  !photoMakerPathValue.empty();
+
+    bool isLlmOnly = !llmPathValue.empty() && diffusionModelPathValue.empty() && (!modelPath || modelPath[0] == '\0') && !hasExtraComponentPaths;
     bool isT5OnlyRequest = modelPath && modelPath[0] != '\0' &&
                            !vaePath && !t5xxlPath && !taesdPath &&
                            diffusionModelPathValue.empty() && llmPathValue.empty() &&
+                           !hasExtraComponentPaths &&
                            (std::string(modelPath).find("t5") != std::string::npos ||
-                            std::string(modelPath).find("encoder") != std::string::npos ||
-                            std::string(modelPath).find("clip") != std::string::npos);
+                            std::string(modelPath).find("encoder") != std::string::npos);
 
     sd_ctx_t* ctx = nullptr;
     if (!isLlmOnly) {
