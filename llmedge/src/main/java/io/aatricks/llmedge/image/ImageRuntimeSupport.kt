@@ -31,6 +31,7 @@ internal data class DiffusionRuntimeSpec(
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
     val taehv: ModelSpec? = null,
+    val diffusionModelOnly: Boolean = false,
     // FLUX.2 Klein split model: route [model] to diffusion_model_path and [textEncoder] (Qwen3)
     // to llm_path instead of the default model_path / t5xxl_path slots.
     val splitDiffusionModel: Boolean = false,
@@ -130,6 +131,7 @@ internal class DiffusionRuntimeLoader(
                 resolvedTaehv = resolvedTaehv,
                 fileSizeBytes = fileSizeBytes,
                 flashAttn = preferredFlash,
+                diffusionModelOnly = spec.diffusionModelOnly,
                 splitDiffusionModel = spec.splitDiffusionModel,
                 encoderOnly = spec.encoderOnly,
             )
@@ -151,8 +153,9 @@ internal class DiffusionRuntimeLoader(
                     resolvedTaehv = resolvedTaehv,
                     fileSizeBytes = fileSizeBytes,
                     flashAttn = false,
+                    diffusionModelOnly = spec.diffusionModelOnly,
                     splitDiffusionModel = spec.splitDiffusionModel,
-                encoderOnly = spec.encoderOnly,
+                    encoderOnly = spec.encoderOnly,
                 )
             } catch (fallbackError: Throwable) {
                 fallbackError.addSuppressed(error)
@@ -170,6 +173,7 @@ internal class DiffusionRuntimeLoader(
         resolvedTaehv: File?,
         fileSizeBytes: Long,
         flashAttn: Boolean,
+        diffusionModelOnly: Boolean,
         splitDiffusionModel: Boolean,
         encoderOnly: Boolean,
     ): ManagedDiffusionModel {
@@ -182,11 +186,11 @@ internal class DiffusionRuntimeLoader(
             StableDiffusion.loadWithRuntimeBackend(
                 context = context,
                 // encoderOnly: load just the Qwen3 encoder via llm_path (no model/diffusion/vae).
-                modelPath = if (splitDiffusionModel || encoderOnly) null else resolvedModel.absolutePath,
+                modelPath = if (splitDiffusionModel || diffusionModelOnly || encoderOnly) null else resolvedModel.absolutePath,
                 vaePath = if (encoderOnly) null else resolvedVae?.absolutePath,
                 t5xxlPath = if (splitDiffusionModel || encoderOnly) null else resolvedTextEncoder?.absolutePath,
                 taesdPath = if (encoderOnly) null else resolvedTaehv?.absolutePath,
-                diffusionModelPath = if (splitDiffusionModel) resolvedModel.absolutePath else null,
+                diffusionModelPath = if (splitDiffusionModel || diffusionModelOnly) resolvedModel.absolutePath else null,
                 llmPath =
                     when {
                         encoderOnly -> resolvedModel.absolutePath
@@ -247,6 +251,7 @@ internal fun createDiffusionRuntimePool(
                         spec.vae?.cacheKey,
                         spec.textEncoder?.cacheKey,
                         spec.taehv?.cacheKey,
+                        "diffusionOnly=${spec.diffusionModelOnly}",
                         "threads=${options.nThreads}",
                         "gpu=${options.allowGpu}",
                         "offload=${options.offloadToCpu}",

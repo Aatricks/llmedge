@@ -529,6 +529,19 @@ imageView.setImageBitmap(bitmap)
 
 For explicit runtime ownership or custom native-load experiments, the `StableDiffusion` class remains available in the expert API layer.
 
+#### MiniT2I
+
+The `MiniT2I` helper downloads the standalone MiniT2I B/16 diffusion transformer and its FLAN-T5 Large text encoder, then routes them to stable-diffusion.cpp's split diffusion and T5 model slots:
+
+```kotlin
+val edge = LLMEdge.create(context, viewModelScope)
+val bitmap = edge.image.generate(
+    MiniT2I.imageRequest("a small robot watering flowers"),
+)
+```
+
+The helper defaults to the model's 512×512, 100-step, CFG 6 configuration. Width, height, steps, CFG, seed, and flash attention remain configurable through `MiniT2I.imageRequest(...)`.
+
 #### FLUX.2 Klein 4B (distilled DiT, split model)
 
 [FLUX.2 Klein 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) is a step-distilled diffusion transformer that produces high-quality images in ~4 steps. It is the same architecture PrismML's binary/ternary **Bonsai Image** models are built on — Bonsai's own 1-bit/ternary weights ship only in MLX (Apple) and GemLite (CUDA) packings, which don't load on Android, so this GGUF build is the Android-runnable equivalent at a comparable footprint.

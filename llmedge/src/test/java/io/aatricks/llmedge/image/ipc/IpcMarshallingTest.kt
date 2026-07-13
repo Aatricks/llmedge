@@ -82,6 +82,7 @@ class IpcMarshallingTest {
                 loraModelDir = "/lora",
                 loraApplyMode = LoraApplyMode.AT_RUNTIME,
                 model = ModelSpec.LocalFile(File("/m.gguf")),
+                diffusionModelOnly = true,
                 splitDiffusionModel = true,
                 sequential = true,
             )

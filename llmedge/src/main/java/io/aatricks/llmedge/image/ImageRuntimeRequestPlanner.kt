@@ -32,6 +32,7 @@ internal object ImageRuntimeRequestPlanner {
                     model = params.model ?: config.models.image,
                     vae = params.vae,
                     textEncoder = params.textEncoder,
+                    diffusionModelOnly = params.diffusionModelOnly,
                     splitDiffusionModel = params.splitDiffusionModel,
                 ),
             options =
