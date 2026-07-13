@@ -66,9 +66,18 @@ internal class HFModelTree(
         modelId: String,
         revision: String,
         token: String? = null,
+        recursive: Boolean = false,
     ): List<HFModelFile> {
+        // The HF tree API lists only the top level by default, so a nested filename such as
+        // "minit2i-b-16/transformer/diffusion_pytorch_model.safetensors" never appears as a
+        // selection candidate (the subdirectory shows up as a "directory" entry instead).
+        // Request the recursive listing when resolving an exact repo file that may live in a
+        // subdirectory. (For very large repos HF paginates the recursive tree; the models we
+        // resolve this way are small, so a single page suffices.)
+        val endpoint = HFEndpoints.modelTreeEndpoint(modelId, revision)
+        val url = if (recursive) "$endpoint?recursive=true" else endpoint
         val response =
-            client.get(HFEndpoints.modelTreeEndpoint(modelId, revision)) {
+            client.get(url) {
                 token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
             }
         if (!response.status.isSuccess()) {

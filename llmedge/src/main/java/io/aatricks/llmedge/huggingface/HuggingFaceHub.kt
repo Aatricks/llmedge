@@ -228,6 +228,9 @@ object HuggingFaceHub {
                     systemDownloadContext = systemDownloadContext,
                     onProgress = request.onProgress,
                     noMatchMessage = "No file found for '${request.modelId}' matching ${request.filename ?: request.allowedExtensions}",
+                    // An exact repo file (e.g. a diffusion model or VAE) may live in a
+                    // subdirectory; list the tree recursively so nested paths are selectable.
+                    recursive = true,
                     fileSelector = { files ->
                         HFFileSelectionSupport.selectRepoFile(files, request.filename, request.allowedExtensions)
                     },
