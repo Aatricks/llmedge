@@ -120,6 +120,58 @@ class ImageClientTest {
     }
 
     @Test
+    fun `image diffusion artifact routes to native model path when diffusionModelOnly is false`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile =
+            java.io.File.createTempFile("classic-image", ".gguf", context.filesDir).apply {
+                writeBytes(byteArrayOf(0x01))
+            }
+        val model =
+            ModelSpec.localFile(
+                modelFile,
+                ModelHints(artifactKind = ModelArtifactKind.DIFFUSION_MODEL),
+            )
+        var observedModelPath: String? = "unset"
+        var observedDiffusionModelPath: String? = "unset"
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            observedModelPath = it.invocation.args[3] as String?
+            observedDiffusionModelPath = it.invocation.args[21] as String?
+            mockk(relaxed = true)
+        }
+
+        val loaded =
+            DiffusionRuntimeLoader(context, DefaultModelRepository()).load(
+                spec = DiffusionRuntimeSpec(role = DiffusionRuntimeRole.IMAGE, model = model, diffusionModelOnly = false),
+                options =
+                    DiffusionLoadOptions(
+                        subsystem = ComputeSubsystem.IMAGE,
+                        allowGpu = false,
+                        nThreads = 1,
+                        offloadToCpu = true,
+                        keepClipOnCpu = true,
+                        keepVaeOnCpu = true,
+                        flashAttn = true,
+                        preferPerformanceMode = false,
+                    ),
+                backend = ComputeBackend.CPU,
+            )
+        try {
+            assertEquals(modelFile.absolutePath, observedModelPath)
+            assertEquals(null, observedDiffusionModelPath)
+        } finally {
+            loaded.close()
+        }
+    }
+
+    @Test
     fun `sequential video generation loads text encoder before diffusion model`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val baseDir = context.filesDir
@@ -1047,9 +1099,7 @@ class ImageClientTest {
                 metrics += requireNotNull(client.getLastGenerationMetrics()?.imageRequestMetrics)
             }
 
-            // Warm reuse: the sd.cpp context keeps its weights now that
-            // free_params_immediately is off, so the second request is a cache
-            // hit with no second load.
+            // Warm reuse makes the second request a cache hit with no second load.
             coVerify(exactly = 1) {
                 StableDiffusion.loadWithRuntimeBackend(
                     any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),

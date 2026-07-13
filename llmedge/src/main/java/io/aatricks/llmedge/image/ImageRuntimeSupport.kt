@@ -165,7 +165,8 @@ internal class DiffusionRuntimeLoader(
         val preferredFlash = options.flashAttn
         val diffusionModelOnly =
             spec.diffusionModelOnly ||
-                spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL
+                (spec.role != DiffusionRuntimeRole.IMAGE &&
+                    spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL)
         try {
             return createManagedModel(
                 options = options,

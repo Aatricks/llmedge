@@ -528,12 +528,6 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.audio_vae_path = audioVaePathValue.c_str();
     p.control_net_path = controlNetPathValue.c_str();
     p.photo_maker_path = photoMakerPathValue.c_str();
-    // MUST stay false: free_params_immediately frees each module's weight
-    // buffer after its stage, so a second generate_image on the same handle
-    // reads freed memory (SIGSEGV in the UNet's first conv — this was the
-    // "warm sd_ctx unsafe to reuse" crash, on every backend, not just Vulkan).
-    // llmedge's ModelCache owns weight lifetime via eviction instead.
-    p.free_params_immediately = false;
     p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
     p.diffusion_flash_attn = flashAttn;
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
