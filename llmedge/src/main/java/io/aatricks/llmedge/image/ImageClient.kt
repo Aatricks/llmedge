@@ -51,6 +51,9 @@ data class ImageGenerationRequest(
     val controlNet: ModelSpec? = null,
     val photoMaker: ModelSpec? = null,
     val embeddingsConnectors: ModelSpec? = null,
+    // Standalone DiT checkpoints (for example MiniT2I) are routed through
+    // diffusion_model_path while [textEncoder] remains in the T5 slot.
+    val diffusionModelOnly: Boolean = false,
     val splitDiffusionModel: Boolean = false,
     // FLUX.2 sequential low-memory mode: load the encoder alone to precompute the conditioning,
     // free it, then load the DiT alone to generate. Peak RAM = max(encoder, DiT) instead of the

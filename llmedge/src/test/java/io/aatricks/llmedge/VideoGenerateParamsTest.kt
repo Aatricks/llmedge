@@ -2,6 +2,7 @@ package io.aatricks.llmedge
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import io.aatricks.llmedge.image.diffusion.Scheduler
@@ -25,6 +26,17 @@ class VideoGenerateParamsTest {
     }
 
     @Test
+    fun `Wan documented 480x832 resolution passes validation`() {
+        val params = VideoGenerateParams(
+            prompt = "a cat",
+            width = 480,
+            height = 832,
+        )
+
+        assertTrue(params.validate().isSuccess)
+    }
+
+    @Test
     fun `blank prompt fails validation`() {
         val params = VideoGenerateParams(prompt = " ")
 
@@ -32,13 +44,15 @@ class VideoGenerateParamsTest {
     }
 
     @Test
-    fun `width must be multiple of 64`() {
-        val params = VideoGenerateParams(
-            prompt = "valid",
-            width = 510,
-        )
+    fun `width must be multiple of 32`() {
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            VideoGenerateParams(
+                prompt = "valid",
+                width = 510,
+            )
+        }
 
-        assertValidationFails(params, "Width must be a multiple of 64")
+        assertEquals("Width must be a multiple of 32", failure.message)
     }
 
     @Test
@@ -48,17 +62,20 @@ class VideoGenerateParamsTest {
             height = 128,
         )
 
-        assertValidationFails(params, "Height must be a multiple of 64")
+        assertValidationFails(params, "Height must be a multiple of 32")
     }
 
     @Test
-    fun `frame count must be between 4 and 64`() {
-        val params = VideoGenerateParams(
-            prompt = "valid",
-            videoFrames = 2,
-        )
+    fun `one through four requested frames produce one valid frame`() {
+        for (requestedFrames in 1..4) {
+            val params = VideoGenerateParams(
+                prompt = "valid",
+                videoFrames = requestedFrames,
+            )
 
-        assertValidationFails(params, "Frame count must be between 5 and 64")
+            assertTrue("$requestedFrames requested frames should be valid", params.validate().isSuccess)
+            assertEquals(1, params.actualFrameCount())
+        }
     }
 
     @Test
@@ -68,7 +85,7 @@ class VideoGenerateParamsTest {
             videoFrames = 0,
         )
 
-        assertValidationFails(params, "Frame count must be between 5 and 64")
+        assertValidationFails(params, "Frame count must be between 1 and 64")
     }
 
     @Test
@@ -150,7 +167,7 @@ class VideoGenerateParamsTest {
             height = 960,
         )
 
-        assertValidationFails(params, "Width must be a multiple of 64 in range 256..960")
+        assertValidationFails(params, "Width must be a multiple of 32 in range 256..960")
     }
 
     @Test
@@ -170,7 +187,7 @@ class VideoGenerateParamsTest {
             videoFrames = 65,
         )
 
-        assertValidationFails(params, "Frame count must be between 5 and 64")
+        assertValidationFails(params, "Frame count must be between 1 and 64")
     }
 
     @Test
@@ -201,7 +218,7 @@ class VideoGenerateParamsTest {
             width = 192,
         )
 
-        assertValidationFails(params, "Width must be a multiple of 64 in range 256..960")
+        assertValidationFails(params, "Width must be a multiple of 32 in range 256..960")
     }
 
     @Test

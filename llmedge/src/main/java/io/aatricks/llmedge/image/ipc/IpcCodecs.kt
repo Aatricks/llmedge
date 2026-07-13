@@ -122,6 +122,7 @@ internal object IpcCodecs {
             controlNet = request.controlNet?.let(::toIpc),
             photoMaker = request.photoMaker?.let(::toIpc),
             embeddingsConnectors = request.embeddingsConnectors?.let(::toIpc),
+            diffusionModelOnly = request.diffusionModelOnly,
             splitDiffusionModel = request.splitDiffusionModel,
             sequential = request.sequential,
         )
@@ -156,6 +157,7 @@ internal object IpcCodecs {
             controlNet = request.controlNet?.let(::fromIpc),
             photoMaker = request.photoMaker?.let(::fromIpc),
             embeddingsConnectors = request.embeddingsConnectors?.let(::fromIpc),
+            diffusionModelOnly = request.diffusionModelOnly,
             splitDiffusionModel = request.splitDiffusionModel,
             sequential = request.sequential,
         )

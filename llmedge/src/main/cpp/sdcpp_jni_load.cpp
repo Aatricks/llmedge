@@ -20,9 +20,9 @@
 // conditioner.hpp drags in the full header-only sd.cpp model graph code, which the
 // host-native test harness cannot link (it stubs libstable-diffusion instead).
 #ifndef SD_JNI_TESTING
-#include "conditioner.hpp"
+#include "conditioning/conditioner.hpp"
 #endif
-#include "ggml_extend_backend.h"
+#include "core/ggml_extend_backend.h"
 #include "ggml-backend.h"
 #include "model.h"
 
@@ -66,12 +66,16 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
 
     ALOGI("Attempting T5-only context load for sequential prompt conditioning: %s", modelPath);
 
-    ModelLoader model_loader;
+    auto model_manager = std::make_shared<ModelManager>();
+    model_manager->set_n_threads(sd_get_num_physical_cores_safe());
+    model_manager->set_enable_mmap(true);
+    ModelLoader& model_loader = model_manager->loader();
     if (!model_loader.init_from_file(modelPath, "text_encoders.t5xxl.transformer.")) {
         ALOGE("Failed to initialize ModelLoader for T5-only context: %s", modelPath);
         return nullptr;
     }
     model_loader.convert_tensors_name();
+    model_loader.process_model_files(true, false);
 
     ggml_backend_t backend = nullptr;
 #ifdef SD_USE_VULKAN
@@ -93,30 +97,22 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
     ggml_backend_t params_backend = offloadToCpu ? sd_backend_cpu_init() : backend;
     auto* t5 = new T5CLIPEmbedder(
         backend,
-        params_backend,
-        model_loader.get_tensor_storage_map(),
-        offloadToCpu,
+        model_manager->loader().get_tensor_storage_map(),
+        false,
         0,
-        is_umt5);
-    std::map<std::string, struct ggml_tensor*> tensors;
-    t5->get_param_tensors(tensors);
-
-    std::vector<MmapTensorStore> mmap_stores = model_loader.mmap_tensors(tensors, {}, false);
-    bool load_ok = true;
-    if (mmap_stores.empty()) {
-        ALOGW("mmap failed or disabled for T5, falling back to loading into allocated memory buffer");
-        t5->alloc_params_buffer();
-        std::set<std::string> ignore_tensors;
-        load_ok = model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe(), false);
-    } else {
-        ALOGI("Successfully memory-mapped T5 tensors directly (skipped separate buffer allocation)");
-        t5->alloc_params_buffer();
-    }
-
-    if (!load_ok) {
-        ALOGE("Failed to load tensors for T5 context");
-        t5->free_params_buffer();
+        is_umt5,
+        model_manager);
+    if (!model_manager->register_runner_params(
+            "T5 encoder",
+            *t5,
+            ModelManager::ResidencyMode::ParamBackend,
+            backend,
+            params_backend) ||
+        !model_manager->validate_registered_tensors()) {
+        ALOGE("Failed to register tensors for T5 context");
         delete t5;
+        model_manager.reset();
+        if (params_backend != backend) ggml_backend_free(params_backend);
         ggml_backend_free(backend);
         return nullptr;
     }
@@ -125,7 +121,8 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
     handle->ctx = nullptr;
     handle->t5_ctx = t5;
     handle->backend = backend;
-    handle->mmap_stores = std::move(mmap_stores);
+    handle->params_backend = params_backend == backend ? nullptr : params_backend;
+    handle->model_manager = std::move(model_manager);
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
@@ -149,12 +146,16 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
     }
     ALOGI("Attempting LLM-only (Qwen3) context load for sequential FLUX.2 conditioning: %s", llmPath);
 
-    ModelLoader model_loader;
+    auto model_manager = std::make_shared<ModelManager>();
+    model_manager->set_n_threads(sd_get_num_physical_cores_safe());
+    model_manager->set_enable_mmap(true);
+    ModelLoader& model_loader = model_manager->loader();
     if (!model_loader.init_from_file(llmPath, "text_encoders.llm.")) {
         ALOGE("Failed to initialize ModelLoader for LLM-only context: %s", llmPath);
         return nullptr;
     }
     model_loader.convert_tensors_name();
+    model_loader.process_model_files(true, false);
 
     ggml_backend_t backend = nullptr;
 #ifdef SD_USE_VULKAN
@@ -175,28 +176,22 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
     ggml_backend_t params_backend = offloadToCpu ? sd_backend_cpu_init() : backend;
     auto* llm = new LLMEmbedder(
         backend,
-        params_backend,
-        model_loader.get_tensor_storage_map(),
-        VERSION_FLUX2_KLEIN);
-    std::map<std::string, struct ggml_tensor*> tensors;
-    llm->get_param_tensors(tensors);
-
-    std::vector<MmapTensorStore> mmap_stores = model_loader.mmap_tensors(tensors, {}, false);
-    bool load_ok = true;
-    if (mmap_stores.empty()) {
-        ALOGW("mmap failed or disabled for LLM, falling back to loading into allocated memory buffer");
-        llm->alloc_params_buffer();
-        std::set<std::string> ignore_tensors;
-        load_ok = model_loader.load_tensors(tensors, ignore_tensors, sd_get_num_physical_cores_safe(), false);
-    } else {
-        ALOGI("Successfully memory-mapped LLM tensors directly (skipped separate buffer allocation)");
-        llm->alloc_params_buffer();
-    }
-
-    if (!load_ok) {
-        ALOGE("Failed to load tensors for LLM context");
-        llm->free_params_buffer();
+        model_manager->loader().get_tensor_storage_map(),
+        VERSION_FLUX2_KLEIN,
+        "",
+        false,
+        model_manager);
+    if (!model_manager->register_runner_params(
+            "LLM encoder",
+            *llm,
+            ModelManager::ResidencyMode::ParamBackend,
+            backend,
+            params_backend) ||
+        !model_manager->validate_registered_tensors()) {
+        ALOGE("Failed to register tensors for LLM context");
         delete llm;
+        model_manager.reset();
+        if (params_backend != backend) ggml_backend_free(params_backend);
         ggml_backend_free(backend);
         return nullptr;
     }
@@ -205,7 +200,8 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
     handle->ctx     = nullptr;
     handle->llm_ctx = llm;
     handle->backend = backend;
-    handle->mmap_stores = std::move(mmap_stores);
+    handle->params_backend = params_backend == backend ? nullptr : params_backend;
+    handle->model_manager = std::move(model_manager);
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
@@ -539,12 +535,18 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     // llmedge's ModelCache owns weight lifetime via eviction instead.
     p.free_params_immediately = false;
     p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
-    p.offload_params_to_cpu = offloadToCpu;
-    p.keep_clip_on_cpu = keepClipOnCpu;
-    p.keep_vae_on_cpu = keepVaeOnCpu;
     p.diffusion_flash_attn = flashAttn;
-    p.vae_decode_only = jvaeDecodeOnly;
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
+
+    std::string backendSpec;
+    if (keepClipOnCpu == JNI_TRUE) backendSpec = "te=cpu";
+    if (keepVaeOnCpu == JNI_TRUE) {
+        if (!backendSpec.empty()) backendSpec += ",";
+        backendSpec += "vae=cpu";
+    }
+    std::string paramsBackendSpec = offloadToCpu == JNI_TRUE ? "*=cpu" : "";
+    p.backend = backendSpec.c_str();
+    p.params_backend = paramsBackendSpec.c_str();
 
     bool hasExtraComponentPaths = !clipLPathValue.empty() ||
                                   !clipGPathValue.empty() ||
@@ -640,17 +642,20 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
 #ifndef SD_JNI_TESTING
     if (handle->t5_ctx) {
         auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
-        t5->free_params_buffer();
         delete t5;
         handle->t5_ctx = nullptr;
     }
     if (handle->llm_ctx) {
         auto* llm = static_cast<LLMEmbedder*>(handle->llm_ctx);
-        llm->free_params_buffer();
         delete llm;
         handle->llm_ctx = nullptr;
     }
 #endif
+    handle->model_manager.reset();
+    if (handle->params_backend) {
+        ggml_backend_free(static_cast<ggml_backend_t>(handle->params_backend));
+        handle->params_backend = nullptr;
+    }
     if (handle->backend) {
         ggml_backend_free(static_cast<ggml_backend_t>(handle->backend));
         handle->backend = nullptr;

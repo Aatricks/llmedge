@@ -39,6 +39,7 @@ internal object ImageRuntimeRequestPlanner {
                     controlNet = params.controlNet,
                     photoMaker = params.photoMaker,
                     embeddingsConnectors = params.embeddingsConnectors,
+                    diffusionModelOnly = params.diffusionModelOnly,
                     splitDiffusionModel = params.splitDiffusionModel,
                 ),
             options =

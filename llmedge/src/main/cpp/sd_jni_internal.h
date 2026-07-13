@@ -2,9 +2,10 @@
 
 #include <jni.h>
 #include <atomic>
+#include <memory>
 #include <string>
 #include <vector>
-#include "model.h"
+#include "model_manager.h"
 
 struct sd_ctx_t;
 
@@ -13,7 +14,8 @@ struct SdHandle {
     void* t5_ctx = nullptr; // Pointer to T5CLIPEmbedder for T5-only mode
     void* llm_ctx = nullptr; // Pointer to LLMEmbedder for Qwen3-only mode (FLUX.2 sequential)
     void* backend = nullptr; // Pointer to ggml_backend_t for encoder-only handles
-    std::vector<MmapTensorStore> mmap_stores;
+    void* params_backend = nullptr; // Optional separate CPU params backend for encoder-only handles
+    std::shared_ptr<ModelManager> model_manager;
     float flowShift = 0.0f;
     std::string loraModelDir;
     int last_width = 0;

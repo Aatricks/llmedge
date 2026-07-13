@@ -68,6 +68,7 @@ internal data class IpcImageRequest(
     val controlNet: IpcModelSpec?,
     val photoMaker: IpcModelSpec?,
     val embeddingsConnectors: IpcModelSpec?,
+    val diffusionModelOnly: Boolean,
     val splitDiffusionModel: Boolean,
     val sequential: Boolean,
 ) : Parcelable
