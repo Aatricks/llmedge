@@ -185,6 +185,26 @@ if (CMAKE_HOST_APPLE AND NOT DEFINED SPIRV-Headers_DIR)
         endif()
 endif()
 
+# Linux hosts (including CI runners) install SPIRV-Headers via the system package
+# manager (apt: spirv-headers), which ships SPIRV-HeadersConfig.cmake under
+# /usr/share/cmake/SPIRV-Headers. Set SPIRV-Headers_DIR explicitly so ggml-vulkan's
+# find_package(SPIRV-Headers CONFIG REQUIRED) resolves even under the Android NDK
+# toolchain's CMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY, which otherwise skips host
+# config paths during the cross-compile (mirrors the Apple branch above).
+if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND NOT DEFINED SPIRV-Headers_DIR)
+        foreach(_LLMEDGE_SPIRV_HEADERS_CAND
+                "/usr/share/cmake/SPIRV-Headers"
+                "/usr/local/share/cmake/SPIRV-Headers"
+                "/usr/lib/x86_64-linux-gnu/cmake/SPIRV-Headers"
+                "/usr/lib/cmake/SPIRV-Headers")
+                if (EXISTS "${_LLMEDGE_SPIRV_HEADERS_CAND}/SPIRV-HeadersConfig.cmake")
+                        set(SPIRV-Headers_DIR "${_LLMEDGE_SPIRV_HEADERS_CAND}"
+                                CACHE PATH "Host SPIR-V headers package" FORCE)
+                        break()
+                endif()
+        endforeach()
+endif()
+
 # Ensure ggml-vulkan's ExternalProject (vulkan-shaders-gen) can find the correct build tool.
 if (CMAKE_MAKE_PROGRAM)
         set(_GGML_VK_HOST_TC "${CMAKE_CURRENT_BINARY_DIR}/ggml_vulkan_host_toolchain.cmake")
