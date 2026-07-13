@@ -61,7 +61,7 @@ jobs:
       - name: Install Native Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential ninja-build glslc libvulkan-dev
+          sudo apt-get install -y cmake build-essential ninja-build glslc libvulkan-dev spirv-headers
 
       - name: Publish release AAR to GitHub Packages
         env:

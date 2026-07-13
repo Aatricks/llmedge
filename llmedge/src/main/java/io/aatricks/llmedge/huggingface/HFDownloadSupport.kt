@@ -67,10 +67,11 @@ internal object HFDownloadSupport {
         systemDownloadContext: Context?,
         onProgress: ((downloaded: Long, total: Long?) -> Unit)?,
         noMatchMessage: String,
+        recursive: Boolean = false,
         fileSelector: (List<HFModelTree.HFModelFile>) -> HFModelTree.HFModelFile?,
     ): HuggingFaceHub.ModelDownloadResult = withContext(Dispatchers.IO) {
         val resolved = resolveModelReference(modelId, revision)
-        val files = HFModels.tree().getModelFileTree(resolved.modelId, resolved.revision, token)
+        val files = HFModels.tree().getModelFileTree(resolved.modelId, resolved.revision, token, recursive)
         val modelFile = fileSelector(files) ?: throw IllegalArgumentException(noMatchMessage)
         val target = buildDownloadTarget(destinationRoot, resolved, modelFile)
 
