@@ -188,6 +188,7 @@ class ImageClientTest {
                 any(),
                 any(),
                 any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -335,6 +336,7 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(),
                 any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -449,6 +451,7 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
+                any(),
                 any(),
                 any(),
             )
@@ -570,6 +573,7 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
+                any(),
                 any(),
                 any(),
             )
@@ -700,6 +704,7 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any(), any(), any(), any(),
+                any(),
                 any(),
                 any(),
             )
@@ -845,6 +850,7 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
                 any(),
                 any(),
+                any(),
             )
         } coAnswers {
             val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
@@ -950,6 +956,7 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
                 any(),
                 any(),
+                any(),
             )
         } coAnswers {
             sleep(5)
@@ -990,6 +997,7 @@ class ImageClientTest {
             coVerify(exactly = 1) {
                 StableDiffusion.loadWithRuntimeBackend(
                     any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                    any(),
                     any(),
                     any(),
                 )
@@ -1108,6 +1116,7 @@ class ImageClientTest {
         coEvery {
             StableDiffusion.loadWithRuntimeBackend(
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(),
                 any(),
                 any(),
             )
@@ -1241,6 +1250,7 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(),
                 any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -1360,6 +1370,7 @@ class ImageClientTest {
                 any(), any(), any(), any(), any(), any(), any(),
                 any(),
                 any(),
+                any(),
             )
         } coAnswers {
             val callArgs = it.invocation.args
@@ -1395,6 +1406,185 @@ class ImageClientTest {
             assertEquals(128, bitmap.height)
             assertEquals(listOf(loraDir.absolutePath), observedLoraDirs)
             assertEquals(listOf("portrait <lora:detail-tweaker:1.0> test"), observedPrompts)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `image generate with splitDiffusionModel and clip slots resolved componentPaths`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val ditFile = java.io.File.createTempFile("split-dit", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val vaeFile = java.io.File.createTempFile("split-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val clipLFile = java.io.File.createTempFile("split-clip_l", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val clipGFile = java.io.File.createTempFile("split-clip_g", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        every { RuntimeCapabilities.isStableDiffusionVulkanAvailable() } returns true
+        every { RuntimeCapabilities.isStableDiffusionOpenClAvailable() } returns false
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long, prompt: String, negative: String, width: Int, height: Int,
+                    steps: Int, cfg: Float, seed: Long, vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float, easyCacheEndPercent: Float,
+                ): ByteArray = ByteArray(width * height * 3) { 0x33 }
+
+                override fun txt2vid(
+                    handle: Long, prompt: String, negative: String, width: Int, height: Int,
+                    videoFrames: Int, steps: Int, cfg: Float, seed: Long,
+                    sampleMethod: SampleMethod, scheduler: Scheduler, strength: Float,
+                    initImage: ByteArray?, initWidth: Int, initHeight: Int,
+                    vaceStrength: Float, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float, easyCacheEndPercent: Float,
+                ): Array<ByteArray> = Array(videoFrames) { ByteArray(width * height * 3) { 0x33 } }
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        var capturedComponentPaths: io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths? = null
+        var capturedLlmPath: String? = "unset"
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            capturedLlmPath = callArgs[22] as String?
+            capturedComponentPaths = callArgs[23] as io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths?
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = false)),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "split model image",
+                    width = 64,
+                    height = 64,
+                    model = ModelSpec.localFile(ditFile),
+                    vae = ModelSpec.localFile(vaeFile),
+                    clipL = ModelSpec.localFile(clipLFile),
+                    clipG = ModelSpec.localFile(clipGFile),
+                    splitDiffusionModel = true,
+                ),
+            )
+
+            assertNotNull(capturedComponentPaths)
+            assertEquals(clipLFile.absolutePath, capturedComponentPaths?.clipLPath)
+            assertEquals(clipGFile.absolutePath, capturedComponentPaths?.clipGPath)
+            assertEquals(null, capturedLlmPath)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `two requests identical except different clipG specs produce different cache keys and load twice`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val modelFile = java.io.File.createTempFile("flux-model-cache", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val clipG1 = java.io.File.createTempFile("clipG1", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val clipG2 = java.io.File.createTempFile("clipG2", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long, prompt: String, negative: String, width: Int, height: Int,
+                    steps: Int, cfg: Float, seed: Long, vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float, easyCacheEndPercent: Float,
+                ): ByteArray = ByteArray(width * height * 3) { 0x33 }
+
+                override fun txt2vid(
+                    handle: Long, prompt: String, negative: String, width: Int, height: Int,
+                    videoFrames: Int, steps: Int, cfg: Float, seed: Long,
+                    sampleMethod: SampleMethod, scheduler: Scheduler, strength: Float,
+                    initImage: ByteArray?, initWidth: Int, initHeight: Int,
+                    vaceStrength: Float, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float, easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = null
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "cache key test 1",
+                    width = 64,
+                    height = 64,
+                    model = ModelSpec.localFile(modelFile),
+                    clipG = ModelSpec.localFile(clipG1),
+                ),
+            )
+
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "cache key test 2",
+                    width = 64,
+                    height = 64,
+                    model = ModelSpec.localFile(modelFile),
+                    clipG = ModelSpec.localFile(clipG2),
+                ),
+            )
+
+            // Should load twice because the cache keys are different due to different clipG specs
+            coVerify(exactly = 2) {
+                StableDiffusion.loadWithRuntimeBackend(
+                    any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                    any(),
+                    any(),
+                    any(),
+                )
+            }
         } finally {
             client.close()
             edgeScope.close()

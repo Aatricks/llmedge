@@ -40,6 +40,9 @@ extern "C" {
 JNIEXPORT jlong JNICALL Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     JNIEnv* env, jclass clazz, jstring jModelPath, jstring jVaePath, jstring jT5xxlPath,
     jstring jTaesdPath, jstring jDiffusionModelPath, jstring jLlmPath,
+    jstring jClipLPath, jstring jClipGPath, jstring jClipVisionPath, jstring jLlmVisionPath,
+    jstring jHighNoiseDiffusionModelPath, jstring jEmbeddingsConnectorsPath,
+    jstring jAudioVaePath, jstring jControlNetPath, jstring jPhotoMakerPath,
     jint nThreads, jboolean enableOpenCl, jboolean useVulkan, jboolean offloadToCpu,
     jboolean keepClipOnCpu, jboolean keepVaeOnCpu, jboolean flashAttn, jboolean jvaeDecodeOnly,
     jfloat flowShift, jstring jLoraModelDir, jint jLoraApplyMode);
@@ -125,7 +128,8 @@ static bool test_nativeTxt2Vid_memory(JNIEnv* env) {
     reset_free_counters();
     jstring modelPath = env->NewStringUTF("stub-model.gguf");
         jlong handle = Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
-            env, nullptr, modelPath, nullptr, nullptr, nullptr, nullptr, nullptr, 4,
+            env, nullptr, modelPath, nullptr, nullptr, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 4,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
             std::numeric_limits<float>::infinity(), nullptr, 0);
     env->DeleteLocalRef(modelPath);
@@ -204,7 +208,8 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     std::cout << "Step 1: Loading T5-only context..." << std::endl;
     jstring t5Path = env->NewStringUTF("stub-t5.gguf");
         jlong t5Handle = Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
-            env, nullptr, t5Path, nullptr, nullptr, nullptr, nullptr, nullptr, 4,
+            env, nullptr, t5Path, nullptr, nullptr, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 4,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
             std::numeric_limits<float>::infinity(), nullptr, 0);
     env->DeleteLocalRef(t5Path);
@@ -249,7 +254,8 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     jstring modelPath = env->NewStringUTF("stub-diffusion.safetensors");
     jstring vaePath = env->NewStringUTF("stub-vae.safetensors");
         jlong diffusionHandle = Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
-            env, nullptr, modelPath, vaePath, nullptr, nullptr, nullptr, nullptr, 4,
+            env, nullptr, modelPath, vaePath, nullptr, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 4,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
             std::numeric_limits<float>::infinity(), nullptr, 0);
     env->DeleteLocalRef(modelPath);
@@ -296,7 +302,8 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
 static bool test_progress_callback_bridge(JNIEnv* env) {
     jstring modelPath = env->NewStringUTF("stub-model.gguf");
         jlong handlePtr = Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
-            env, nullptr, modelPath, nullptr, nullptr, nullptr, nullptr, nullptr, 2,
+            env, nullptr, modelPath, nullptr, nullptr, nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 2,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
             std::numeric_limits<float>::infinity(), nullptr, 0);
     env->DeleteLocalRef(modelPath);

@@ -44,6 +44,13 @@ data class ImageGenerationRequest(
     // true the runtime routes [model] -> diffusion_model_path and [textEncoder] -> llm_path.
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
+    val clipL: ModelSpec? = null,
+    val clipG: ModelSpec? = null,
+    val clipVision: ModelSpec? = null,
+    val llmVision: ModelSpec? = null,
+    val controlNet: ModelSpec? = null,
+    val photoMaker: ModelSpec? = null,
+    val embeddingsConnectors: ModelSpec? = null,
     val splitDiffusionModel: Boolean = false,
     // FLUX.2 sequential low-memory mode: load the encoder alone to precompute the conditioning,
     // free it, then load the DiT alone to generate. Peak RAM = max(encoder, DiT) instead of the
@@ -74,6 +81,7 @@ data class VideoGenerationRequest(
     val model: ModelSpec? = null,
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
+    val highNoiseDiffusionModel: ModelSpec? = null,
 ) {
     fun actualFrameCount(): Int = (videoFrames - 1) / 4 * 4 + 1
 }

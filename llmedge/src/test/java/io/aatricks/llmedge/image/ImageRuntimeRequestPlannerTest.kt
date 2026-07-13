@@ -43,4 +43,27 @@ class ImageRuntimeRequestPlannerTest {
         val cpuRequest = ImageRuntimeRequestPlanner.directVideoRequest(VideoGenerationRequest(prompt = "x"), cpuOnlyConfig)
         assertFalse(cpuRequest.options.allowGpu)
     }
+
+    @Test
+    fun `image request threads clip slots from request to spec`() {
+        val clipLSpec = io.aatricks.llmedge.model.ModelSpec.localFile(java.io.File("clip_l.safetensors"))
+        val clipGSpec = io.aatricks.llmedge.model.ModelSpec.localFile(java.io.File("clip_g.safetensors"))
+        val request = ImageRuntimeRequestPlanner.imageRequest(
+            ImageGenerationRequest(prompt = "x", clipL = clipLSpec, clipG = clipGSpec),
+            LLMEdgeConfig()
+        )
+        org.junit.Assert.assertEquals(clipLSpec, request.spec.clipL)
+        org.junit.Assert.assertEquals(clipGSpec, request.spec.clipG)
+        org.junit.Assert.assertNull(request.spec.vae)
+    }
+
+    @Test
+    fun `video request threads highNoiseDiffusionModel from request to spec`() {
+        val highNoiseSpec = io.aatricks.llmedge.model.ModelSpec.localFile(java.io.File("high_noise.safetensors"))
+        val request = ImageRuntimeRequestPlanner.directVideoRequest(
+            VideoGenerationRequest(prompt = "x", highNoiseDiffusionModel = highNoiseSpec),
+            LLMEdgeConfig()
+        )
+        org.junit.Assert.assertEquals(highNoiseSpec, request.spec.highNoiseDiffusionModel)
+    }
 }

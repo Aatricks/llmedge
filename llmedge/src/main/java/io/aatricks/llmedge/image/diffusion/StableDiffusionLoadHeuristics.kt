@@ -208,11 +208,23 @@ internal object StableDiffusionLoadHeuristics {
         t5xxlPath: String?,
         taesdPath: String?,
         loraModelDir: String?,
+        componentPaths: StableDiffusionComponentPaths? = null,
     ) {
         ModelFileValidator.requireReadableFile(modelPath, "Stable Diffusion model")
         vaePath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion VAE") }
         t5xxlPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion text encoder") }
         taesdPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion TAE") }
         loraModelDir?.let { ModelFileValidator.requireReadableDirectory(it, "LoRA model directory") }
+        componentPaths?.let { cp ->
+            cp.clipLPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion clip_l encoder") }
+            cp.clipGPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion clip_g encoder") }
+            cp.clipVisionPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion clip_vision encoder") }
+            cp.llmVisionPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion llm_vision encoder") }
+            cp.highNoiseDiffusionModelPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion high_noise_diffusion_model") }
+            cp.embeddingsConnectorsPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion embeddings_connectors") }
+            cp.audioVaePath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion audio_vae") }
+            cp.controlNetPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion control_net") }
+            cp.photoMakerPath?.let { ModelFileValidator.requireReadableFile(it, "Stable Diffusion photo_maker") }
+        }
     }
 }

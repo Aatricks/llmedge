@@ -25,6 +25,7 @@ internal class ImageGenerationExecutor(
     private val phaseListener: DiffusionPhaseListener? = null,
 ) {
     suspend fun generate(params: ImageGenerationRequest): Bitmap {
+        // Clip-slot (component-path) presets intentionally stay on the direct path.
         if (params.sequential && params.splitDiffusionModel && params.textEncoder != null) {
             return generateSequential(params)
         }
