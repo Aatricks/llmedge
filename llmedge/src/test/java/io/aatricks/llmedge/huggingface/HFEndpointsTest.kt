@@ -10,9 +10,9 @@ class HFEndpointsTest {
     }
 
     @Test
-    fun `modelTreeEndpoint constructs tree url`() {
+    fun `modelTreeEndpoint constructs recursive tree url`() {
         val url = HFEndpoints.modelTreeEndpoint("user/repo", "main")
-        assertEquals("https://huggingface.co/api/models/user/repo/tree/main", url)
+        assertEquals("https://huggingface.co/api/models/user/repo/tree/main?recursive=true", url)
     }
 
     @Test

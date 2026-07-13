@@ -22,7 +22,9 @@ internal object HFEndpoints {
     val listModelsEndpoint: () -> String = { HF_BASE_ENDPOINT }
 
     val modelTreeEndpoint: (String, String) -> String = { modelId, revision ->
-        "$HF_BASE_ENDPOINT/$modelId/tree/$revision"
+        // recursive: the root-only listing hides files in subdirectories, so specs like
+        // "text_encoders/clip_l.safetensors" would never match their repo entry.
+        "$HF_BASE_ENDPOINT/$modelId/tree/$revision?recursive=true"
     }
 
     val modelSpecsEndpoint: (String) -> String = { modelId -> "$HF_BASE_ENDPOINT/$modelId" }

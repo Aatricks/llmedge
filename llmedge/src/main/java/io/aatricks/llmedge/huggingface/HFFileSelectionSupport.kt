@@ -62,6 +62,9 @@ internal object HFFileSelectionSupport {
                 it.path.equals(filename, ignoreCase = true) ||
                     it.path.endsWith(filename, ignoreCase = true)
             }?.let { return it }
+            // An explicit filename that is not in the repo must fail the resolve; falling
+            // through to the size heuristic silently downloads an unrelated checkpoint.
+            return null
         }
 
         return allFiles
