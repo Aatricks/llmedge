@@ -160,8 +160,8 @@ data class VideoGenerateParams(
         }
         // Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
         // So 1-4 -> 1 frame, 5-8 -> 5 frames, 9-12 -> 9 frames, etc.
-        require(videoFrames in 4..64) {
-            "Frame count must be between 5 and 64. Note: Wan model rounds to (n-1)/4*4+1, so use 5+ for multiple frames"
+        require(videoFrames in 1..64) {
+            "Frame count must be between 1 and 64. Note: Wan model rounds to (n-1)/4*4+1, so use 5+ for multiple frames"
         }
         require(steps in 1..50) { "Steps must be between 1 and 50" }
         require(cfgScale in 1.0f..15.0f) { "CFG scale must be between 1.0 and 15.0" }

@@ -52,13 +52,16 @@ class VideoGenerateParamsTest {
     }
 
     @Test
-    fun `frame count must be between 4 and 64`() {
-        val params = VideoGenerateParams(
-            prompt = "valid",
-            videoFrames = 2,
-        )
+    fun `one through four requested frames produce one valid frame`() {
+        for (requestedFrames in 1..4) {
+            val params = VideoGenerateParams(
+                prompt = "valid",
+                videoFrames = requestedFrames,
+            )
 
-        assertValidationFails(params, "Frame count must be between 5 and 64")
+            assertTrue("$requestedFrames requested frames should be valid", params.validate().isSuccess)
+            assertEquals(1, params.actualFrameCount())
+        }
     }
 
     @Test
@@ -68,7 +71,7 @@ class VideoGenerateParamsTest {
             videoFrames = 0,
         )
 
-        assertValidationFails(params, "Frame count must be between 5 and 64")
+        assertValidationFails(params, "Frame count must be between 1 and 64")
     }
 
     @Test
@@ -170,7 +173,7 @@ class VideoGenerateParamsTest {
             videoFrames = 65,
         )
 
-        assertValidationFails(params, "Frame count must be between 5 and 64")
+        assertValidationFails(params, "Frame count must be between 1 and 64")
     }
 
     @Test
