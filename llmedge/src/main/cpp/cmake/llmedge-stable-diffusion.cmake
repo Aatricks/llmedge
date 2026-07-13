@@ -133,8 +133,10 @@ elseif (LLMEDGE_SDCPP_USE_MODS OR (DEFINED ENV{LLMEDGE_SDCPP_USE_MODS} AND "$ENV
         set(SD_DIR "${PATCHED_SD_ROOT}")
 endif()
 
-if (NOT EXISTS "${SD_DIR}/wan.hpp" AND NOT EXISTS "${SD_DIR}/src/wan.hpp")
-        message(FATAL_ERROR "stable-diffusion.cpp Wan headers not found at ${SD_DIR} (expected wan.hpp or src/wan.hpp). Run git submodule update --init --recursive (or disable overlays).")
+if (NOT EXISTS "${SD_DIR}/wan.hpp" AND
+    NOT EXISTS "${SD_DIR}/src/wan.hpp" AND
+    NOT EXISTS "${SD_DIR}/src/model/diffusion/wan.hpp")
+        message(FATAL_ERROR "stable-diffusion.cpp Wan headers not found at ${SD_DIR}. Run git submodule update --init --recursive (or disable overlays).")
 endif()
 
 option(WAN_SUPPORT "Enable Wan video generation support" ON)
@@ -164,6 +166,24 @@ set(SD_MUSA OFF CACHE BOOL "sd: musa backend" FORCE)
 set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "ggml: embed OpenCL kernels" FORCE)
 set(GGML_OPENCL_USE_ADRENO_KERNELS ON CACHE BOOL "ggml: use optimized kernels for Adreno" FORCE)
 set(GGML_OPENCL_TARGET_VERSION 300 CACHE STRING "ggml: target OpenCL version" FORCE)
+
+if (CMAKE_HOST_APPLE AND NOT DEFINED SPIRV-Headers_DIR)
+        find_program(_LLMEDGE_BREW_EXECUTABLE brew NO_CMAKE_FIND_ROOT_PATH)
+        if (_LLMEDGE_BREW_EXECUTABLE)
+                execute_process(
+                        COMMAND "${_LLMEDGE_BREW_EXECUTABLE}" --prefix spirv-headers
+                        OUTPUT_VARIABLE _LLMEDGE_SPIRV_HEADERS_PREFIX
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        RESULT_VARIABLE _LLMEDGE_SPIRV_HEADERS_RESULT
+                )
+                if (_LLMEDGE_SPIRV_HEADERS_RESULT EQUAL 0 AND
+                    EXISTS "${_LLMEDGE_SPIRV_HEADERS_PREFIX}/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake")
+                        set(SPIRV-Headers_DIR
+                                "${_LLMEDGE_SPIRV_HEADERS_PREFIX}/share/cmake/SPIRV-Headers"
+                                CACHE PATH "Host SPIR-V headers package" FORCE)
+                endif()
+        endif()
+endif()
 
 # Ensure ggml-vulkan's ExternalProject (vulkan-shaders-gen) can find the correct build tool.
 if (CMAKE_MAKE_PROGRAM)

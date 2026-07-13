@@ -60,10 +60,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
                            static_cast<float>(jEasyCacheEndPercent));
 
     sd_image_t* out = nullptr;
+    int numImages = 0;
+    bool generated = false;
     const auto t0 = std::chrono::steady_clock::now();
     ALOGI("nativeTxt2Img: generate_image start width=%d height=%d steps=%d promptChars=%zu loraCount=%u", width, height, steps, resolved.prompt.size(), gen.lora_count);
     try {
-        out = generate_image(handle->ctx, &gen);
+        generated = generate_image(handle->ctx, &gen, &out, &numImages);
     } catch (const std::exception& e) {
         const char* clazz = handle->cancellationRequested.load()
                 ? "java/util/concurrent/CancellationException"
@@ -72,9 +74,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
         return nullptr;
     }
 
-    if (!out || !out[0].data) {
+    if (!generated || numImages < 1 || !out || !out[0].data) {
         ALOGE("generate_image failed");
-        if (out) free(out);
+        if (out) free_sd_images(out, numImages);
         return nullptr;
     }
 
@@ -86,14 +88,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Img(
     const size_t byteCount = static_cast<size_t>(out[0].width) * out[0].height * out[0].channel;
     jbyteArray jbytes = env->NewByteArray(static_cast<jsize>(byteCount));
     if (!jbytes) {
-        free(out[0].data);
-        free(out);
+        free_sd_images(out, numImages);
         return nullptr;
     }
     env->SetByteArrayRegion(jbytes, 0, static_cast<jsize>(byteCount), reinterpret_cast<jbyte*>(out[0].data));
 
-    free(out[0].data);
-    free(out);
+    free_sd_images(out, numImages);
 
     handle->cancellationRequested.store(false);
     return jbytes;
@@ -153,10 +153,12 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
                            static_cast<float>(jEasyCacheEndPercent));
 
     sd_image_t* out = nullptr;
+    int numImages = 0;
+    bool generated = false;
     const auto t0 = std::chrono::steady_clock::now();
     ALOGI("nativeTxt2ImgArgb: generate_image start width=%d height=%d steps=%d promptChars=%zu loraCount=%u", width, height, steps, resolved.prompt.size(), gen.lora_count);
     try {
-        out = generate_image(handle->ctx, &gen);
+        generated = generate_image(handle->ctx, &gen, &out, &numImages);
     } catch (const std::exception& e) {
         const char* clazz = handle->cancellationRequested.load()
                 ? "java/util/concurrent/CancellationException"
@@ -165,9 +167,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
         return nullptr;
     }
 
-    if (!out || !out[0].data) {
+    if (!generated || numImages < 1 || !out || !out[0].data) {
         ALOGE("generate_image failed");
-        if (out) free(out);
+        if (out) free_sd_images(out, numImages);
         return nullptr;
     }
 
@@ -178,8 +180,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2ImgArgb(
 
     jintArray result = rgb_to_argb_int_array(env, out[0].data, out[0].width, out[0].height, out[0].channel);
 
-    free(out[0].data);
-    free(out);
+    free_sd_images(out, numImages);
 
     handle->cancellationRequested.store(false);
     return result;

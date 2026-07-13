@@ -32,6 +32,7 @@ internal data class DiffusionRuntimeSpec(
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
     val taehv: ModelSpec? = null,
+    val diffusionModelOnly: Boolean = false,
     // FLUX.2 Klein split model: route [model] to diffusion_model_path and [textEncoder] (Qwen3)
     // to llm_path instead of the default model_path / t5xxl_path slots.
     val splitDiffusionModel: Boolean = false,
@@ -121,7 +122,9 @@ internal class DiffusionRuntimeLoader(
                 resolvedTaehv,
             )
         val preferredFlash = options.flashAttn
-        val diffusionModelOnly = spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL
+        val diffusionModelOnly =
+            spec.diffusionModelOnly ||
+                spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL
         try {
             return createManagedModel(
                 options = options,
@@ -156,7 +159,7 @@ internal class DiffusionRuntimeLoader(
                     flashAttn = false,
                     diffusionModelOnly = diffusionModelOnly,
                     splitDiffusionModel = spec.splitDiffusionModel,
-                encoderOnly = spec.encoderOnly,
+                    encoderOnly = spec.encoderOnly,
                 )
             } catch (fallbackError: Throwable) {
                 fallbackError.addSuppressed(error)
@@ -252,6 +255,7 @@ internal fun createDiffusionRuntimePool(
                         spec.vae?.cacheKey,
                         spec.textEncoder?.cacheKey,
                         spec.taehv?.cacheKey,
+                        "diffusionOnly=${spec.diffusionModelOnly}",
                         "threads=${options.nThreads}",
                         "gpu=${options.allowGpu}",
                         "offload=${options.offloadToCpu}",

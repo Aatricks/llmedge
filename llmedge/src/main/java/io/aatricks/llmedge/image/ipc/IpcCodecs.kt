@@ -115,6 +115,7 @@ internal object IpcCodecs {
             model = request.model?.let(::toIpc),
             vae = request.vae?.let(::toIpc),
             textEncoder = request.textEncoder?.let(::toIpc),
+            diffusionModelOnly = request.diffusionModelOnly,
             splitDiffusionModel = request.splitDiffusionModel,
             sequential = request.sequential,
         )
@@ -142,6 +143,7 @@ internal object IpcCodecs {
             model = request.model?.let(::fromIpc),
             vae = request.vae?.let(::fromIpc),
             textEncoder = request.textEncoder?.let(::fromIpc),
+            diffusionModelOnly = request.diffusionModelOnly,
             splitDiffusionModel = request.splitDiffusionModel,
             sequential = request.sequential,
         )

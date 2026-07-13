@@ -61,6 +61,7 @@ internal data class IpcImageRequest(
     val model: IpcModelSpec?,
     val vae: IpcModelSpec?,
     val textEncoder: IpcModelSpec?,
+    val diffusionModelOnly: Boolean,
     val splitDiffusionModel: Boolean,
     val sequential: Boolean,
 ) : Parcelable

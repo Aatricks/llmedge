@@ -2,7 +2,10 @@ package io.aatricks.llmedge.image
 
 import io.aatricks.llmedge.ImageRuntimeConfig
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.model.ModelSpec
+import java.io.File
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -33,6 +36,24 @@ class ImageRuntimeRequestPlannerTest {
         assertFalse(plan.diffusionRequest.options.allowGpu)
         // The conditioning phase is CPU-pinned regardless of config (peak-RAM promise).
         assertFalse(plan.conditioningRequest.options.allowGpu)
+    }
+
+    @Test
+    fun `standalone diffusion model route is retained in runtime spec`() {
+        val model = ModelSpec.LocalFile(File("/minit2i.safetensors"))
+        val request =
+            ImageRuntimeRequestPlanner.imageRequest(
+                ImageGenerationRequest(
+                    prompt = "x",
+                    model = model,
+                    diffusionModelOnly = true,
+                ),
+                LLMEdgeConfig(),
+            )
+
+        assertSame(model, request.spec.model)
+        assertTrue(request.spec.diffusionModelOnly)
+        assertFalse(request.spec.splitDiffusionModel)
     }
 
     @Test

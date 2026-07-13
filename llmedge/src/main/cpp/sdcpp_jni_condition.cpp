@@ -12,7 +12,15 @@
 // conditioner.hpp drags in the full header-only sd.cpp model graph code, which the
 // host-native test harness cannot link (it stubs libstable-diffusion instead).
 #ifndef SD_JNI_TESTING
-#include "conditioner.hpp"
+#include "conditioning/conditioner.hpp"
+
+struct ConditionerRunnerDoneOnExit {
+    Conditioner* conditioner;
+
+    ~ConditionerRunnerDoneOnExit() {
+        conditioner->runner_done();
+    }
+};
 #endif
 #include "ggml-backend.h"
 #include "model.h"
@@ -136,6 +144,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
 #ifndef SD_JNI_TESTING
         else if (handle->t5_ctx) {
             auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
+            ConditionerRunnerDoneOnExit runnerDone{t5};
             try {
                 ConditionerParams cparams;
                 cparams.text = resolved.prompt.c_str();
@@ -179,6 +188,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
         } else if (handle->llm_ctx) {
             // FLUX.2 sequential mode: encoder-only (Qwen3) handle precomputes the conditioning.
             auto* llm = static_cast<LLMEmbedder*>(handle->llm_ctx);
+            ConditionerRunnerDoneOnExit runnerDone{llm};
             try {
                 ConditionerParams cparams;
                 cparams.text      = resolved.prompt.c_str();
