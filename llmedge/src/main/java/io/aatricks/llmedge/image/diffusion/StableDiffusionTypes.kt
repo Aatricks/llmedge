@@ -141,8 +141,8 @@ data class VideoGenerateParams(
     init {
         require(width > 0) { "Width must be positive" }
         require(height > 0) { "Height must be positive" }
-        require(width % 64 == 0) { "Width must be a multiple of 64" }
-        require(height % 64 == 0) { "Height must be a multiple of 64" }
+        require(width % 32 == 0) { "Width must be a multiple of 32" }
+        require(height % 32 == 0) { "Height must be a multiple of 32" }
     }
     /**
      * Calculate the actual number of frames that will be generated. Wan model uses formula:
@@ -152,11 +152,11 @@ data class VideoGenerateParams(
 
     fun validate(): Result<Unit> = runCatching {
         require(prompt.isNotBlank()) { "Prompt cannot be blank" }
-        require(width % 64 == 0 && width in 256..960) {
-            "Width must be a multiple of 64 in range 256..960"
+        require(width % 32 == 0 && width in 256..960) {
+            "Width must be a multiple of 32 in range 256..960"
         }
-        require(height % 64 == 0 && height in 256..960) {
-            "Height must be a multiple of 64 in range 256..960"
+        require(height % 32 == 0 && height in 256..960) {
+            "Height must be a multiple of 32 in range 256..960"
         }
         // Wan model uses formula: actual_frames = (videoFrames-1)/4*4+1
         // So 1-4 -> 1 frame, 5-8 -> 5 frames, 9-12 -> 9 frames, etc.
