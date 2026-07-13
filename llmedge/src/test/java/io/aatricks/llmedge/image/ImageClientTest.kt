@@ -14,12 +14,16 @@ import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.DefaultModelRepository
+import io.aatricks.llmedge.model.ModelArtifactKind
+import io.aatricks.llmedge.model.ModelHints
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
+import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.mockkObject
 import java.lang.Thread.sleep
 import kotlinx.coroutines.flow.collect
@@ -61,6 +65,58 @@ class ImageClientTest {
         } catch (_: Throwable) {
         }
         clearAllMocks()
+    }
+
+    @Test
+    fun `video diffusion artifact routes to native diffusion model path`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile =
+            java.io.File.createTempFile("wan22", ".gguf", context.filesDir).apply {
+                writeBytes(byteArrayOf(0x01))
+            }
+        val model =
+            ModelSpec.localFile(
+                modelFile,
+                ModelHints(artifactKind = ModelArtifactKind.DIFFUSION_MODEL),
+            )
+        var observedModelPath: String? = "unset"
+        var observedDiffusionModelPath: String? = "unset"
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            observedModelPath = it.invocation.args[3] as String?
+            observedDiffusionModelPath = it.invocation.args[21] as String?
+            mockk(relaxed = true)
+        }
+
+        val loaded =
+            DiffusionRuntimeLoader(context, DefaultModelRepository()).load(
+                spec = DiffusionRuntimeSpec(role = DiffusionRuntimeRole.VIDEO, model = model),
+                options =
+                    DiffusionLoadOptions(
+                        subsystem = ComputeSubsystem.VIDEO,
+                        allowGpu = false,
+                        nThreads = 1,
+                        offloadToCpu = true,
+                        keepClipOnCpu = true,
+                        keepVaeOnCpu = true,
+                        flashAttn = true,
+                        preferPerformanceMode = false,
+                    ),
+                backend = ComputeBackend.CPU,
+            )
+        try {
+            assertEquals(null, observedModelPath)
+            assertEquals(modelFile.absolutePath, observedDiffusionModelPath)
+        } finally {
+            loaded.close()
+        }
     }
 
     @Test

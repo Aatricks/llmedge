@@ -13,6 +13,7 @@ import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
 import io.aatricks.llmedge.core.runtime.runtimePoolProfile
 import io.aatricks.llmedge.image.diffusion.LoraApplyMode
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.model.ModelArtifactKind
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeBackend
@@ -121,6 +122,9 @@ internal class DiffusionRuntimeLoader(
                 resolvedTaehv,
             )
         val preferredFlash = options.flashAttn
+        val diffusionModelOnly =
+            spec.diffusionModelOnly ||
+                spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL
         try {
             return createManagedModel(
                 options = options,
@@ -131,7 +135,7 @@ internal class DiffusionRuntimeLoader(
                 resolvedTaehv = resolvedTaehv,
                 fileSizeBytes = fileSizeBytes,
                 flashAttn = preferredFlash,
-                diffusionModelOnly = spec.diffusionModelOnly,
+                diffusionModelOnly = diffusionModelOnly,
                 splitDiffusionModel = spec.splitDiffusionModel,
                 encoderOnly = spec.encoderOnly,
             )
@@ -153,7 +157,7 @@ internal class DiffusionRuntimeLoader(
                     resolvedTaehv = resolvedTaehv,
                     fileSizeBytes = fileSizeBytes,
                     flashAttn = false,
-                    diffusionModelOnly = spec.diffusionModelOnly,
+                    diffusionModelOnly = diffusionModelOnly,
                     splitDiffusionModel = spec.splitDiffusionModel,
                     encoderOnly = spec.encoderOnly,
                 )
