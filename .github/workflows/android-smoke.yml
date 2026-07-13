@@ -39,7 +39,7 @@ jobs:
       - name: Install Native Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential ninja-build glslc libvulkan-dev
+          sudo apt-get install -y cmake build-essential ninja-build glslc libvulkan-dev spirv-headers
 
       - name: Run managed-device smoke tests
         env:
