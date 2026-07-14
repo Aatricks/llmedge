@@ -56,9 +56,10 @@ data class ImageGenerationRequest(
     // diffusion_model_path while [textEncoder] remains in the T5 slot.
     val diffusionModelOnly: Boolean = false,
     val splitDiffusionModel: Boolean = false,
-    // FLUX.2 sequential low-memory mode: load the encoder alone to precompute the conditioning,
-    // free it, then load the DiT alone to generate. Peak RAM = max(encoder, DiT) instead of the
-    // sum. Requires [splitDiffusionModel] + a [textEncoder]. CFG must be 1.0 (no uncond pass).
+    // Sequential low-memory mode: loads the text encoder(s) alone to precompute the conditioning,
+    // frees them, then loads the DiT + VAE to generate. Peak RAM is the larger phase instead of the
+    // sum. Supported for FLUX.2 (requires [splitDiffusionModel] + [textEncoder], CFG must be 1.0) and
+    // SD3 (requires [splitDiffusionModel] + [t5xxl] + [clipL] + [clipG], CFG defaults to 4.5).
     val sequential: Boolean = false,
 )
 

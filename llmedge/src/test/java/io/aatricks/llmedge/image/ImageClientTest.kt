@@ -1911,4 +1911,505 @@ class ImageClientTest {
             StableDiffusion.resetNativeBridgeForTests()
         }
     }
+
+    @Test
+    fun `SD3 CLIP-only encoderOnly spec resolves and routes to native with null modelPath, null vae, null t5xxl, null diffusion, null llm, and populated clipL and clipG componentPaths`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val clipLFile = java.io.File.createTempFile("clip_l", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val clipGFile = java.io.File.createTempFile("clip_g", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        var observedModelPath: String? = "unset"
+        var observedVaePath: String? = "unset"
+        var observedT5xxlPath: String? = "unset"
+        var observedDiffusionModelPath: String? = "unset"
+        var observedLlmPath: String? = "unset"
+        var observedComponentPaths: io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths? = null
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            observedModelPath = callArgs[3] as String?
+            observedVaePath = callArgs[4] as String?
+            observedT5xxlPath = callArgs[5] as String?
+            observedDiffusionModelPath = callArgs[21] as String?
+            observedLlmPath = callArgs[22] as String?
+            observedComponentPaths = callArgs[23] as io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths?
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val spec = DiffusionRuntimeSpec(
+            role = DiffusionRuntimeRole.IMAGE,
+            model = ModelSpec.localFile(clipLFile),
+            t5xxl = null,
+            clipL = ModelSpec.localFile(clipLFile),
+            clipG = ModelSpec.localFile(clipGFile),
+            encoderOnly = true
+        )
+
+        val loader = DiffusionRuntimeLoader(context, DefaultModelRepository())
+        val loaded = loader.load(
+            spec = spec,
+            options = DiffusionLoadOptions(
+                subsystem = ComputeSubsystem.IMAGE,
+                allowGpu = false,
+                nThreads = 1,
+                offloadToCpu = true,
+                keepClipOnCpu = true,
+                keepVaeOnCpu = true,
+                flashAttn = true,
+                preferPerformanceMode = false,
+            ),
+            backend = ComputeBackend.CPU
+        )
+        try {
+            assertEquals(null, observedModelPath)
+            assertEquals(null, observedVaePath)
+            assertEquals(null, observedT5xxlPath)
+            assertEquals(null, observedDiffusionModelPath)
+            assertEquals(null, observedLlmPath)
+            assertNotNull(observedComponentPaths)
+            assertEquals(clipLFile.absolutePath, observedComponentPaths?.clipLPath)
+            assertEquals(clipGFile.absolutePath, observedComponentPaths?.clipGPath)
+        } finally {
+            loaded.close()
+        }
+    }
+
+    @Test
+    fun `SD3 T5-only encoderOnly spec resolves and routes to native with null modelPath, null vae, populated t5xxl, null diffusion, null llm, and null componentPaths`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val t5xxlFile = java.io.File.createTempFile("t5xxl", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        var observedModelPath: String? = "unset"
+        var observedVaePath: String? = "unset"
+        var observedT5xxlPath: String? = "unset"
+        var observedDiffusionModelPath: String? = "unset"
+        var observedLlmPath: String? = "unset"
+        var observedComponentPaths: io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths? = null
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            observedModelPath = callArgs[3] as String?
+            observedVaePath = callArgs[4] as String?
+            observedT5xxlPath = callArgs[5] as String?
+            observedDiffusionModelPath = callArgs[21] as String?
+            observedLlmPath = callArgs[22] as String?
+            observedComponentPaths = callArgs[23] as io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths?
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val spec = DiffusionRuntimeSpec(
+            role = DiffusionRuntimeRole.IMAGE,
+            model = ModelSpec.localFile(t5xxlFile),
+            t5xxl = ModelSpec.localFile(t5xxlFile),
+            clipL = null,
+            clipG = null,
+            encoderOnly = true
+        )
+
+        val loader = DiffusionRuntimeLoader(context, DefaultModelRepository())
+        val loaded = loader.load(
+            spec = spec,
+            options = DiffusionLoadOptions(
+                subsystem = ComputeSubsystem.IMAGE,
+                allowGpu = false,
+                nThreads = 1,
+                offloadToCpu = true,
+                keepClipOnCpu = true,
+                keepVaeOnCpu = true,
+                flashAttn = true,
+                preferPerformanceMode = false,
+            ),
+            backend = ComputeBackend.CPU
+        )
+        try {
+            assertEquals(null, observedModelPath)
+            assertEquals(null, observedVaePath)
+            assertEquals(t5xxlFile.absolutePath, observedT5xxlPath)
+            assertEquals(null, observedDiffusionModelPath)
+            assertEquals(null, observedLlmPath)
+            assertEquals(null, observedComponentPaths)
+        } finally {
+            loaded.close()
+        }
+    }
+
+    @Test
+    fun `pure condition combination yields the expected arrays and dims and rejects mismatches`() {
+        val condA = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(1.0f, 2.0f),
+            cCrossAttnDims = intArrayOf(2, 1),
+            cVector = floatArrayOf(5.0f),
+            cVectorDims = intArrayOf(1),
+            cConcat = null,
+            cConcatDims = null
+        )
+        val condB = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(10.0f, 20.0f),
+            cCrossAttnDims = intArrayOf(2, 1),
+            cVector = floatArrayOf(50.0f),
+            cVectorDims = intArrayOf(1, 1),
+            cConcat = null,
+            cConcatDims = null
+        )
+
+        val executorClass = io.aatricks.llmedge.image.ImageGenerationExecutor::class.java
+        val method = executorClass.getDeclaredMethod("combineSD3Condition", PrecomputedCondition::class.java, PrecomputedCondition::class.java)
+        method.isAccessible = true
+
+        val dummyExecutor = io.aatricks.llmedge.image.ImageGenerationExecutor(
+            config = io.aatricks.llmedge.LLMEdgeConfig(),
+            generationMutex = kotlinx.coroutines.sync.Mutex(),
+            imageRequestIds = java.util.concurrent.atomic.AtomicLong(0),
+            state = io.aatricks.llmedge.image.ImageClientState(),
+            requestExecutor = mockk(relaxed = true),
+            logTag = "TestExecutor"
+        )
+
+        val result = method.invoke(dummyExecutor, condA, condB) as PrecomputedCondition
+        org.junit.Assert.assertArrayEquals(floatArrayOf(11.0f, 22.0f), result.cCrossAttn, 1e-5f)
+        org.junit.Assert.assertArrayEquals(intArrayOf(2, 1), result.cCrossAttnDims)
+        org.junit.Assert.assertArrayEquals(floatArrayOf(55.0f), result.cVector, 1e-5f)
+        org.junit.Assert.assertArrayEquals(intArrayOf(1, 1), result.cVectorDims)
+
+        val condMissingCrossAttn = PrecomputedCondition(
+            cCrossAttn = null,
+            cCrossAttnDims = null,
+            cVector = floatArrayOf(5.0f),
+            cVectorDims = intArrayOf(1, 1)
+        )
+        try {
+            method.invoke(dummyExecutor, condA, condMissingCrossAttn)
+            org.junit.Assert.fail("Expected exception when cCrossAttn is missing on one side")
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            assertTrue(e.targetException is IllegalArgumentException)
+        }
+
+        val condBadDims = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(10.0f, 20.0f),
+            cCrossAttnDims = intArrayOf(1, 2),
+            cVector = floatArrayOf(50.0f),
+            cVectorDims = intArrayOf(1, 1)
+        )
+        try {
+            method.invoke(dummyExecutor, condA, condBadDims)
+            org.junit.Assert.fail("Expected exception when cCrossAttn dimensions mismatch")
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            assertTrue(e.targetException is IllegalArgumentException)
+        }
+
+        val condBadSize = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(10.0f),
+            cCrossAttnDims = intArrayOf(2, 1),
+            cVector = floatArrayOf(50.0f),
+            cVectorDims = intArrayOf(1, 1)
+        )
+        try {
+            method.invoke(dummyExecutor, condA, condBadSize)
+            org.junit.Assert.fail("Expected exception when cCrossAttn sizes mismatch")
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            assertTrue(e.targetException is IllegalArgumentException)
+        }
+    }
+
+    @Test
+    fun `SD3 sequential generation loads CLIP and T5 sub-phases separately, precomputes prompt and negative in each, invalidates runtimes in between, and passes combined cond and uncond to diffusion`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val ditFile = java.io.File.createTempFile("sd3-dit", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val vaeFile = java.io.File.createTempFile("sd3-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val clipLFile = java.io.File.createTempFile("sd3-clipL", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val clipGFile = java.io.File.createTempFile("sd3-clipG", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val t5xxlFile = java.io.File.createTempFile("sd3-t5xxl", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        val events = mutableListOf<String>()
+        var observedCond: PrecomputedCondition? = null
+        var observedUncond: PrecomputedCondition? = null
+        var clipModelClosedBeforeT5Load = false
+        var t5ModelClosedBeforeDitLoad = false
+        var clipModelClosed = false
+        var t5ModelClosed = false
+
+        val clipModel = mockk<StableDiffusion>(relaxed = true)
+        val t5Model = mockk<StableDiffusion>(relaxed = true)
+        val ditModel = mockk<StableDiffusion>(relaxed = true)
+
+        val condCLIP = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(1.0f),
+            cCrossAttnDims = intArrayOf(1, 1),
+            cVector = floatArrayOf(10.0f),
+            cVectorDims = intArrayOf(1, 1),
+        )
+        val uncondCLIP = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(2.0f),
+            cCrossAttnDims = intArrayOf(1, 1),
+            cVector = floatArrayOf(20.0f),
+            cVectorDims = intArrayOf(1, 1),
+        )
+        val condT5 = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(3.0f),
+            cCrossAttnDims = intArrayOf(1, 1),
+            cVector = floatArrayOf(30.0f),
+            cVectorDims = intArrayOf(1, 1),
+        )
+        val uncondT5 = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(4.0f),
+            cCrossAttnDims = intArrayOf(1, 1),
+            cVector = floatArrayOf(40.0f),
+            cVectorDims = intArrayOf(1, 1),
+        )
+
+        coEvery { clipModel.precomputeCondition(any(), any(), any(), any(), any()) } coAnswers {
+            val promptArg = arg<String>(0)
+            events.add("clip.precompute($promptArg)")
+            if (promptArg == "test prompt") condCLIP else uncondCLIP
+        }
+
+        coEvery { t5Model.precomputeCondition(any(), any(), any(), any(), any()) } coAnswers {
+            val promptArg = arg<String>(0)
+            events.add("t5.precompute($promptArg)")
+            if (promptArg == "test prompt") condT5 else uncondT5
+        }
+
+        every { clipModel.close() } answers {
+            clipModelClosed = true
+            events.add("clip.close()")
+        }
+
+        every { t5Model.close() } answers {
+            t5ModelClosed = true
+            events.add("t5.close()")
+        }
+
+        every { ditModel.txt2ImgWithPrecomputedCondition(
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        ) } answers {
+            val callArgs = it.invocation.args
+            observedCond = callArgs[8] as PrecomputedCondition?
+            observedUncond = callArgs[9] as PrecomputedCondition?
+            events.add("txt2ImgWithPrecomputedCondition")
+            ByteArray(256 * 256 * 3) { 0 }
+        }
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            val isClip = (callArgs[23] as? io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths)?.clipLPath != null
+            val isT5 = callArgs[5] as? String? != null
+            if (isClip) {
+                events.add("load(CLIP)")
+                clipModel
+            } else if (isT5) {
+                events.add("load(T5)")
+                if (clipModelClosed) {
+                    clipModelClosedBeforeT5Load = true
+                }
+                t5Model
+            } else {
+                events.add("load(diffusion)")
+                if (t5ModelClosed) {
+                    t5ModelClosedBeforeDitLoad = true
+                }
+                ditModel
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "test prompt",
+                    negative = "test negative",
+                    width = 256,
+                    height = 256,
+                    sequential = true,
+                    splitDiffusionModel = true,
+                    model = ModelSpec.localFile(ditFile),
+                    vae = ModelSpec.localFile(vaeFile),
+                    clipL = ModelSpec.localFile(clipLFile),
+                    clipG = ModelSpec.localFile(clipGFile),
+                    t5xxl = ModelSpec.localFile(t5xxlFile),
+                ),
+            )
+
+            val expectedEvents = listOf(
+                "load(CLIP)",
+                "clip.precompute(test prompt)",
+                "clip.precompute(test negative)",
+                "clip.close()",
+                "load(T5)",
+                "t5.precompute(test prompt)",
+                "t5.precompute(test negative)",
+                "t5.close()",
+                "load(diffusion)",
+                "txt2ImgWithPrecomputedCondition"
+            )
+            assertEquals(expectedEvents, events)
+            assertTrue("CLIP model must be closed before T5 model is loaded", clipModelClosedBeforeT5Load)
+            assertTrue("T5 model must be closed before DiT model is loaded", t5ModelClosedBeforeDitLoad)
+
+            assertNotNull(observedCond)
+            org.junit.Assert.assertArrayEquals(floatArrayOf(4.0f), observedCond!!.cCrossAttn, 1e-5f)
+            org.junit.Assert.assertArrayEquals(floatArrayOf(40.0f), observedCond!!.cVector, 1e-5f)
+
+            assertNotNull(observedUncond)
+            org.junit.Assert.assertArrayEquals(floatArrayOf(6.0f), observedUncond!!.cCrossAttn, 1e-5f)
+            org.junit.Assert.assertArrayEquals(floatArrayOf(60.0f), observedUncond!!.cVector, 1e-5f)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `FLUX sequential generation precomputes prompt and invalidates conditioning before diffusion`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val ditFile = java.io.File.createTempFile("flux-dit", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val vaeFile = java.io.File.createTempFile("flux-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val encFile = java.io.File.createTempFile("flux-enc", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        val events = mutableListOf<String>()
+        var observedCond: PrecomputedCondition? = null
+        var observedUncond: PrecomputedCondition? = null
+        var condModelClosedBeforeDitLoad = false
+        var condModelClosed = false
+
+        val condModel = mockk<StableDiffusion>(relaxed = true)
+        val ditModel = mockk<StableDiffusion>(relaxed = true)
+
+        val condResult = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(3.0f),
+            cCrossAttnDims = intArrayOf(1, 1),
+            cVector = floatArrayOf(3.0f),
+            cVectorDims = intArrayOf(1, 1),
+            cConcat = floatArrayOf(3.0f),
+            cConcatDims = intArrayOf(1, 1),
+        )
+
+        coEvery { condModel.precomputeCondition(any(), any(), any(), any(), any()) } coAnswers {
+            val promptArg = arg<String>(0)
+            events.add("precomputeCondition($promptArg)")
+            condResult
+        }
+
+        every { condModel.close() } answers {
+            condModelClosed = true
+            events.add("condModel.close()")
+        }
+
+        every { ditModel.txt2ImgWithPrecomputedCondition(
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        ) } answers {
+            val callArgs = it.invocation.args
+            observedCond = callArgs[8] as PrecomputedCondition?
+            observedUncond = callArgs[9] as PrecomputedCondition?
+            events.add("txt2ImgWithPrecomputedCondition")
+            ByteArray(256 * 256 * 3) { 0 }
+        }
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            val isCond = callArgs[22] as String? != null
+            if (isCond) {
+                events.add("load(conditioning)")
+                condModel
+            } else {
+                events.add("load(diffusion)")
+                if (condModelClosed) {
+                    condModelClosedBeforeDitLoad = true
+                }
+                ditModel
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "test prompt",
+                    width = 256,
+                    height = 256,
+                    sequential = true,
+                    splitDiffusionModel = true,
+                    model = ModelSpec.localFile(ditFile),
+                    vae = ModelSpec.localFile(vaeFile),
+                    textEncoder = ModelSpec.localFile(encFile),
+                ),
+            )
+
+            val expectedEvents = listOf(
+                "load(conditioning)",
+                "precomputeCondition(test prompt)",
+                "condModel.close()",
+                "load(diffusion)",
+                "txt2ImgWithPrecomputedCondition"
+            )
+            assertEquals(expectedEvents, events)
+            assertTrue("Conditioning model must be closed before DiT model is loaded", condModelClosedBeforeDitLoad)
+            org.junit.Assert.assertSame(condResult, observedCond)
+            assertEquals(null, observedUncond)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
 }

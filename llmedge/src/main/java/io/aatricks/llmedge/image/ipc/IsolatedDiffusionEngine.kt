@@ -78,13 +78,31 @@ internal class IsolatedDiffusionEngine(
 
     override suspend fun generate(params: ImageGenerationRequest): Bitmap =
         generationMutex.withLock {
-            val result =
-                runWithRecovery(ComputeSubsystem.IMAGE) { forceCpu ->
-                    issueImageRequest(params, forceCpu)
+            try {
+                val result =
+                    runWithRecovery(ComputeSubsystem.IMAGE) { forceCpu ->
+                        issueImageRequest(params, forceCpu)
+                    }
+                lastMetrics = result.metrics?.let(IpcCodecs::fromIpc)
+                PixelCodec.decodeBitmap(result.frame)
+            } catch (oom: io.aatricks.llmedge.core.WorkerKilledByMemoryException) {
+                if (isEligibleDirectSd3Split(params)) {
+                    AndroidLogAdapter.w(LOG_TAG, "Worker OOM-killed during direct SD3 generation; retrying sequentially")
+                    val result =
+                        runWithRecovery(ComputeSubsystem.IMAGE) { forceCpu ->
+                            issueImageRequest(params.copy(sequential = true), forceCpu)
+                        }
+                    lastMetrics = result.metrics?.let(IpcCodecs::fromIpc)
+                    PixelCodec.decodeBitmap(result.frame)
+                } else {
+                    throw oom
                 }
-            lastMetrics = result.metrics?.let(IpcCodecs::fromIpc)
-            PixelCodec.decodeBitmap(result.frame)
+            }
         }
+
+    private fun isEligibleDirectSd3Split(params: ImageGenerationRequest): Boolean {
+        return !params.sequential && params.splitDiffusionModel && params.t5xxl != null && params.clipL != null && params.clipG != null
+    }
 
     override fun generateVideo(params: VideoGenerationRequest): Flow<GenerationStreamEvent> =
         callbackFlow {

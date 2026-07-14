@@ -46,8 +46,8 @@ internal data class DiffusionRuntimeSpec(
     // FLUX.2 Klein split model: route [model] to diffusion_model_path and [textEncoder] (Qwen3)
     // to llm_path instead of the default model_path / t5xxl_path slots.
     val splitDiffusionModel: Boolean = false,
-    // FLUX.2 sequential mode: load ONLY [model] (the Qwen3 encoder) via llm_path, no DiT/VAE, so
-    // the precompute phase peaks at the encoder size.
+    // FLUX.2 / SD3 sequential mode: load ONLY the encoder(s) via llm_path / componentPaths, no DiT/VAE,
+    // so the precompute phase peaks at the encoder size.
     val encoderOnly: Boolean = false,
 )
 
@@ -260,7 +260,11 @@ internal class DiffusionRuntimeLoader(
             "Creating managed ${backend.name} runtime for ${resolvedModel.name} flash=$flashAttn sequential=${options.sequentialLoad}",
         )
         phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.LOADING, backend.name)
-        val componentPaths = if (encoderOnly) {
+        val isSd3EncoderOnly = encoderOnly && (
+            (resolvedClipL != null && resolvedClipG != null && resolvedT5xxl == null) ||
+            (resolvedClipL == null && resolvedClipG == null && resolvedT5xxl != null)
+        )
+        val componentPaths = if (encoderOnly && !isSd3EncoderOnly) {
             null
         } else {
             val paths = StableDiffusionComponentPaths(
@@ -279,15 +283,15 @@ internal class DiffusionRuntimeLoader(
         val model =
             StableDiffusion.loadWithRuntimeBackend(
                 context = context,
-                // encoderOnly: load just the Qwen3 encoder via llm_path (no model/diffusion/vae).
+                // encoderOnly: load just the text encoder(s) (Qwen3 via llmPath for FLUX; CLIP-L/CLIP-G/T5XXL for SD3).
                 modelPath = if (splitDiffusionModel || diffusionModelOnly || encoderOnly) null else resolvedModel.absolutePath,
                 vaePath = if (encoderOnly) null else resolvedVae?.absolutePath,
-                t5xxlPath = resolvedT5xxl?.absolutePath ?: (if (splitDiffusionModel || encoderOnly) null else resolvedTextEncoder?.absolutePath),
+                t5xxlPath = resolvedT5xxl?.absolutePath ?: (if (splitDiffusionModel || (encoderOnly && !isSd3EncoderOnly)) null else resolvedTextEncoder?.absolutePath),
                 taesdPath = if (encoderOnly) null else resolvedTaehv?.absolutePath,
                 diffusionModelPath = if (splitDiffusionModel || diffusionModelOnly) resolvedModel.absolutePath else null,
                 llmPath =
                     when {
-                        encoderOnly -> resolvedModel.absolutePath
+                        encoderOnly && !isSd3EncoderOnly -> resolvedModel.absolutePath
                         splitDiffusionModel -> resolvedTextEncoder?.absolutePath
                         else -> null
                     },

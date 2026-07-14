@@ -10,8 +10,8 @@ import io.aatricks.llmedge.model.ModelSpec
  *
  * This preset now includes the optional T5XXL FP8 text encoder for full text conditioning,
  * yielding high quality generation at the expense of downloading a ~4.89 GB encoder.
- * The sequential low-RAM mode is unsupported for SD3 because the encoder-only native load/unload
- * path is Flux2/T5-specific in stable-diffusion.cpp.
+ * Sequential low-RAM mode is supported for SD3 split conditioning by loading CLIP-L, CLIP-G,
+ * and T5XXL sequentially before loading the DiT + VAE.
  *
  * Mobile default resolution is 512x512, though the model's native resolution is 1024x1024.
  * Callers with sufficient RAM headroom may pass 1024x1024.

@@ -97,4 +97,59 @@ class ImageRuntimeRequestPlannerTest {
         )
         org.junit.Assert.assertEquals(t5xxlSpec, request.spec.t5xxl)
     }
+
+    @Test
+    fun `SD3 sequential planner has three phases with exact inclusion and exclusion, phase 1 CPU, phase 2 Vulkan-eligible`() {
+        val t5xxlSpec = ModelSpec.LocalFile(File("t5xxl.safetensors"))
+        val clipLSpec = ModelSpec.LocalFile(File("clip_l.safetensors"))
+        val clipGSpec = ModelSpec.LocalFile(File("clip_g.safetensors"))
+        val vaeSpec = ModelSpec.LocalFile(File("vae.safetensors"))
+        val ditModelSpec = ModelSpec.LocalFile(File("dit.safetensors"))
+
+        val params = ImageGenerationRequest(
+            prompt = "x",
+            model = ditModelSpec,
+            vae = vaeSpec,
+            t5xxl = t5xxlSpec,
+            clipL = clipLSpec,
+            clipG = clipGSpec,
+            splitDiffusionModel = true,
+            sequential = true
+        )
+        val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, LLMEdgeConfig())
+
+        // Phase 1: CLIP-only (CLIP-L and CLIP-G present, T5 absent, CPU)
+        assertTrue(plan.conditioningRequest.spec.encoderOnly)
+        assertFalse(plan.conditioningRequest.options.allowGpu)
+        org.junit.Assert.assertEquals(clipLSpec, plan.conditioningRequest.spec.clipL)
+        org.junit.Assert.assertEquals(clipGSpec, plan.conditioningRequest.spec.clipG)
+        org.junit.Assert.assertNull(plan.conditioningRequest.spec.t5xxl)
+        org.junit.Assert.assertEquals(clipLSpec, plan.conditioningRequest.spec.model)
+        org.junit.Assert.assertNull(plan.conditioningRequest.spec.vae)
+
+        // Phase 2: T5-only (T5 present, CLIPs absent, GPU-eligible when Vulkan enabled)
+        val conditioningRequest2 = plan.conditioningRequest2
+        org.junit.Assert.assertNotNull(conditioningRequest2)
+        assertTrue(conditioningRequest2!!.spec.encoderOnly)
+        assertTrue(conditioningRequest2.options.allowGpu)
+        org.junit.Assert.assertNull(conditioningRequest2.spec.clipL)
+        org.junit.Assert.assertNull(conditioningRequest2.spec.clipG)
+        org.junit.Assert.assertEquals(t5xxlSpec, conditioningRequest2.spec.t5xxl)
+        org.junit.Assert.assertEquals(t5xxlSpec, conditioningRequest2.spec.model)
+        org.junit.Assert.assertNull(conditioningRequest2.spec.vae)
+
+        // Phase 2 T5 remains CPU when useVulkan=false
+        val cpuPlan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, cpuOnlyConfig)
+        val cpuConditioningRequest2 = cpuPlan.conditioningRequest2
+        org.junit.Assert.assertNotNull(cpuConditioningRequest2)
+        assertFalse(cpuConditioningRequest2!!.options.allowGpu)
+
+        // Phase 3: DiT + VAE (DiT present, CLIP/T5 absent)
+        org.junit.Assert.assertEquals(ditModelSpec, plan.diffusionRequest.spec.model)
+        org.junit.Assert.assertEquals(vaeSpec, plan.diffusionRequest.spec.vae)
+        org.junit.Assert.assertNull(plan.diffusionRequest.spec.clipL)
+        org.junit.Assert.assertNull(plan.diffusionRequest.spec.clipG)
+        org.junit.Assert.assertNull(plan.diffusionRequest.spec.t5xxl)
+        assertTrue(plan.diffusionRequest.spec.splitDiffusionModel)
+    }
 }

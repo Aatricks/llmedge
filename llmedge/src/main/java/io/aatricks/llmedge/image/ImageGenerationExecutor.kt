@@ -8,6 +8,7 @@ import io.aatricks.llmedge.image.diffusion.GenerateParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageGenerationPhase
 import io.aatricks.llmedge.image.diffusion.ImageRequestMetrics
+import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.runtime.ComputeBackend
 import java.util.concurrent.atomic.AtomicLong
@@ -25,48 +26,108 @@ internal class ImageGenerationExecutor(
     private val phaseListener: DiffusionPhaseListener? = null,
 ) {
     suspend fun generate(params: ImageGenerationRequest): Bitmap {
-        // Clip-slot (component-path) presets intentionally stay on the direct path.
-        if (params.sequential && params.splitDiffusionModel && params.textEncoder != null) {
+        val isFluxSequential = params.sequential && params.splitDiffusionModel && params.textEncoder != null
+        val isSd3Sequential = params.sequential && params.splitDiffusionModel && params.t5xxl != null && params.clipL != null && params.clipG != null
+        if (isFluxSequential || isSd3Sequential) {
             return generateSequential(params)
         }
         return generateDirect(params)
     }
 
     /**
-     * FLUX.2 sequential low-memory generation: phase 1 loads only the Qwen3 encoder to precompute
-     * the conditioning (then frees it), phase 2 loads only the DiT to generate. Peak RAM is the
-     * larger phase, not the sum.
+     * Sequential low-memory generation:
+     * - For FLUX, it uses two phases: phase 1 loads only the text encoder to precompute the
+     *   conditioning (then frees it), and phase 2 loads only the DiT (+VAE) to generate.
+     * - For SD3, it uses three phases: phase 1 loads only the CLIP encoder to precompute conditioning
+     *   (then frees it), phase 2 loads only the T5XXL encoder to precompute conditioning (then frees it),
+     *   and phase 3 loads only the DiT (+VAE) to generate.
+     * Peak RAM is the largest single phase, not the sum.
      */
     private suspend fun generateSequential(params: ImageGenerationRequest): Bitmap =
         generationMutex.withLock {
             state.resetForRequest()
+            val isSd3 = params.t5xxl != null && params.clipL != null && params.clipG != null
             val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, config)
             val requestId = imageRequestIds.incrementAndGet()
-            AndroidLogAdapter.i(logTag, "FLUX.2 sequential image request: requestId=$requestId")
+            val modelName = if (isSd3) "SD3" else "FLUX.2"
+            AndroidLogAdapter.i(logTag, "$modelName sequential image request: requestId=$requestId")
 
-            val cond =
-                requestExecutor.withRuntimeModel(
+            val cond: PrecomputedCondition?
+            val uncond: PrecomputedCondition?
+
+            if (isSd3) {
+                val condCLIP = requestExecutor.withRuntimeModel(
                     spec = plan.conditioningRequest.spec,
                     options = plan.conditioningRequest.options,
-                    retryMessage = "Retrying FLUX.2 sequential conditioning on the next backend for",
+                    retryMessage = "Retrying $modelName sequential conditioning phase A (CLIP) on the next backend for",
                 ) { model, _, acquire ->
                     phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
                     model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
                 }
+                val uncondCLIP = requestExecutor.withRuntimeModel(
+                    spec = plan.conditioningRequest.spec,
+                    options = plan.conditioningRequest.options,
+                    retryMessage = "Retrying $modelName sequential conditioning phase A (CLIP) negative on the next backend for",
+                ) { model, _, _ ->
+                    model.precomputeCondition(params.negative, "", params.width, params.height, -1)
+                }
 
-            // Free the encoder before the DiT loads: cache eviction only runs inside put()
-            // AFTER the phase-2 load completes (and closes asynchronously), so without this
-            // the peak is encoder+DiT — the sum the sequential mode exists to avoid.
-            requestExecutor.invalidateRuntime(
-                plan.conditioningRequest.spec,
-                plan.conditioningRequest.options,
-            )
-            AndroidLogAdapter.i(logTag, "FLUX.2 sequential: encoder runtime invalidated before diffusion phase")
+                requestExecutor.invalidateRuntime(
+                    plan.conditioningRequest.spec,
+                    plan.conditioningRequest.options,
+                )
+                AndroidLogAdapter.i(logTag, "$modelName sequential: CLIP runtime invalidated before T5 phase")
+
+                val conditioningRequest2 = plan.conditioningRequest2 ?: error("SD3 sequential requires conditioningRequest2 (T5)")
+
+                val condT5 = requestExecutor.withRuntimeModel(
+                    spec = conditioningRequest2.spec,
+                    options = conditioningRequest2.options,
+                    retryMessage = "Retrying $modelName sequential conditioning phase B (T5) on the next backend for",
+                ) { model, _, acquire ->
+                    phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
+                    model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
+                }
+                val uncondT5 = requestExecutor.withRuntimeModel(
+                    spec = conditioningRequest2.spec,
+                    options = conditioningRequest2.options,
+                    retryMessage = "Retrying $modelName sequential conditioning phase B (T5) negative on the next backend for",
+                ) { model, _, _ ->
+                    model.precomputeCondition(params.negative, "", params.width, params.height, -1)
+                }
+
+                requestExecutor.invalidateRuntime(
+                    conditioningRequest2.spec,
+                    conditioningRequest2.options,
+                )
+                AndroidLogAdapter.i(logTag, "$modelName sequential: T5 runtime invalidated before diffusion phase")
+
+                cond = if (condCLIP != null && condT5 != null) combineSD3Condition(condCLIP, condT5) else null
+                uncond = if (uncondCLIP != null && uncondT5 != null) combineSD3Condition(uncondCLIP, uncondT5) else null
+            } else {
+                val condAndUncond = requestExecutor.withRuntimeModel(
+                    spec = plan.conditioningRequest.spec,
+                    options = plan.conditioningRequest.options,
+                    retryMessage = "Retrying $modelName sequential conditioning on the next backend for",
+                ) { model, _, acquire ->
+                    phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
+                    val c = model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
+                    c to null
+                }
+                cond = condAndUncond.first
+                uncond = condAndUncond.second
+
+                requestExecutor.invalidateRuntime(
+                    plan.conditioningRequest.spec,
+                    plan.conditioningRequest.options,
+                )
+                AndroidLogAdapter.i(logTag, "$modelName sequential: encoder runtime invalidated before diffusion phase")
+            }
 
             requestExecutor.withRuntimeModel(
                 spec = plan.diffusionRequest.spec,
                 options = plan.diffusionRequest.options,
-                retryMessage = "Retrying FLUX.2 sequential diffusion on the next backend for",
+                retryMessage = "Retrying $modelName sequential diffusion on the next backend for",
             ) { model, _, acquire ->
                 phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
                 phaseListener?.let { listener ->
@@ -77,18 +138,82 @@ internal class ImageGenerationExecutor(
                 val rgb =
                     model.txt2ImgWithPrecomputedCondition(
                         prompt = params.prompt,
-                        negative = "",
+                        negative = if (isSd3) params.negative else "",
                         width = params.width,
                         height = params.height,
                         steps = params.steps,
                         cfg = params.cfgScale,
                         seed = params.seed,
                         cond = cond,
-                        uncond = null,
-                    ) ?: throw IllegalStateException("FLUX.2 sequential generation returned null")
+                        uncond = uncond,
+                    ) ?: throw IllegalStateException("$modelName sequential generation returned null")
                 rgbToBitmap(rgb, params.width, params.height)
             }
         }
+
+    private fun combineSD3Condition(a: PrecomputedCondition, b: PrecomputedCondition): PrecomputedCondition {
+        val crossAttn = combineArrays(a.cCrossAttn, a.cCrossAttnDims, b.cCrossAttn, b.cCrossAttnDims, "cCrossAttn", true)
+        val vector = combineArrays(a.cVector, a.cVectorDims, b.cVector, b.cVectorDims, "cVector", true)
+        val concat = combineArrays(a.cConcat, a.cConcatDims, b.cConcat, b.cConcatDims, "cConcat", false)
+        return PrecomputedCondition(
+            cCrossAttn = crossAttn.first,
+            cCrossAttnDims = crossAttn.second,
+            cVector = vector.first,
+            cVectorDims = vector.second,
+            cConcat = concat.first,
+            cConcatDims = concat.second
+        )
+    }
+
+    private fun combineArrays(
+        arrA: FloatArray?, dimsA: IntArray?,
+        arrB: FloatArray?, dimsB: IntArray?,
+        fieldName: String,
+        requiredForSd3: Boolean
+    ): Pair<FloatArray?, IntArray?> {
+        if (arrA == null && arrB == null) {
+            if (requiredForSd3) {
+                throw IllegalArgumentException("SD3 conditioning requires field $fieldName but it was null on both sides")
+            }
+            return null to null
+        }
+        if (arrA == null) {
+            if (requiredForSd3) {
+                throw IllegalArgumentException("SD3 conditioning requires field $fieldName on both sides but it was null on side A")
+            }
+            return arrB!!.clone() to dimsB?.clone()
+        }
+        if (arrB == null) {
+            if (requiredForSd3) {
+                throw IllegalArgumentException("SD3 conditioning requires field $fieldName on both sides but it was null on side B")
+            }
+            return arrA!!.clone() to dimsA?.clone()
+        }
+        if (dimsA == null || dimsB == null) {
+            throw IllegalArgumentException("SD3 conditioning $fieldName is missing dimensions on one side")
+        }
+        val cleanA = removeTrailingSingletons(dimsA)
+        val cleanB = removeTrailingSingletons(dimsB)
+        if (!cleanA.contentEquals(cleanB)) {
+            throw IllegalArgumentException("SD3 conditioning $fieldName dimensions mismatch: ${dimsA.joinToString()} vs ${dimsB.joinToString()}")
+        }
+        val sizeA = arrA.size
+        val sizeB = arrB.size
+        if (sizeA != sizeB) {
+            throw IllegalArgumentException("SD3 conditioning $fieldName size mismatch: $sizeA vs $sizeB")
+        }
+        val result = FloatArray(sizeA) { i -> arrA[i] + arrB[i] }
+        val chosenDims = if (dimsB.size > dimsA.size) dimsB else dimsA
+        return result to chosenDims.clone()
+    }
+
+    private fun removeTrailingSingletons(dims: IntArray): IntArray {
+        var lastIdx = dims.size - 1
+        while (lastIdx >= 0 && dims[lastIdx] == 1) {
+            lastIdx--
+        }
+        return dims.copyOfRange(0, lastIdx + 1)
+    }
 
     private fun rgbToBitmap(rgb: ByteArray, width: Int, height: Int): Bitmap {
         val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)

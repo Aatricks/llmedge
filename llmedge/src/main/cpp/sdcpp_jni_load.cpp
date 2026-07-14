@@ -55,6 +55,16 @@ private:
     std::string original_value_;
 };
 
+#ifndef SD_JNI_TESTING
+class StreamingModelManager : public ModelManager {
+public:
+    void release_compute_backend_params(const std::vector<ggml_tensor*>& tensors) override {
+        ModelManager::release_compute_backend_params(tensors);
+        ModelManager::release_params_backend_params(tensors);
+    }
+};
+#endif
+
 static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, bool offloadToCpu, bool useVulkan) {
 #ifdef SD_JNI_TESTING
     (void)env; (void)modelPath; (void)offloadToCpu; (void)useVulkan;
@@ -129,6 +139,140 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
     }
 
     ALOGI("Created T5-only context for sequential prompt conditioning");
+    return handle;
+#endif
+}
+
+static SdHandle* try_create_sd3_encoder_only_handle(JNIEnv* env, const char* clipLPath, const char* clipGPath, const char* t5xxlPath, bool offloadToCpu, bool useVulkan) {
+#ifdef SD_JNI_TESTING
+    (void)env; (void)clipLPath; (void)clipGPath; (void)t5xxlPath; (void)offloadToCpu; (void)useVulkan;
+    return nullptr;
+#else
+    if (!clipLPath && !clipGPath && !t5xxlPath) {
+        return nullptr;
+    }
+    ALOGI("Attempting SD3 encoder-only context load for sequential conditioning: clipL=%s, clipG=%s, t5xxl=%s",
+          clipLPath ? clipLPath : "NULL", clipGPath ? clipGPath : "NULL", t5xxlPath ? t5xxlPath : "NULL");
+
+    ggml_backend_t backend = nullptr;
+#ifdef SD_USE_VULKAN
+    if (useVulkan && ggml_backend_vk_get_device_count() > 0) {
+        backend = ggml_backend_vk_init(0);
+    }
+#else
+    (void)useVulkan;
+#endif
+    if (!backend) {
+        backend = sd_backend_cpu_init();
+    }
+    if (!backend) {
+        ALOGE("Unable to initialize backend for SD3 encoder-only context");
+        return nullptr;
+    }
+
+    const bool is_t5_only = (t5xxlPath && t5xxlPath[0] != '\0') &&
+                            (!clipLPath || clipLPath[0] == '\0') &&
+                            (!clipGPath || clipGPath[0] == '\0');
+    const bool is_non_cpu = !sd_backend_is_cpu(backend);
+    const bool use_streaming = is_t5_only && is_non_cpu;
+
+    std::shared_ptr<ModelManager> model_manager;
+    if (use_streaming) {
+        model_manager = std::make_shared<StreamingModelManager>();
+    } else {
+        model_manager = std::make_shared<ModelManager>();
+    }
+
+    model_manager->set_n_threads(sd_get_num_physical_cores_safe());
+    model_manager->set_enable_mmap(true);
+    ModelLoader& model_loader = model_manager->loader();
+    if (clipLPath && clipLPath[0] != '\0') {
+        if (!model_loader.init_from_file(clipLPath, "text_encoders.clip_l.transformer.")) {
+            ALOGE("Failed to initialize ModelLoader for CLIP-L: %s", clipLPath);
+            ggml_backend_free(backend);
+            return nullptr;
+        }
+    }
+    if (clipGPath && clipGPath[0] != '\0') {
+        if (!model_loader.init_from_file(clipGPath, "text_encoders.clip_g.transformer.")) {
+            ALOGE("Failed to initialize ModelLoader for CLIP-G: %s", clipGPath);
+            ggml_backend_free(backend);
+            return nullptr;
+        }
+    }
+    if (t5xxlPath && t5xxlPath[0] != '\0') {
+        if (!model_loader.init_from_file(t5xxlPath, "text_encoders.t5xxl.transformer.")) {
+            ALOGE("Failed to initialize ModelLoader for T5XXL: %s", t5xxlPath);
+            ggml_backend_free(backend);
+            return nullptr;
+        }
+    }
+    model_loader.convert_tensors_name();
+    model_loader.process_model_files(true, false);
+
+    ggml_backend_t params_backend;
+    if (use_streaming) {
+        params_backend = backend;
+    } else {
+        params_backend = (offloadToCpu && !sd_backend_is_cpu(backend)) ? sd_backend_cpu_init() : backend;
+    }
+
+    auto* sd3 = new SD3CLIPEmbedder(
+        backend,
+        model_manager->loader().get_tensor_storage_map(),
+        model_manager
+    );
+
+    if (use_streaming) {
+        sd3->set_stream_layers_enabled(true);
+        sd3->set_max_graph_vram_bytes(1024ULL * 1024ULL * 1024ULL);
+        ALOGI("SD3 T5-only encoder layer streaming enabled with budget: 1024 MiB");
+    }
+
+    bool reg_ok = false;
+    if (use_streaming) {
+        std::map<std::string, ggml_tensor*> tensors;
+        sd3->get_param_tensors(tensors);
+        reg_ok = model_manager->register_param_tensors(
+            "SD3 encoder",
+            std::move(tensors),
+            ModelManager::ResidencyMode::Disk,
+            backend,
+            params_backend,
+            nullptr, // registered_tensor_size
+            false,   // allow_split_buffer
+            true     // params_follow_compute_backend
+        );
+    } else {
+        reg_ok = model_manager->register_runner_params(
+            "SD3 encoder",
+            *sd3,
+            ModelManager::ResidencyMode::ParamBackend,
+            backend,
+            params_backend
+        );
+    }
+
+    if (!reg_ok || !model_manager->validate_registered_tensors()) {
+        ALOGE("Failed to register tensors for SD3 context");
+        delete sd3;
+        model_manager.reset();
+        if (params_backend != backend) ggml_backend_free(params_backend);
+        ggml_backend_free(backend);
+        return nullptr;
+    }
+
+    auto* handle = new SdHandle();
+    handle->ctx = nullptr;
+    handle->sd3_cond_ctx = sd3;
+    handle->backend = backend;
+    handle->params_backend = params_backend == backend ? nullptr : params_backend;
+    handle->model_manager = std::move(model_manager);
+    if (env) {
+        env->GetJavaVM(&handle->jvm);
+        jni_thread_cache_init(handle->jvm);
+    }
+    ALOGI("Created SD3 encoder-only context for sequential conditioning");
     return handle;
 #endif
 }
@@ -552,6 +696,15 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
                                   !controlNetPathValue.empty() ||
                                   !photoMakerPathValue.empty();
 
+    bool isSd3EncoderOnly = (diffusionModelPathValue.empty()) &&
+                            (modelPath == nullptr || modelPath[0] == '\0') &&
+                            (vaePath == nullptr || vaePath[0] == '\0') &&
+                            (llmPathValue.empty()) &&
+                            (
+                              ((t5xxlPath == nullptr || t5xxlPath[0] == '\0') && (!clipLPathValue.empty()) && (!clipGPathValue.empty())) ||
+                              ((t5xxlPath != nullptr && t5xxlPath[0] != '\0') && (clipLPathValue.empty()) && (clipGPathValue.empty()))
+                            );
+
     bool isLlmOnly = !llmPathValue.empty() && diffusionModelPathValue.empty() && (!modelPath || modelPath[0] == '\0') && !hasExtraComponentPaths;
     bool isT5OnlyRequest = modelPath && modelPath[0] != '\0' &&
                            !vaePath && !t5xxlPath && !taesdPath &&
@@ -561,7 +714,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
                             std::string(modelPath).find("encoder") != std::string::npos);
 
     sd_ctx_t* ctx = nullptr;
-    if (!isLlmOnly) {
+    if (!isLlmOnly && !isSd3EncoderOnly) {
         // Shared with the whisper loader: env mutation must be process-globally
         // serialized (concurrent setenv/getenv across threads is UB).
         std::lock_guard<std::mutex> lock(llmedge_process_env_mutex());
@@ -572,6 +725,17 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     }
 
     if (!ctx) {
+        if (isSd3EncoderOnly) {
+            SdHandle* sd3EncoderHandle = try_create_sd3_encoder_only_handle(env, clipLPathValue.c_str(), clipGPathValue.c_str(), t5xxlPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE);
+            if (sd3EncoderHandle) {
+                if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+                if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+                if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+                if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
+                if (jLoraModelDir) env->ReleaseStringUTFChars(jLoraModelDir, loraModelDir);
+                return reinterpret_cast<jlong>(sd3EncoderHandle);
+            }
+        }
         if (isLlmOnly) {
             SdHandle* llmOnlyHandle = try_create_llm_only_handle(env, llmPathValue.c_str(), offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE);
             if (llmOnlyHandle) {
@@ -643,6 +807,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
         auto* llm = static_cast<LLMEmbedder*>(handle->llm_ctx);
         delete llm;
         handle->llm_ctx = nullptr;
+    }
+    if (handle->sd3_cond_ctx) {
+        auto* sd3 = static_cast<SD3CLIPEmbedder*>(handle->sd3_cond_ctx);
+        delete sd3;
+        handle->sd3_cond_ctx = nullptr;
     }
 #endif
     handle->model_manager.reset();

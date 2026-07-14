@@ -16,6 +16,7 @@ internal sealed interface DiffusionExecutionPlan {
 
     data class Sequential(
         val conditioningRequest: PlannedDiffusionRuntimeRequest,
+        val conditioningRequest2: PlannedDiffusionRuntimeRequest? = null,
         val diffusionRequest: PlannedDiffusionRuntimeRequest,
     ) : DiffusionExecutionPlan
 }
@@ -77,7 +78,7 @@ internal object ImageRuntimeRequestPlanner {
         params: ImageGenerationRequest,
         config: LLMEdgeConfig,
     ): DiffusionExecutionPlan.Sequential {
-        val encoderSpec = params.textEncoder ?: error("sequential image generation requires a textEncoder")
+        val isSd3 = params.t5xxl != null && params.clipL != null && params.clipG != null
         val ditModel = params.model ?: config.models.image
         val baseOptions =
             DiffusionLoadOptions(
@@ -94,36 +95,74 @@ internal object ImageRuntimeRequestPlanner {
                 loraModelDir = null,
                 loraApplyMode = params.loraApplyMode,
             )
+        val conditioningSpec: DiffusionRuntimeSpec
+        val conditioningSpec2: DiffusionRuntimeSpec?
+        if (isSd3) {
+            val clipL = params.clipL ?: error("SD3 sequential conditioning requires a clipL model")
+            val t5xxl = params.t5xxl ?: error("SD3 sequential conditioning requires a t5xxl model")
+            conditioningSpec = DiffusionRuntimeSpec(
+                role = DiffusionRuntimeRole.IMAGE,
+                model = clipL,
+                t5xxl = null,
+                clipL = clipL,
+                clipG = params.clipG,
+                encoderOnly = true,
+            )
+            conditioningSpec2 = DiffusionRuntimeSpec(
+                role = DiffusionRuntimeRole.IMAGE,
+                model = t5xxl,
+                t5xxl = t5xxl,
+                clipL = null,
+                clipG = null,
+                encoderOnly = true,
+            )
+        } else {
+            val encoderSpec = params.textEncoder ?: error("sequential image generation requires a textEncoder")
+            conditioningSpec = DiffusionRuntimeSpec(
+                role = DiffusionRuntimeRole.IMAGE,
+                model = encoderSpec,
+                encoderOnly = true,
+            )
+            conditioningSpec2 = null
+        }
+        val diffusionSpec = if (isSd3) {
+            DiffusionRuntimeSpec(
+                role = DiffusionRuntimeRole.IMAGE,
+                model = ditModel,
+                vae = params.vae,
+                splitDiffusionModel = true,
+            )
+        } else {
+            DiffusionRuntimeSpec(
+                role = DiffusionRuntimeRole.IMAGE,
+                model = ditModel,
+                vae = params.vae,
+                textEncoder = null,
+                splitDiffusionModel = true,
+            )
+        }
+        val conditioningOptions = baseOptions.copy(
+            nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
+            allowGpu = false,
+        )
+        val t5ConditioningOptions = conditioningOptions.copy(
+            allowGpu = config.image.useVulkan,
+        )
         return DiffusionExecutionPlan.Sequential(
             conditioningRequest =
                 PlannedDiffusionRuntimeRequest(
-                    spec =
-                        DiffusionRuntimeSpec(
-                            role = DiffusionRuntimeRole.IMAGE,
-                            model = encoderSpec,
-                            encoderOnly = true,
-                        ),
-                    options =
-                        baseOptions.copy(
-                            nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
-                            // The conditioning pass is one 512-token forward; on a GPU backend the
-                            // multi-GB encoder gets a second copy in (UMA) device memory that
-                            // keepClipOnCpu does not cover — measured on S22: kernel OOM-kill at
-                            // ~2.3 GB RSS entering the Qwen forward. CPU keeps sequential mode's
-                            // peak-RAM promise, which is this plan's entire purpose.
-                            allowGpu = false,
-                        ),
+                    spec = conditioningSpec,
+                    options = conditioningOptions,
                 ),
+            conditioningRequest2 = conditioningSpec2?.let {
+                PlannedDiffusionRuntimeRequest(
+                    spec = it,
+                    options = t5ConditioningOptions,
+                )
+            },
             diffusionRequest =
                 PlannedDiffusionRuntimeRequest(
-                    spec =
-                        DiffusionRuntimeSpec(
-                            role = DiffusionRuntimeRole.IMAGE,
-                            model = ditModel,
-                            vae = params.vae,
-                            textEncoder = null,
-                            splitDiffusionModel = true,
-                        ),
+                    spec = diffusionSpec,
                     options = baseOptions,
                 ),
         )

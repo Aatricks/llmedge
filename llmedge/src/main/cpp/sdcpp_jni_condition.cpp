@@ -185,6 +185,49 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                 throwJavaException(env, "java/lang/RuntimeException", e.what());
                 return nullptr;
             }
+        } else if (handle->sd3_cond_ctx) {
+            auto* sd3 = static_cast<SD3CLIPEmbedder*>(handle->sd3_cond_ctx);
+            ConditionerRunnerDoneOnExit runnerDone{sd3};
+            try {
+                ConditionerParams cparams;
+                cparams.text = resolved.prompt.c_str();
+                cparams.clip_skip = clipSkip;
+                cparams.width = width;
+                cparams.height = height;
+                cparams.zero_out_masked = (jIsVideo == JNI_TRUE);
+
+                SDCondition sd_cond =
+                        sd3->get_learned_condition(sd_get_num_physical_cores_safe(), cparams);
+
+                cond = static_cast<sd_condition_raw_t*>(calloc(1, sizeof(sd_condition_raw_t)));
+                if (!cond) {
+                    throw std::runtime_error("Out of memory allocating condition");
+                }
+
+                auto tensor_to_raw_f32 = [](const sd::Tensor<float>& t, sd_tensor_raw_t& raw) {
+                    if (t.empty()) return;
+                    raw.ndims = (int)t.dim();
+                    for (int i = 0; i < t.dim(); ++i) raw.ne[i] = t.shape()[i];
+                    ALOGI("Precomputed condition tensor to raw (SD3): ndims=%d, shape=[%lld, %lld, %lld, %lld]",
+                          raw.ndims, (long long)raw.ne[0], (long long)raw.ne[1], (long long)raw.ne[2], (long long)raw.ne[3]);
+                    const size_t n = static_cast<size_t>(t.numel());
+                    raw.data = static_cast<float*>(malloc(sizeof(float) * n));
+                    if (!raw.data) {
+                        raw.ndims = 0;
+                        return;
+                    }
+                    memcpy(raw.data, t.data(), sizeof(float) * n);
+                };
+
+                if (!sd_cond.c_crossattn.empty()) tensor_to_raw_f32(sd_cond.c_crossattn, cond->c_crossattn);
+                if (!sd_cond.c_vector.empty()) tensor_to_raw_f32(sd_cond.c_vector, cond->c_vector);
+                if (!sd_cond.c_concat.empty()) tensor_to_raw_f32(sd_cond.c_concat, cond->c_concat);
+
+            } catch (const std::exception& e) {
+                releaseStrings();
+                throwJavaException(env, "java/lang/RuntimeException", e.what());
+                return nullptr;
+            }
         } else if (handle->llm_ctx) {
             // FLUX.2 sequential mode: encoder-only (Qwen3) handle precomputes the conditioning.
             auto* llm = static_cast<LLMEmbedder*>(handle->llm_ctx);
