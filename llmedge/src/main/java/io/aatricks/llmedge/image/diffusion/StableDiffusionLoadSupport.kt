@@ -23,7 +23,7 @@ internal data class StableDiffusionResolvedAssets(
     // Split-model (FLUX.2 Klein): when set, the DiT lives here and native modelPath is left empty.
     val diffusionModelPath: String? = null,
     val llmPath: String? = null,
-    // Encoder-only (FLUX.2 sequential precompute phase): load ONLY the Qwen3 encoder, no DiT.
+    // Encoder-only (FLUX.2 / SD3 sequential precompute phase): load ONLY the text encoder(s), no DiT.
     val encoderOnly: Boolean = false,
     val componentPaths: StableDiffusionComponentPaths? = null,
 )
@@ -51,6 +51,28 @@ internal object StableDiffusionLoadSupport {
                     encoderOnly = true,
                     metadata = inferVideoModelMetadata(request.llmPath, request.modelId, request.filename),
                     componentPaths = null,
+                )
+            }
+
+            // SD3 encoder-only sequential conditioning: either clipL and clipG are populated (CLIP-L/G-only phase) or t5xxl is populated (T5XXL-only phase).
+            val componentPaths = request.componentPaths
+            val isSd3EncoderOnly = request.modelPath == null &&
+                request.diffusionModelPath == null &&
+                request.llmPath == null &&
+                ((request.t5xxlPath == null && componentPaths?.clipLPath != null && componentPaths.clipGPath != null) ||
+                 (request.t5xxlPath != null && (componentPaths == null || (componentPaths.clipLPath == null && componentPaths.clipGPath == null))))
+
+            if (isSd3EncoderOnly) {
+                val metadataPath = componentPaths?.clipLPath ?: request.t5xxlPath!!
+                return@withContext StableDiffusionResolvedAssets(
+                    modelPath = metadataPath,
+                    vaePath = null,
+                    t5xxlPath = request.t5xxlPath,
+                    llmPath = null,
+                    diffusionModelPath = null,
+                    encoderOnly = true,
+                    metadata = inferVideoModelMetadata(metadataPath, request.modelId, request.filename),
+                    componentPaths = componentPaths,
                 )
             }
 
@@ -409,7 +431,7 @@ internal object StableDiffusionLoadSupport {
         StableDiffusionNativeLoadRequest(
             // For split models the DiT must go to diffusion_model_path; model_path must be empty
             // so sdcpp doesn't try to load it as a complete checkpoint. Encoder-only loads also
-            // leave model_path empty (only llm_path is sent → the Qwen3-only handle).
+            // leave model_path empty (routing text encoders appropriately).
             modelPath = if (resolved.diffusionModelPath != null || resolved.encoderOnly) "" else resolved.modelPath,
             vaePath = resolved.vaePath,
             t5xxlPath = resolved.t5xxlPath,
