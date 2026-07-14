@@ -113,7 +113,7 @@ object Flux2Klein {
         cfgScale: Float = 1.0f,
         seed: Long = -1L,
         flashAttention: Boolean = true,
-        sequential: Boolean = false,
+        sequential: Boolean? = null,
     ): ImageGenerationRequest =
         ImageGenerationRequest(
             prompt = prompt,
@@ -147,7 +147,7 @@ object Flux2Klein {
         cfgScale: Float = 1.0f,
         seed: Long = -1L,
         flashAttention: Boolean = true,
-        sequential: Boolean = true,
+        sequential: Boolean? = true,
     ): ImageGenerationRequest =
         ImageGenerationRequest(
             prompt = prompt,

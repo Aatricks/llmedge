@@ -13,6 +13,7 @@ import io.aatricks.llmedge.model.ModelHints
 import io.aatricks.llmedge.model.ModelSpec
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -88,6 +89,16 @@ class IpcMarshallingTest {
             )
         val decoded = IpcCodecs.fromIpc(parcelRoundTrip(IpcCodecs.toIpc(request)))
         assertEquals(request, decoded)
+    }
+
+    @Test
+    fun `automatic image execution mode survives codec and parcel round trip`() {
+        val request = ImageGenerationRequest(prompt = "a fox")
+
+        val decoded = IpcCodecs.fromIpc(parcelRoundTrip(IpcCodecs.toIpc(request)))
+
+        assertEquals(request, decoded)
+        assertNull(decoded.sequential)
     }
 
     @Test

@@ -31,7 +31,7 @@ class ImageRuntimeRequestPlannerTest {
 
     @Test
     fun `sequential image plan forces cpu when config disables vulkan`() {
-        val params = ImageGenerationRequest(prompt = "x", textEncoder = cpuOnlyConfig.models.image)
+        val params = ImageGenerationRequest(prompt = "x", textEncoder = cpuOnlyConfig.models.image, splitDiffusionModel = true)
         val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, cpuOnlyConfig)
         assertFalse(plan.diffusionRequest.options.allowGpu)
         // The conditioning phase is CPU-pinned regardless of config (peak-RAM promise).
@@ -151,5 +151,34 @@ class ImageRuntimeRequestPlannerTest {
         org.junit.Assert.assertNull(plan.diffusionRequest.spec.clipG)
         org.junit.Assert.assertNull(plan.diffusionRequest.spec.t5xxl)
         assertTrue(plan.diffusionRequest.spec.splitDiffusionModel)
+    }
+
+    @Test
+    fun `masked T5 sequential planner isolates the text encoder before the diffusion model`() {
+        val ditModel = ModelSpec.LocalFile(File("minit2i.safetensors"))
+        val textEncoder = ModelSpec.LocalFile(File("flan-t5-large.safetensors"))
+        val params =
+            ImageGenerationRequest(
+                prompt = "x",
+                model = ditModel,
+                textEncoder = textEncoder,
+                diffusionModelOnly = true,
+            )
+
+        val plan =
+            ImageRuntimeRequestPlanner.imageSequentialPlan(
+                params = params,
+                config = LLMEdgeConfig(),
+                profile = ImageConditioningProfile.MASKED_T5,
+            )
+
+        assertTrue(plan.conditioningRequest.spec.encoderOnly)
+        org.junit.Assert.assertEquals(textEncoder, plan.conditioningRequest.spec.model)
+        org.junit.Assert.assertEquals(ImageConditioningProfile.MASKED_T5, plan.conditioningRequest.spec.conditioningProfile)
+        assertTrue(plan.conditioningRequest.options.offloadToCpu)
+        org.junit.Assert.assertEquals(ditModel, plan.diffusionRequest.spec.model)
+        assertTrue(plan.diffusionRequest.spec.diffusionModelOnly)
+        org.junit.Assert.assertNull(plan.diffusionRequest.spec.textEncoder)
+        assertFalse(plan.diffusionRequest.options.offloadToCpu)
     }
 }

@@ -6,6 +6,7 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.image.DiffusionPhaseListener
 import io.aatricks.llmedge.image.DiffusionRequestExecutor
+import io.aatricks.llmedge.image.DefaultImageExecutionPlanSelector
 import io.aatricks.llmedge.image.GenerationStreamEvent
 import io.aatricks.llmedge.image.ImageClientState
 import io.aatricks.llmedge.image.ImageGenerationExecutor
@@ -41,6 +42,7 @@ internal class InProcessDiffusionEngine(
             imageRequestIds = imageRequestIds,
             state = state,
             requestExecutor = requestExecutor,
+            executionPlanSelector = DefaultImageExecutionPlanSelector(appContext, modelRepository, phaseListener = phaseListener),
             logTag = logTag,
             phaseListener = phaseListener,
         )

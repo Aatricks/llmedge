@@ -91,6 +91,13 @@ internal object SystemDownload {
                                     cancel()
                                     return@launch
                                 }
+                                else -> {
+                                    if (hasCompletePayload(destination, downloaded, total) && cont.isActive) {
+                                        cont.resume(destination)
+                                        cancel()
+                                        return@launch
+                                    }
+                                }
                             }
                         }
                     } catch (t: Throwable) {
@@ -112,4 +119,14 @@ internal object SystemDownload {
             }
         }
     }
+
+    internal fun hasCompletePayload(
+        destination: File,
+        downloadedBytes: Long,
+        totalBytes: Long,
+    ): Boolean =
+        totalBytes > 0L &&
+            downloadedBytes >= totalBytes &&
+            destination.isFile &&
+            destination.length() == totalBytes
 }

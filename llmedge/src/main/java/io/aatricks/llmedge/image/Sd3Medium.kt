@@ -136,7 +136,6 @@ object Sd3Medium {
             t5xxl = t5xxl,
             textEncoder = null,
             splitDiffusionModel = true,
-            sequential = false,
         )
 
     /**
@@ -169,6 +168,5 @@ object Sd3Medium {
             clipG = null,
             textEncoder = null,
             splitDiffusionModel = false,
-            sequential = false,
         )
 }

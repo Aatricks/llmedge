@@ -35,7 +35,7 @@ class Sd3MediumTest {
         assertEquals(Sd3Medium.t5xxl, request.t5xxl)
         assertNull(request.textEncoder)
         assertTrue(request.splitDiffusionModel)
-        assertFalse(request.sequential)
+        assertNull(request.sequential)
     }
 
     @Test
@@ -66,6 +66,6 @@ class Sd3MediumTest {
         assertNull(request.t5xxl)
         assertNull(request.textEncoder)
         assertFalse(request.splitDiffusionModel)
-        assertFalse(request.sequential)
+        assertNull(request.sequential)
     }
 }

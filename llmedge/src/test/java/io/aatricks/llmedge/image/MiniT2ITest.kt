@@ -29,5 +29,20 @@ class MiniT2ITest {
         assertEquals(100, request.steps)
         assertEquals(6.0f, request.cfgScale)
         assertEquals(42L, request.seed)
+        assertNull(request.sequential)
+    }
+
+    @Test
+    fun `large image request uses the L transformer and automatic planning`() {
+        val request = MiniT2I.largeImageRequest(prompt = "a cat", seed = 42L)
+
+        val model = request.model as ModelSpec.HuggingFace
+        assertEquals("MiniT2I/MiniT2I", model.repoId)
+        assertEquals("minit2i-l-16/transformer/diffusion_pytorch_model.safetensors", model.filename)
+
+        assertSame(MiniT2I.diffusionModelLarge, request.model)
+        assertSame(MiniT2I.textEncoder, request.textEncoder)
+        assertTrue(request.diffusionModelOnly)
+        assertNull(request.sequential)
     }
 }

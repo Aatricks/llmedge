@@ -49,6 +49,7 @@ internal data class DiffusionRuntimeSpec(
     // FLUX.2 / SD3 sequential mode: load ONLY the encoder(s) via llm_path / componentPaths, no DiT/VAE,
     // so the precompute phase peaks at the encoder size.
     val encoderOnly: Boolean = false,
+    val conditioningProfile: ImageConditioningProfile = ImageConditioningProfile.NONE,
 )
 
 internal data class DiffusionLoadOptions(
@@ -172,6 +173,8 @@ internal class DiffusionRuntimeLoader(
             spec.diffusionModelOnly ||
                 (spec.role != DiffusionRuntimeRole.IMAGE &&
                     spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL)
+        val miniT2iConditionerOnly =
+            spec.encoderOnly && spec.conditioningProfile == ImageConditioningProfile.MASKED_T5
         try {
             return createManagedModel(
                 options = options,
@@ -194,6 +197,7 @@ internal class DiffusionRuntimeLoader(
                 diffusionModelOnly = diffusionModelOnly,
                 splitDiffusionModel = spec.splitDiffusionModel,
                 encoderOnly = spec.encoderOnly,
+                miniT2iConditionerOnly = miniT2iConditionerOnly,
             )
         } catch (error: Throwable) {
             if (!shouldRetryWithoutFlash(spec, options)) {
@@ -225,6 +229,7 @@ internal class DiffusionRuntimeLoader(
                     diffusionModelOnly = diffusionModelOnly,
                     splitDiffusionModel = spec.splitDiffusionModel,
                     encoderOnly = spec.encoderOnly,
+                    miniT2iConditionerOnly = miniT2iConditionerOnly,
                 )
             } catch (fallbackError: Throwable) {
                 fallbackError.addSuppressed(error)
@@ -254,6 +259,7 @@ internal class DiffusionRuntimeLoader(
         diffusionModelOnly: Boolean,
         splitDiffusionModel: Boolean,
         encoderOnly: Boolean,
+        miniT2iConditionerOnly: Boolean,
     ): ManagedDiffusionModel {
         AndroidLogAdapter.i(
             LOG_TAG,
@@ -264,7 +270,7 @@ internal class DiffusionRuntimeLoader(
             (resolvedClipL != null && resolvedClipG != null && resolvedT5xxl == null) ||
             (resolvedClipL == null && resolvedClipG == null && resolvedT5xxl != null)
         )
-        val componentPaths = if (encoderOnly && !isSd3EncoderOnly) {
+        val componentPaths = if (encoderOnly && !isSd3EncoderOnly && !miniT2iConditionerOnly) {
             null
         } else {
             val paths = StableDiffusionComponentPaths(
@@ -276,7 +282,8 @@ internal class DiffusionRuntimeLoader(
                 embeddingsConnectorsPath = resolvedEmbeddingsConnectors?.absolutePath,
                 audioVaePath = null,
                 controlNetPath = resolvedControlNet?.absolutePath,
-                photoMakerPath = resolvedPhotoMaker?.absolutePath
+                photoMakerPath = resolvedPhotoMaker?.absolutePath,
+                miniT2iConditionerOnly = miniT2iConditionerOnly,
             )
             if (paths.isAllNull()) null else paths
         }
@@ -284,14 +291,19 @@ internal class DiffusionRuntimeLoader(
             StableDiffusion.loadWithRuntimeBackend(
                 context = context,
                 // encoderOnly: load just the text encoder(s) (Qwen3 via llmPath for FLUX; CLIP-L/CLIP-G/T5XXL for SD3).
-                modelPath = if (splitDiffusionModel || diffusionModelOnly || encoderOnly) null else resolvedModel.absolutePath,
+                modelPath =
+                    if (splitDiffusionModel || diffusionModelOnly || (encoderOnly && !miniT2iConditionerOnly)) {
+                        null
+                    } else {
+                        resolvedModel.absolutePath
+                    },
                 vaePath = if (encoderOnly) null else resolvedVae?.absolutePath,
                 t5xxlPath = resolvedT5xxl?.absolutePath ?: (if (splitDiffusionModel || (encoderOnly && !isSd3EncoderOnly)) null else resolvedTextEncoder?.absolutePath),
                 taesdPath = if (encoderOnly) null else resolvedTaehv?.absolutePath,
                 diffusionModelPath = if (splitDiffusionModel || diffusionModelOnly) resolvedModel.absolutePath else null,
                 llmPath =
                     when {
-                        encoderOnly && !isSd3EncoderOnly -> resolvedModel.absolutePath
+                        encoderOnly && !isSd3EncoderOnly && !miniT2iConditionerOnly -> resolvedModel.absolutePath
                         splitDiffusionModel -> resolvedTextEncoder?.absolutePath
                         else -> null
                     },
@@ -360,6 +372,7 @@ internal fun createDiffusionRuntimePool(
                         spec.embeddingsConnectors?.cacheKey,
                         spec.highNoiseDiffusionModel?.cacheKey,
                         "diffusionOnly=${spec.diffusionModelOnly}",
+                        "conditioning=${spec.conditioningProfile.name}",
                         "threads=${options.nThreads}",
                         "gpu=${options.allowGpu}",
                         "offload=${options.offloadToCpu}",

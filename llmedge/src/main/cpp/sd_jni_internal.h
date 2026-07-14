@@ -12,6 +12,7 @@ struct sd_ctx_t;
 struct SdHandle {
     sd_ctx_t* ctx = nullptr;
     void* t5_ctx = nullptr; // Pointer to T5CLIPEmbedder for T5-only mode
+    void* minit2i_cond_ctx = nullptr; // Pointer to MiniT2IConditioner for MiniT2I sequential conditioning
     void* llm_ctx = nullptr; // Pointer to LLMEmbedder for Qwen3-only mode (FLUX.2 sequential)
     void* sd3_cond_ctx = nullptr; // Pointer to SD3CLIPEmbedder for SD3 split conditioning
     void* backend = nullptr; // Pointer to ggml_backend_t for encoder-only handles

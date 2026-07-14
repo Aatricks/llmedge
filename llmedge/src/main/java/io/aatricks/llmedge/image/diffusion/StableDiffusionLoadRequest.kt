@@ -11,7 +11,9 @@ data class StableDiffusionComponentPaths(
     val embeddingsConnectorsPath: String? = null,
     val audioVaePath: String? = null,
     val controlNetPath: String? = null,
-    val photoMakerPath: String? = null
+    val photoMakerPath: String? = null,
+    // Private encoder-only routing signal; this is not a model path.
+    val miniT2iConditionerOnly: Boolean = false,
 ) {
     fun isAllNull(): Boolean =
         clipLPath == null &&
@@ -22,7 +24,8 @@ data class StableDiffusionComponentPaths(
         embeddingsConnectorsPath == null &&
         audioVaePath == null &&
         controlNetPath == null &&
-        photoMakerPath == null
+        photoMakerPath == null &&
+        !miniT2iConditionerOnly
 }
 
 internal data class StableDiffusionAssetRequest(
@@ -96,4 +99,5 @@ internal data class StableDiffusionNativeLoadRequest(
     val flowShift: Float,
     val loraModelDir: String?,
     val loraApplyMode: LoraApplyMode,
+    val miniT2iConditionerOnly: Boolean = false,
 )

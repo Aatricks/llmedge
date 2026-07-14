@@ -117,6 +117,7 @@ internal object StableDiffusionLoadSupport {
                     modelPath = request.modelPath,
                     vaePath = request.vaePath,
                     t5xxlPath = request.t5xxlPath,
+                    encoderOnly = request.componentPaths?.miniT2iConditionerOnly == true,
                     metadata =
                         inferVideoModelMetadata(
                             request.modelPath,
@@ -432,7 +433,14 @@ internal object StableDiffusionLoadSupport {
             // For split models the DiT must go to diffusion_model_path; model_path must be empty
             // so sdcpp doesn't try to load it as a complete checkpoint. Encoder-only loads also
             // leave model_path empty (routing text encoders appropriately).
-            modelPath = if (resolved.diffusionModelPath != null || resolved.encoderOnly) "" else resolved.modelPath,
+            modelPath =
+                if (resolved.diffusionModelPath != null ||
+                    (resolved.encoderOnly && resolved.componentPaths?.miniT2iConditionerOnly != true)
+                ) {
+                    ""
+                } else {
+                    resolved.modelPath
+                },
             vaePath = resolved.vaePath,
             t5xxlPath = resolved.t5xxlPath,
             taesdPath = request.assets.taesdPath,
@@ -458,6 +466,7 @@ internal object StableDiffusionLoadSupport {
             flowShift = request.runtime.flowShift,
             loraModelDir = request.assets.loraModelDir,
             loraApplyMode = request.runtime.loraApplyMode,
+            miniT2iConditionerOnly = resolved.componentPaths?.miniT2iConditionerOnly == true,
         )
 
     private fun nativeCreateOrThrow(

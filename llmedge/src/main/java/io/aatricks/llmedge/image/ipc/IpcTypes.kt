@@ -71,7 +71,7 @@ internal data class IpcImageRequest(
     val embeddingsConnectors: IpcModelSpec?,
     val diffusionModelOnly: Boolean,
     val splitDiffusionModel: Boolean,
-    val sequential: Boolean,
+    val sequential: Boolean?,
 ) : Parcelable
 
 @Parcelize

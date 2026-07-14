@@ -65,16 +65,22 @@ public:
 };
 #endif
 
-static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, bool offloadToCpu, bool useVulkan) {
+static SdHandle* try_create_t5_only_handle(
+        JNIEnv* env,
+        const char* modelPath,
+        bool offloadToCpu,
+        bool useVulkan,
+        bool miniT2iConditionerOnly) {
 #ifdef SD_JNI_TESTING
-    (void)env; (void)modelPath; (void)offloadToCpu; (void)useVulkan;
+    (void)env; (void)modelPath; (void)offloadToCpu; (void)useVulkan; (void)miniT2iConditionerOnly;
     return nullptr;
 #else
     if (!modelPath) {
         return nullptr;
     }
 
-    ALOGI("Attempting T5-only context load for sequential prompt conditioning: %s", modelPath);
+    ALOGI("Attempting %s-only context load for sequential prompt conditioning: %s",
+          miniT2iConditionerOnly ? "MiniT2I" : "T5", modelPath);
 
     auto model_manager = std::make_shared<ModelManager>();
     model_manager->set_n_threads(sd_get_num_physical_cores_safe());
@@ -103,24 +109,32 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
         return nullptr;
     }
 
-    bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
     ggml_backend_t params_backend = offloadToCpu ? sd_backend_cpu_init() : backend;
-    auto* t5 = new T5CLIPEmbedder(
-        backend,
-        model_manager->loader().get_tensor_storage_map(),
-        false,
-        0,
-        is_umt5,
-        model_manager);
+    Conditioner* conditioner = nullptr;
+    if (miniT2iConditionerOnly) {
+        conditioner = new MiniT2IConditioner(
+            backend,
+            model_manager->loader().get_tensor_storage_map(),
+            model_manager);
+    } else {
+        const bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
+        conditioner = new T5CLIPEmbedder(
+            backend,
+            model_manager->loader().get_tensor_storage_map(),
+            false,
+            0,
+            is_umt5,
+            model_manager);
+    }
     if (!model_manager->register_runner_params(
-            "T5 encoder",
-            *t5,
+            miniT2iConditionerOnly ? "MiniT2I encoder" : "T5 encoder",
+            *conditioner,
             ModelManager::ResidencyMode::ParamBackend,
             backend,
             params_backend) ||
         !model_manager->validate_registered_tensors()) {
-        ALOGE("Failed to register tensors for T5 context");
-        delete t5;
+        ALOGE("Failed to register tensors for %s context", miniT2iConditionerOnly ? "MiniT2I" : "T5");
+        delete conditioner;
         model_manager.reset();
         if (params_backend != backend) ggml_backend_free(params_backend);
         ggml_backend_free(backend);
@@ -129,7 +143,11 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
 
     auto* handle = new SdHandle();
     handle->ctx = nullptr;
-    handle->t5_ctx = t5;
+    if (miniT2iConditionerOnly) {
+        handle->minit2i_cond_ctx = conditioner;
+    } else {
+        handle->t5_ctx = conditioner;
+    }
     handle->backend = backend;
     handle->params_backend = params_backend == backend ? nullptr : params_backend;
     handle->model_manager = std::move(model_manager);
@@ -138,7 +156,7 @@ static SdHandle* try_create_t5_only_handle(JNIEnv* env, const char* modelPath, b
         jni_thread_cache_init(handle->jvm);
     }
 
-    ALOGI("Created T5-only context for sequential prompt conditioning");
+    ALOGI("Created %s-only context for sequential prompt conditioning", miniT2iConditionerOnly ? "MiniT2I" : "T5");
     return handle;
 #endif
 }
@@ -542,7 +560,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         jboolean flashAttn,
         jboolean jvaeDecodeOnly,
         jfloat flowShift,
-        jstring jLoraModelDir, jint jLoraApplyMode) {
+        jstring jLoraModelDir, jint jLoraApplyMode, jboolean jMiniT2iConditionerOnly) {
     (void)clazz;
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
@@ -712,9 +730,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
                            !hasExtraComponentPaths &&
                            (std::string(modelPath).find("t5") != std::string::npos ||
                             std::string(modelPath).find("encoder") != std::string::npos);
+    bool isMiniT2iConditionerOnly = jMiniT2iConditionerOnly == JNI_TRUE;
 
     sd_ctx_t* ctx = nullptr;
-    if (!isLlmOnly && !isSd3EncoderOnly) {
+    if (!isLlmOnly && !isSd3EncoderOnly && !isMiniT2iConditionerOnly) {
         // Shared with the whisper loader: env mutation must be process-globally
         // serialized (concurrent setenv/getenv across threads is UB).
         std::lock_guard<std::mutex> lock(llmedge_process_env_mutex());
@@ -747,8 +766,21 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
                 return reinterpret_cast<jlong>(llmOnlyHandle);
             }
         }
+        if (isMiniT2iConditionerOnly) {
+            SdHandle* miniT2iHandle = try_create_t5_only_handle(
+                env, modelPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE, true);
+            if (miniT2iHandle) {
+                if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+                if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+                if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+                if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
+                if (jLoraModelDir) env->ReleaseStringUTFChars(jLoraModelDir, loraModelDir);
+                return reinterpret_cast<jlong>(miniT2iHandle);
+            }
+        }
         if (isT5OnlyRequest) {
-            SdHandle* t5OnlyHandle = try_create_t5_only_handle(env, modelPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE);
+            SdHandle* t5OnlyHandle = try_create_t5_only_handle(
+                env, modelPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE, false);
             if (t5OnlyHandle) {
                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
@@ -802,6 +834,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
         auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
         delete t5;
         handle->t5_ctx = nullptr;
+    }
+    if (handle->minit2i_cond_ctx) {
+        auto* miniT2i = static_cast<MiniT2IConditioner*>(handle->minit2i_cond_ctx);
+        delete miniT2i;
+        handle->minit2i_cond_ctx = nullptr;
     }
     if (handle->llm_ctx) {
         auto* llm = static_cast<LLMEmbedder*>(handle->llm_ctx);

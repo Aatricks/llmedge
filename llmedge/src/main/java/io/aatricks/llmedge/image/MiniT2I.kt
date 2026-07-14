@@ -21,6 +21,19 @@ object MiniT2I {
         )
 
     @JvmField
+    val diffusionModelLarge: ModelSpec =
+        ModelSpec.huggingFace(
+            repoId = "MiniT2I/MiniT2I",
+            filename = "minit2i-l-16/transformer/diffusion_pytorch_model.safetensors",
+            preferredQuantizations = emptyList(),
+            hints =
+                ModelHints(
+                    artifactKind = ModelArtifactKind.DIFFUSION_MODEL,
+                    capabilities = setOf(ModelCapability.IMAGE),
+                ),
+        )
+
+    @JvmField
     val textEncoder: ModelSpec =
         ModelSpec.huggingFace(
             repoId = "google/flan-t5-large",
@@ -45,6 +58,53 @@ object MiniT2I {
         seed: Long = -1L,
         flashAttention: Boolean = true,
     ): ImageGenerationRequest =
+        buildRequest(
+            model = diffusionModel,
+            prompt = prompt,
+            negative = negative,
+            width = width,
+            height = height,
+            steps = steps,
+            cfgScale = cfgScale,
+            seed = seed,
+            flashAttention = flashAttention,
+        )
+
+    @JvmStatic
+    @JvmOverloads
+    fun largeImageRequest(
+        prompt: String,
+        negative: String = "",
+        width: Int = 512,
+        height: Int = 512,
+        steps: Int = 100,
+        cfgScale: Float = 6.0f,
+        seed: Long = -1L,
+        flashAttention: Boolean = true,
+    ): ImageGenerationRequest =
+        buildRequest(
+            model = diffusionModelLarge,
+            prompt = prompt,
+            negative = negative,
+            width = width,
+            height = height,
+            steps = steps,
+            cfgScale = cfgScale,
+            seed = seed,
+            flashAttention = flashAttention,
+        )
+
+    private fun buildRequest(
+        model: ModelSpec,
+        prompt: String,
+        negative: String,
+        width: Int,
+        height: Int,
+        steps: Int,
+        cfgScale: Float,
+        seed: Long,
+        flashAttention: Boolean,
+    ): ImageGenerationRequest =
         ImageGenerationRequest(
             prompt = prompt,
             negative = negative,
@@ -54,7 +114,7 @@ object MiniT2I {
             cfgScale = cfgScale,
             seed = seed,
             flashAttention = flashAttention,
-            model = diffusionModel,
+            model = model,
             textEncoder = textEncoder,
             diffusionModelOnly = true,
         )

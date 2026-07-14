@@ -43,6 +43,7 @@ internal object ImageRuntimeRequestPlanner {
                     embeddingsConnectors = params.embeddingsConnectors,
                     diffusionModelOnly = params.diffusionModelOnly,
                     splitDiffusionModel = params.splitDiffusionModel,
+                    conditioningProfile = ImageExecutionPlanner.recipeFor(params).profile,
                 ),
             options =
                 DiffusionLoadOptions(
@@ -77,8 +78,13 @@ internal object ImageRuntimeRequestPlanner {
     fun imageSequentialPlan(
         params: ImageGenerationRequest,
         config: LLMEdgeConfig,
+        profile: ImageConditioningProfile = ImageExecutionPlanner.recipeFor(params).profile,
     ): DiffusionExecutionPlan.Sequential {
-        val isSd3 = params.t5xxl != null && params.clipL != null && params.clipG != null
+        require(profile != ImageConditioningProfile.NONE) {
+            "Sequential image generation requires a splittable conditioning profile"
+        }
+        val isSd3 = profile == ImageConditioningProfile.SD3_CLIP_T5
+        val isMaskedT5 = profile == ImageConditioningProfile.MASKED_T5
         val ditModel = params.model ?: config.models.image
         val baseOptions =
             DiffusionLoadOptions(
@@ -122,25 +128,38 @@ internal object ImageRuntimeRequestPlanner {
                 role = DiffusionRuntimeRole.IMAGE,
                 model = encoderSpec,
                 encoderOnly = true,
+                conditioningProfile = profile,
             )
             conditioningSpec2 = null
         }
-        val diffusionSpec = if (isSd3) {
-            DiffusionRuntimeSpec(
-                role = DiffusionRuntimeRole.IMAGE,
-                model = ditModel,
-                vae = params.vae,
-                splitDiffusionModel = true,
-            )
-        } else {
-            DiffusionRuntimeSpec(
-                role = DiffusionRuntimeRole.IMAGE,
-                model = ditModel,
-                vae = params.vae,
-                textEncoder = null,
-                splitDiffusionModel = true,
-            )
-        }
+        val diffusionSpec =
+            when {
+                isSd3 ->
+                    DiffusionRuntimeSpec(
+                        role = DiffusionRuntimeRole.IMAGE,
+                        model = ditModel,
+                        vae = params.vae,
+                        splitDiffusionModel = true,
+                        conditioningProfile = profile,
+                    )
+                isMaskedT5 ->
+                    DiffusionRuntimeSpec(
+                        role = DiffusionRuntimeRole.IMAGE,
+                        model = ditModel,
+                        vae = params.vae,
+                        diffusionModelOnly = true,
+                        conditioningProfile = profile,
+                    )
+                else ->
+                    DiffusionRuntimeSpec(
+                        role = DiffusionRuntimeRole.IMAGE,
+                        model = ditModel,
+                        vae = params.vae,
+                        textEncoder = null,
+                        splitDiffusionModel = true,
+                        conditioningProfile = profile,
+                    )
+            }
         val conditioningOptions = baseOptions.copy(
             nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.PROMPT_PROCESSING),
             allowGpu = false,
@@ -148,6 +167,9 @@ internal object ImageRuntimeRequestPlanner {
         val t5ConditioningOptions = conditioningOptions.copy(
             allowGpu = config.image.useVulkan,
         )
+        // The conditioning runtime is gone before diffusion begins, so keep diffusion weights
+        // on a supported GPU instead of mirroring its multi-GB parameters in system RAM.
+        val diffusionOptions = baseOptions.copy(offloadToCpu = false)
         return DiffusionExecutionPlan.Sequential(
             conditioningRequest =
                 PlannedDiffusionRuntimeRequest(
@@ -163,7 +185,7 @@ internal object ImageRuntimeRequestPlanner {
             diffusionRequest =
                 PlannedDiffusionRuntimeRequest(
                     spec = diffusionSpec,
-                    options = baseOptions,
+                    options = diffusionOptions,
                 ),
         )
     }

@@ -296,6 +296,7 @@ class StableDiffusion internal constructor(
                 request.flowShift,
                 request.loraModelDir,
                 request.loraApplyMode.id,
+                request.miniT2iConditionerOnly,
             )
 
         @JvmStatic
@@ -325,7 +326,8 @@ class StableDiffusion internal constructor(
                 vaeDecodeOnly: Boolean,
                 flowShift: Float,
                 loraModelDir: String?,
-                loraApplyMode: Int
+                loraApplyMode: Int,
+                miniT2iConditionerOnly: Boolean,
         ): Long
 
         @JvmStatic

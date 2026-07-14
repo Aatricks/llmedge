@@ -142,9 +142,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
             }
         }
 #ifndef SD_JNI_TESTING
-        else if (handle->t5_ctx) {
-            auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
-            ConditionerRunnerDoneOnExit runnerDone{t5};
+        else if (handle->t5_ctx || handle->minit2i_cond_ctx) {
+            auto* conditioner = static_cast<Conditioner*>(
+                handle->minit2i_cond_ctx ? handle->minit2i_cond_ctx : handle->t5_ctx);
+            ConditionerRunnerDoneOnExit runnerDone{conditioner};
             try {
                 ConditionerParams cparams;
                 cparams.text = resolved.prompt.c_str();
@@ -154,7 +155,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativePrecomputeConditi
                 cparams.zero_out_masked = (jIsVideo == JNI_TRUE);
 
                 SDCondition sd_cond =
-                        t5->get_learned_condition(sd_get_num_physical_cores_safe(), cparams);
+                        conditioner->get_learned_condition(sd_get_num_physical_cores_safe(), cparams);
 
                 cond = static_cast<sd_condition_raw_t*>(calloc(1, sizeof(sd_condition_raw_t)));
                 if (!cond) {

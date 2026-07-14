@@ -12,6 +12,7 @@ import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.ProgressEvent
 import io.aatricks.llmedge.core.WorkerCrashedException
 import io.aatricks.llmedge.image.GenerationStreamEvent
+import io.aatricks.llmedge.image.ImageExecutionPlanner
 import io.aatricks.llmedge.image.ImageGenerationRequest
 import io.aatricks.llmedge.image.VideoGenerationRequest
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
@@ -76,18 +77,23 @@ internal class IsolatedDiffusionEngine(
         val isCompleted: () -> Boolean,
     )
 
+    private class ImageRequestPhaseTracker {
+        @Volatile var lastPhase: String = DiffusionPhases.REQUESTED
+    }
+
     override suspend fun generate(params: ImageGenerationRequest): Bitmap =
         generationMutex.withLock {
+            val phaseTracker = ImageRequestPhaseTracker()
             try {
                 val result =
                     runWithRecovery(ComputeSubsystem.IMAGE) { forceCpu ->
-                        issueImageRequest(params, forceCpu)
+                        issueImageRequest(params, forceCpu, phaseTracker)
                     }
                 lastMetrics = result.metrics?.let(IpcCodecs::fromIpc)
                 PixelCodec.decodeBitmap(result.frame)
             } catch (oom: io.aatricks.llmedge.core.WorkerKilledByMemoryException) {
-                if (isEligibleDirectSd3Split(params)) {
-                    AndroidLogAdapter.w(LOG_TAG, "Worker OOM-killed during direct SD3 generation; retrying sequentially")
+                if (isEligibleAutomaticSequentialRetry(params, phaseTracker.lastPhase)) {
+                    AndroidLogAdapter.w(LOG_TAG, "Worker OOM-killed while loading; retrying staged image generation")
                     val result =
                         runWithRecovery(ComputeSubsystem.IMAGE) { forceCpu ->
                             issueImageRequest(params.copy(sequential = true), forceCpu)
@@ -100,9 +106,13 @@ internal class IsolatedDiffusionEngine(
             }
         }
 
-    private fun isEligibleDirectSd3Split(params: ImageGenerationRequest): Boolean {
-        return !params.sequential && params.splitDiffusionModel && params.t5xxl != null && params.clipL != null && params.clipG != null
-    }
+    private fun isEligibleAutomaticSequentialRetry(
+        params: ImageGenerationRequest,
+        lastPhase: String,
+    ): Boolean =
+        params.sequential == null &&
+            ImageExecutionPlanner.recipeFor(params).supportsSequential &&
+            lastPhase == DiffusionPhases.LOADING
 
     override fun generateVideo(params: VideoGenerationRequest): Flow<GenerationStreamEvent> =
         callbackFlow {
@@ -191,12 +201,16 @@ internal class IsolatedDiffusionEngine(
     private suspend fun issueImageRequest(
         params: ImageGenerationRequest,
         forceCpu: Boolean,
+        phaseTracker: ImageRequestPhaseTracker? = null,
     ): IpcImageResult {
         val deferred = CompletableDeferred<IpcImageResult>()
         return runRequest(deferred, forceCpu) { connection, watchdog ->
             val callback =
                 object : IDiffusionResultCallback.Stub() {
-                    override fun onPhase(update: PhaseUpdate) = dispatchPhase(watchdog, update)
+                    override fun onPhase(update: PhaseUpdate) {
+                        phaseTracker?.lastPhase = update.phase
+                        dispatchPhase(watchdog, update)
+                    }
 
                     override fun onCompleted(result: IpcImageResult) {
                         deferred.complete(result)

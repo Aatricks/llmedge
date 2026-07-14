@@ -3,6 +3,7 @@ package io.aatricks.llmedge.image
 import android.graphics.Bitmap
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerateParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
@@ -22,17 +23,29 @@ internal class ImageGenerationExecutor(
     private val imageRequestIds: AtomicLong,
     private val state: ImageClientState,
     private val requestExecutor: DiffusionRequestExecutor,
+    private val executionPlanSelector: ImageExecutionPlanSelector,
     private val logTag: String,
     private val phaseListener: DiffusionPhaseListener? = null,
 ) {
-    suspend fun generate(params: ImageGenerationRequest): Bitmap {
-        val isFluxSequential = params.sequential && params.splitDiffusionModel && params.textEncoder != null
-        val isSd3Sequential = params.sequential && params.splitDiffusionModel && params.t5xxl != null && params.clipL != null && params.clipG != null
-        if (isFluxSequential || isSd3Sequential) {
-            return generateSequential(params)
+    suspend fun generate(params: ImageGenerationRequest): Bitmap =
+        generationMutex.withLock {
+            val decision = executionPlanSelector.decide(params, config)
+            if (decision.mode == ImageExecutionMode.SEQUENTIAL) {
+                return@withLock generateSequential(params, decision.recipe.profile)
+            }
+
+            val directRequest = ImageRuntimeRequestPlanner.imageRequest(params, config)
+            try {
+                generateDirect(params, directRequest)
+            } catch (error: ModelLoadException) {
+                if (params.sequential != null || !decision.recipe.supportsSequential) {
+                    throw error
+                }
+                requestExecutor.invalidateRuntime(directRequest.spec, directRequest.options)
+                AndroidLogAdapter.w(logTag, "Automatic direct image load failed; retrying staged ${decision.recipe.profile} execution")
+                generateSequential(params, decision.recipe.profile)
+            }
         }
-        return generateDirect(params)
-    }
 
     /**
      * Sequential low-memory generation:
@@ -43,113 +56,121 @@ internal class ImageGenerationExecutor(
      *   and phase 3 loads only the DiT (+VAE) to generate.
      * Peak RAM is the largest single phase, not the sum.
      */
-    private suspend fun generateSequential(params: ImageGenerationRequest): Bitmap =
-        generationMutex.withLock {
-            state.resetForRequest()
-            val isSd3 = params.t5xxl != null && params.clipL != null && params.clipG != null
-            val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, config)
-            val requestId = imageRequestIds.incrementAndGet()
-            val modelName = if (isSd3) "SD3" else "FLUX.2"
-            AndroidLogAdapter.i(logTag, "$modelName sequential image request: requestId=$requestId")
-
-            val cond: PrecomputedCondition?
-            val uncond: PrecomputedCondition?
-
-            if (isSd3) {
-                val condCLIP = requestExecutor.withRuntimeModel(
-                    spec = plan.conditioningRequest.spec,
-                    options = plan.conditioningRequest.options,
-                    retryMessage = "Retrying $modelName sequential conditioning phase A (CLIP) on the next backend for",
-                ) { model, _, acquire ->
-                    phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
-                    model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
-                }
-                val uncondCLIP = requestExecutor.withRuntimeModel(
-                    spec = plan.conditioningRequest.spec,
-                    options = plan.conditioningRequest.options,
-                    retryMessage = "Retrying $modelName sequential conditioning phase A (CLIP) negative on the next backend for",
-                ) { model, _, _ ->
-                    model.precomputeCondition(params.negative, "", params.width, params.height, -1)
-                }
-
-                requestExecutor.invalidateRuntime(
-                    plan.conditioningRequest.spec,
-                    plan.conditioningRequest.options,
-                )
-                AndroidLogAdapter.i(logTag, "$modelName sequential: CLIP runtime invalidated before T5 phase")
-
-                val conditioningRequest2 = plan.conditioningRequest2 ?: error("SD3 sequential requires conditioningRequest2 (T5)")
-
-                val condT5 = requestExecutor.withRuntimeModel(
-                    spec = conditioningRequest2.spec,
-                    options = conditioningRequest2.options,
-                    retryMessage = "Retrying $modelName sequential conditioning phase B (T5) on the next backend for",
-                ) { model, _, acquire ->
-                    phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
-                    model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
-                }
-                val uncondT5 = requestExecutor.withRuntimeModel(
-                    spec = conditioningRequest2.spec,
-                    options = conditioningRequest2.options,
-                    retryMessage = "Retrying $modelName sequential conditioning phase B (T5) negative on the next backend for",
-                ) { model, _, _ ->
-                    model.precomputeCondition(params.negative, "", params.width, params.height, -1)
-                }
-
-                requestExecutor.invalidateRuntime(
-                    conditioningRequest2.spec,
-                    conditioningRequest2.options,
-                )
-                AndroidLogAdapter.i(logTag, "$modelName sequential: T5 runtime invalidated before diffusion phase")
-
-                cond = if (condCLIP != null && condT5 != null) combineSD3Condition(condCLIP, condT5) else null
-                uncond = if (uncondCLIP != null && uncondT5 != null) combineSD3Condition(uncondCLIP, uncondT5) else null
-            } else {
-                val condAndUncond = requestExecutor.withRuntimeModel(
-                    spec = plan.conditioningRequest.spec,
-                    options = plan.conditioningRequest.options,
-                    retryMessage = "Retrying $modelName sequential conditioning on the next backend for",
-                ) { model, _, acquire ->
-                    phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
-                    val c = model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
-                    c to null
-                }
-                cond = condAndUncond.first
-                uncond = condAndUncond.second
-
-                requestExecutor.invalidateRuntime(
-                    plan.conditioningRequest.spec,
-                    plan.conditioningRequest.options,
-                )
-                AndroidLogAdapter.i(logTag, "$modelName sequential: encoder runtime invalidated before diffusion phase")
+    private suspend fun generateSequential(
+        params: ImageGenerationRequest,
+        profile: ImageConditioningProfile,
+    ): Bitmap {
+        state.resetForRequest()
+        val isSd3 = profile == ImageConditioningProfile.SD3_CLIP_T5
+        val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, config, profile)
+        val requestId = imageRequestIds.incrementAndGet()
+        val modelName =
+            when (profile) {
+                ImageConditioningProfile.LLM -> "LLM"
+                ImageConditioningProfile.SD3_CLIP_T5 -> "SD3"
+                ImageConditioningProfile.MASKED_T5 -> "masked-T5"
+                ImageConditioningProfile.NONE -> error("Sequential image execution requires a conditioning profile")
             }
+        AndroidLogAdapter.i(logTag, "$modelName sequential image request: requestId=$requestId")
 
-            requestExecutor.withRuntimeModel(
-                spec = plan.diffusionRequest.spec,
-                options = plan.diffusionRequest.options,
-                retryMessage = "Retrying $modelName sequential diffusion on the next backend for",
+        val cond: PrecomputedCondition?
+        val uncond: PrecomputedCondition?
+
+        if (isSd3) {
+            val condCLIP = requestExecutor.withRuntimeModel(
+                spec = plan.conditioningRequest.spec,
+                options = plan.conditioningRequest.options,
+                retryMessage = "Retrying $modelName sequential conditioning phase A (CLIP) on the next backend for",
             ) { model, _, acquire ->
                 phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
-                phaseListener?.let { listener ->
-                    model.setProgressCallback { step, totalSteps, _, _, _ ->
-                        listener.onStep(step, totalSteps)
-                    }
-                }
-                val rgb =
-                    model.txt2ImgWithPrecomputedCondition(
-                        prompt = params.prompt,
-                        negative = if (isSd3) params.negative else "",
-                        width = params.width,
-                        height = params.height,
-                        steps = params.steps,
-                        cfg = params.cfgScale,
-                        seed = params.seed,
-                        cond = cond,
-                        uncond = uncond,
-                    ) ?: throw IllegalStateException("$modelName sequential generation returned null")
-                rgbToBitmap(rgb, params.width, params.height)
+                model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
             }
+            val uncondCLIP = requestExecutor.withRuntimeModel(
+                spec = plan.conditioningRequest.spec,
+                options = plan.conditioningRequest.options,
+                retryMessage = "Retrying $modelName sequential conditioning phase A (CLIP) negative on the next backend for",
+            ) { model, _, _ ->
+                model.precomputeCondition(params.negative, "", params.width, params.height, -1)
+            }
+
+            requestExecutor.invalidateRuntime(
+                plan.conditioningRequest.spec,
+                plan.conditioningRequest.options,
+            )
+            AndroidLogAdapter.i(logTag, "$modelName sequential: CLIP runtime invalidated before T5 phase")
+
+            val conditioningRequest2 = plan.conditioningRequest2 ?: error("SD3 sequential requires conditioningRequest2 (T5)")
+
+            val condT5 = requestExecutor.withRuntimeModel(
+                spec = conditioningRequest2.spec,
+                options = conditioningRequest2.options,
+                retryMessage = "Retrying $modelName sequential conditioning phase B (T5) on the next backend for",
+            ) { model, _, acquire ->
+                phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
+                model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
+            }
+            val uncondT5 = requestExecutor.withRuntimeModel(
+                spec = conditioningRequest2.spec,
+                options = conditioningRequest2.options,
+                retryMessage = "Retrying $modelName sequential conditioning phase B (T5) negative on the next backend for",
+            ) { model, _, _ ->
+                model.precomputeCondition(params.negative, "", params.width, params.height, -1)
+            }
+
+            requestExecutor.invalidateRuntime(
+                conditioningRequest2.spec,
+                conditioningRequest2.options,
+            )
+            AndroidLogAdapter.i(logTag, "$modelName sequential: T5 runtime invalidated before diffusion phase")
+
+            cond = if (condCLIP != null && condT5 != null) combineSD3Condition(condCLIP, condT5) else null
+            uncond = if (uncondCLIP != null && uncondT5 != null) combineSD3Condition(uncondCLIP, uncondT5) else null
+        } else {
+            val condAndUncond = requestExecutor.withRuntimeModel(
+                spec = plan.conditioningRequest.spec,
+                options = plan.conditioningRequest.options,
+                retryMessage = "Retrying $modelName sequential conditioning on the next backend for",
+            ) { model, _, acquire ->
+                phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
+                val c = model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
+                c to null
+            }
+            cond = condAndUncond.first
+            uncond = condAndUncond.second
+
+            requestExecutor.invalidateRuntime(
+                plan.conditioningRequest.spec,
+                plan.conditioningRequest.options,
+            )
+            AndroidLogAdapter.i(logTag, "$modelName sequential: encoder runtime invalidated before diffusion phase")
         }
+
+        return requestExecutor.withRuntimeModel(
+            spec = plan.diffusionRequest.spec,
+            options = plan.diffusionRequest.options,
+            retryMessage = "Retrying $modelName sequential diffusion on the next backend for",
+        ) { model, _, acquire ->
+            phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
+            phaseListener?.let { listener ->
+                model.setProgressCallback { step, totalSteps, _, _, _ ->
+                    listener.onStep(step, totalSteps)
+                }
+            }
+            val rgb =
+                model.txt2ImgWithPrecomputedCondition(
+                    prompt = params.prompt,
+                    negative = if (isSd3) params.negative else "",
+                    width = params.width,
+                    height = params.height,
+                    steps = params.steps,
+                    cfg = params.cfgScale,
+                    seed = params.seed,
+                    cond = cond,
+                    uncond = uncond,
+                ) ?: throw IllegalStateException("$modelName sequential generation returned null")
+            rgbToBitmap(rgb, params.width, params.height)
+        }
+    }
 
     private fun combineSD3Condition(a: PrecomputedCondition, b: PrecomputedCondition): PrecomputedCondition {
         val crossAttn = combineArrays(a.cCrossAttn, a.cCrossAttnDims, b.cCrossAttn, b.cCrossAttnDims, "cCrossAttn", true)
@@ -228,131 +249,132 @@ internal class ImageGenerationExecutor(
         return bmp
     }
 
-    private suspend fun generateDirect(params: ImageGenerationRequest): Bitmap =
-        generationMutex.withLock {
-            state.resetForRequest()
-            val request = ImageRuntimeRequestPlanner.imageRequest(params, config)
-            val requestId = imageRequestIds.incrementAndGet()
+    private suspend fun generateDirect(
+        params: ImageGenerationRequest,
+        request: PlannedDiffusionRuntimeRequest,
+    ): Bitmap {
+        state.resetForRequest()
+        val requestId = imageRequestIds.incrementAndGet()
+        AndroidLogAdapter.i(
+            logTag,
+            "Image request entering runtime acquisition: requestId=$requestId size=${params.width}x${params.height} steps=${params.steps}",
+        )
+        return requestExecutor.withRuntimeModel(
+            spec = request.spec,
+            options = request.options,
+            retryMessage = "Retrying image generation on the next backend after a backend-specific failure for",
+        ) { model, runtime, acquire ->
             AndroidLogAdapter.i(
                 logTag,
-                "Image request entering runtime acquisition: requestId=$requestId size=${params.width}x${params.height} steps=${params.steps}",
+                "Image request runtime acquired: requestId=$requestId cacheHit=${acquire.cacheHit} backend=${acquire.backend} loadMs=${acquire.modelLoadTimeMs}",
             )
-            requestExecutor.withRuntimeModel(
-                spec = request.spec,
-                options = request.options,
-                retryMessage = "Retrying image generation on the next backend after a backend-specific failure for",
-            ) { model, runtime, acquire ->
-                AndroidLogAdapter.i(
-                    logTag,
-                    "Image request runtime acquired: requestId=$requestId cacheHit=${acquire.cacheHit} backend=${acquire.backend} loadMs=${acquire.modelLoadTimeMs}",
-                )
-                AndroidLogAdapter.i(
-                    logTag,
-                    "Image request runtime mutex acquired: requestId=$requestId backend=${acquire.backend}",
-                )
-                AndroidLogAdapter.i(
-                    logTag,
-                    "Image request active model entered: requestId=$requestId",
-                )
-                model.beginImageRequestTrace(requestId)
-                model.traceImagePhase(
-                    ImageGenerationPhase.REQUESTED,
-                    "promptChars=${params.prompt.length} size=${params.width}x${params.height} steps=${params.steps}",
-                )
-                model.traceImagePhase(
-                    ImageGenerationPhase.RUNTIME_ACQUIRED,
-                    "cacheHit=${acquire.cacheHit} acquireMs=${acquire.acquireTimeMs} loadMs=${acquire.modelLoadTimeMs} backend=${acquire.backend.name}",
-                )
-                try {
-                    val easyCache =
-                        model.resolveEasyCacheParams(params.easyCache) {
-                            AndroidLogAdapter.w(
-                                logTag,
-                                "EasyCache requested but unsupported for the current model; disabling it for this request",
-                            )
-                        }
-                    model.traceImagePhase(
-                        ImageGenerationPhase.MODEL_READY,
-                        "flash=${runtime.flashAttnEnabled} easyCache=${easyCache.enabled}",
-                    )
-                    model.traceImagePhase(
-                        ImageGenerationPhase.TXT2IMG_ENTER,
-                        "ImageClient dispatching to StableDiffusion.txt2img",
-                    )
-                    phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
-                    phaseListener?.let { listener ->
-                        model.setProgressCallback { step, totalSteps, _, _, _ ->
-                            listener.onStep(step, totalSteps)
-                        }
-                    }
-                    val generationStartNanos = System.nanoTime()
-                    val bitmap =
-                        try {
-                            model.txt2img(
-                                GenerateParams(
-                                    prompt = params.prompt,
-                                    negative = params.negative,
-                                    width = params.width,
-                                    height = params.height,
-                                    steps = params.steps,
-                                    cfgScale = params.cfgScale,
-                                    seed = params.seed,
-                                    easyCacheParams = easyCache,
-                                ),
-                            )
-                        } finally {
-                            if (phaseListener != null) model.setProgressCallback(null)
-                        }
-                    val generateMs = elapsedMillis(generationStartNanos)
-                    val requestMetrics =
-                        ImageRequestMetrics(
-                            runtimeAcquireMs = acquire.acquireTimeMs,
-                            modelLoadMs = acquire.modelLoadTimeMs,
-                            generateMs = generateMs,
-                            cacheHit = acquire.cacheHit,
-                            backend = acquire.backend.name,
-                            flashAttentionEnabled = runtime.flashAttnEnabled,
-                            easyCacheEnabled = easyCache.enabled,
-                            width = params.width,
-                            height = params.height,
-                            steps = params.steps,
+            AndroidLogAdapter.i(
+                logTag,
+                "Image request runtime mutex acquired: requestId=$requestId backend=${acquire.backend}",
+            )
+            AndroidLogAdapter.i(
+                logTag,
+                "Image request active model entered: requestId=$requestId",
+            )
+            model.beginImageRequestTrace(requestId)
+            model.traceImagePhase(
+                ImageGenerationPhase.REQUESTED,
+                "promptChars=${params.prompt.length} size=${params.width}x${params.height} steps=${params.steps}",
+            )
+            model.traceImagePhase(
+                ImageGenerationPhase.RUNTIME_ACQUIRED,
+                "cacheHit=${acquire.cacheHit} acquireMs=${acquire.acquireTimeMs} loadMs=${acquire.modelLoadTimeMs} backend=${acquire.backend.name}",
+            )
+            try {
+                val easyCache =
+                    model.resolveEasyCacheParams(params.easyCache) {
+                        AndroidLogAdapter.w(
+                            logTag,
+                            "EasyCache requested but unsupported for the current model; disabling it for this request",
                         )
-                    val baseMetrics =
-                        model.getLastGenerationMetrics()
-                            ?: fallbackImageMetrics(
-                                runtime = runtime,
-                                params = params,
-                                generateMs = generateMs,
-                            )
-                    state.lastGenerationMetrics =
-                        baseMetrics.withImageRequestMetrics(requestMetrics)
-                    logImageRequestMetrics(acquire.keyPrefix, requestMetrics)
-                    bitmap
-                } catch (cancelled: CancellationException) {
-                    state.lastGenerationMetrics = null
-                    model.traceImagePhase(
-                        ImageGenerationPhase.CANCELLED,
-                        "ImageClient observed cancellation",
-                        cancelled,
-                    )
-                    throw cancelled
-                } catch (t: Throwable) {
-                    state.lastGenerationMetrics = null
-                    model.traceImagePhase(
-                        ImageGenerationPhase.FAILED,
-                        "ImageClient observed failure: ${t.message}",
-                        t,
-                    )
-                    throw t
-                } finally {
-                    state.lastImageRequestTrace = model.getLastImageRequestTraceForTests()
-                    AndroidLogAdapter.i(
-                        logTag,
-                        "Image request active model exit: requestId=$requestId phases=${state.lastImageRequestTrace.size}",
-                    )
+                    }
+                model.traceImagePhase(
+                    ImageGenerationPhase.MODEL_READY,
+                    "flash=${runtime.flashAttnEnabled} easyCache=${easyCache.enabled}",
+                )
+                model.traceImagePhase(
+                    ImageGenerationPhase.TXT2IMG_ENTER,
+                    "ImageClient dispatching to StableDiffusion.txt2img",
+                )
+                phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
+                phaseListener?.let { listener ->
+                    model.setProgressCallback { step, totalSteps, _, _, _ ->
+                        listener.onStep(step, totalSteps)
+                    }
                 }
+                val generationStartNanos = System.nanoTime()
+                val bitmap =
+                    try {
+                        model.txt2img(
+                            GenerateParams(
+                                prompt = params.prompt,
+                                negative = params.negative,
+                                width = params.width,
+                                height = params.height,
+                                steps = params.steps,
+                                cfgScale = params.cfgScale,
+                                seed = params.seed,
+                                easyCacheParams = easyCache,
+                            ),
+                        )
+                    } finally {
+                        if (phaseListener != null) model.setProgressCallback(null)
+                    }
+                val generateMs = elapsedMillis(generationStartNanos)
+                val requestMetrics =
+                    ImageRequestMetrics(
+                        runtimeAcquireMs = acquire.acquireTimeMs,
+                        modelLoadMs = acquire.modelLoadTimeMs,
+                        generateMs = generateMs,
+                        cacheHit = acquire.cacheHit,
+                        backend = acquire.backend.name,
+                        flashAttentionEnabled = runtime.flashAttnEnabled,
+                        easyCacheEnabled = easyCache.enabled,
+                        width = params.width,
+                        height = params.height,
+                        steps = params.steps,
+                    )
+                val baseMetrics =
+                    model.getLastGenerationMetrics()
+                        ?: fallbackImageMetrics(
+                            runtime = runtime,
+                            params = params,
+                            generateMs = generateMs,
+                        )
+                state.lastGenerationMetrics =
+                    baseMetrics.withImageRequestMetrics(requestMetrics)
+                logImageRequestMetrics(acquire.keyPrefix, requestMetrics)
+                bitmap
+            } catch (cancelled: CancellationException) {
+                state.lastGenerationMetrics = null
+                model.traceImagePhase(
+                    ImageGenerationPhase.CANCELLED,
+                    "ImageClient observed cancellation",
+                    cancelled,
+                )
+                throw cancelled
+            } catch (t: Throwable) {
+                state.lastGenerationMetrics = null
+                model.traceImagePhase(
+                    ImageGenerationPhase.FAILED,
+                    "ImageClient observed failure: ${t.message}",
+                    t,
+                )
+                throw t
+            } finally {
+                state.lastImageRequestTrace = model.getLastImageRequestTraceForTests()
+                AndroidLogAdapter.i(
+                    logTag,
+                    "Image request active model exit: requestId=$requestId phases=${state.lastImageRequestTrace.size}",
+                )
             }
         }
+    }
 
     private fun fallbackImageMetrics(
         runtime: ManagedDiffusionModel,

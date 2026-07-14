@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.ImageRuntimeConfig
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.core.ModelLoadException
 import io.aatricks.llmedge.core.runtime.RuntimeCapabilities
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.PrecomputedCondition
@@ -594,6 +595,7 @@ class ImageClientTest {
                     vae = ModelSpec.localFile(vaeFile),
                     textEncoder = ModelSpec.localFile(encFile),
                     splitDiffusionModel = true,
+                    sequential = false,
                 ),
             )
 
@@ -1807,6 +1809,7 @@ class ImageClientTest {
                     textEncoder = ModelSpec.localFile(encFile),
                     t5xxl = ModelSpec.localFile(t5xxlFile),
                     splitDiffusionModel = true,
+                    sequential = false,
                 ),
             )
 
@@ -2058,6 +2061,71 @@ class ImageClientTest {
     }
 
     @Test
+    fun `masked T5 encoderOnly spec routes MiniT2I conditioning through modelPath`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val encoderFile = java.io.File.createTempFile("flan-t5", ".safetensors", context.filesDir).apply { writeBytes(byteArrayOf(0x01)) }
+        var observedModelPath: String? = "unset"
+        var observedVaePath: String? = "unset"
+        var observedT5xxlPath: String? = "unset"
+        var observedDiffusionModelPath: String? = "unset"
+        var observedLlmPath: String? = "unset"
+        var observedComponentPaths: io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths? = null
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            observedModelPath = callArgs[3] as String?
+            observedVaePath = callArgs[4] as String?
+            observedT5xxlPath = callArgs[5] as String?
+            observedDiffusionModelPath = callArgs[21] as String?
+            observedLlmPath = callArgs[22] as String?
+            observedComponentPaths = callArgs[23] as io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths?
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val loaded =
+            DiffusionRuntimeLoader(context, DefaultModelRepository()).load(
+                spec =
+                    DiffusionRuntimeSpec(
+                        role = DiffusionRuntimeRole.IMAGE,
+                        model = ModelSpec.localFile(encoderFile),
+                        encoderOnly = true,
+                        conditioningProfile = ImageConditioningProfile.MASKED_T5,
+                    ),
+                options =
+                    DiffusionLoadOptions(
+                        subsystem = ComputeSubsystem.IMAGE,
+                        allowGpu = false,
+                        nThreads = 1,
+                        offloadToCpu = true,
+                        keepClipOnCpu = true,
+                        keepVaeOnCpu = true,
+                        flashAttn = true,
+                        preferPerformanceMode = false,
+                    ),
+                backend = ComputeBackend.CPU,
+            )
+        try {
+            assertEquals(encoderFile.absolutePath, observedModelPath)
+            assertEquals(null, observedVaePath)
+            assertEquals(null, observedT5xxlPath)
+            assertEquals(null, observedDiffusionModelPath)
+            assertEquals(null, observedLlmPath)
+            assertEquals(true, observedComponentPaths?.miniT2iConditionerOnly)
+        } finally {
+            loaded.close()
+        }
+    }
+
+    @Test
     fun `pure condition combination yields the expected arrays and dims and rejects mismatches`() {
         val condA = PrecomputedCondition(
             cCrossAttn = floatArrayOf(1.0f, 2.0f),
@@ -2086,6 +2154,7 @@ class ImageClientTest {
             imageRequestIds = java.util.concurrent.atomic.AtomicLong(0),
             state = io.aatricks.llmedge.image.ImageClientState(),
             requestExecutor = mockk(relaxed = true),
+            executionPlanSelector = ImageExecutionPlanSelector { _, _ -> error("not used") },
             logTag = "TestExecutor"
         )
 
@@ -2410,6 +2479,97 @@ class ImageClientTest {
             client.close()
             edgeScope.close()
             StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `automatic direct load failure retries once with the staged flux plan`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val ditFile = java.io.File.createTempFile("flux-dit", ".gguf", context.filesDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val encoderFile = java.io.File.createTempFile("flux-encoder", ".gguf", context.filesDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val loads = mutableListOf<String>()
+        val conditioningModel = mockk<StableDiffusion>(relaxed = true)
+        val diffusionModel = mockk<StableDiffusion>(relaxed = true)
+        val condition =
+            PrecomputedCondition(
+                cCrossAttn = floatArrayOf(1f),
+                cCrossAttnDims = intArrayOf(1, 1),
+                cVector = floatArrayOf(1f),
+                cVectorDims = intArrayOf(1, 1),
+            )
+
+        coEvery { conditioningModel.precomputeCondition(any(), any(), any(), any(), any()) } returns condition
+        every {
+            diffusionModel.txt2ImgWithPrecomputedCondition(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+            )
+        } returns ByteArray(256 * 256 * 3)
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(),
+            )
+        } coAnswers {
+            val diffusionPath = it.invocation.args[21] as String?
+            val llmPath = it.invocation.args[22] as String?
+            when {
+                diffusionPath != null && llmPath != null -> {
+                    loads += "direct"
+                    throw ModelLoadException(diffusionPath, "synthetic direct-load failure")
+                }
+                diffusionPath == null && llmPath != null -> {
+                    loads += "conditioning"
+                    conditioningModel
+                }
+                diffusionPath != null -> {
+                    loads += "diffusion"
+                    diffusionModel
+                }
+                else -> error("Unexpected FLUX runtime load")
+            }
+        }
+
+        val config = LLMEdgeConfig(image = ImageRuntimeConfig(useVulkan = false))
+        val scope = LLMEdgeScope(this, 1)
+        val runtimePool = createDiffusionRuntimePool(context, scope, config, DefaultModelRepository())
+        val state = ImageClientState()
+        val executor =
+            ImageGenerationExecutor(
+                config = config,
+                generationMutex = kotlinx.coroutines.sync.Mutex(),
+                imageRequestIds = java.util.concurrent.atomic.AtomicLong(0),
+                state = state,
+                requestExecutor = DiffusionRequestExecutor(runtimePool, state, "TestExecutor"),
+                executionPlanSelector =
+                    ImageExecutionPlanSelector { params, _ ->
+                        ImageExecutionDecision(
+                            mode = ImageExecutionMode.DIRECT,
+                            reason = "TEST_DIRECT",
+                            recipe = ImageExecutionPlanner.recipeFor(params),
+                        )
+                    },
+                logTag = "TestExecutor",
+            )
+
+        try {
+            executor.generate(
+                ImageGenerationRequest(
+                    prompt = "test prompt",
+                    width = 256,
+                    height = 256,
+                    cfgScale = 1f,
+                    model = ModelSpec.localFile(ditFile),
+                    textEncoder = ModelSpec.localFile(encoderFile),
+                    splitDiffusionModel = true,
+                ),
+            )
+
+            assertEquals(listOf("direct", "direct", "conditioning", "diffusion"), loads)
+        } finally {
+            runtimePool.close()
+            scope.close()
         }
     }
 }

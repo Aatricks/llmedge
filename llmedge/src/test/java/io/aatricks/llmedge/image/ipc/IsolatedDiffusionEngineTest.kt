@@ -21,7 +21,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -71,7 +71,7 @@ class IsolatedDiffusionEngineTest {
     }
 
     @Test
-    fun `direct SD3 split request falling back to sequential retry on WorkerKilledByMemoryException`() = runTest {
+    fun `automatic split request retries sequentially after worker OOM during loading`() = runTest {
         val t5Spec = ModelSpec.LocalFile(File("t5"))
         val clipL = ModelSpec.LocalFile(File("clipL"))
         val clipG = ModelSpec.LocalFile(File("clipG"))
@@ -82,7 +82,6 @@ class IsolatedDiffusionEngineTest {
             t5xxl = t5Spec,
             clipL = clipL,
             clipG = clipG,
-            sequential = false
         )
 
         // Mock WorkerFailureClassifier to return WorkerKilledByMemoryException
@@ -104,6 +103,15 @@ class IsolatedDiffusionEngineTest {
 
             // First call triggers OOM death simulation
             if (requestSlots.size == 1) {
+                callback.onPhase(
+                    PhaseUpdate(
+                        phase = DiffusionPhases.LOADING,
+                        backend = "VULKAN",
+                        step = 0,
+                        totalSteps = 0,
+                        uptimeMillis = 0L,
+                    ),
+                )
                 connection.onDeath?.invoke()
             } else {
                 // Second call (retry) completes successfully
@@ -142,14 +150,14 @@ class IsolatedDiffusionEngineTest {
 
         // Verify that two requests were sent to the worker
         assertEquals(2, requestSlots.size)
-        // Verify first request was NOT sequential
-        assertFalse(requestSlots[0].sequential)
+        // Verify first request was automatic.
+        assertNull(requestSlots[0].sequential)
         // Verify second request was sequential
-        assertTrue(requestSlots[1].sequential)
+        assertEquals(true, requestSlots[1].sequential)
     }
 
     @Test
-    fun `does not retry if sequential also dies`() = runTest {
+    fun `automatic request does not retry after worker OOM during generation`() = runTest {
         val t5Spec = ModelSpec.LocalFile(File("t5"))
         val clipL = ModelSpec.LocalFile(File("clipL"))
         val clipG = ModelSpec.LocalFile(File("clipG"))
@@ -160,7 +168,6 @@ class IsolatedDiffusionEngineTest {
             t5xxl = t5Spec,
             clipL = clipL,
             clipG = clipG,
-            sequential = false
         )
 
         every {
@@ -178,6 +185,15 @@ class IsolatedDiffusionEngineTest {
             requestSlots.add(request)
             callbackSlots.add(callback)
 
+            callback.onPhase(
+                PhaseUpdate(
+                    phase = DiffusionPhases.GENERATING,
+                    backend = "VULKAN",
+                    step = 0,
+                    totalSteps = 0,
+                    uptimeMillis = 0L,
+                ),
+            )
             connection.onDeath?.invoke()
         }
 
@@ -189,7 +205,45 @@ class IsolatedDiffusionEngineTest {
         }
 
         assertTrue(exceptionThrown)
-        // Should only try twice: once for direct, once for sequential, then fail
-        assertEquals(2, requestSlots.size)
+        assertEquals(1, requestSlots.size)
+    }
+
+    @Test
+    fun `forced direct request does not retry after worker OOM during loading`() = runTest {
+        val params =
+            ImageGenerationRequest(
+                prompt = "hello",
+                splitDiffusionModel = true,
+                textEncoder = ModelSpec.LocalFile(File("encoder")),
+                sequential = false,
+            )
+        every {
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+        } returns WorkerKilledByMemoryException()
+        val requestSlots = mutableListOf<IpcImageRequest>()
+
+        every {
+            worker.generateImage(any(), any())
+        } answers {
+            val request = firstArg<IpcImageRequest>()
+            val callback = secondArg<IDiffusionResultCallback>()
+            requestSlots += request
+            callback.onPhase(
+                PhaseUpdate(
+                    phase = DiffusionPhases.LOADING,
+                    backend = "VULKAN",
+                    step = 0,
+                    totalSteps = 0,
+                    uptimeMillis = 0L,
+                ),
+            )
+            connection.onDeath?.invoke()
+        }
+
+        val error = runCatching { engine.generate(params) }.exceptionOrNull()
+
+        assertTrue(error is WorkerKilledByMemoryException)
+        assertEquals(1, requestSlots.size)
+        assertEquals(false, requestSlots.single().sequential)
     }
 }
