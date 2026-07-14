@@ -154,6 +154,70 @@ class HFModelDownloadTest {
         assertEquals(bytes.length.toLong(), lastDownloaded)
         assertEquals(bytes.length.toLong(), lastTotal)
     }
+
+    @Test
+    fun `downloadModelFile throws improved message on 403 access denied`() = runBlocking {
+        val xmlErrorBody = """
+            <Error>
+                <Code>AccessDenied</Code>
+                <Message>There was an error because permissions were not granted.</Message>
+            </Error>
+        """.trimIndent()
+        mockServer.enqueue(
+            MockResponse()
+                .setBody(xmlErrorBody)
+                .setResponseCode(403)
+        )
+
+        val dl = TestableHFModelDownload(mockServer.url("/").toString())
+        val destination = File(tmpDir, "model.gguf")
+
+        val ex = assertThrows(IllegalStateException::class.java) {
+            runBlocking {
+                dl.downloadModelFile("user/repo", "main", "model.gguf", destination, token = null, onProgress = null)
+            }
+        }
+
+        assertTrue(ex.message?.contains("Hugging Face/Xet") == true)
+        assertTrue(ex.message?.contains("HTTP 403") == true)
+        assertTrue(ex.message?.contains("user/repo") == true)
+        assertTrue(ex.message?.contains("model.gguf") == true)
+        assertTrue(ex.message?.contains("verify") == true)
+        assertTrue(ex.message?.contains("access") == true)
+        assertTrue(ex.message?.contains("retry later") == true)
+        assertTrue(ex.message?.contains("Code: AccessDenied") == true)
+        assertTrue(ex.message?.contains("Message: There was an error because permissions were not granted.") == true)
+        assertFalse(ex.message?.contains("<Error>") == true)
+    }
+
+    @Test
+    fun `downloadModelFile throws improved message on 403 access denied with non-XML body`() = runBlocking {
+        val plainTextError = "<html>Forbidden: Access is denied.</html>"
+        mockServer.enqueue(
+            MockResponse()
+                .setBody(plainTextError)
+                .setResponseCode(403)
+        )
+
+        val dl = TestableHFModelDownload(mockServer.url("/").toString())
+        val destination = File(tmpDir, "model.gguf")
+
+        val ex = assertThrows(IllegalStateException::class.java) {
+            runBlocking {
+                dl.downloadModelFile("user/repo", "main", "model.gguf", destination, token = null, onProgress = null)
+            }
+        }
+
+        assertTrue(ex.message?.contains("Hugging Face/Xet") == true)
+        assertTrue(ex.message?.contains("HTTP 403") == true)
+        assertTrue(ex.message?.contains("user/repo") == true)
+        assertTrue(ex.message?.contains("model.gguf") == true)
+        assertTrue(ex.message?.contains("verify") == true)
+        assertTrue(ex.message?.contains("access") == true)
+        assertTrue(ex.message?.contains("retry later") == true)
+        assertTrue(ex.message?.contains("Forbidden: Access is denied.") == true)
+        assertFalse(ex.message?.contains("<html>") == true)
+    }
 }
 
 /**
@@ -204,8 +268,11 @@ private class TestableHFModelDownload(
         try {
             if (!response.isSuccessful) {
                 val errorBody = response.body?.string() ?: ""
-                throw IllegalStateException(
-                    "Failed to download $filePath from $modelId (${response.code}): $errorBody"
+                throw HFModelDownloadErrorFormatter.formatException(
+                    response.code,
+                    errorBody,
+                    filePath,
+                    modelId
                 )
             }
             

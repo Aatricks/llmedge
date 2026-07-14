@@ -32,6 +32,7 @@ internal data class DiffusionRuntimeSpec(
     val model: ModelSpec,
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
+    val t5xxl: ModelSpec? = null,
     val taehv: ModelSpec? = null,
     val clipL: ModelSpec? = null,
     val clipG: ModelSpec? = null,
@@ -99,6 +100,7 @@ internal class DiffusionRuntimeLoader(
         val resolvedModel = resolver.resolve(context, spec.model)
         val resolvedVae = spec.vae?.let { resolver.resolve(context, it) }
         val resolvedTextEncoder = spec.textEncoder?.let { resolver.resolve(context, it) }
+        val resolvedT5xxl = spec.t5xxl?.let { resolver.resolve(context, it) }
         val resolvedTaehv = spec.taehv?.let { resolver.resolve(context, it) }
         val resolvedClipL = spec.clipL?.let { resolver.resolve(context, it) }
         val resolvedClipG = spec.clipG?.let { resolver.resolve(context, it) }
@@ -115,6 +117,7 @@ internal class DiffusionRuntimeLoader(
             resolvedModel = resolvedModel,
             resolvedVae = resolvedVae,
             resolvedTextEncoder = resolvedTextEncoder,
+            resolvedT5xxl = resolvedT5xxl,
             resolvedTaehv = resolvedTaehv,
             resolvedClipL = resolvedClipL,
             resolvedClipG = resolvedClipG,
@@ -137,6 +140,7 @@ internal class DiffusionRuntimeLoader(
         resolvedModel: File,
         resolvedVae: File?,
         resolvedTextEncoder: File?,
+        resolvedT5xxl: File?,
         resolvedTaehv: File?,
         resolvedClipL: File?,
         resolvedClipG: File?,
@@ -152,6 +156,7 @@ internal class DiffusionRuntimeLoader(
                 resolvedModel,
                 resolvedVae,
                 resolvedTextEncoder,
+                resolvedT5xxl,
                 resolvedTaehv,
                 resolvedClipL,
                 resolvedClipG,
@@ -174,6 +179,7 @@ internal class DiffusionRuntimeLoader(
                 resolvedModel = resolvedModel,
                 resolvedVae = resolvedVae,
                 resolvedTextEncoder = resolvedTextEncoder,
+                resolvedT5xxl = resolvedT5xxl,
                 resolvedTaehv = resolvedTaehv,
                 resolvedClipL = resolvedClipL,
                 resolvedClipG = resolvedClipG,
@@ -204,6 +210,7 @@ internal class DiffusionRuntimeLoader(
                     resolvedModel = resolvedModel,
                     resolvedVae = resolvedVae,
                     resolvedTextEncoder = resolvedTextEncoder,
+                    resolvedT5xxl = resolvedT5xxl,
                     resolvedTaehv = resolvedTaehv,
                     resolvedClipL = resolvedClipL,
                     resolvedClipG = resolvedClipG,
@@ -232,6 +239,7 @@ internal class DiffusionRuntimeLoader(
         resolvedModel: File,
         resolvedVae: File?,
         resolvedTextEncoder: File?,
+        resolvedT5xxl: File?,
         resolvedTaehv: File?,
         resolvedClipL: File?,
         resolvedClipG: File?,
@@ -274,7 +282,7 @@ internal class DiffusionRuntimeLoader(
                 // encoderOnly: load just the Qwen3 encoder via llm_path (no model/diffusion/vae).
                 modelPath = if (splitDiffusionModel || diffusionModelOnly || encoderOnly) null else resolvedModel.absolutePath,
                 vaePath = if (encoderOnly) null else resolvedVae?.absolutePath,
-                t5xxlPath = if (splitDiffusionModel || encoderOnly) null else resolvedTextEncoder?.absolutePath,
+                t5xxlPath = resolvedT5xxl?.absolutePath ?: (if (splitDiffusionModel || encoderOnly) null else resolvedTextEncoder?.absolutePath),
                 taesdPath = if (encoderOnly) null else resolvedTaehv?.absolutePath,
                 diffusionModelPath = if (splitDiffusionModel || diffusionModelOnly) resolvedModel.absolutePath else null,
                 llmPath =
@@ -337,6 +345,7 @@ internal fun createDiffusionRuntimePool(
                         spec.model.cacheKey,
                         spec.vae?.cacheKey,
                         spec.textEncoder?.cacheKey,
+                        spec.t5xxl?.cacheKey,
                         spec.taehv?.cacheKey,
                         spec.clipL?.cacheKey,
                         spec.clipG?.cacheKey,

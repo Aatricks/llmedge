@@ -116,14 +116,11 @@ internal class HFModelDownload(
                     try {
                         if (!response.isSuccessful) {
                             val errorBody = response.body?.string() ?: ""
-                            throw IllegalStateException(
-                                buildString {
-                                    append("Failed to download $filePath from $modelId (${response.code})")
-                                    if (errorBody.isNotBlank()) {
-                                        append(": ")
-                                        append(errorBody.take(500)) // Limit error message size
-                                    }
-                                }
+                            throw HFModelDownloadErrorFormatter.formatException(
+                                response.code,
+                                errorBody,
+                                filePath,
+                                modelId
                             )
                         }
 
@@ -247,5 +244,44 @@ internal class HFModelDownload(
 
         private class RefCountedMutex(val mutex: Mutex = Mutex(), var refCount: Int = 0)
         private val downloadLocks = HashMap<String, RefCountedMutex>()
+    }
+}
+
+internal object HFModelDownloadErrorFormatter {
+    fun formatException(
+        statusCode: Int,
+        errorBody: String,
+        filePath: String,
+        modelId: String,
+    ): IllegalStateException {
+        if (statusCode == 403) {
+            val cleanedBody =
+                if (errorBody.contains("<Code>") && errorBody.contains("</Code>")) {
+                    val code = errorBody.substringAfter("<Code>").substringBefore("</Code>")
+                    val message =
+                        if (errorBody.contains("<Message>") && errorBody.contains("</Message>")) {
+                            errorBody.substringAfter("<Message>").substringBefore("</Message>")
+                        } else {
+                            ""
+                        }
+                    if (message.isNotEmpty()) "Code: $code, Message: $message" else "Code: $code"
+                } else {
+                    errorBody.take(200).replace(Regex("<[^>]*>"), " ").trim().replace(Regex("\\s+"), " ")
+                }
+            return IllegalStateException(
+                "Hugging Face/Xet denied the model download (HTTP 403 Access Denied) for file '$filePath' in repository '$modelId'. " +
+                "Please verify repository access permissions, ensure you are authenticated if it is private, or retry later. " +
+                "Details: [$cleanedBody]"
+            )
+        }
+        return IllegalStateException(
+            buildString {
+                append("Failed to download $filePath from $modelId ($statusCode)")
+                if (errorBody.isNotBlank()) {
+                    append(": ")
+                    append(errorBody.take(500))
+                }
+            },
+        )
     }
 }

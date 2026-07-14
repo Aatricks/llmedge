@@ -87,4 +87,14 @@ class ImageRuntimeRequestPlannerTest {
         )
         org.junit.Assert.assertEquals(highNoiseSpec, request.spec.highNoiseDiffusionModel)
     }
+
+    @Test
+    fun `image request threads t5xxl slot from request to spec`() {
+        val t5xxlSpec = io.aatricks.llmedge.model.ModelSpec.localFile(java.io.File("t5xxl.safetensors"))
+        val request = ImageRuntimeRequestPlanner.imageRequest(
+            ImageGenerationRequest(prompt = "x", t5xxl = t5xxlSpec),
+            LLMEdgeConfig()
+        )
+        org.junit.Assert.assertEquals(t5xxlSpec, request.spec.t5xxl)
+    }
 }

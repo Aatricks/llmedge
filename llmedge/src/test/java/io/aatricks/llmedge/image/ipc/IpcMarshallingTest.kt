@@ -161,4 +161,29 @@ class IpcMarshallingTest {
         val decoded = IpcCodecs.fromIpc(parcelRoundTrip(IpcCodecs.toIpc(request)))
         assertEquals(request, decoded)
     }
+
+    @Test
+    fun `image request with t5xxl survives codec and parcel round trip`() {
+        val request =
+            ImageGenerationRequest(
+                prompt = "a cute puppy",
+                negative = "low quality",
+                width = 512,
+                height = 512,
+                steps = 20,
+                cfgScale = 7.0f,
+                seed = 999L,
+                flashAttention = true,
+                forceSequentialLoad = false,
+                model = ModelSpec.LocalFile(File("/model.gguf")),
+                vae = ModelSpec.LocalFile(File("/vae.safetensors")),
+                clipL = ModelSpec.LocalFile(File("/clip_l.safetensors")),
+                clipG = ModelSpec.LocalFile(File("/clip_g.safetensors")),
+                t5xxl = ModelSpec.LocalFile(File("/t5xxl.safetensors")),
+                splitDiffusionModel = true,
+                sequential = false,
+            )
+        val decoded = IpcCodecs.fromIpc(parcelRoundTrip(IpcCodecs.toIpc(request)))
+        assertEquals(request, decoded)
+    }
 }
