@@ -1,6 +1,7 @@
 package io.aatricks.llmedge.image
 
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.model.ModelSpec
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.runtime.CpuTopology
 
@@ -22,15 +23,23 @@ internal sealed interface DiffusionExecutionPlan {
 }
 
 internal object ImageRuntimeRequestPlanner {
+    private fun isMiniT2ILarge(model: ModelSpec?): Boolean {
+        return model is ModelSpec.HuggingFace &&
+            model.repoId == "MiniT2I/MiniT2I" &&
+            model.filename == "minit2i-l-16/transformer/diffusion_pytorch_model.safetensors"
+    }
+
     fun imageRequest(
         params: ImageGenerationRequest,
         config: LLMEdgeConfig,
-    ): PlannedDiffusionRuntimeRequest =
-        PlannedDiffusionRuntimeRequest(
+    ): PlannedDiffusionRuntimeRequest {
+        val modelSpec = params.model ?: config.models.image
+        val isLarge = isMiniT2ILarge(modelSpec)
+        return PlannedDiffusionRuntimeRequest(
             spec =
                 DiffusionRuntimeSpec(
                     role = DiffusionRuntimeRole.IMAGE,
-                    model = params.model ?: config.models.image,
+                    model = modelSpec,
                     vae = params.vae,
                     textEncoder = params.textEncoder,
                     t5xxl = params.t5xxl,
@@ -67,8 +76,11 @@ internal object ImageRuntimeRequestPlanner {
                     preferPerformanceMode = config.image.preferPerformanceMode,
                     loraModelDir = params.loraModelDir,
                     loraApplyMode = params.loraApplyMode,
+                    weightType = if (isLarge) "q8_0" else null,
+                    tensorTypeRules = if (isLarge) ".*mask_token.*=f16" else null,
                 ),
         )
+    }
 
     /**
      * Two-phase plan for FLUX.2 sequential low-memory generation: phase 1 loads ONLY the Qwen3
@@ -169,7 +181,13 @@ internal object ImageRuntimeRequestPlanner {
         )
         // The conditioning runtime is gone before diffusion begins, so keep diffusion weights
         // on a supported GPU instead of mirroring its multi-GB parameters in system RAM.
-        val diffusionOptions = baseOptions.copy(offloadToCpu = false)
+        val isMiniT2ILarge = isMiniT2ILarge(ditModel)
+        val isMaskedT5Profile = profile == ImageConditioningProfile.MASKED_T5
+        val diffusionOptions = baseOptions.copy(
+            offloadToCpu = false,
+            weightType = if (isMiniT2ILarge && isMaskedT5Profile) "q8_0" else null,
+            tensorTypeRules = if (isMiniT2ILarge && isMaskedT5Profile) ".*mask_token.*=f16" else null,
+        )
         return DiffusionExecutionPlan.Sequential(
             conditioningRequest =
                 PlannedDiffusionRuntimeRequest(

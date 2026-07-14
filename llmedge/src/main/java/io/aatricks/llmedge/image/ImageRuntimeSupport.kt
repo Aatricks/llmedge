@@ -66,6 +66,8 @@ internal data class DiffusionLoadOptions(
     val flowShift: Float = Float.POSITIVE_INFINITY,
     val loraModelDir: String? = null,
     val loraApplyMode: LoraApplyMode = LoraApplyMode.AUTO,
+    val weightType: String? = null,
+    val tensorTypeRules: String? = null,
 )
 
 internal class ManagedDiffusionModel(
@@ -284,6 +286,8 @@ internal class DiffusionRuntimeLoader(
                 controlNetPath = resolvedControlNet?.absolutePath,
                 photoMakerPath = resolvedPhotoMaker?.absolutePath,
                 miniT2iConditionerOnly = miniT2iConditionerOnly,
+                weightType = options.weightType,
+                tensorTypeRules = options.tensorTypeRules,
             )
             if (paths.isAllNull()) null else paths
         }
@@ -385,6 +389,8 @@ internal fun createDiffusionRuntimePool(
                         "flowShift=${options.flowShift}",
                         "loraDir=${options.loraModelDir}",
                         "loraMode=${options.loraApplyMode.id}",
+                        "weightType=${options.weightType}",
+                        "tensorTypeRules=${options.tensorTypeRules}",
                     )
                 },
                 loadRuntime = DiffusionRuntimeLoader(context, resolver, phaseListener)::load,

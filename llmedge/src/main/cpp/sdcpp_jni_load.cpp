@@ -560,7 +560,9 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         jboolean flashAttn,
         jboolean jvaeDecodeOnly,
         jfloat flowShift,
-        jstring jLoraModelDir, jint jLoraApplyMode, jboolean jMiniT2iConditionerOnly) {
+        jstring jLoraModelDir, jint jLoraApplyMode, jboolean jMiniT2iConditionerOnly,
+        jstring jWeightType,
+        jstring jTensorTypeRules) {
     (void)clazz;
     const char* modelPath = jModelPath ? env->GetStringUTFChars(jModelPath, nullptr) : nullptr;
     const char* vaePath   = jVaePath   ? env->GetStringUTFChars(jVaePath,   nullptr) : nullptr;
@@ -568,6 +570,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     const char* taesdPath = jTaesdPath ? env->GetStringUTFChars(jTaesdPath, nullptr) : nullptr;
     const char* loraModelDir = jLoraModelDir ? env->GetStringUTFChars(jLoraModelDir, nullptr) : nullptr;
     const std::string loraModelDirValue = loraModelDir ? loraModelDir : "";
+
+    const char* weightTypeRaw = jWeightType ? env->GetStringUTFChars(jWeightType, nullptr) : nullptr;
+    const char* tensorTypeRulesRaw = jTensorTypeRules ? env->GetStringUTFChars(jTensorTypeRules, nullptr) : nullptr;
+    const std::string tensorTypeRulesValue = tensorTypeRulesRaw ? tensorTypeRulesRaw : "";
+    if (jTensorTypeRules && tensorTypeRulesRaw) env->ReleaseStringUTFChars(jTensorTypeRules, tensorTypeRulesRaw);
 
     // FLUX.2 / split-model loading: the diffusion transformer goes in diffusion_model_path
     // (not model_path) and the Qwen3 text encoder in llm_path. Copy into std::string so the
@@ -635,6 +642,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     ALOGI("  controlNetPath=%s", controlNetPathValue.empty() ? "NULL" : controlNetPathValue.c_str());
     ALOGI("  photoMakerPath=%s", photoMakerPathValue.empty() ? "NULL" : photoMakerPathValue.c_str());
     ALOGI("  loraModelDir=%s, loraApplyMode=%d", loraModelDirValue.empty() ? "NULL" : loraModelDirValue.c_str(), static_cast<int>(jLoraApplyMode));
+    ALOGI("  weightType=%s, tensorTypeRules=%s", weightTypeRaw && weightTypeRaw[0] != '\0' ? weightTypeRaw : "DEFAULT", tensorTypeRulesValue.empty() ? "NULL" : tensorTypeRulesValue.c_str());
     ALOGI("  enableOpenCl=%s, useVulkan=%s, offloadToCpu=%s, keepClipOnCpu=%s, keepVaeOnCpu=%s, flashAttn=%s, vaeDecodeOnly=%s",
           enableOpenCl ? "true" : "false",
           useVulkan ? "true" : "false",
@@ -693,6 +701,19 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     p.n_threads = nThreads > 0 ? nThreads : sd_get_num_physical_cores_safe();
     p.diffusion_flash_attn = flashAttn;
     p.lora_apply_mode = static_cast<enum lora_apply_mode_t>(jLoraApplyMode);
+
+    if (weightTypeRaw && weightTypeRaw[0] != '\0') {
+        enum sd_type_t parsedType = str_to_sd_type(weightTypeRaw);
+        if (parsedType == SD_TYPE_COUNT) {
+            ALOGW("Invalid weightType '%s' requested, keeping default", weightTypeRaw);
+        } else {
+            p.wtype = parsedType;
+        }
+    }
+    if (jWeightType && weightTypeRaw) {
+        env->ReleaseStringUTFChars(jWeightType, weightTypeRaw);
+    }
+    p.tensor_type_rules = tensorTypeRulesValue.empty() ? nullptr : tensorTypeRulesValue.c_str();
 
     std::string backendSpec;
     if (keepClipOnCpu == JNI_TRUE) backendSpec = "te=cpu";
