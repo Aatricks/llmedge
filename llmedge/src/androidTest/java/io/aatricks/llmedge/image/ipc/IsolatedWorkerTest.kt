@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Process
+import android.os.SystemClock
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.aatricks.llmedge.DiffusionWorkerMode
@@ -108,6 +109,108 @@ class IsolatedWorkerTest {
                 )
             worker.initialize(config)
             worker.initialize(config)
+        } finally {
+            runCatching { context.unbindService(connection) }
+        }
+    }
+
+    @Test
+    fun uncaughtJvmCrashInWorkerIsCapturedInCrashSummary() {
+        val crash = crashWorkerAndClassify(DiffusionWorkerService.FAULT_JAVA_CRASH)
+        assertTrue(
+            "crashSummary should carry the uncaught-exception breadcrumb, got: ${crash.crashSummary}",
+            crash.crashSummary?.contains("Injected uncaught JVM fault") == true,
+        )
+    }
+
+    @Test
+    fun nativeAbortInWorkerIsCapturedInCrashSummary() {
+        val crash = crashWorkerAndClassify(DiffusionWorkerService.FAULT_NATIVE_ABORT)
+        assertTrue(
+            "crashSummary should carry the tombstone signal, got: ${crash.crashSummary} " +
+                "(exitReason=${crash.exitReason})",
+            crash.crashSummary?.contains("SIG") == true,
+        )
+    }
+
+    /**
+     * Binds the real worker process, injects [faultMode], triggers a generation so the fault
+     * fires, waits for the process to die, then classifies the death exactly as the production
+     * binderDied path does — polling until the crash detail (breadcrumb / tombstone trace)
+     * becomes available so we also learn how long ApplicationExitInfo takes to expose it.
+     */
+    private fun crashWorkerAndClassify(faultMode: String): io.aatricks.llmedge.core.WorkerCrashedException {
+        val connected = CountDownLatch(1)
+        var binder: IBinder? = null
+        val connection =
+            object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                    binder = service
+                    connected.countDown()
+                }
+
+                override fun onServiceDisconnected(name: ComponentName?) = Unit
+            }
+        try {
+            assertTrue(
+                context.bindService(
+                    Intent(context, DiffusionWorkerService::class.java),
+                    connection,
+                    Context.BIND_AUTO_CREATE,
+                ),
+            )
+            assertTrue("service did not connect", connected.await(20, TimeUnit.SECONDS))
+            val worker = IDiffusionWorker.Stub.asInterface(binder)
+            val workerPid = worker.pid
+            val died = CountDownLatch(1)
+            binder!!.linkToDeath({ died.countDown() }, 0)
+            worker.installFaultInjection(
+                Bundle().apply { putString(DiffusionWorkerService.FAULT_MODE, faultMode) },
+            )
+            val silentCallback =
+                object : IDiffusionResultCallback.Stub() {
+                    override fun onPhase(update: PhaseUpdate) = Unit
+
+                    override fun onCompleted(result: IpcImageResult) = Unit
+
+                    override fun onFailed(failure: IpcFailure) = Unit
+                }
+            worker.generateImage(
+                IpcCodecs.toIpc(io.aatricks.llmedge.image.ImageGenerationRequest(prompt = "fault")),
+                silentCallback,
+            )
+            assertTrue("worker process did not die", died.await(30, TimeUnit.SECONDS))
+
+            // The tombstone trace is attached asynchronously after debuggerd finishes; poll so we
+            // measure the latency instead of guessing. The breadcrumb is destructive to read, so
+            // only classifications that still lack detail are retried.
+            val start = SystemClock.uptimeMillis()
+            var last: io.aatricks.llmedge.core.WorkerCrashedException? = null
+            while (SystemClock.uptimeMillis() - start < 20_000) {
+                val classified =
+                    WorkerFailureClassifier.classify(
+                        context = context,
+                        pid = workerPid,
+                        lastPhase = DiffusionPhases.REQUESTED,
+                        lastBackend = "CPU",
+                        killedByWatchdog = false,
+                        stallMs = 0,
+                    )
+                if (classified is io.aatricks.llmedge.core.WorkerCrashedException) {
+                    last = classified
+                    val summary = classified.crashSummary ?: ""
+                    if (summary.contains("Injected uncaught JVM fault") || summary.contains("SIG")) {
+                        android.util.Log.i(
+                            "IsolatedWorkerTest",
+                            "crash detail available after ${SystemClock.uptimeMillis() - start} ms: $summary",
+                        )
+                        return classified
+                    }
+                }
+                Thread.sleep(500)
+            }
+            assertTrue("worker death never classified as a crash", last != null)
+            return last!!
         } finally {
             runCatching { context.unbindService(connection) }
         }

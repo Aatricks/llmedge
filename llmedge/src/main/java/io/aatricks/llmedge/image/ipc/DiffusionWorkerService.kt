@@ -217,6 +217,19 @@ internal class DiffusionWorkerService : Service() {
                 AndroidLogAdapter.w(LOG_TAG, "Simulating native crash")
                 Process.killProcess(Process.myPid())
             }
+            FAULT_JAVA_CRASH -> {
+                // A real uncaught JVM exception (REASON_CRASH): thrown on a fresh thread so it
+                // escapes every try/catch, exercising the uncaught-handler breadcrumb path.
+                AndroidLogAdapter.w(LOG_TAG, "Simulating uncaught JVM crash")
+                Thread { throw IllegalStateException("Injected uncaught JVM fault") }.start()
+                java.util.concurrent.CountDownLatch(1).await()
+            }
+            FAULT_NATIVE_ABORT -> {
+                // A real SIGABRT (REASON_CRASH_NATIVE): debuggerd writes an actual tombstone,
+                // exercising the ApplicationExitInfo trace → NativeTombstoneSummary path.
+                AndroidLogAdapter.w(LOG_TAG, "Simulating native abort")
+                android.system.Os.kill(Process.myPid(), android.system.OsConstants.SIGABRT)
+            }
             else -> return false
         }
         return true
@@ -235,6 +248,21 @@ internal class DiffusionWorkerService : Service() {
             backend = null,
         )
 
+    override fun onCreate() {
+        super.onCreate()
+        // A generation exception is caught and reported over binder; an *uncaught* one kills this
+        // process (exitReason REASON_CRASH) with the stack lost to logcat. Persist it so the host
+        // can surface it in WorkerCrashedException — the only way to see it without adb.
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                WorkerFailureClassifier.crashBreadcrumbFile(this, Process.myPid())
+                    .writeText("thread=${thread.name}\n${throwable.stackTraceToString()}".take(4000))
+            }
+            previous?.uncaughtException(thread, throwable)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
@@ -251,5 +279,7 @@ internal class DiffusionWorkerService : Service() {
         const val FAULT_HANG = "hang"
         const val FAULT_HANG_AFTER_PHASE = "hang-after-phase"
         const val FAULT_CRASH = "crash"
+        const val FAULT_JAVA_CRASH = "java-crash"
+        const val FAULT_NATIVE_ABORT = "native-abort"
     }
 }

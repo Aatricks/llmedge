@@ -57,10 +57,16 @@ class WorkerBindException(detail: String, cause: Throwable? = null) :
 class WorkerCrashedException(
     val backend: String?,
     val exitReason: Int?,
+    /**
+     * A short post-mortem recovered on-device (native abort message + signal, or the worker's
+     * uncaught-exception stack) so a field crash is diagnosable from the app alone, without adb.
+     */
+    val crashSummary: String? = null,
 ) : WorkerProcessException(
     "Diffusion worker process died during generation" +
         (backend?.let { " (backend=$it)" } ?: "") +
-        (exitReason?.let { " (exitReason=$it)" } ?: ""),
+        (exitReason?.let { " (exitReason=$it)" } ?: "") +
+        (crashSummary?.let { " [$it]" } ?: ""),
 )
 
 class WorkerKilledByMemoryException : WorkerProcessException(
