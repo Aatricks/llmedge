@@ -14,6 +14,10 @@ data class StableDiffusionComponentPaths(
     val photoMakerPath: String? = null,
     // Private encoder-only routing signal; this is not a model path.
     val miniT2iConditionerOnly: Boolean = false,
+    /** Weight quantization type to override on load (e.g. "q8_0"). */
+    val weightType: String? = null,
+    /** Per-tensor type rules pattern (e.g. ".*mask_token.*=f16"). */
+    val tensorTypeRules: String? = null,
 ) {
     fun isAllNull(): Boolean =
         clipLPath == null &&
@@ -25,6 +29,8 @@ data class StableDiffusionComponentPaths(
         audioVaePath == null &&
         controlNetPath == null &&
         photoMakerPath == null &&
+        weightType == null &&
+        tensorTypeRules == null &&
         !miniT2iConditionerOnly
 }
 
@@ -100,4 +106,6 @@ internal data class StableDiffusionNativeLoadRequest(
     val loraModelDir: String?,
     val loraApplyMode: LoraApplyMode,
     val miniT2iConditionerOnly: Boolean = false,
+    val weightType: String? = null,
+    val tensorTypeRules: String? = null,
 )

@@ -45,7 +45,8 @@ JNIEXPORT jlong JNICALL Java_io_aatricks_llmedge_image_diffusion_StableDiffusion
     jstring jAudioVaePath, jstring jControlNetPath, jstring jPhotoMakerPath,
     jint nThreads, jboolean enableOpenCl, jboolean useVulkan, jboolean offloadToCpu,
     jboolean keepClipOnCpu, jboolean keepVaeOnCpu, jboolean flashAttn, jboolean jvaeDecodeOnly,
-    jfloat flowShift, jstring jLoraModelDir, jint jLoraApplyMode, jboolean jMiniT2iConditionerOnly);
+    jfloat flowShift, jstring jLoraModelDir, jint jLoraApplyMode, jboolean jMiniT2iConditionerOnly,
+    jstring jWeightType, jstring jTensorTypeRules);
 JNIEXPORT void JNICALL Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* env, jobject thiz, jlong handlePtr);
 JNIEXPORT jobjectArray JNICALL Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeTxt2Vid(
     JNIEnv* env, jobject thiz, jlong handlePtr,
@@ -131,7 +132,7 @@ static bool test_nativeTxt2Vid_memory(JNIEnv* env) {
             env, nullptr, modelPath, nullptr, nullptr, nullptr, nullptr, nullptr,
             nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 4,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
-            std::numeric_limits<float>::infinity(), nullptr, 0, JNI_FALSE);
+            std::numeric_limits<float>::infinity(), nullptr, 0, JNI_FALSE, nullptr, nullptr);
     env->DeleteLocalRef(modelPath);
     if (handle == 0) {
         std::cerr << "nativeCreate returned null handle" << std::endl;
@@ -208,10 +209,10 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
     std::cout << "Step 1: Loading T5-only context..." << std::endl;
     jstring t5Path = env->NewStringUTF("stub-t5.gguf");
         jlong t5Handle = Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
-            env, nullptr, t5Path, nullptr, nullptr, nullptr, nullptr, nullptr,
-            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 4,
-            JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
-            std::numeric_limits<float>::infinity(), nullptr, 0, JNI_FALSE);
+        env, nullptr, t5Path, nullptr, nullptr, nullptr, nullptr, nullptr,
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 4,
+        JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
+        std::numeric_limits<float>::infinity(), nullptr, 0, JNI_FALSE, nullptr, nullptr);
     env->DeleteLocalRef(t5Path);
     
     if (t5Handle == 0) {
@@ -257,7 +258,7 @@ static bool test_progressive_loading_e2e(JNIEnv* env) {
             env, nullptr, modelPath, vaePath, nullptr, nullptr, nullptr, nullptr,
             nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 4,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
-            std::numeric_limits<float>::infinity(), nullptr, 0, JNI_FALSE);
+            std::numeric_limits<float>::infinity(), nullptr, 0, JNI_FALSE, nullptr, nullptr);
     env->DeleteLocalRef(modelPath);
     env->DeleteLocalRef(vaePath);
     
@@ -305,7 +306,7 @@ static bool test_progress_callback_bridge(JNIEnv* env) {
             env, nullptr, modelPath, nullptr, nullptr, nullptr, nullptr, nullptr,
             nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 2,
             JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE, JNI_FALSE,
-            std::numeric_limits<float>::infinity(), nullptr, 0, JNI_FALSE);
+            std::numeric_limits<float>::infinity(), nullptr, 0, JNI_FALSE, nullptr, nullptr);
     env->DeleteLocalRef(modelPath);
     if (handlePtr == 0) {
         std::cerr << "Failed to create handle for progress test" << std::endl;

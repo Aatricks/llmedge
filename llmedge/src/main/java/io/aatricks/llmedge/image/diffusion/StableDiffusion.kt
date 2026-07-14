@@ -297,6 +297,8 @@ class StableDiffusion internal constructor(
                 request.loraModelDir,
                 request.loraApplyMode.id,
                 request.miniT2iConditionerOnly,
+                request.weightType,
+                request.tensorTypeRules,
             )
 
         @JvmStatic
@@ -328,6 +330,8 @@ class StableDiffusion internal constructor(
                 loraModelDir: String?,
                 loraApplyMode: Int,
                 miniT2iConditionerOnly: Boolean,
+                weightType: String?,
+                tensorTypeRules: String?,
         ): Long
 
         @JvmStatic

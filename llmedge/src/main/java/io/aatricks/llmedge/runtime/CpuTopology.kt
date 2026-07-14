@@ -161,14 +161,20 @@ object CpuTopology {
                 }
             }
             TaskType.DIFFUSION -> {
-                // Revert to prior behavior: use all available CPU cores for maximum throughput.
-                // This restores the faster generation speed observed before the facade refactor.
-                Runtime.getRuntime().availableProcessors().coerceAtLeast(2)
+                selectDiffusionThreadCount(coreInfo, Runtime.getRuntime().availableProcessors())
             }
             TaskType.LIGHT_TASK -> {
                 // Use 1-2 cores for quick operations
                 2
             }
+        }
+    }
+
+    internal fun selectDiffusionThreadCount(coreInfo: CoreInfo, availableProcessors: Int): Int {
+        return if (coreInfo.efficiencyCores > 0) {
+            (availableProcessors - 1).coerceAtLeast(2)
+        } else {
+            availableProcessors.coerceAtLeast(2)
         }
     }
 

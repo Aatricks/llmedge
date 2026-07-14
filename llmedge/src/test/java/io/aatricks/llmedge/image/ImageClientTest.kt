@@ -13,6 +13,14 @@ import io.aatricks.llmedge.image.diffusion.SampleMethod
 import io.aatricks.llmedge.image.diffusion.Scheduler
 import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 import io.aatricks.llmedge.image.diffusion.VideoProgressCallback
+import io.aatricks.llmedge.image.diffusion.StableDiffusionLoadRequest
+import io.aatricks.llmedge.image.diffusion.StableDiffusionNativeLoadRequest
+import io.aatricks.llmedge.image.diffusion.StableDiffusionAssetRequest
+import io.aatricks.llmedge.image.diffusion.StableDiffusionRuntimeRequest
+import io.aatricks.llmedge.image.diffusion.StableDiffusionBackendRequest
+import io.aatricks.llmedge.image.diffusion.LoraApplyMode
+import io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths
+import io.aatricks.llmedge.image.diffusion.internal.StableDiffusionLoader
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.model.DefaultModelRepository
 import io.aatricks.llmedge.model.ModelArtifactKind
@@ -2126,6 +2134,62 @@ class ImageClientTest {
     }
 
     @Test
+    fun `StableDiffusionLoader load propagates weightType and tensorTypeRules`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val dummyFile = java.io.File.createTempFile("dummy", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        var observedRequest: io.aatricks.llmedge.image.diffusion.StableDiffusionNativeLoadRequest? = null
+
+        mockkObject(StableDiffusion.Companion)
+        every {
+            StableDiffusion.Companion.supportNativeCreate(any())
+        } answers {
+            observedRequest = it.invocation.args[0] as io.aatricks.llmedge.image.diffusion.StableDiffusionNativeLoadRequest
+            1L
+        }
+
+        try {
+            val loadRequest = StableDiffusionLoadRequest(
+                assets = StableDiffusionAssetRequest(
+                    modelPath = dummyFile.absolutePath,
+                    componentPaths = StableDiffusionComponentPaths(
+                        weightType = "q8_0",
+                        tensorTypeRules = ".*mask_token.*=f16",
+                    ),
+                ),
+                runtime = StableDiffusionRuntimeRequest(
+                    nThreads = 1,
+                    offloadToCpu = false,
+                    keepClipOnCpu = false,
+                    keepVaeOnCpu = false,
+                    flashAttn = true,
+                    vaeDecodeOnly = true,
+                    sequentialLoad = false,
+                    preferPerformanceMode = false,
+                    flowShift = Float.POSITIVE_INFINITY,
+                    loraApplyMode = LoraApplyMode.AUTO,
+                ),
+                backend = StableDiffusionBackendRequest(
+                    allowOpenCl = false,
+                    allowVulkan = false,
+                    forceVulkan = false,
+                    allowBackendFallbackToCpu = true,
+                ),
+            )
+
+            val loaded = StableDiffusionLoader.load(context, loadRequest)
+            loaded.close()
+
+            assertNotNull(observedRequest)
+            assertEquals("q8_0", observedRequest?.weightType)
+            assertEquals(".*mask_token.*=f16", observedRequest?.tensorTypeRules)
+        } finally {
+            dummyFile.delete()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
     fun `pure condition combination yields the expected arrays and dims and rejects mismatches`() {
         val condA = PrecomputedCondition(
             cCrossAttn = floatArrayOf(1.0f, 2.0f),
@@ -2570,6 +2634,58 @@ class ImageClientTest {
         } finally {
             runtimePool.close()
             scope.close()
+        }
+    }
+
+    @Test
+    fun `createDiffusionRuntimePool cache key differentiates quantized and default runtimes`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dummyFile = java.io.File(context.filesDir, "dummy_model.safetensors").apply { writeBytes(byteArrayOf(0x01)) }
+        val fakeRepo = object : io.aatricks.llmedge.model.ModelRepository {
+            override suspend fun resolve(
+                context: Context,
+                spec: ModelSpec,
+                onProgress: ((io.aatricks.llmedge.core.ProgressEvent.Downloading) -> Unit)?,
+            ): java.io.File = dummyFile
+        }
+
+        mockkObject(StableDiffusion.Companion)
+        val capturedRequests = mutableListOf<StableDiffusionNativeLoadRequest>()
+        every {
+            StableDiffusion.Companion.supportNativeCreate(capture(capturedRequests))
+        } returns 1L
+
+        val config = LLMEdgeConfig()
+        val scope = LLMEdgeScope(this, 1)
+        val runtimePool = createDiffusionRuntimePool(context, scope, config, fakeRepo)
+
+        try {
+            val largeRequestDirect = ImageRuntimeRequestPlanner.imageRequest(MiniT2I.largeImageRequest("x"), config)
+            val standardRequestDirect = ImageRuntimeRequestPlanner.imageRequest(MiniT2I.imageRequest("x"), config)
+
+            val resultLarge = runtimePool.coordinator.acquireDetailed(largeRequestDirect.spec, largeRequestDirect.options)
+            val resultStandard = runtimePool.coordinator.acquireDetailed(standardRequestDirect.spec, standardRequestDirect.options)
+
+            assertTrue(resultLarge.keyPrefix.contains("weightType=q8_0"))
+            assertTrue(resultLarge.keyPrefix.contains("tensorTypeRules=.*mask_token.*=f16"))
+
+            assertTrue(resultStandard.keyPrefix.contains("weightType=null"))
+            assertTrue(resultStandard.keyPrefix.contains("tensorTypeRules=null"))
+
+            org.junit.Assert.assertNotEquals(resultLarge.keyPrefix, resultStandard.keyPrefix)
+
+            val largeReq = capturedRequests.find { it.weightType == "q8_0" }
+            val standardReq = capturedRequests.find { it.weightType == null }
+
+            org.junit.Assert.assertNotNull(largeReq)
+            org.junit.Assert.assertNotNull(standardReq)
+            assertEquals(".*mask_token.*=f16", largeReq?.tensorTypeRules)
+            org.junit.Assert.assertNull(standardReq?.tensorTypeRules)
+        } finally {
+            runtimePool.close()
+            scope.close()
+            dummyFile.delete()
+            StableDiffusion.resetNativeBridgeForTests()
         }
     }
 }

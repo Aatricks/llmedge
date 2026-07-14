@@ -181,4 +181,57 @@ class ImageRuntimeRequestPlannerTest {
         org.junit.Assert.assertNull(plan.diffusionRequest.spec.textEncoder)
         assertFalse(plan.diffusionRequest.options.offloadToCpu)
     }
+
+    @Test
+    fun `MiniT2I large request selects correct quant options in direct planning`() {
+        val config = LLMEdgeConfig()
+        val request = MiniT2I.largeImageRequest("test prompt")
+        val plan = ImageRuntimeRequestPlanner.imageRequest(request, config)
+        org.junit.Assert.assertEquals("q8_0", plan.options.weightType)
+        org.junit.Assert.assertEquals(".*mask_token.*=f16", plan.options.tensorTypeRules)
+    }
+
+    @Test
+    fun `MiniT2I large request selects correct quant options in sequential diffusion planning`() {
+        val config = LLMEdgeConfig()
+        val request = MiniT2I.largeImageRequest("test prompt")
+        val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(request, config)
+        org.junit.Assert.assertEquals("q8_0", plan.diffusionRequest.options.weightType)
+        org.junit.Assert.assertEquals(".*mask_token.*=f16", plan.diffusionRequest.options.tensorTypeRules)
+    }
+
+    @Test
+    fun `MiniT2I large sequential conditioning options remain null`() {
+        val config = LLMEdgeConfig()
+        val request = MiniT2I.largeImageRequest("test prompt")
+        val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(request, config)
+        org.junit.Assert.assertNull(plan.conditioningRequest.options.weightType)
+        org.junit.Assert.assertNull(plan.conditioningRequest.options.tensorTypeRules)
+    }
+
+    @Test
+    fun `MiniT2I equivalent HF spec selects correct quant options`() {
+        val config = LLMEdgeConfig()
+        val spec = ModelSpec.huggingFace(
+            repoId = "MiniT2I/MiniT2I",
+            filename = "minit2i-l-16/transformer/diffusion_pytorch_model.safetensors"
+        )
+        val request = MiniT2I.largeImageRequest("test prompt").copy(model = spec)
+        val plan = ImageRuntimeRequestPlanner.imageRequest(request, config)
+        org.junit.Assert.assertEquals("q8_0", plan.options.weightType)
+        org.junit.Assert.assertEquals(".*mask_token.*=f16", plan.options.tensorTypeRules)
+    }
+
+    @Test
+    fun `MiniT2I small or default request options remain null`() {
+        val config = LLMEdgeConfig()
+        val request = MiniT2I.imageRequest("test prompt")
+        val plan = ImageRuntimeRequestPlanner.imageRequest(request, config)
+        org.junit.Assert.assertNull(plan.options.weightType)
+        org.junit.Assert.assertNull(plan.options.tensorTypeRules)
+
+        val sequentialPlan = ImageRuntimeRequestPlanner.imageSequentialPlan(request, config)
+        org.junit.Assert.assertNull(sequentialPlan.diffusionRequest.options.weightType)
+        org.junit.Assert.assertNull(sequentialPlan.diffusionRequest.options.tensorTypeRules)
+    }
 }
