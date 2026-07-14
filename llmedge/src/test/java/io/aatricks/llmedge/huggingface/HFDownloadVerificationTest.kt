@@ -51,4 +51,28 @@ class HFDownloadVerificationTest {
 
         assertTrue(file.exists())
     }
+
+    @Test
+    fun `cleanupOrphanedTempFiles removes stale temp files and keeps active and non-temp files`() {
+        val dir = File.createTempFile("hf-downloads", "").let {
+            it.delete(); it.mkdirs(); it
+        }
+        val cutoff = 1_000_000L
+        val orphan = File(dir, "clip_g.safetensors-123.tmp").apply {
+            writeBytes(byteArrayOf(1)); setLastModified(cutoff - 10_000L)
+        }
+        val active = File(dir, "t5xxl.safetensors-456.tmp").apply {
+            writeBytes(byteArrayOf(1)); setLastModified(cutoff + 10_000L)
+        }
+        val finalized = File(dir, "model.safetensors").apply {
+            writeBytes(byteArrayOf(1)); setLastModified(cutoff - 10_000L)
+        }
+
+        HFDownloadSupport.cleanupOrphanedTempFiles(dir, olderThanMillis = cutoff)
+
+        assertFalse("Stale .tmp from a prior process should be deleted", orphan.exists())
+        assertTrue("A .tmp being written by the current process should be kept", active.exists())
+        assertTrue("Non-.tmp (finalized) files must never be deleted", finalized.exists())
+        dir.deleteRecursively()
+    }
 }

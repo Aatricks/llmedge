@@ -9,6 +9,31 @@ import kotlinx.coroutines.withContext
 internal object HFDownloadSupport {
     private const val LOG_TAG = "HuggingFaceHub"
 
+    // Captured at class load (~process start). System-downloader temp files (.tmp) are
+    // deleted in a coroutine finally block on success/cancellation, but that never runs
+    // if the process is killed mid-download (low-memory killer, worker crash), leaving
+    // multi-GB orphans behind. Any .tmp older than this timestamp belongs to a previous
+    // process and is safe to delete; a .tmp being written by the current process is newer.
+    private val PROCESS_START_MILLIS = System.currentTimeMillis()
+
+    /**
+     * Deletes system-download temp files orphaned by a previous process instance. Files
+     * modified by the current process (active downloads) are newer than [olderThanMillis]
+     * and are left untouched. Returns the number of bytes reclaimed.
+     */
+    internal fun cleanupOrphanedTempFiles(tempDir: File, olderThanMillis: Long = PROCESS_START_MILLIS): Long {
+        val stale = tempDir.listFiles { f -> f.isFile && f.name.endsWith(".tmp") && f.lastModified() < olderThanMillis }
+            ?: return 0L
+        var freedBytes = 0L
+        for (file in stale) {
+            val size = file.length()
+            if (file.delete()) {
+                freedBytes += size
+            }
+        }
+        return freedBytes
+    }
+
     data class ResolvedModel(
         val requestedModelId: String,
         val requestedRevision: String,
@@ -210,6 +235,13 @@ internal object HFDownloadSupport {
                     "External downloads directory unavailable; falling back to in-app streaming",
                 )
                 return
+            }
+
+            // Reclaim multi-GB temp files leaked by a previous process that was killed
+            // mid-download before its cleanup could run.
+            val reclaimedBytes = cleanupOrphanedTempFiles(tempDir)
+            if (reclaimedBytes > 0L) {
+                Log.i(LOG_TAG, "Removed orphaned download temp files, reclaimed $reclaimedBytes bytes")
             }
 
             val tempFile =
