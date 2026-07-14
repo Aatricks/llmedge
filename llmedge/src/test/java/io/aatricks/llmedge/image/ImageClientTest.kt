@@ -1697,4 +1697,218 @@ class ImageClientTest {
             StableDiffusion.resetNativeBridgeForTests()
         }
     }
+
+    @Test
+    fun `t5xxl model spec resolves and routes to native t5xxlPath while textEncoder routes to llmPath for split model`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val ditFile =
+            java.io.File.createTempFile("flux2-dit", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val vaeFile =
+            java.io.File.createTempFile("flux2-vae", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val encFile =
+            java.io.File.createTempFile("qwen3-enc", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val t5xxlFile =
+            java.io.File.createTempFile("t5xxl", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        every { RuntimeCapabilities.isStableDiffusionVulkanAvailable() } returns true
+        every { RuntimeCapabilities.isStableDiffusionOpenClAvailable() } returns false
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): ByteArray = ByteArray(width * height * 3) { 0x33 }
+
+                override fun txt2vid(
+                    handle: Long,
+                    prompt: String,
+                    negative: String,
+                    width: Int,
+                    height: Int,
+                    videoFrames: Int,
+                    steps: Int,
+                    cfg: Float,
+                    seed: Long,
+                    sampleMethod: SampleMethod,
+                    scheduler: Scheduler,
+                    strength: Float,
+                    initImage: ByteArray?,
+                    initWidth: Int,
+                    initHeight: Int,
+                    vaceStrength: Float,
+                    easyCacheEnabled: Boolean,
+                    easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float,
+                    easyCacheEndPercent: Float,
+                ): Array<ByteArray> = Array(1) { ByteArray(width * height * 3) { 0x33 } }
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        var observedModelPath: String? = "unset"
+        var observedDiffusionModelPath: String? = "unset"
+        var observedLlmPath: String? = "unset"
+        var observedT5xxlPath: String? = "unset"
+        var observedVaePath: String? = "unset"
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            observedModelPath = callArgs[3] as String?
+            observedVaePath = callArgs[4] as String?
+            observedT5xxlPath = callArgs[5] as String?
+            observedDiffusionModelPath = callArgs[21] as String?
+            observedLlmPath = callArgs[22] as String?
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(image = ImageRuntimeConfig(preferPerformanceMode = false)),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "test t5xxl split routing",
+                    width = 256,
+                    height = 256,
+                    model = ModelSpec.localFile(ditFile),
+                    vae = ModelSpec.localFile(vaeFile),
+                    textEncoder = ModelSpec.localFile(encFile),
+                    t5xxl = ModelSpec.localFile(t5xxlFile),
+                    splitDiffusionModel = true,
+                ),
+            )
+
+            assertEquals(null, observedModelPath)
+            assertEquals(ditFile.absolutePath, observedDiffusionModelPath)
+            assertEquals(encFile.absolutePath, observedLlmPath)
+            assertEquals(t5xxlFile.absolutePath, observedT5xxlPath)
+            assertEquals(vaeFile.absolutePath, observedVaePath)
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
+
+    @Test
+    fun `two requests identical except different t5xxl specs produce different cache keys and load twice`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val modelFile = java.io.File.createTempFile("flux-model-cache", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val t5xxl1 = java.io.File.createTempFile("t5xxl1", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val t5xxl2 = java.io.File.createTempFile("t5xxl2", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        StableDiffusion.overrideNativeBridgeForTests {
+            object : StableDiffusion.NativeBridge {
+                override fun txt2img(
+                    handle: Long, prompt: String, negative: String, width: Int, height: Int,
+                    steps: Int, cfg: Float, seed: Long, vaeTiling: Boolean,
+                    easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float, easyCacheEndPercent: Float,
+                ): ByteArray = ByteArray(width * height * 3) { 0x33 }
+
+                override fun txt2vid(
+                    handle: Long, prompt: String, negative: String, width: Int, height: Int,
+                    videoFrames: Int, steps: Int, cfg: Float, seed: Long,
+                    sampleMethod: SampleMethod, scheduler: Scheduler, strength: Float,
+                    initImage: ByteArray?, initWidth: Int, initHeight: Int,
+                    vaceStrength: Float, easyCacheEnabled: Boolean, easyCacheReuseThreshold: Float,
+                    easyCacheStartPercent: Float, easyCacheEndPercent: Float,
+                ): Array<ByteArray>? = null
+
+                override fun setProgressCallback(handle: Long, callback: VideoProgressCallback?) = Unit
+                override fun cancelGeneration(handle: Long) = Unit
+            }
+        }
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "cache key test 1",
+                    width = 64,
+                    height = 64,
+                    model = ModelSpec.localFile(modelFile),
+                    t5xxl = ModelSpec.localFile(t5xxl1),
+                ),
+            )
+
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "cache key test 2",
+                    width = 64,
+                    height = 64,
+                    model = ModelSpec.localFile(modelFile),
+                    t5xxl = ModelSpec.localFile(t5xxl2),
+                ),
+            )
+
+            // Should load twice because the cache keys are different due to different t5xxl specs
+            coVerify(exactly = 2) {
+                StableDiffusion.loadWithRuntimeBackend(
+                    any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                    any(),
+                    any(),
+                    any(),
+                )
+            }
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
 }

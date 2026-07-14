@@ -44,6 +44,7 @@ data class ImageGenerationRequest(
     // true the runtime routes [model] -> diffusion_model_path and [textEncoder] -> llm_path.
     val vae: ModelSpec? = null,
     val textEncoder: ModelSpec? = null,
+    val t5xxl: ModelSpec? = null,
     val clipL: ModelSpec? = null,
     val clipG: ModelSpec? = null,
     val clipVision: ModelSpec? = null,

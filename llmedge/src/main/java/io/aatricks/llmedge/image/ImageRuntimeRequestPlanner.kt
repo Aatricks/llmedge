@@ -32,6 +32,7 @@ internal object ImageRuntimeRequestPlanner {
                     model = params.model ?: config.models.image,
                     vae = params.vae,
                     textEncoder = params.textEncoder,
+                    t5xxl = params.t5xxl,
                     clipL = params.clipL,
                     clipG = params.clipG,
                     clipVision = params.clipVision,

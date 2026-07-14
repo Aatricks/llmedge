@@ -61,6 +61,7 @@ internal data class IpcImageRequest(
     val model: IpcModelSpec?,
     val vae: IpcModelSpec?,
     val textEncoder: IpcModelSpec?,
+    val t5xxl: IpcModelSpec?,
     val clipL: IpcModelSpec?,
     val clipG: IpcModelSpec?,
     val clipVision: IpcModelSpec?,

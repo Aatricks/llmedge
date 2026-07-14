@@ -8,15 +8,15 @@ import io.aatricks.llmedge.model.ModelSpec
 /**
  * Stable Diffusion 3 Medium presets for on-device generation through stable-diffusion.cpp.
  *
- * This preset skips the optional T5xxl text encoder (stable-diffusion.cpp probes clip_l,
- * clip_g, and t5 independently) — a quality tradeoff that avoids the ~5 GB T5 download.
+ * This preset now includes the optional T5XXL FP8 text encoder for full text conditioning,
+ * yielding high quality generation at the expense of downloading a ~4.89 GB encoder.
  * The sequential low-RAM mode is unsupported for SD3 because the encoder-only native load/unload
  * path is Flux2/T5-specific in stable-diffusion.cpp.
  *
  * Mobile default resolution is 512x512, though the model's native resolution is 1024x1024.
  * Callers with sufficient RAM headroom may pass 1024x1024.
  *
- * The total split download size is ~3.1 GB.
+ * The total split download size is approximately 8.0 GB.
  */
 object Sd3Medium {
     /** The SD3 Medium DiT model (Q4_0, ~1.28 GB). */
@@ -75,6 +75,21 @@ object Sd3Medium {
                 ),
         )
 
+    /** T5XXL FP8 text encoder (~4.89 GB). */
+    @JvmField
+    val t5xxl: ModelSpec =
+        ModelSpec.huggingFace(
+            repoId = "Comfy-Org/stable-diffusion-3.5-fp8",
+            filename = "text_encoders/t5xxl_fp8_e4m3fn.safetensors",
+            revision = "main",
+            preferredQuantizations = emptyList(),
+            hints =
+                ModelHints(
+                    artifactKind = ModelArtifactKind.TEXT_ENCODER,
+                    capabilities = setOf(ModelCapability.TEXT, ModelCapability.IMAGE),
+                ),
+        )
+
     /** SD3 Medium All-in-One Model (encoders and VAE baked in, Q4_0, ~4.55 GB). */
     @JvmField
     val allInOneModel: ModelSpec =
@@ -118,6 +133,7 @@ object Sd3Medium {
             vae = vae,
             clipL = clipL,
             clipG = clipG,
+            t5xxl = t5xxl,
             textEncoder = null,
             splitDiffusionModel = true,
             sequential = false,
