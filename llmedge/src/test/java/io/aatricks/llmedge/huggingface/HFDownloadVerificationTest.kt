@@ -75,4 +75,28 @@ class HFDownloadVerificationTest {
         assertTrue("Non-.tmp (finalized) files must never be deleted", finalized.exists())
         dir.deleteRecursively()
     }
+
+    @Test
+    fun `cleanupOrphanedTempFiles keeps a stale temp that a resumable download still tracks`() {
+        val dir = File.createTempFile("hf-downloads", "").let {
+            it.delete(); it.mkdirs(); it
+        }
+        val cutoff = 1_000_000L
+        val resumable = File(dir, "t5xxl.safetensors-123.tmp").apply {
+            writeBytes(byteArrayOf(1)); setLastModified(cutoff - 10_000L)
+        }
+        val abandoned = File(dir, "clip_g.safetensors-456.tmp").apply {
+            writeBytes(byteArrayOf(1)); setLastModified(cutoff - 10_000L)
+        }
+
+        HFDownloadSupport.cleanupOrphanedTempFiles(
+            dir,
+            olderThanMillis = cutoff,
+            protectedPaths = setOf(resumable.absolutePath),
+        )
+
+        assertTrue("A partial still tracked by DownloadManager must be kept for resume", resumable.exists())
+        assertFalse("A stale .tmp with no live download must still be swept", abandoned.exists())
+        dir.deleteRecursively()
+    }
 }

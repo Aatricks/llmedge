@@ -19,11 +19,20 @@ internal object HFDownloadSupport {
     /**
      * Deletes system-download temp files orphaned by a previous process instance. Files
      * modified by the current process (active downloads) are newer than [olderThanMillis]
-     * and are left untouched. Returns the number of bytes reclaimed.
+     * and are left untouched, as are [protectedPaths] — partials still tracked by
+     * DownloadManager that we intend to resume. Returns the number of bytes reclaimed.
      */
-    internal fun cleanupOrphanedTempFiles(tempDir: File, olderThanMillis: Long = PROCESS_START_MILLIS): Long {
-        val stale = tempDir.listFiles { f -> f.isFile && f.name.endsWith(".tmp") && f.lastModified() < olderThanMillis }
-            ?: return 0L
+    internal fun cleanupOrphanedTempFiles(
+        tempDir: File,
+        olderThanMillis: Long = PROCESS_START_MILLIS,
+        protectedPaths: Set<String> = emptySet(),
+    ): Long {
+        val stale = tempDir.listFiles { f ->
+            f.isFile &&
+                f.name.endsWith(".tmp") &&
+                f.lastModified() < olderThanMillis &&
+                f.absolutePath !in protectedPaths
+        } ?: return 0L
         var freedBytes = 0L
         for (file in stale) {
             val size = file.length()
@@ -238,8 +247,13 @@ internal object HFDownloadSupport {
             }
 
             // Reclaim multi-GB temp files leaked by a previous process that was killed
-            // mid-download before its cleanup could run.
-            val reclaimedBytes = cleanupOrphanedTempFiles(tempDir)
+            // mid-download before its cleanup could run, but keep any partial that
+            // DownloadManager is still tracking so an interrupted download can resume.
+            val reclaimedBytes =
+                cleanupOrphanedTempFiles(
+                    tempDir,
+                    protectedPaths = SystemDownload.resumableTempPaths(systemDownloadContext),
+                )
             if (reclaimedBytes > 0L) {
                 Log.i(LOG_TAG, "Removed orphaned download temp files, reclaimed $reclaimedBytes bytes")
             }
@@ -271,7 +285,12 @@ internal object HFDownloadSupport {
                 publishTemp.delete()
                 throw IllegalStateException("Failed to publish system download to ${target.targetFile.name}")
             }
+            // Published successfully; drop the now-stale DownloadManager resume record.
+            SystemDownload.forget(systemDownloadContext, target.downloadUrl)
         } catch (t: Throwable) {
+            // A cancelled caller must propagate — the system download stays alive for resume,
+            // but we must not fall through to a duplicate in-app download.
+            if (t is kotlinx.coroutines.CancellationException) throw t
             Log.w(
                 LOG_TAG,
                 "System download failed (${t.message}) - falling back to in-app downloader",
