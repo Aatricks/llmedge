@@ -297,6 +297,7 @@ class StableDiffusion internal constructor(
                 request.loraModelDir,
                 request.loraApplyMode.id,
                 request.miniT2iConditionerOnly,
+                request.chromaT5ConditionerOnly,
                 request.weightType,
                 request.tensorTypeRules,
             )
@@ -330,6 +331,7 @@ class StableDiffusion internal constructor(
                 loraModelDir: String?,
                 loraApplyMode: Int,
                 miniT2iConditionerOnly: Boolean,
+                chromaT5ConditionerOnly: Boolean,
                 weightType: String?,
                 tensorTypeRules: String?,
         ): Long

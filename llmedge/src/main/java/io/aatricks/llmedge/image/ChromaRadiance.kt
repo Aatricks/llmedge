@@ -51,6 +51,20 @@ object ChromaRadiance {
                 ),
         )
 
+    /** The FLUX VAE model. */
+    @JvmField
+    val fluxVae: ModelSpec =
+        ModelSpec.huggingFace(
+            repoId = "lodestones/Chroma",
+            filename = "ae.safetensors",
+            preferredQuantizations = emptyList(),
+            hints =
+                ModelHints(
+                    artifactKind = ModelArtifactKind.VAE,
+                    capabilities = setOf(ModelCapability.IMAGE),
+                ),
+        )
+
     /**
      * Builds an [ImageGenerationRequest] pre-wired for Chroma Radiance.
      */
@@ -108,6 +122,7 @@ object ChromaRadiance {
             seed = seed,
             flashAttention = flashAttention,
             model = mobileDiffusionModel,
+            vae = fluxVae,
             t5xxl = t5xxl,
             splitDiffusionModel = true,
             sequential = sequential,

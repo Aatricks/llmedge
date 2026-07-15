@@ -177,6 +177,8 @@ internal class DiffusionRuntimeLoader(
                     spec.model.hints.artifactKind == ModelArtifactKind.DIFFUSION_MODEL)
         val miniT2iConditionerOnly =
             spec.encoderOnly && spec.conditioningProfile == ImageConditioningProfile.MASKED_T5
+        val chromaT5ConditionerOnly =
+            spec.encoderOnly && spec.conditioningProfile == ImageConditioningProfile.CHROMA_T5
         try {
             return createManagedModel(
                 options = options,
@@ -200,6 +202,7 @@ internal class DiffusionRuntimeLoader(
                 splitDiffusionModel = spec.splitDiffusionModel,
                 encoderOnly = spec.encoderOnly,
                 miniT2iConditionerOnly = miniT2iConditionerOnly,
+                chromaT5ConditionerOnly = chromaT5ConditionerOnly,
             )
         } catch (error: Throwable) {
             if (!shouldRetryWithoutFlash(spec, options)) {
@@ -232,6 +235,7 @@ internal class DiffusionRuntimeLoader(
                     splitDiffusionModel = spec.splitDiffusionModel,
                     encoderOnly = spec.encoderOnly,
                     miniT2iConditionerOnly = miniT2iConditionerOnly,
+                    chromaT5ConditionerOnly = chromaT5ConditionerOnly,
                 )
             } catch (fallbackError: Throwable) {
                 fallbackError.addSuppressed(error)
@@ -262,17 +266,18 @@ internal class DiffusionRuntimeLoader(
         splitDiffusionModel: Boolean,
         encoderOnly: Boolean,
         miniT2iConditionerOnly: Boolean,
+        chromaT5ConditionerOnly: Boolean,
     ): ManagedDiffusionModel {
         AndroidLogAdapter.i(
             LOG_TAG,
             "Creating managed ${backend.name} runtime for ${resolvedModel.name} flash=$flashAttn sequential=${options.sequentialLoad}",
         )
         phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.LOADING, backend.name)
-        val isSd3EncoderOnly = encoderOnly && (
+        val isSd3EncoderOnly = encoderOnly && !chromaT5ConditionerOnly && (
             (resolvedClipL != null && resolvedClipG != null && resolvedT5xxl == null) ||
             (resolvedClipL == null && resolvedClipG == null && resolvedT5xxl != null)
         )
-        val componentPaths = if (encoderOnly && !isSd3EncoderOnly && !miniT2iConditionerOnly) {
+        val componentPaths = if (encoderOnly && !isSd3EncoderOnly && !miniT2iConditionerOnly && !chromaT5ConditionerOnly) {
             null
         } else {
             val paths = StableDiffusionComponentPaths(
@@ -286,6 +291,7 @@ internal class DiffusionRuntimeLoader(
                 controlNetPath = resolvedControlNet?.absolutePath,
                 photoMakerPath = resolvedPhotoMaker?.absolutePath,
                 miniT2iConditionerOnly = miniT2iConditionerOnly,
+                chromaT5ConditionerOnly = chromaT5ConditionerOnly,
                 weightType = options.weightType,
                 tensorTypeRules = options.tensorTypeRules,
             )
@@ -302,12 +308,16 @@ internal class DiffusionRuntimeLoader(
                         resolvedModel.absolutePath
                     },
                 vaePath = if (encoderOnly) null else resolvedVae?.absolutePath,
-                t5xxlPath = resolvedT5xxl?.absolutePath ?: (if (splitDiffusionModel || (encoderOnly && !isSd3EncoderOnly)) null else resolvedTextEncoder?.absolutePath),
+                t5xxlPath = if (chromaT5ConditionerOnly) {
+                    resolvedT5xxl?.absolutePath ?: resolvedModel.absolutePath
+                } else {
+                    resolvedT5xxl?.absolutePath ?: (if (splitDiffusionModel || (encoderOnly && !isSd3EncoderOnly)) null else resolvedTextEncoder?.absolutePath)
+                },
                 taesdPath = if (encoderOnly) null else resolvedTaehv?.absolutePath,
                 diffusionModelPath = if (splitDiffusionModel || diffusionModelOnly) resolvedModel.absolutePath else null,
                 llmPath =
                     when {
-                        encoderOnly && !isSd3EncoderOnly && !miniT2iConditionerOnly -> resolvedModel.absolutePath
+                        encoderOnly && !isSd3EncoderOnly && !miniT2iConditionerOnly && !chromaT5ConditionerOnly -> resolvedModel.absolutePath
                         splitDiffusionModel -> resolvedTextEncoder?.absolutePath
                         else -> null
                     },

@@ -70,9 +70,10 @@ static SdHandle* try_create_t5_only_handle(
         const char* modelPath,
         bool offloadToCpu,
         bool useVulkan,
-        bool miniT2iConditionerOnly) {
+        bool miniT2iConditionerOnly,
+        bool chromaT5ConditionerOnly) {
 #ifdef SD_JNI_TESTING
-    (void)env; (void)modelPath; (void)offloadToCpu; (void)useVulkan; (void)miniT2iConditionerOnly;
+    (void)env; (void)modelPath; (void)offloadToCpu; (void)useVulkan; (void)miniT2iConditionerOnly; (void)chromaT5ConditionerOnly;
     return nullptr;
 #else
     if (!modelPath) {
@@ -80,7 +81,7 @@ static SdHandle* try_create_t5_only_handle(
     }
 
     ALOGI("Attempting %s-only context load for sequential prompt conditioning: %s",
-          miniT2iConditionerOnly ? "MiniT2I" : "T5", modelPath);
+          miniT2iConditionerOnly ? "MiniT2I" : (chromaT5ConditionerOnly ? "Chroma" : "T5"), modelPath);
 
     auto model_manager = std::make_shared<ModelManager>();
     model_manager->set_n_threads(sd_get_num_physical_cores_safe());
@@ -109,12 +110,20 @@ static SdHandle* try_create_t5_only_handle(
         return nullptr;
     }
 
-    ggml_backend_t params_backend = offloadToCpu ? sd_backend_cpu_init() : backend;
+    ggml_backend_t params_backend = (offloadToCpu && !sd_backend_is_cpu(backend)) ? sd_backend_cpu_init() : backend;
     Conditioner* conditioner = nullptr;
     if (miniT2iConditionerOnly) {
         conditioner = new MiniT2IConditioner(
             backend,
             model_manager->loader().get_tensor_storage_map(),
+            model_manager);
+    } else if (chromaT5ConditionerOnly) {
+        conditioner = new T5CLIPEmbedder(
+            backend,
+            model_manager->loader().get_tensor_storage_map(),
+            false, // use_mask
+            1,     // mask_pad
+            false, // is_umt5
             model_manager);
     } else {
         const bool is_umt5 = std::string(modelPath).find("umt5") != std::string::npos;
@@ -126,14 +135,16 @@ static SdHandle* try_create_t5_only_handle(
             is_umt5,
             model_manager);
     }
+    std::string param_desc = miniT2iConditionerOnly ? "MiniT2I encoder" : (chromaT5ConditionerOnly ? "Chroma encoder" : "T5 encoder");
     if (!model_manager->register_runner_params(
-            miniT2iConditionerOnly ? "MiniT2I encoder" : "T5 encoder",
+            param_desc,
             *conditioner,
             ModelManager::ResidencyMode::ParamBackend,
             backend,
             params_backend) ||
         !model_manager->validate_registered_tensors()) {
-        ALOGE("Failed to register tensors for %s context", miniT2iConditionerOnly ? "MiniT2I" : "T5");
+        ALOGE("Failed to register tensors for %s", param_desc.c_str());
+        model_manager->unregister_param_tensors(param_desc);
         delete conditioner;
         model_manager.reset();
         if (params_backend != backend) ggml_backend_free(params_backend);
@@ -151,12 +162,13 @@ static SdHandle* try_create_t5_only_handle(
     handle->backend = backend;
     handle->params_backend = params_backend == backend ? nullptr : params_backend;
     handle->model_manager = std::move(model_manager);
+    handle->param_desc = param_desc;
     if (env) {
         env->GetJavaVM(&handle->jvm);
         jni_thread_cache_init(handle->jvm);
     }
 
-    ALOGI("Created %s-only context for sequential prompt conditioning", miniT2iConditionerOnly ? "MiniT2I" : "T5");
+    ALOGI("Created context for %s for sequential prompt conditioning", param_desc.c_str());
     return handle;
 #endif
 }
@@ -560,7 +572,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         jboolean flashAttn,
         jboolean jvaeDecodeOnly,
         jfloat flowShift,
-        jstring jLoraModelDir, jint jLoraApplyMode, jboolean jMiniT2iConditionerOnly,
+        jstring jLoraModelDir, jint jLoraApplyMode, jboolean jMiniT2iConditionerOnly, jboolean jChromaT5ConditionerOnly,
         jstring jWeightType,
         jstring jTensorTypeRules) {
     (void)clazz;
@@ -735,7 +747,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
                                   !controlNetPathValue.empty() ||
                                   !photoMakerPathValue.empty();
 
-    bool isSd3EncoderOnly = (diffusionModelPathValue.empty()) &&
+    bool isChromaT5ConditionerOnly = jChromaT5ConditionerOnly == JNI_TRUE;
+
+    bool isSd3EncoderOnly = !isChromaT5ConditionerOnly &&
+                            (diffusionModelPathValue.empty()) &&
                             (modelPath == nullptr || modelPath[0] == '\0') &&
                             (vaePath == nullptr || vaePath[0] == '\0') &&
                             (llmPathValue.empty()) &&
@@ -754,7 +769,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     bool isMiniT2iConditionerOnly = jMiniT2iConditionerOnly == JNI_TRUE;
 
     sd_ctx_t* ctx = nullptr;
-    if (!isLlmOnly && !isSd3EncoderOnly && !isMiniT2iConditionerOnly) {
+    if (!isLlmOnly && !isSd3EncoderOnly && !isMiniT2iConditionerOnly && !isChromaT5ConditionerOnly) {
         // Shared with the whisper loader: env mutation must be process-globally
         // serialized (concurrent setenv/getenv across threads is UB).
         std::lock_guard<std::mutex> lock(llmedge_process_env_mutex());
@@ -765,6 +780,18 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     }
 
     if (!ctx) {
+        if (isChromaT5ConditionerOnly) {
+            SdHandle* chromaHandle = try_create_t5_only_handle(
+                env, t5xxlPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE, false, true);
+            if (chromaHandle) {
+                if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
+                if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
+                if (jT5xxlPath) env->ReleaseStringUTFChars(jT5xxlPath, t5xxlPath);
+                if (jTaesdPath) env->ReleaseStringUTFChars(jTaesdPath, taesdPath);
+                if (jLoraModelDir) env->ReleaseStringUTFChars(jLoraModelDir, loraModelDir);
+                return reinterpret_cast<jlong>(chromaHandle);
+            }
+        }
         if (isSd3EncoderOnly) {
             SdHandle* sd3EncoderHandle = try_create_sd3_encoder_only_handle(env, clipLPathValue.c_str(), clipGPathValue.c_str(), t5xxlPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE);
             if (sd3EncoderHandle) {
@@ -789,7 +816,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         }
         if (isMiniT2iConditionerOnly) {
             SdHandle* miniT2iHandle = try_create_t5_only_handle(
-                env, modelPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE, true);
+                env, modelPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE, true, false);
             if (miniT2iHandle) {
                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
@@ -801,7 +828,7 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         }
         if (isT5OnlyRequest) {
             SdHandle* t5OnlyHandle = try_create_t5_only_handle(
-                env, modelPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE, false);
+                env, modelPath, offloadToCpu == JNI_TRUE, useVulkan == JNI_TRUE, false, false);
             if (t5OnlyHandle) {
                 if (jModelPath) env->ReleaseStringUTFChars(jModelPath, modelPath);
                 if (jVaePath)   env->ReleaseStringUTFChars(jVaePath, vaePath);
@@ -851,6 +878,11 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeDestroy(JNIEnv* e
         handle->ctx = nullptr;
     }
 #ifndef SD_JNI_TESTING
+    if (handle->model_manager && !handle->param_desc.empty()) {
+        if (!handle->model_manager->unregister_param_tensors(handle->param_desc)) {
+            ALOGE("Failed to unregister parameter tensors for %s", handle->param_desc.c_str());
+        }
+    }
     if (handle->t5_ctx) {
         auto* t5 = static_cast<T5CLIPEmbedder*>(handle->t5_ctx);
         delete t5;

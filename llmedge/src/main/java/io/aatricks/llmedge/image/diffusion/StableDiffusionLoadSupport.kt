@@ -467,6 +467,7 @@ internal object StableDiffusionLoadSupport {
             loraModelDir = request.assets.loraModelDir,
             loraApplyMode = request.runtime.loraApplyMode,
             miniT2iConditionerOnly = resolved.componentPaths?.miniT2iConditionerOnly == true,
+            chromaT5ConditionerOnly = resolved.componentPaths?.chromaT5ConditionerOnly == true,
             weightType = resolved.componentPaths?.weightType,
             tensorTypeRules = resolved.componentPaths?.tensorTypeRules,
         )

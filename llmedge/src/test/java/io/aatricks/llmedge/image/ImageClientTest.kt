@@ -2801,4 +2801,75 @@ class ImageClientTest {
             StableDiffusion.resetNativeBridgeForTests()
         }
     }
+
+    @Test
+    fun `chroma T5 encoderOnly spec requires chromaT5ConditionerOnly signal keeping T5 in t5xxlPath and specifying Chroma mask_pad=1`(
+    ) = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val encoderFile =
+            java.io.File.createTempFile("chroma-t5", ".safetensors", context.filesDir).apply {
+                writeBytes(byteArrayOf(0x01))
+            }
+        var observedModelPath: String? = "unset"
+        var observedVaePath: String? = "unset"
+        var observedT5xxlPath: String? = "unset"
+        var observedDiffusionModelPath: String? = "unset"
+        var observedLlmPath: String? = "unset"
+        var observedComponentPaths: io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths? = null
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            observedModelPath = callArgs[3] as String?
+            observedVaePath = callArgs[4] as String?
+            observedT5xxlPath = callArgs[5] as String?
+            observedDiffusionModelPath = callArgs[21] as String?
+            observedLlmPath = callArgs[22] as String?
+            observedComponentPaths = callArgs[23] as io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths?
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val loaded =
+            DiffusionRuntimeLoader(context, DefaultModelRepository()).load(
+                spec =
+                    DiffusionRuntimeSpec(
+                        role = DiffusionRuntimeRole.IMAGE,
+                        model = ModelSpec.localFile(encoderFile),
+                        encoderOnly = true,
+                        conditioningProfile = ImageConditioningProfile.CHROMA_T5,
+                    ),
+                options =
+                    DiffusionLoadOptions(
+                        subsystem = ComputeSubsystem.IMAGE,
+                        allowGpu = false,
+                        nThreads = 1,
+                        offloadToCpu = true,
+                        keepClipOnCpu = true,
+                        keepVaeOnCpu = true,
+                        flashAttn = true,
+                        preferPerformanceMode = false,
+                    ),
+                backend = ComputeBackend.CPU,
+            )
+        try {
+            assertEquals(null, observedModelPath)
+            assertEquals(encoderFile.absolutePath, observedT5xxlPath)
+            assertEquals(null, observedVaePath)
+            assertEquals(null, observedDiffusionModelPath)
+            assertEquals(null, observedLlmPath)
+            assertEquals(true, observedComponentPaths?.chromaT5ConditionerOnly)
+        } finally {
+            loaded.close()
+        }
+    }
 }
