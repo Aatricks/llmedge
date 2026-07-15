@@ -221,7 +221,9 @@ internal class DiffusionWorkerService : Service() {
                         val useVulkan = request.useVulkan && !BackendRuntimePolicy.isBlacklisted(ComputeSubsystem.IMAGE, ComputeBackend.VULKAN)
                         val backendName = if (useVulkan) "vulkan" else "cpu"
                         phaseRelay.onPhase(DiffusionPhases.GENERATING, backendName)
-                        val bitmap = activeEngine.upscale(kotlinRequest)
+                        val bitmap = activeEngine.upscale(kotlinRequest) { step, total ->
+                            phaseRelay.onStep(step, total)
+                        }
                         val frame = PixelCodec.encodeBitmap(bitmap, "llmedge_upscale_result")
                         try {
                             callback.onCompleted(IpcImageResult(frame = frame, metrics = null))

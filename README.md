@@ -23,7 +23,7 @@ Acknowledgments to Shubham Panchal and upstream projects are listed in [`CREDITS
 - **Optimized Inference**: Native KV cache reuse for compact chats, default batched blocking and streaming text generation, separate prompt vs generation thread tuning, and Kotlin-managed `ChatSession` replay for reasoning-heavy models
 - **Speech-to-Text (STT)**: Whisper.cpp integration with timestamp support, language detection, streaming transcription, and SRT generation
 - **Text-to-Speech (TTS)**: Bark.cpp integration with ARM optimizations
-- **Image Generation**: Stable Diffusion with EasyCache and LoRA support, plus FLUX.2 Klein 4B (distilled DiT, the architecture behind PrismML's binary/ternary Bonsai Image)
+- **Image Generation**: Stable Diffusion with EasyCache and LoRA support, plus FLUX.2 Klein 4B (distilled DiT, the architecture behind PrismML's binary/ternary Bonsai Image); per-step progress streaming and ESRGAN upscaling (Remacri)
 - **Video Generation**: Wan 2.1 models (4-64 frames) with sequential loading
 - **On-device RAG**: PDF indexing, embeddings, vector search, Q&A
 - **OCR**: Google ML Kit text extraction
@@ -528,6 +528,54 @@ imageView.setImageBitmap(bitmap)
 - **LoRA**: Apply fine-tuned weights on the fly without merging models.
 
 For explicit runtime ownership or custom native-load experiments, the `StableDiffusion` class remains available in the expert API layer.
+
+#### Streaming progress
+
+`generate` blocks until the bitmap is ready. To drive a progress bar, use `generateStream`, which emits one `Progress` event per denoising step and a final `Completed` event carrying the image:
+
+```kotlin
+edge.image.generateStream(request).collect { event ->
+    when (event) {
+        is GenerationStreamEvent.Progress ->
+            progressBar.progress = event.update.current * 100 / event.update.total
+        is GenerationStreamEvent.Completed ->
+            imageView.setImageBitmap(event.frames.first())
+    }
+}
+```
+
+Cancelling the collection cancels the generation. Step events only cover the sampling loop; model loading happens before the first event, so keep the bar indeterminate until then. The example app derives a remaining-time estimate from the delay between events (`StepEtaEstimator` in llmedge-examples).
+
+#### Image upscaling (ESRGAN)
+
+`edge.image.upscale` runs an ESRGAN model over a bitmap and returns the enlarged result. Old-architecture ESRGAN checkpoints load directly; 4x_foolhardy_Remacri is the tested reference:
+
+```kotlin
+val esrgan = edge.models.resolve(
+    ModelSpec.huggingFace(
+        repoId = "LyliaEngine/4x_foolhardy_Remacri",
+        filename = "4x_foolhardy_Remacri.safetensors",
+        hints = ModelHints(
+            artifactKind = ModelArtifactKind.REPO_FILE,
+            capabilities = setOf(ModelCapability.IMAGE),
+        ),
+    ),
+)
+
+val upscaled = edge.image.upscale(
+    UpscaleRequest(input = bitmap, model = ModelSpec.localFile(esrgan)),
+) { tile, totalTiles ->
+    // fires once per processed tile
+}
+```
+
+Details worth knowing:
+
+- `factor = 0` (the default) uses the scale baked into the model. Remacri is 4x.
+- The upscaler runs on CPU unless the request sets `useVulkan = true`. Large inputs are processed in 128px tiles, and the progress callback reports tile counts, not steps.
+- Input is capped at 1024×1024. A 4x pass over a 1024px image already produces a 16 MP bitmap, which is near the practical memory limit on mid-range phones.
+- In isolated worker mode the upscale runs in the `:llmedge_sd` process with the same watchdog and crash recovery as image generation.
+- The ESRGAN context is created and freed per call, so expect a short model-load pause (the weights are ~64 MB) before the first tile.
 
 #### MiniT2I
 

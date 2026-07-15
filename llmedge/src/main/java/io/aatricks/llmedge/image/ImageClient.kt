@@ -204,11 +204,11 @@ class ImageClient internal constructor(
      * @throws IllegalArgumentException if the input image dimensions exceed 1024x1024
      * @throws io.aatricks.llmedge.core.LLMEdgeException if the upscaling process fails
      */
-    suspend fun upscale(request: UpscaleRequest): Bitmap {
+    suspend fun upscale(request: UpscaleRequest, onProgress: ((current: Int, total: Int) -> Unit)? = null): Bitmap {
         require(request.input.width <= 1024 && request.input.height <= 1024) {
             "Input image dimensions must not exceed 1024x1024 (got ${request.input.width}x${request.input.height})"
         }
-        return engine.upscale(request)
+        return engine.upscale(request, onProgress)
     }
 
     /** Request cancellation for the active generation, if any. */

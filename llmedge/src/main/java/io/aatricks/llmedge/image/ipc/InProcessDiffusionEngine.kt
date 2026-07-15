@@ -95,7 +95,7 @@ internal class InProcessDiffusionEngine(
     override fun generateVideo(params: VideoGenerationRequest): Flow<GenerationStreamEvent> =
         videoGenerationExecutor.generate(params)
 
-    override suspend fun upscale(request: UpscaleRequest): Bitmap {
+    override suspend fun upscale(request: UpscaleRequest, onProgress: ((current: Int, total: Int) -> Unit)?): Bitmap {
         val resolvedModel = modelRepository.resolve(appContext, request.model)
         val useVulkan = request.useVulkan && !BackendRuntimePolicy.isBlacklisted(ComputeSubsystem.IMAGE, ComputeBackend.VULKAN)
         val backend = if (useVulkan) "vulkan" else "cpu"
@@ -104,6 +104,11 @@ internal class InProcessDiffusionEngine(
 
         return generationMutex.withLock {
             withContext(StableDiffusion.diffusionDispatcher) {
+                val progressCallback = onProgress?.let {
+                    io.aatricks.llmedge.image.diffusion.VideoProgressCallback { step, total, _, _, _ ->
+                        it.invoke(step, total)
+                    }
+                }
                 StableDiffusion.upscaleImage(
                     modelPath = resolvedModel.absolutePath,
                     input = request.input,
@@ -111,6 +116,7 @@ internal class InProcessDiffusionEngine(
                     nThreads = nThreads,
                     tileSize = tileSize,
                     backend = backend,
+                    onProgress = progressCallback,
                 )
             }
         }

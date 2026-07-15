@@ -158,6 +158,11 @@ void free_upscaler_ctx(upscaler_ctx_t*) {}
 int get_upscale_factor(upscaler_ctx_t*) { return 4; }
 bool upscale(upscaler_ctx_t* upscaler_ctx, sd_image_t input, uint32_t upscale_factor, sd_image_t** images_out, int* num_images_out) {
     (void)upscaler_ctx; (void)upscale_factor;
+    if (g_progress_cb) {
+        for (int i = 1; i <= 4; ++i) {
+            g_progress_cb(i, 4, 0.5f, g_progress_user_data);
+        }
+    }
     if (!images_out || !num_images_out) return false;
     sd_image_t* out = (sd_image_t*)calloc(1, sizeof(sd_image_t));
     if (!out) return false;

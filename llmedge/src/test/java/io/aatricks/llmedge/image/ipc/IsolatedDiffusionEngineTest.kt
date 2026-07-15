@@ -549,6 +549,16 @@ class IsolatedDiffusionEngineTest {
             val callback = secondArg<IDiffusionResultCallback>()
             callbackSlots.add(callback)
 
+            callback.onPhase(
+                PhaseUpdate(
+                    phase = DiffusionPhases.STEP,
+                    backend = null,
+                    step = 2,
+                    totalSteps = 4,
+                    uptimeMillis = 0L,
+                )
+            )
+
             val shm = SharedMemory.create("test", 12)
             val mockFrame = IpcFrameBuffer(shm, 1, 1, 1)
             val mockResult = IpcImageResult(mockFrame, null)
@@ -558,10 +568,14 @@ class IsolatedDiffusionEngineTest {
         val mockBitmap = mockk<android.graphics.Bitmap>(relaxed = true)
         every { PixelCodec.decodeBitmap(any()) } returns mockBitmap
 
-        val result = engine.upscale(request)
+        val progressList = mutableListOf<Pair<Int, Int>>()
+        val result = engine.upscale(request) { current, total ->
+            progressList.add(current to total)
+        }
         assertEquals(mockBitmap, result)
         assertEquals(1, requestSlots.size)
         assertTrue(requestSlots[0].useVulkan)
+        assertEquals(listOf(2 to 4), progressList)
     }
 
     @Test

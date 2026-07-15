@@ -122,12 +122,12 @@ internal class IsolatedDiffusionEngine(
             ImageExecutionPlanner.recipeFor(params).supportsSequential &&
             lastPhase == DiffusionPhases.LOADING
 
-    override suspend fun upscale(request: UpscaleRequest): Bitmap =
+    override suspend fun upscale(request: UpscaleRequest, onProgress: ((current: Int, total: Int) -> Unit)?): Bitmap =
         generationMutex.withLock {
             val phaseTracker = ImageRequestPhaseTracker()
             val result =
                 runWithRecovery(ComputeSubsystem.IMAGE) { forceCpu ->
-                    issueUpscaleRequest(request, forceCpu, phaseTracker)
+                    issueUpscaleRequest(request, forceCpu, phaseTracker, onProgress)
                 }
             lastMetrics = result.metrics?.let(IpcCodecs::fromIpc)
             PixelCodec.decodeBitmap(result.frame)
@@ -303,6 +303,7 @@ internal class IsolatedDiffusionEngine(
         request: UpscaleRequest,
         forceCpu: Boolean,
         phaseTracker: ImageRequestPhaseTracker? = null,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null,
     ): IpcImageResult {
         val deferred = CompletableDeferred<IpcImageResult>()
         val finalRequest = if (forceCpu) request.copy(useVulkan = false) else request
@@ -314,6 +315,9 @@ internal class IsolatedDiffusionEngine(
                         override fun onPhase(update: PhaseUpdate) {
                             phaseTracker?.lastPhase = update.phase
                             dispatchPhase(watchdog, update)
+                            if (update.phase == DiffusionPhases.STEP) {
+                                onProgress?.invoke(update.step, update.totalSteps)
+                            }
                         }
 
                         override fun onCompleted(result: IpcImageResult) {

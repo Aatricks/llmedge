@@ -144,6 +144,50 @@ val bitmap = edge.image.generate(
 - **LoRA Support**: `ImageGenerationRequest` accepts `loraModelDir` and `loraApplyMode` for on-the-fly fine-tuning.
 - **Flash Attention**: Automatically enabled for compatible image dimensions.
 
+#### Streaming progress
+
+`generate` blocks until the bitmap is ready. `generateStream` emits a `Progress` event per denoising step and finishes with `Completed`:
+
+```kotlin
+edge.image.generateStream(request).collect { event ->
+    when (event) {
+        is GenerationStreamEvent.Progress ->
+            progressBar.progress = event.update.current * 100 / event.update.total
+        is GenerationStreamEvent.Completed ->
+            imageView.setImageBitmap(event.frames.first())
+    }
+}
+```
+
+Cancelling the collection cancels the generation. The step events cover the sampling loop only; model loading happens before the first event arrives. The example app turns the inter-event timing into a remaining-time label (`StepEtaEstimator`).
+
+#### Image upscaling (ESRGAN)
+
+`edge.image.upscale` enlarges a bitmap with an ESRGAN model. 4x_foolhardy_Remacri is the tested reference; other old-architecture ESRGAN checkpoints load the same way.
+
+```kotlin
+val esrgan = edge.models.resolve(
+    ModelSpec.huggingFace(
+        repoId = "LyliaEngine/4x_foolhardy_Remacri",
+        filename = "4x_foolhardy_Remacri.safetensors",
+        hints = ModelHints(
+            artifactKind = ModelArtifactKind.REPO_FILE,
+            capabilities = setOf(ModelCapability.IMAGE),
+        ),
+    ),
+)
+
+val upscaled = edge.image.upscale(
+    UpscaleRequest(input = bitmap, model = ModelSpec.localFile(esrgan)),
+) { tile, totalTiles ->
+    // fires once per processed tile
+}
+```
+
+`factor = 0` uses the model's native scale (4x for Remacri). The upscaler defaults to CPU; set `useVulkan = true` to opt into the GPU path. Inputs above 1024×1024 are rejected because the 4x output would not fit comfortably in memory on most devices. In isolated worker mode the call runs inside the `:llmedge_sd` process, so a native crash is contained and retried on CPU like any other diffusion request. The ESRGAN context is created and freed per call.
+
+The example app has two entry points: the image generation screen upscales its last result, and the standalone upscaler screen takes any picture from the device.
+
 ### Video Generation (Wan 2.1)
 
 Handles the complex multi-model loading (Diffusion, VAE, T5) and sequential processing required for video generation on mobile.

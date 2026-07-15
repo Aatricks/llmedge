@@ -635,6 +635,7 @@ class StableDiffusion internal constructor(
             height: Int,
             factor: Int,
             outDims: IntArray,
+            progress: VideoProgressCallback?,
         ): IntArray?
 
         internal fun upscaleImage(
@@ -643,7 +644,8 @@ class StableDiffusion internal constructor(
             factor: Int,
             nThreads: Int,
             tileSize: Int,
-            backend: String
+            backend: String,
+            onProgress: VideoProgressCallback? = null,
         ): Bitmap {
             val width = input.width
             val height = input.height
@@ -662,7 +664,8 @@ class StableDiffusion internal constructor(
                 width = width,
                 height = height,
                 factor = factor,
-                outDims = outDims
+                outDims = outDims,
+                progress = onProgress
             ) ?: throw InferenceFailedException("upscale", "native upscale failed or returned null result")
 
             val outW = outDims[0]

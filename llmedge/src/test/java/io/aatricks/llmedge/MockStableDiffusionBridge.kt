@@ -131,6 +131,34 @@ open class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         return IntArray(outW * outH) { 0xFF000000.toInt() }
     }
 
+    override fun upscale(
+        esrganPath: String,
+        nThreads: Int,
+        tileSize: Int,
+        backend: String,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        factor: Int,
+        outDims: IntArray,
+        progress: VideoProgressCallback?,
+    ): IntArray? {
+        for (i in 1..4) {
+            progress?.onProgress(i, 4, 0, 0, 0.5f)
+        }
+        return upscale(
+            esrganPath = esrganPath,
+            nThreads = nThreads,
+            tileSize = tileSize,
+            backend = backend,
+            pixels = pixels,
+            width = width,
+            height = height,
+            factor = factor,
+            outDims = outDims
+        )
+    }
+
     override fun txt2vid(
         handle: Long,
         prompt: String,

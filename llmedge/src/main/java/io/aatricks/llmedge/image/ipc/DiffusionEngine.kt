@@ -21,7 +21,7 @@ internal interface DiffusionEngine : AutoCloseable {
 
     fun generateVideo(params: VideoGenerationRequest): kotlinx.coroutines.flow.Flow<GenerationStreamEvent>
 
-    suspend fun upscale(request: UpscaleRequest): Bitmap
+    suspend fun upscale(request: UpscaleRequest, onProgress: ((current: Int, total: Int) -> Unit)? = null): Bitmap
 
     fun cancelGeneration()
 

@@ -3050,12 +3050,16 @@ class ImageClientTest {
                 model = ModelSpec.localFile(modelFile),
                 useVulkan = false
             )
-            val result = client.upscale(request)
+            val progressList = mutableListOf<Pair<Int, Int>>()
+            val result = client.upscale(request) { current, total ->
+                progressList.add(current to total)
+            }
             assertEquals(256, result.width)
             assertEquals(256, result.height)
             assertEquals(1, bridge.upscaleCalls.size)
             assertEquals("cpu", bridge.upscaleCalls[0].backend)
             assertEquals(modelFile.absolutePath, bridge.upscaleCalls[0].esrganPath)
+            assertEquals(listOf(1 to 4, 2 to 4, 3 to 4, 4 to 4), progressList)
         } finally {
             client.close()
             edgeScope.close()
