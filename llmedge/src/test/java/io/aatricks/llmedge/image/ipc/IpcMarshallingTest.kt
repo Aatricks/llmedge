@@ -3,6 +3,7 @@ package io.aatricks.llmedge.image.ipc
 import android.os.Parcel
 import android.os.Parcelable
 import io.aatricks.llmedge.image.ImageGenerationRequest
+import io.aatricks.llmedge.image.UpscaleRequest
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageRequestMetrics
@@ -196,5 +197,28 @@ class IpcMarshallingTest {
             )
         val decoded = IpcCodecs.fromIpc(parcelRoundTrip(IpcCodecs.toIpc(request)))
         assertEquals(request, decoded)
+    }
+
+    @Test
+    fun `upscale request survives codec and parcel round trip`() {
+        val bitmap = android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
+        val request = UpscaleRequest(
+            input = bitmap,
+            model = ModelSpec.LocalFile(File("/esrgan.bin")),
+            factor = 4,
+            useVulkan = true
+        )
+        val ipcRequest = IpcCodecs.toIpc(request)
+        val roundTripped = parcelRoundTrip(ipcRequest)
+        val decoded = IpcCodecs.fromIpc(roundTripped)
+
+        assertEquals(request.factor, decoded.factor)
+        assertEquals(request.useVulkan, decoded.useVulkan)
+        assertEquals(request.model, decoded.model)
+        assertEquals(request.input.width, decoded.input.width)
+        assertEquals(request.input.height, decoded.input.height)
+
+        ipcRequest.input.memory.close()
+        roundTripped.input.memory.close()
     }
 }

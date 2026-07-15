@@ -623,6 +623,57 @@ class StableDiffusion internal constructor(
         internal fun supportNativeBridgeOverriddenForTests(): Boolean =
             StableDiffusionCompanionSupport.supportNativeBridgeOverriddenForTests()
 
+        @JvmStatic
+        @JvmName("nativeUpscale")
+        internal external fun nativeUpscale(
+            esrganPath: String,
+            nThreads: Int,
+            tileSize: Int,
+            backend: String,
+            pixels: IntArray,
+            width: Int,
+            height: Int,
+            factor: Int,
+            outDims: IntArray,
+            progress: VideoProgressCallback?,
+        ): IntArray?
+
+        internal fun upscaleImage(
+            modelPath: String,
+            input: Bitmap,
+            factor: Int,
+            nThreads: Int,
+            tileSize: Int,
+            backend: String,
+            onProgress: VideoProgressCallback? = null,
+        ): Bitmap {
+            val width = input.width
+            val height = input.height
+            val pixels = IntArray(width * height)
+            input.getPixels(pixels, 0, width, 0, 0, width, height)
+            val outDims = IntArray(2)
+
+            val dummyInstance = StableDiffusion(0)
+            val bridge = StableDiffusionCompanionSupport.createNativeBridge(dummyInstance)
+            val resultPixels = bridge.upscale(
+                esrganPath = modelPath,
+                nThreads = nThreads,
+                tileSize = tileSize,
+                backend = backend,
+                pixels = pixels,
+                width = width,
+                height = height,
+                factor = factor,
+                outDims = outDims,
+                progress = onProgress
+            ) ?: throw InferenceFailedException("upscale", "native upscale failed or returned null result")
+
+            val outW = outDims[0]
+            val outH = outDims[1]
+            val outBitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+            outBitmap.setPixels(resultPixels, 0, outW, 0, 0, outW, outH)
+            return outBitmap
+        }
     }
 
     internal fun updateModelMetadata(metadata: VideoModelMetadata?) {

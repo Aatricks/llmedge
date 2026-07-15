@@ -268,6 +268,55 @@ internal object StableDiffusionNativeBridgeSupport {
                     easyCacheStartPercent,
                     easyCacheEndPercent,
                 )
+
+            override fun upscale(
+                esrganPath: String,
+                nThreads: Int,
+                tileSize: Int,
+                backend: String,
+                pixels: IntArray,
+                width: Int,
+                height: Int,
+                factor: Int,
+                outDims: IntArray,
+            ): IntArray? =
+                upscale(
+                    esrganPath = esrganPath,
+                    nThreads = nThreads,
+                    tileSize = tileSize,
+                    backend = backend,
+                    pixels = pixels,
+                    width = width,
+                    height = height,
+                    factor = factor,
+                    outDims = outDims,
+                    progress = null,
+                )
+
+            override fun upscale(
+                esrganPath: String,
+                nThreads: Int,
+                tileSize: Int,
+                backend: String,
+                pixels: IntArray,
+                width: Int,
+                height: Int,
+                factor: Int,
+                outDims: IntArray,
+                progress: VideoProgressCallback?,
+            ): IntArray? =
+                StableDiffusion.nativeUpscale(
+                    esrganPath = esrganPath,
+                    nThreads = nThreads,
+                    tileSize = tileSize,
+                    backend = backend,
+                    pixels = pixels,
+                    width = width,
+                    height = height,
+                    factor = factor,
+                    outDims = outDims,
+                    progress = progress,
+                )
         }
     }
 }

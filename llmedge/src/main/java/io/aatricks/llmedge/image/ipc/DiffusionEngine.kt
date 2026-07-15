@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import io.aatricks.llmedge.image.GenerationStreamEvent
 import io.aatricks.llmedge.image.ImageGenerationRequest
 import io.aatricks.llmedge.image.VideoGenerationRequest
+import io.aatricks.llmedge.image.UpscaleRequest
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
 
@@ -16,7 +17,11 @@ import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
 internal interface DiffusionEngine : AutoCloseable {
     suspend fun generate(params: ImageGenerationRequest): Bitmap
 
+    fun generateStream(params: ImageGenerationRequest): kotlinx.coroutines.flow.Flow<GenerationStreamEvent>
+
     fun generateVideo(params: VideoGenerationRequest): kotlinx.coroutines.flow.Flow<GenerationStreamEvent>
+
+    suspend fun upscale(request: UpscaleRequest, onProgress: ((current: Int, total: Int) -> Unit)? = null): Bitmap
 
     fun cancelGeneration()
 

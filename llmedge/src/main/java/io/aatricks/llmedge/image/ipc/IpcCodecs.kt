@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.os.SharedMemory
 import io.aatricks.llmedge.image.ImageGenerationRequest
 import io.aatricks.llmedge.image.VideoGenerationRequest
+import io.aatricks.llmedge.image.UpscaleRequest
 import io.aatricks.llmedge.image.diffusion.EasyCacheParams
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageRequestMetrics
@@ -22,6 +23,22 @@ import java.io.File
 internal object IpcCodecs {
     private const val TYPE_LOCAL = "local"
     private const val TYPE_HF = "hf"
+
+    fun toIpc(request: UpscaleRequest): IpcUpscaleRequest =
+        IpcUpscaleRequest(
+            model = toIpc(request.model),
+            input = PixelCodec.encodeBitmap(request.input, "llmedge_upscale_input"),
+            factor = request.factor,
+            useVulkan = request.useVulkan,
+        )
+
+    fun fromIpc(request: IpcUpscaleRequest): UpscaleRequest =
+        UpscaleRequest(
+            model = fromIpc(request.model),
+            input = PixelCodec.decodeBitmap(request.input),
+            factor = request.factor,
+            useVulkan = request.useVulkan,
+        )
 
     fun toIpc(spec: ModelSpec): IpcModelSpec =
         when (spec) {

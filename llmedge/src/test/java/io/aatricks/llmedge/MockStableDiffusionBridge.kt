@@ -28,7 +28,26 @@ open class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         easyCacheReuseThreshold: Float,
         easyCacheStartPercent: Float,
         easyCacheEndPercent: Float,
-    ): ByteArray? = null
+    ): ByteArray? {
+        if (isCancelled.get()) {
+            isCancelled.set(false)
+            return null
+        }
+        val callback = activeProgressCallback.get()
+        if (callback != null && steps > 0) {
+            for (step in 1..steps) {
+                if (progressCallbackDelayMs > 0) {
+                    Thread.sleep(progressCallbackDelayMs)
+                }
+                if (isCancelled.get()) {
+                    isCancelled.set(false)
+                    return null
+                }
+                callback.onProgress(step, steps, 0, 1, 1.0f)
+            }
+        }
+        return ByteArray(width * height * 3) { 0 }
+    }
 
     // Configuration options
     var shouldFailTxt2Vid = false
@@ -41,6 +60,7 @@ open class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
     val txt2VidCalls = mutableListOf<Txt2VidCall>()
     val setProgressCallbackCalls = mutableListOf<Pair<Long, VideoProgressCallback?>>()
     val cancelGenerationCalls = mutableListOf<Long>()
+    val upscaleCalls = mutableListOf<UpscaleCall>()
 
     // State for progress simulation
     private val activeProgressCallback = AtomicReference<VideoProgressCallback?>()
@@ -68,6 +88,76 @@ open class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         val easyCacheStartPercent: Float,
         val easyCacheEndPercent: Float
     )
+
+    data class UpscaleCall(
+        val esrganPath: String,
+        val nThreads: Int,
+        val tileSize: Int,
+        val backend: String,
+        val width: Int,
+        val height: Int,
+        val factor: Int
+    )
+
+    override fun upscale(
+        esrganPath: String,
+        nThreads: Int,
+        tileSize: Int,
+        backend: String,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        factor: Int,
+        outDims: IntArray,
+    ): IntArray? {
+        upscaleCalls.add(
+            UpscaleCall(
+                esrganPath = esrganPath,
+                nThreads = nThreads,
+                tileSize = tileSize,
+                backend = backend,
+                width = width,
+                height = height,
+                factor = factor
+            )
+        )
+        val factorUsed = if (factor == 0) 4 else factor
+        val outW = width * factorUsed
+        val outH = height * factorUsed
+        if (outDims.size >= 2) {
+            outDims[0] = outW
+            outDims[1] = outH
+        }
+        return IntArray(outW * outH) { 0xFF000000.toInt() }
+    }
+
+    override fun upscale(
+        esrganPath: String,
+        nThreads: Int,
+        tileSize: Int,
+        backend: String,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        factor: Int,
+        outDims: IntArray,
+        progress: VideoProgressCallback?,
+    ): IntArray? {
+        for (i in 1..4) {
+            progress?.onProgress(i, 4, 0, 0, 0.5f)
+        }
+        return upscale(
+            esrganPath = esrganPath,
+            nThreads = nThreads,
+            tileSize = tileSize,
+            backend = backend,
+            pixels = pixels,
+            width = width,
+            height = height,
+            factor = factor,
+            outDims = outDims
+        )
+    }
 
     override fun txt2vid(
         handle: Long,
@@ -155,6 +245,7 @@ open class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         txt2VidCalls.clear()
         setProgressCallbackCalls.clear()
         cancelGenerationCalls.clear()
+        upscaleCalls.clear()
 
         activeProgressCallback.set(null)
         isCancelled.set(false)

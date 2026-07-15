@@ -203,4 +203,40 @@ internal interface StableDiffusionNativeBridgeContract {
             easyCacheStartPercent,
             easyCacheEndPercent,
         )
+
+    fun upscale(
+        esrganPath: String,
+        nThreads: Int,
+        tileSize: Int,
+        backend: String,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        factor: Int,
+        outDims: IntArray,
+    ): IntArray? = throw UnsatisfiedLinkError("nativeUpscale")
+
+    fun upscale(
+        esrganPath: String,
+        nThreads: Int,
+        tileSize: Int,
+        backend: String,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        factor: Int,
+        outDims: IntArray,
+        progress: VideoProgressCallback?,
+    ): IntArray? =
+        upscale(
+            esrganPath = esrganPath,
+            nThreads = nThreads,
+            tileSize = tileSize,
+            backend = backend,
+            pixels = pixels,
+            width = width,
+            height = height,
+            factor = factor,
+            outDims = outDims,
+        )
 }

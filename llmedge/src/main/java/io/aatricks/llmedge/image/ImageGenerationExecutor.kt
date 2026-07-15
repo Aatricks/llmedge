@@ -27,23 +27,26 @@ internal class ImageGenerationExecutor(
     private val logTag: String,
     private val phaseListener: DiffusionPhaseListener? = null,
 ) {
-    suspend fun generate(params: ImageGenerationRequest): Bitmap =
+    suspend fun generate(
+        params: ImageGenerationRequest,
+        onProgress: ((step: Int, totalSteps: Int) -> Unit)? = null
+    ): Bitmap =
         generationMutex.withLock {
             val decision = executionPlanSelector.decide(params, config)
             if (decision.mode == ImageExecutionMode.SEQUENTIAL) {
-                return@withLock generateSequential(params, decision.recipe.profile)
+                return@withLock generateSequential(params, decision.recipe.profile, onProgress)
             }
 
             val directRequest = ImageRuntimeRequestPlanner.imageRequest(params, config)
             try {
-                generateDirect(params, directRequest)
+                generateDirect(params, directRequest, onProgress)
             } catch (error: ModelLoadException) {
                 if (params.sequential != null || !decision.recipe.supportsSequential) {
                     throw error
                 }
                 requestExecutor.invalidateRuntime(directRequest.spec, directRequest.options)
                 AndroidLogAdapter.w(logTag, "Automatic direct image load failed; retrying staged ${decision.recipe.profile} execution")
-                generateSequential(params, decision.recipe.profile)
+                generateSequential(params, decision.recipe.profile, onProgress)
             }
         }
 
@@ -59,6 +62,7 @@ internal class ImageGenerationExecutor(
     private suspend fun generateSequential(
         params: ImageGenerationRequest,
         profile: ImageConditioningProfile,
+        onProgress: ((step: Int, totalSteps: Int) -> Unit)? = null,
     ): Bitmap {
         state.resetForRequest()
         val isSd3 = profile == ImageConditioningProfile.SD3_CLIP_T5
@@ -178,24 +182,31 @@ internal class ImageGenerationExecutor(
             retryMessage = "Retrying $modelName sequential diffusion on the next backend for",
         ) { model, _, acquire ->
             phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
-            phaseListener?.let { listener ->
+            if (phaseListener != null || onProgress != null) {
                 model.setProgressCallback { step, totalSteps, _, _, _ ->
-                    listener.onStep(step, totalSteps)
+                    phaseListener?.onStep(step, totalSteps)
+                    onProgress?.invoke(step, totalSteps)
                 }
             }
-            val rgb =
-                model.txt2ImgWithPrecomputedCondition(
-                    prompt = params.prompt,
-                    negative = if (isSd3 || isChroma) params.negative else "",
-                    width = params.width,
-                    height = params.height,
-                    steps = params.steps,
-                    cfg = params.cfgScale,
-                    seed = params.seed,
-                    cond = cond,
-                    uncond = uncond,
-                ) ?: throw IllegalStateException("$modelName sequential generation returned null")
-            rgbToBitmap(rgb, params.width, params.height)
+            try {
+                val rgb =
+                    model.txt2ImgWithPrecomputedCondition(
+                        prompt = params.prompt,
+                        negative = if (isSd3 || isChroma) params.negative else "",
+                        width = params.width,
+                        height = params.height,
+                        steps = params.steps,
+                        cfg = params.cfgScale,
+                        seed = params.seed,
+                        cond = cond,
+                        uncond = uncond,
+                    ) ?: throw IllegalStateException("$modelName sequential generation returned null")
+                rgbToBitmap(rgb, params.width, params.height)
+            } finally {
+                if (phaseListener != null || onProgress != null) {
+                    model.setProgressCallback(null)
+                }
+            }
         }
     }
 
@@ -279,6 +290,7 @@ internal class ImageGenerationExecutor(
     private suspend fun generateDirect(
         params: ImageGenerationRequest,
         request: PlannedDiffusionRuntimeRequest,
+        onProgress: ((step: Int, totalSteps: Int) -> Unit)? = null,
     ): Bitmap {
         state.resetForRequest()
         val requestId = imageRequestIds.incrementAndGet()
@@ -329,9 +341,10 @@ internal class ImageGenerationExecutor(
                     "ImageClient dispatching to StableDiffusion.txt2img",
                 )
                 phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
-                phaseListener?.let { listener ->
+                if (phaseListener != null || onProgress != null) {
                     model.setProgressCallback { step, totalSteps, _, _, _ ->
-                        listener.onStep(step, totalSteps)
+                        phaseListener?.onStep(step, totalSteps)
+                        onProgress?.invoke(step, totalSteps)
                     }
                 }
                 val generationStartNanos = System.nanoTime()
@@ -350,7 +363,7 @@ internal class ImageGenerationExecutor(
                             ),
                         )
                     } finally {
-                        if (phaseListener != null) model.setProgressCallback(null)
+                        if (phaseListener != null || onProgress != null) model.setProgressCallback(null)
                     }
                 val generateMs = elapsedMillis(generationStartNanos)
                 val requestMetrics =
