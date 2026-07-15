@@ -36,6 +36,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import java.lang.Thread.sleep
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertFalse
@@ -2870,6 +2871,156 @@ class ImageClientTest {
             assertEquals(true, observedComponentPaths?.chromaT5ConditionerOnly)
         } finally {
             loaded.close()
+        }
+    }
+
+    @Test
+    fun `generateStream emits progress and completed`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val modelFile = java.io.File.createTempFile("stream-model", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        val bridge = io.aatricks.llmedge.MockStableDiffusionBridge().apply {
+            progressCallbackDelayMs = 0L
+        }
+        StableDiffusion.overrideNativeBridgeForTests { bridge }
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            val events = mutableListOf<GenerationStreamEvent>()
+            client.generateStream(
+                ImageGenerationRequest(
+                    prompt = "test stream",
+                    width = 128,
+                    height = 128,
+                    steps = 5,
+                    model = ModelSpec.localFile(modelFile),
+                )
+            ).collect {
+                events.add(it)
+            }
+
+            assertTrue(events.isNotEmpty())
+            val progresses = events.filterIsInstance<GenerationStreamEvent.Progress>()
+            val completedList = events.filterIsInstance<GenerationStreamEvent.Completed>()
+
+            assertEquals(1, completedList.size)
+            assertEquals(1, completedList[0].frames.size)
+            val bitmap = completedList[0].frames[0]
+            assertEquals(128, bitmap.width)
+            assertEquals(128, bitmap.height)
+
+            assertTrue(progresses.isNotEmpty())
+            var lastStep = 0
+            for (p in progresses) {
+                assertEquals("Sampling", p.update.message)
+                assertTrue(p.update.current > lastStep)
+                assertEquals(5, p.update.total)
+                lastStep = p.update.current
+            }
+        } finally {
+            client.close()
+            edgeScope.close()
+            StableDiffusion.resetNativeBridgeForTests()
+            modelFile.delete()
+        }
+    }
+
+    @Test
+    // Deliberately runBlocking + a real dispatcher, NOT runTest: the abandoned generation
+    // coroutine still holds the model mutex when close() runs, and closeOnce's runBlocking
+    // deadlocks the single-threaded virtual scheduler waiting for it.
+    fun `cancelling generateStream collection triggers cancelGeneration`() = kotlinx.coroutines.runBlocking {
+        val realScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val modelFile = java.io.File.createTempFile("cancel-model", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        val bridge = io.aatricks.llmedge.MockStableDiffusionBridge().apply {
+            progressCallbackDelayMs = 100L
+        }
+        StableDiffusion.overrideNativeBridgeForTests { bridge }
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val constructor = StableDiffusion::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
+            constructor.isAccessible = true
+            constructor.newInstance(1L)
+        }
+
+        val edgeScope = LLMEdgeScope(realScope, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            val flow = client.generateStream(
+                ImageGenerationRequest(
+                    prompt = "test stream",
+                    width = 128,
+                    height = 128,
+                    steps = 5,
+                    model = ModelSpec.localFile(modelFile),
+                )
+            )
+
+            kotlinx.coroutines.withTimeoutOrNull(5000) {
+                try {
+                    flow.collect { event ->
+                        if (event is GenerationStreamEvent.Progress) {
+                            throw kotlinx.coroutines.CancellationException("Simulated cancel")
+                        }
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    if (e.message != "Simulated cancel") throw e
+                }
+            }
+
+            // awaitClose runs on the producer's thread; give it a moment to invoke cancelGeneration.
+            val deadline = System.currentTimeMillis() + 5000
+            while (bridge.cancelGenerationCalls.isEmpty() && System.currentTimeMillis() < deadline) {
+                kotlinx.coroutines.delay(20)
+            }
+            assertTrue(bridge.cancelGenerationCalls.isNotEmpty())
+        } finally {
+            client.close()
+            edgeScope.close()
+            realScope.cancel()
+            StableDiffusion.resetNativeBridgeForTests()
+            modelFile.delete()
         }
     }
 }

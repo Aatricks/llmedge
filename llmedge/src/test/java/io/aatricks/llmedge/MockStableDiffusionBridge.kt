@@ -28,7 +28,26 @@ open class MockStableDiffusionBridge : StableDiffusion.NativeBridge {
         easyCacheReuseThreshold: Float,
         easyCacheStartPercent: Float,
         easyCacheEndPercent: Float,
-    ): ByteArray? = null
+    ): ByteArray? {
+        if (isCancelled.get()) {
+            isCancelled.set(false)
+            return null
+        }
+        val callback = activeProgressCallback.get()
+        if (callback != null && steps > 0) {
+            for (step in 1..steps) {
+                if (progressCallbackDelayMs > 0) {
+                    Thread.sleep(progressCallbackDelayMs)
+                }
+                if (isCancelled.get()) {
+                    isCancelled.set(false)
+                    return null
+                }
+                callback.onProgress(step, steps, 0, 1, 1.0f)
+            }
+        }
+        return ByteArray(width * height * 3) { 0 }
+    }
 
     // Configuration options
     var shouldFailTxt2Vid = false

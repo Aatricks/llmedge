@@ -17,6 +17,7 @@ import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -347,5 +348,182 @@ class IsolatedDiffusionEngineTest {
         assertTrue(error is WorkerKilledByMemoryException)
         assertEquals(1, requestSlots.size)
         assertEquals(false, requestSlots.single().sequential)
+    }
+
+    @Test
+    fun `generateStream emits Progress on STEP and Completed on onCompleted`() = runTest {
+        val params = ImageGenerationRequest(prompt = "hello")
+
+        val callbackSlots = mutableListOf<IDiffusionResultCallback>()
+        every {
+            worker.generateImage(any(), any())
+        } answers {
+            callbackSlots.add(secondArg<IDiffusionResultCallback>())
+        }
+
+        val shm = SharedMemory.create("test", 12)
+        val mockFrame = IpcFrameBuffer(shm, 1, 1, 1)
+        val mockResult = IpcImageResult(mockFrame, null)
+        val mockBitmap = mockk<android.graphics.Bitmap>(relaxed = true)
+        every { PixelCodec.decodeBitmap(any()) } returns mockBitmap
+
+        val events = mutableListOf<io.aatricks.llmedge.image.GenerationStreamEvent>()
+        // The shared `engine` uses a detached TestScope whose scheduler never advances
+        // under this runTest; generateStream launches its producer there and would hang.
+        // Bind a local engine to this test's scope instead.
+        val streamScope = LLMEdgeScope(this, 1)
+        val streamEngine = IsolatedDiffusionEngine(
+            context = context,
+            edgeScope = streamScope,
+            config = LLMEdgeConfig(),
+            connectionManager = connectionManager,
+        )
+        val job = launch {
+            streamEngine.generateStream(params).collect {
+                events.add(it)
+            }
+        }
+
+        while (callbackSlots.isEmpty()) {
+            kotlinx.coroutines.yield()
+        }
+        val callback = callbackSlots.first()
+
+        callback.onPhase(
+            PhaseUpdate(
+                phase = DiffusionPhases.STEP,
+                backend = null,
+                step = 5,
+                totalSteps = 20,
+                uptimeMillis = 100L
+            )
+        )
+        callback.onCompleted(mockResult)
+        job.join()
+        streamScope.close()
+
+        assertEquals(2, events.size)
+        val progress = events[0] as io.aatricks.llmedge.image.GenerationStreamEvent.Progress
+        assertEquals("Sampling", progress.update.message)
+        assertEquals(5, progress.update.current)
+        assertEquals(20, progress.update.total)
+
+        val completed = events[1] as io.aatricks.llmedge.image.GenerationStreamEvent.Completed
+        assertEquals(1, completed.frames.size)
+        assertEquals(mockBitmap, completed.frames[0])
+    }
+
+    @Test
+    fun `generateStream emits no Progress for non-STEP phase updates`() = runTest {
+        val params = ImageGenerationRequest(prompt = "hello")
+
+        val callbackSlots = mutableListOf<IDiffusionResultCallback>()
+        every {
+            worker.generateImage(any(), any())
+        } answers {
+            callbackSlots.add(secondArg<IDiffusionResultCallback>())
+        }
+
+        val shm = SharedMemory.create("test", 12)
+        val mockFrame = IpcFrameBuffer(shm, 1, 1, 1)
+        val mockResult = IpcImageResult(mockFrame, null)
+        val mockBitmap = mockk<android.graphics.Bitmap>(relaxed = true)
+        every { PixelCodec.decodeBitmap(any()) } returns mockBitmap
+
+        val events = mutableListOf<io.aatricks.llmedge.image.GenerationStreamEvent>()
+        // The shared `engine` uses a detached TestScope whose scheduler never advances
+        // under this runTest; generateStream launches its producer there and would hang.
+        // Bind a local engine to this test's scope instead.
+        val streamScope = LLMEdgeScope(this, 1)
+        val streamEngine = IsolatedDiffusionEngine(
+            context = context,
+            edgeScope = streamScope,
+            config = LLMEdgeConfig(),
+            connectionManager = connectionManager,
+        )
+        val job = launch {
+            streamEngine.generateStream(params).collect {
+                events.add(it)
+            }
+        }
+
+        while (callbackSlots.isEmpty()) {
+            kotlinx.coroutines.yield()
+        }
+        val callback = callbackSlots.first()
+
+        callback.onPhase(
+            PhaseUpdate(
+                phase = DiffusionPhases.LOADING,
+                backend = "CPU",
+                step = 0,
+                totalSteps = 0,
+                uptimeMillis = 100L
+            )
+        )
+        callback.onCompleted(mockResult)
+        job.join()
+        streamScope.close()
+
+        assertEquals(1, events.size)
+        assertTrue(events[0] is io.aatricks.llmedge.image.GenerationStreamEvent.Completed)
+    }
+
+    @Test
+    fun `generateStream drives watchdog with step updates`() = runTest {
+        io.mockk.mockkConstructor(GenerationWatchdog::class)
+        every { anyConstructed<GenerationWatchdog>().onStep(any(), any()) } returns Unit
+        every { anyConstructed<GenerationWatchdog>().onPhase(any(), any()) } returns Unit
+
+        val params = ImageGenerationRequest(prompt = "hello")
+
+        val callbackSlots = mutableListOf<IDiffusionResultCallback>()
+        every {
+            worker.generateImage(any(), any())
+        } answers {
+            callbackSlots.add(secondArg<IDiffusionResultCallback>())
+        }
+
+        val shm = SharedMemory.create("test", 12)
+        val mockFrame = IpcFrameBuffer(shm, 1, 1, 1)
+        val mockResult = IpcImageResult(mockFrame, null)
+        val mockBitmap = mockk<android.graphics.Bitmap>(relaxed = true)
+        every { PixelCodec.decodeBitmap(any()) } returns mockBitmap
+
+        // The shared `engine` uses a detached TestScope whose scheduler never advances
+        // under this runTest; generateStream launches its producer there and would hang.
+        // Bind a local engine to this test's scope instead.
+        val streamScope = LLMEdgeScope(this, 1)
+        val streamEngine = IsolatedDiffusionEngine(
+            context = context,
+            edgeScope = streamScope,
+            config = LLMEdgeConfig(),
+            connectionManager = connectionManager,
+        )
+        val job = launch {
+            streamEngine.generateStream(params).collect {}
+        }
+
+        while (callbackSlots.isEmpty()) {
+            kotlinx.coroutines.yield()
+        }
+        val callback = callbackSlots.first()
+
+        callback.onPhase(
+            PhaseUpdate(
+                phase = DiffusionPhases.STEP,
+                backend = null,
+                step = 7,
+                totalSteps = 15,
+                uptimeMillis = 100L
+            )
+        )
+        callback.onCompleted(mockResult)
+        job.join()
+        streamScope.close()
+
+        io.mockk.verify {
+            anyConstructed<GenerationWatchdog>().onStep(7, 15)
+        }
     }
 }

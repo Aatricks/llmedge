@@ -18,14 +18,18 @@ import io.aatricks.llmedge.image.createDiffusionRuntimePool
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
 import io.aatricks.llmedge.model.ModelRepository
+import io.aatricks.llmedge.core.ProgressEvent
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
 /** The historical in-process diffusion stack, extracted verbatim from ImageClient. */
 internal class InProcessDiffusionEngine(
     appContext: Context,
-    edgeScope: LLMEdgeScope,
+    private val edgeScope: LLMEdgeScope,
     config: LLMEdgeConfig,
     modelRepository: ModelRepository,
     logTag: String = "ImageClient",
@@ -59,6 +63,26 @@ internal class InProcessDiffusionEngine(
         )
 
     override suspend fun generate(params: ImageGenerationRequest): Bitmap = imageGenerationExecutor.generate(params)
+
+    override fun generateStream(params: ImageGenerationRequest): Flow<GenerationStreamEvent> =
+        callbackFlow {
+            val job =
+                edgeScope.coroutineScope.launch {
+                    try {
+                        val bitmap = imageGenerationExecutor.generate(params) { step, totalSteps ->
+                            trySend(GenerationStreamEvent.Progress(ProgressEvent.Step("Sampling", step, totalSteps)))
+                        }
+                        trySend(GenerationStreamEvent.Completed(listOf(bitmap)))
+                        close()
+                    } catch (t: Throwable) {
+                        close(t)
+                    }
+                }
+            awaitClose {
+                job.cancel()
+                cancelGeneration()
+            }
+        }
 
     override fun generateVideo(params: VideoGenerationRequest): Flow<GenerationStreamEvent> =
         videoGenerationExecutor.generate(params)

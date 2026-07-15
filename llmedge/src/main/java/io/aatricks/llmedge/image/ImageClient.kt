@@ -177,6 +177,18 @@ class ImageClient internal constructor(
         params: VideoGenerationRequest,
     ): Flow<GenerationStreamEvent> = engine.generateVideo(params)
 
+    /**
+     * Stream progress and the final image for text-to-image generation.
+     *
+     * Cancel the collection to stop generation.
+     *
+     * @throws io.aatricks.llmedge.core.LLMEdgeException when model resolution, loading, or native
+     * generation fails.
+     */
+    fun generateStream(
+        params: ImageGenerationRequest,
+    ): Flow<GenerationStreamEvent> = engine.generateStream(params)
+
     /** Request cancellation for the active generation, if any. */
     fun cancelGeneration() {
         engine.cancelGeneration()

@@ -83,12 +83,18 @@ internal class IsolatedDiffusionEngine(
     }
 
     override suspend fun generate(params: ImageGenerationRequest): Bitmap =
+        generateBitmapInternal(params, null)
+
+    private suspend fun generateBitmapInternal(
+        params: ImageGenerationRequest,
+        onStep: ((Int, Int) -> Unit)?,
+    ): Bitmap =
         generationMutex.withLock {
             val phaseTracker = ImageRequestPhaseTracker()
             try {
                 val result =
                     runWithRecovery(ComputeSubsystem.IMAGE) { forceCpu ->
-                        issueImageRequest(params, forceCpu, phaseTracker)
+                        issueImageRequest(params, forceCpu, phaseTracker, onStep)
                     }
                 lastMetrics = result.metrics?.let(IpcCodecs::fromIpc)
                 PixelCodec.decodeBitmap(result.frame)
@@ -97,7 +103,7 @@ internal class IsolatedDiffusionEngine(
                     AndroidLogAdapter.w(LOG_TAG, "Worker OOM-killed while loading; retrying staged image generation")
                     val result =
                         runWithRecovery(ComputeSubsystem.IMAGE) { forceCpu ->
-                            issueImageRequest(params.copy(sequential = true), forceCpu)
+                            issueImageRequest(params.copy(sequential = true), forceCpu, onStep = onStep)
                         }
                     lastMetrics = result.metrics?.let(IpcCodecs::fromIpc)
                     PixelCodec.decodeBitmap(result.frame)
@@ -114,6 +120,28 @@ internal class IsolatedDiffusionEngine(
         params.sequential == null &&
             ImageExecutionPlanner.recipeFor(params).supportsSequential &&
             lastPhase == DiffusionPhases.LOADING
+
+    override fun generateStream(params: ImageGenerationRequest): Flow<GenerationStreamEvent> =
+        callbackFlow {
+            val job =
+                edgeScope.coroutineScope.launch {
+                    try {
+                        val bitmap = generateBitmapInternal(params) { s, t ->
+                            trySend(
+                                GenerationStreamEvent.Progress(ProgressEvent.Step("Sampling", s, t))
+                            )
+                        }
+                        trySend(GenerationStreamEvent.Completed(listOf(bitmap)))
+                        close()
+                    } catch (t: Throwable) {
+                        close(t)
+                    }
+                }
+            awaitClose {
+                job.cancel()
+                cancelGeneration()
+            }
+        }
 
     override fun generateVideo(params: VideoGenerationRequest): Flow<GenerationStreamEvent> =
         callbackFlow {
@@ -233,6 +261,7 @@ internal class IsolatedDiffusionEngine(
         params: ImageGenerationRequest,
         forceCpu: Boolean,
         phaseTracker: ImageRequestPhaseTracker? = null,
+        onStep: ((Int, Int) -> Unit)? = null,
     ): IpcImageResult {
         val deferred = CompletableDeferred<IpcImageResult>()
         return runRequest(deferred, forceCpu) { connection, watchdog ->
@@ -241,6 +270,9 @@ internal class IsolatedDiffusionEngine(
                     override fun onPhase(update: PhaseUpdate) {
                         phaseTracker?.lastPhase = update.phase
                         dispatchPhase(watchdog, update)
+                        if (update.phase == DiffusionPhases.STEP) {
+                            onStep?.invoke(update.step, update.totalSteps)
+                        }
                     }
 
                     override fun onCompleted(result: IpcImageResult) {

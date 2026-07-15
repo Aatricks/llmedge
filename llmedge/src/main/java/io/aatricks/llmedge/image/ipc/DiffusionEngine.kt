@@ -16,6 +16,8 @@ import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
 internal interface DiffusionEngine : AutoCloseable {
     suspend fun generate(params: ImageGenerationRequest): Bitmap
 
+    fun generateStream(params: ImageGenerationRequest): kotlinx.coroutines.flow.Flow<GenerationStreamEvent>
+
     fun generateVideo(params: VideoGenerationRequest): kotlinx.coroutines.flow.Flow<GenerationStreamEvent>
 
     fun cancelGeneration()
