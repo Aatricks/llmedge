@@ -70,6 +70,7 @@ internal class IsolatedDiffusionEngine(
                 AndroidLogAdapter.w(LOG_TAG, "Seeded persisted backend verdicts: $persisted")
             }
         }
+        ingestVulkanCreateFailureMarker()
     }
 
     private class ActiveRequest(
@@ -179,8 +180,9 @@ internal class IsolatedDiffusionEngine(
     private suspend fun <T> runWithRecovery(
         subsystem: ComputeSubsystem,
         issue: suspend (forceCpu: Boolean) -> T,
-    ): T =
-        try {
+    ): T {
+        ingestVulkanCreateFailureMarker()
+        return try {
             issue(false)
         } catch (hang: GenerationHangException) {
             recordHangVerdict(subsystem, hang.backend)
@@ -192,11 +194,40 @@ internal class IsolatedDiffusionEngine(
                 }
             }
         } catch (crash: WorkerCrashedException) {
-            if (crash.backend == ComputeBackend.CPU.name) throw crash
-            markSessionBlacklist(subsystem, crash.backend)
-            AndroidLogAdapter.w(LOG_TAG, "Worker crashed (${crash.message}); retrying on CPU")
-            issue(true)
+            // A crash whose tombstone names a vulkan driver library taints the whole worker
+            // process — even when the session computed on CPU (the capacity probe or a failed
+            // Vulkan create attempt initialized the driver). Quarantine Vulkan and retry once in
+            // a fresh worker that never loads the driver.
+            val vulkanImplicated = crashImplicatesVulkanDriver(crash.crashSummary)
+            if (vulkanImplicated) {
+                recordHangVerdict(subsystem, ComputeBackend.VULKAN.name)
+            }
+            if (crash.backend == ComputeBackend.CPU.name) {
+                if (!vulkanImplicated) throw crash
+                AndroidLogAdapter.w(
+                    LOG_TAG,
+                    "CPU-session crash implicates the Vulkan driver (${crash.message}); retrying with Vulkan quarantined",
+                )
+                issue(true)
+            } else {
+                markSessionBlacklist(subsystem, crash.backend)
+                AndroidLogAdapter.w(LOG_TAG, "Worker crashed (${crash.message}); retrying on CPU")
+                issue(true)
+            }
         }
+    }
+
+    /** True when the tombstone summary names a vulkan driver library (e.g. vulkan.mtk.so, libvulkan.so). */
+    private fun crashImplicatesVulkanDriver(crashSummary: String?): Boolean =
+        crashSummary != null && VULKAN_DRIVER_LIBRARY.containsMatchIn(crashSummary)
+
+    /** Converts a worker-side "Vulkan create failed" breadcrumb into a persisted verdict. */
+    private fun ingestVulkanCreateFailureMarker() {
+        if (!io.aatricks.llmedge.image.diffusion.VulkanCreateFailureMarker.consume(context)) return
+        AndroidLogAdapter.w(LOG_TAG, "Worker reported a failed Vulkan create attempt; quarantining Vulkan")
+        recordHangVerdict(ComputeSubsystem.IMAGE, ComputeBackend.VULKAN.name)
+        recordHangVerdict(ComputeSubsystem.VIDEO, ComputeBackend.VULKAN.name)
+    }
 
     private suspend fun issueImageRequest(
         params: ImageGenerationRequest,
@@ -412,5 +443,6 @@ internal class IsolatedDiffusionEngine(
 
     companion object {
         private const val LOG_TAG = "IsolatedDiffusion"
+        private val VULKAN_DRIVER_LIBRARY = Regex("(?i)(lib)?vulkan[\\w.]*\\.so")
     }
 }

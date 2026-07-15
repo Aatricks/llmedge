@@ -83,6 +83,11 @@ internal class DiffusionWorkerService : Service() {
                             subsystem to backend
                         },
                     )
+                    // Must run before the first native call: keeps unstable vendor Vulkan drivers
+                    // from ever loading in this process (probe included) once Vulkan is disallowed.
+                    WorkerVulkanGate.apply(
+                        WorkerVulkanGate.shouldDisable(config.useVulkan, config.blacklistSeed),
+                    )
                     bootstrap = newBootstrap
                     engine =
                         InProcessDiffusionEngine(
