@@ -2688,4 +2688,117 @@ class ImageClientTest {
             StableDiffusion.resetNativeBridgeForTests()
         }
     }
+
+    @Test
+    fun `Chroma sequential image execution precomputes positive and negative conditions and passes both to diffusion`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val baseDir = context.filesDir
+        val ditFile = java.io.File.createTempFile("chroma-dit", ".gguf", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+        val t5File = java.io.File.createTempFile("chroma-t5", ".safetensors", baseDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        val events = mutableListOf<String>()
+        var observedCond: PrecomputedCondition? = null
+        var observedUncond: PrecomputedCondition? = null
+        var t5ModelClosedBeforeDitLoad = false
+        var t5ModelClosed = false
+
+        val t5Model = mockk<StableDiffusion>(relaxed = true)
+        val ditModel = mockk<StableDiffusion>(relaxed = true)
+
+        val condChroma = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(5.0f),
+            cCrossAttnDims = intArrayOf(1, 1),
+        )
+        val uncondChroma = PrecomputedCondition(
+            cCrossAttn = floatArrayOf(6.0f),
+            cCrossAttnDims = intArrayOf(1, 1),
+        )
+
+        coEvery { t5Model.precomputeCondition(any(), any(), any(), any(), any()) } coAnswers {
+            val promptArg = arg<String>(0)
+            events.add("t5.precompute($promptArg)")
+            if (promptArg == "test prompt") condChroma else uncondChroma
+        }
+
+        every { t5Model.close() } answers {
+            t5ModelClosed = true
+            events.add("t5.close()")
+        }
+
+        every { ditModel.txt2ImgWithPrecomputedCondition(
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        ) } answers {
+            val callArgs = it.invocation.args
+            observedCond = callArgs[8] as PrecomputedCondition?
+            observedUncond = callArgs[9] as PrecomputedCondition?
+            events.add("txt2ImgWithPrecomputedCondition")
+            ByteArray(256 * 256 * 3) { 0 }
+        }
+
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            val callArgs = it.invocation.args
+            val isT5 = callArgs[5] as? String? != null
+            if (isT5) {
+                events.add("load(T5)")
+                t5Model
+            } else {
+                events.add("load(diffusion)")
+                if (t5ModelClosed) {
+                    t5ModelClosedBeforeDitLoad = true
+                }
+                ditModel
+            }
+        }
+
+        val edgeScope = LLMEdgeScope(this, 1)
+        val client =
+            ImageClient.forTesting(
+                context = context,
+                scope = edgeScope,
+                config = LLMEdgeConfig(),
+                resolver = DefaultModelRepository(),
+            )
+
+        try {
+            client.generate(
+                ImageGenerationRequest(
+                    prompt = "test prompt",
+                    width = 256,
+                    height = 256,
+                    sequential = true,
+                    splitDiffusionModel = true,
+                    model = ModelSpec.localFile(ditFile),
+                    t5xxl = ModelSpec.localFile(t5File),
+                ),
+            )
+
+            val expectedEvents = listOf(
+                "load(T5)",
+                "t5.precompute(test prompt)",
+                "t5.precompute()",
+                "t5.close()",
+                "load(diffusion)",
+                "txt2ImgWithPrecomputedCondition"
+            )
+            assertEquals(expectedEvents, events)
+            assertTrue("T5 encoder must be closed before DiT model is loaded", t5ModelClosedBeforeDitLoad)
+            org.junit.Assert.assertSame(condChroma, observedCond)
+            org.junit.Assert.assertSame(uncondChroma, observedUncond)
+        } finally {
+            client.close()
+            edgeScope.close()
+            ditFile.delete()
+            t5File.delete()
+            StableDiffusion.resetNativeBridgeForTests()
+        }
+    }
 }

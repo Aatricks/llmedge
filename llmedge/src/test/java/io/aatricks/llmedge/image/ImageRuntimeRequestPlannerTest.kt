@@ -234,4 +234,37 @@ class ImageRuntimeRequestPlannerTest {
         org.junit.Assert.assertNull(sequentialPlan.diffusionRequest.options.weightType)
         org.junit.Assert.assertNull(sequentialPlan.diffusionRequest.options.tensorTypeRules)
     }
+
+    @Test
+    fun `Chroma Radiance sequential planner has two phases with exact inclusion and exclusion`() {
+        val t5xxlSpec = ModelSpec.LocalFile(File("t5xxl.safetensors"))
+        val ditModelSpec = ModelSpec.LocalFile(File("dit.safetensors"))
+
+        val params = ImageGenerationRequest(
+            prompt = "x",
+            model = ditModelSpec,
+            t5xxl = t5xxlSpec,
+            splitDiffusionModel = true,
+            sequential = true
+        )
+        val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, LLMEdgeConfig())
+
+        // Phase 1: T5-only (T5 present, CLIPs absent, GPU-eligible when Vulkan enabled)
+        assertTrue(plan.conditioningRequest.spec.encoderOnly)
+        assertTrue(plan.conditioningRequest.options.allowGpu)
+        org.junit.Assert.assertNull(plan.conditioningRequest.spec.clipL)
+        org.junit.Assert.assertNull(plan.conditioningRequest.spec.clipG)
+        org.junit.Assert.assertEquals(t5xxlSpec, plan.conditioningRequest.spec.t5xxl)
+        org.junit.Assert.assertEquals(t5xxlSpec, plan.conditioningRequest.spec.model)
+        org.junit.Assert.assertNull(plan.conditioningRequest.spec.vae)
+        org.junit.Assert.assertNull(plan.conditioningRequest2)
+
+        // Phase 2: DiT (DiT present, CLIP/T5/VAE absent)
+        org.junit.Assert.assertEquals(ditModelSpec, plan.diffusionRequest.spec.model)
+        org.junit.Assert.assertNull(plan.diffusionRequest.spec.vae)
+        org.junit.Assert.assertNull(plan.diffusionRequest.spec.clipL)
+        org.junit.Assert.assertNull(plan.diffusionRequest.spec.clipG)
+        org.junit.Assert.assertNull(plan.diffusionRequest.spec.t5xxl)
+        assertTrue(plan.diffusionRequest.spec.splitDiffusionModel)
+    }
 }

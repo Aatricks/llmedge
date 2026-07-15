@@ -34,6 +34,15 @@ class InvalidModelStateException(
 class InvalidGenerationParametersException(detail: String) :
     IllegalArgumentException(detail)
 
+class InsufficientMemoryException(
+    val requiredBytes: Long,
+    val availableBytes: Long,
+    operation: String,
+) : LLMEdgeException(
+    "Insufficient memory for $operation: requires approximately " +
+        "${requiredBytes / (1024L * 1024L)}MB with ${availableBytes / (1024L * 1024L)}MB safely available.",
+)
+
 class InvalidModelFileException(
     val modelPath: String,
     detail: String,

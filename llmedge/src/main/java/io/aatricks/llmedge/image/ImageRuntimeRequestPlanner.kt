@@ -96,6 +96,7 @@ internal object ImageRuntimeRequestPlanner {
             "Sequential image generation requires a splittable conditioning profile"
         }
         val isSd3 = profile == ImageConditioningProfile.SD3_CLIP_T5
+        val isChromaT5 = profile == ImageConditioningProfile.CHROMA_T5
         val isMaskedT5 = profile == ImageConditioningProfile.MASKED_T5
         val ditModel = params.model ?: config.models.image
         val baseOptions =
@@ -134,6 +135,18 @@ internal object ImageRuntimeRequestPlanner {
                 clipG = null,
                 encoderOnly = true,
             )
+        } else if (isChromaT5) {
+            val t5xxl = params.t5xxl ?: error("Chroma sequential conditioning requires a t5xxl model")
+            conditioningSpec = DiffusionRuntimeSpec(
+                role = DiffusionRuntimeRole.IMAGE,
+                model = t5xxl,
+                t5xxl = t5xxl,
+                clipL = null,
+                clipG = null,
+                encoderOnly = true,
+                conditioningProfile = profile,
+            )
+            conditioningSpec2 = null
         } else {
             val encoderSpec = params.textEncoder ?: error("sequential image generation requires a textEncoder")
             conditioningSpec = DiffusionRuntimeSpec(
@@ -146,7 +159,7 @@ internal object ImageRuntimeRequestPlanner {
         }
         val diffusionSpec =
             when {
-                isSd3 ->
+                isSd3 || isChromaT5 ->
                     DiffusionRuntimeSpec(
                         role = DiffusionRuntimeRole.IMAGE,
                         model = ditModel,
@@ -192,7 +205,7 @@ internal object ImageRuntimeRequestPlanner {
             conditioningRequest =
                 PlannedDiffusionRuntimeRequest(
                     spec = conditioningSpec,
-                    options = conditioningOptions,
+                    options = if (isChromaT5) t5ConditioningOptions else conditioningOptions,
                 ),
             conditioningRequest2 = conditioningSpec2?.let {
                 PlannedDiffusionRuntimeRequest(
@@ -233,8 +246,9 @@ internal object ImageRuntimeRequestPlanner {
     fun videoPlan(
         params: VideoGenerationRequest,
         config: LLMEdgeConfig,
+        sequentialLoad: Boolean = params.forceSequentialLoad,
     ): DiffusionExecutionPlan =
-        if (params.forceSequentialLoad) {
+        if (sequentialLoad) {
             DiffusionExecutionPlan.Sequential(
                 conditioningRequest = sequentialVideoConditioningRequest(params, config),
                 diffusionRequest = sequentialVideoDiffusionRequest(params, config),

@@ -62,12 +62,14 @@ internal class ImageGenerationExecutor(
     ): Bitmap {
         state.resetForRequest()
         val isSd3 = profile == ImageConditioningProfile.SD3_CLIP_T5
+        val isChroma = profile == ImageConditioningProfile.CHROMA_T5
         val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, config, profile)
         val requestId = imageRequestIds.incrementAndGet()
         val modelName =
             when (profile) {
                 ImageConditioningProfile.LLM -> "LLM"
                 ImageConditioningProfile.SD3_CLIP_T5 -> "SD3"
+                ImageConditioningProfile.CHROMA_T5 -> "Chroma"
                 ImageConditioningProfile.MASKED_T5 -> "masked-T5"
                 ImageConditioningProfile.NONE -> error("Sequential image execution requires a conditioning profile")
             }
@@ -125,6 +127,31 @@ internal class ImageGenerationExecutor(
 
             cond = if (condCLIP != null && condT5 != null) combineSD3Condition(condCLIP, condT5) else null
             uncond = if (uncondCLIP != null && uncondT5 != null) combineSD3Condition(uncondCLIP, uncondT5) else null
+        } else if (isChroma) {
+            val condChroma = requestExecutor.withRuntimeModel(
+                spec = plan.conditioningRequest.spec,
+                options = plan.conditioningRequest.options,
+                retryMessage = "Retrying $modelName sequential conditioning positive on the next backend for",
+            ) { model, _, acquire ->
+                phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.GENERATING, acquire.backend.name)
+                model.precomputeCondition(params.prompt, "", params.width, params.height, -1)
+            }
+            val uncondChroma = requestExecutor.withRuntimeModel(
+                spec = plan.conditioningRequest.spec,
+                options = plan.conditioningRequest.options,
+                retryMessage = "Retrying $modelName sequential conditioning negative on the next backend for",
+            ) { model, _, _ ->
+                model.precomputeCondition(params.negative, "", params.width, params.height, -1)
+            }
+
+            requestExecutor.invalidateRuntime(
+                plan.conditioningRequest.spec,
+                plan.conditioningRequest.options,
+            )
+            AndroidLogAdapter.i(logTag, "$modelName sequential: Chroma encoder runtime invalidated before diffusion phase")
+
+            cond = condChroma
+            uncond = uncondChroma
         } else {
             val condAndUncond = requestExecutor.withRuntimeModel(
                 spec = plan.conditioningRequest.spec,
@@ -159,7 +186,7 @@ internal class ImageGenerationExecutor(
             val rgb =
                 model.txt2ImgWithPrecomputedCondition(
                     prompt = params.prompt,
-                    negative = if (isSd3) params.negative else "",
+                    negative = if (isSd3 || isChroma) params.negative else "",
                     width = params.width,
                     height = params.height,
                     steps = params.steps,
