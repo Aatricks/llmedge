@@ -15,6 +15,7 @@ import io.aatricks.llmedge.image.GenerationStreamEvent
 import io.aatricks.llmedge.image.ImageExecutionPlanner
 import io.aatricks.llmedge.image.ImageGenerationRequest
 import io.aatricks.llmedge.image.VideoGenerationRequest
+import io.aatricks.llmedge.image.UpscaleRequest
 import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
 import io.aatricks.llmedge.runtime.BackendRuntimePolicy
@@ -120,6 +121,17 @@ internal class IsolatedDiffusionEngine(
         params.sequential == null &&
             ImageExecutionPlanner.recipeFor(params).supportsSequential &&
             lastPhase == DiffusionPhases.LOADING
+
+    override suspend fun upscale(request: UpscaleRequest): Bitmap =
+        generationMutex.withLock {
+            val phaseTracker = ImageRequestPhaseTracker()
+            val result =
+                runWithRecovery(ComputeSubsystem.IMAGE) { forceCpu ->
+                    issueUpscaleRequest(request, forceCpu, phaseTracker)
+                }
+            lastMetrics = result.metrics?.let(IpcCodecs::fromIpc)
+            PixelCodec.decodeBitmap(result.frame)
+        }
 
     override fun generateStream(params: ImageGenerationRequest): Flow<GenerationStreamEvent> =
         callbackFlow {
@@ -284,6 +296,38 @@ internal class IsolatedDiffusionEngine(
                     }
                 }
             connection.worker.generateImage(IpcCodecs.toIpc(params), callback)
+        }
+    }
+
+    private suspend fun issueUpscaleRequest(
+        request: UpscaleRequest,
+        forceCpu: Boolean,
+        phaseTracker: ImageRequestPhaseTracker? = null,
+    ): IpcImageResult {
+        val deferred = CompletableDeferred<IpcImageResult>()
+        val finalRequest = if (forceCpu) request.copy(useVulkan = false) else request
+        val ipcRequest = IpcCodecs.toIpc(finalRequest)
+        try {
+            return runRequest(deferred, forceCpu) { connection, watchdog ->
+                val callback =
+                    object : IDiffusionResultCallback.Stub() {
+                        override fun onPhase(update: PhaseUpdate) {
+                            phaseTracker?.lastPhase = update.phase
+                            dispatchPhase(watchdog, update)
+                        }
+
+                        override fun onCompleted(result: IpcImageResult) {
+                            deferred.complete(result)
+                        }
+
+                        override fun onFailed(failure: IpcFailure) {
+                            deferred.completeExceptionally(mapFailure("upscale", failure))
+                        }
+                    }
+                connection.worker.upscaleImage(ipcRequest, callback)
+            }
+        } finally {
+            ipcRequest.input.memory.close()
         }
     }
 

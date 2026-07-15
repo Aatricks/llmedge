@@ -147,6 +147,14 @@ internal data class IpcVideoResult(
 ) : Parcelable
 
 @Parcelize
+internal data class IpcUpscaleRequest(
+    val model: IpcModelSpec,
+    val input: IpcFrameBuffer,
+    val factor: Int,
+    val useVulkan: Boolean,
+) : Parcelable
+
+@Parcelize
 internal data class PhaseUpdate(
     /** One of [DiffusionPhases]. */
     val phase: String,

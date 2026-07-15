@@ -200,6 +200,42 @@ internal class DiffusionWorkerService : Service() {
                 faultInjection = args
                 AndroidLogAdapter.w(LOG_TAG, "Fault injection installed: ${args.getString(FAULT_MODE)}")
             }
+
+            override fun upscaleImage(
+                request: IpcUpscaleRequest,
+                callback: IDiffusionResultCallback,
+            ) {
+                val activeEngine = engine
+                serviceScope.launch {
+                    phaseSink = { update -> runCatching { callback.onPhase(update) } }
+                    if (simulateFaultIfRequested()) return@launch
+                    if (activeEngine == null) {
+                        runCatching { callback.onFailed(failure(IllegalStateException("worker not initialized"))) }
+                        phaseSink = null
+                        runCatching { request.input.memory.close() }
+                        return@launch
+                    }
+                    try {
+                        phaseRelay.onPhase(DiffusionPhases.LOADING, null)
+                        val kotlinRequest = IpcCodecs.fromIpc(request)
+                        val useVulkan = request.useVulkan && !BackendRuntimePolicy.isBlacklisted(ComputeSubsystem.IMAGE, ComputeBackend.VULKAN)
+                        val backendName = if (useVulkan) "vulkan" else "cpu"
+                        phaseRelay.onPhase(DiffusionPhases.GENERATING, backendName)
+                        val bitmap = activeEngine.upscale(kotlinRequest)
+                        val frame = PixelCodec.encodeBitmap(bitmap, "llmedge_upscale_result")
+                        try {
+                            callback.onCompleted(IpcImageResult(frame = frame, metrics = null))
+                        } finally {
+                            frame.memory.close()
+                        }
+                    } catch (t: Throwable) {
+                        runCatching { callback.onFailed(failure(t)) }
+                    } finally {
+                        phaseSink = null
+                        runCatching { request.input.memory.close() }
+                    }
+                }
+            }
         }
 
     /** Returns true when a fault was simulated instead of generating. */

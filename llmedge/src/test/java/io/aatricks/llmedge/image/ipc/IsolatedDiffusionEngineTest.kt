@@ -8,6 +8,7 @@ import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.WorkerKilledByMemoryException
 import io.aatricks.llmedge.image.ImageGenerationRequest
+import io.aatricks.llmedge.image.UpscaleRequest
 import io.aatricks.llmedge.model.ModelSpec
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -22,6 +23,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -525,5 +527,118 @@ class IsolatedDiffusionEngineTest {
         io.mockk.verify {
             anyConstructed<GenerationWatchdog>().onStep(7, 15)
         }
+    }
+
+    @Test
+    fun `upscale completes successfully`() = runTest {
+        val model = ModelSpec.LocalFile(File("esrgan.bin"))
+        // Real bitmap: mocking the final Bitmap class trips Robolectric's shadow retransformation.
+        val inputBitmap = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888)
+        val request = UpscaleRequest(input = inputBitmap, model = model, useVulkan = true)
+        every { PixelCodec.encodeBitmap(any(), any()) } answers {
+            IpcFrameBuffer(SharedMemory.create("upscale-input", 12), 1, 1, 1)
+        }
+
+        val requestSlots = mutableListOf<IpcUpscaleRequest>()
+        val callbackSlots = mutableListOf<IDiffusionResultCallback>()
+
+        every {
+            worker.upscaleImage(any(), any())
+        } answers {
+            requestSlots.add(firstArg<IpcUpscaleRequest>())
+            val callback = secondArg<IDiffusionResultCallback>()
+            callbackSlots.add(callback)
+
+            val shm = SharedMemory.create("test", 12)
+            val mockFrame = IpcFrameBuffer(shm, 1, 1, 1)
+            val mockResult = IpcImageResult(mockFrame, null)
+            callback.onCompleted(mockResult)
+        }
+
+        val mockBitmap = mockk<android.graphics.Bitmap>(relaxed = true)
+        every { PixelCodec.decodeBitmap(any()) } returns mockBitmap
+
+        val result = engine.upscale(request)
+        assertEquals(mockBitmap, result)
+        assertEquals(1, requestSlots.size)
+        assertTrue(requestSlots[0].useVulkan)
+    }
+
+    @Test
+    fun `upscale failure maps to InferenceFailedException`() = runTest {
+        val model = ModelSpec.LocalFile(File("esrgan.bin"))
+        // Real bitmap: mocking the final Bitmap class trips Robolectric's shadow retransformation.
+        val inputBitmap = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888)
+        val request = UpscaleRequest(input = inputBitmap, model = model, useVulkan = true)
+        every { PixelCodec.encodeBitmap(any(), any()) } answers {
+            IpcFrameBuffer(SharedMemory.create("upscale-input", 12), 1, 1, 1)
+        }
+
+        every {
+            worker.upscaleImage(any(), any())
+        } answers {
+            val callback = secondArg<IDiffusionResultCallback>()
+            callback.onFailed(
+                IpcFailure(
+                    code = IpcFailure.CODE_GENERIC,
+                    exceptionClass = "java.lang.RuntimeException",
+                    message = "Simulated upscale failure",
+                    backend = "CPU"
+                )
+            )
+        }
+
+        var threw = false
+        try {
+            engine.upscale(request)
+        } catch (e: io.aatricks.llmedge.core.InferenceFailedException) {
+            threw = true
+            assertTrue(e.message?.contains("Simulated upscale failure") == true)
+        }
+        assertTrue(threw)
+    }
+
+    @Test
+    fun `upscale retry occurs when worker dies`() = runTest {
+        val model = ModelSpec.LocalFile(File("esrgan.bin"))
+        // Real bitmap: mocking the final Bitmap class trips Robolectric's shadow retransformation.
+        val inputBitmap = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888)
+        val request = UpscaleRequest(input = inputBitmap, model = model, useVulkan = true)
+        every { PixelCodec.encodeBitmap(any(), any()) } answers {
+            IpcFrameBuffer(SharedMemory.create("upscale-input", 12), 1, 1, 1)
+        }
+
+        // Mock WorkerFailureClassifier to return WorkerCrashedException (implicating Vulkan)
+        every {
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+        } returns io.aatricks.llmedge.core.WorkerCrashedException(
+            backend = "VULKAN",
+            exitReason = 5,
+            crashSummary = "phase=GENERATING; SIGSEGV | /vendor/lib64/hw/mt6855/vulkan.mtk.so | base.apk!libsdcpp.so",
+        )
+
+        val requestSlots = mutableListOf<IpcUpscaleRequest>()
+        every {
+            worker.upscaleImage(any(), any())
+        } answers {
+            val callback = secondArg<IDiffusionResultCallback>()
+            requestSlots.add(firstArg())
+            if (requestSlots.size == 1) {
+                // Simulate worker death
+                connection.onDeath?.invoke()
+            } else {
+                val shm = SharedMemory.create("test", 12)
+                callback.onCompleted(IpcImageResult(IpcFrameBuffer(shm, 1, 1, 1), null))
+            }
+        }
+
+        val mockBitmap = mockk<android.graphics.Bitmap>(relaxed = true)
+        every { PixelCodec.decodeBitmap(any()) } returns mockBitmap
+
+        val result = engine.upscale(request)
+        assertEquals(mockBitmap, result)
+        assertEquals(2, requestSlots.size)
+        assertTrue(requestSlots[0].useVulkan)
+        assertFalse(requestSlots[1].useVulkan)
     }
 }

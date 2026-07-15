@@ -19,19 +19,27 @@ import io.aatricks.llmedge.image.diffusion.GenerationMetrics
 import io.aatricks.llmedge.image.diffusion.ImageGenerationTraceEvent
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.core.ProgressEvent
+import io.aatricks.llmedge.image.UpscaleRequest
+import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.runtime.ComputeSubsystem
+import io.aatricks.llmedge.runtime.ComputeBackend
+import io.aatricks.llmedge.runtime.BackendRuntimePolicy
+import io.aatricks.llmedge.runtime.CpuTopology
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /** The historical in-process diffusion stack, extracted verbatim from ImageClient. */
 internal class InProcessDiffusionEngine(
-    appContext: Context,
+    private val appContext: Context,
     private val edgeScope: LLMEdgeScope,
-    config: LLMEdgeConfig,
-    modelRepository: ModelRepository,
+    private val config: LLMEdgeConfig,
+    private val modelRepository: ModelRepository,
     logTag: String = "ImageClient",
     phaseListener: DiffusionPhaseListener? = null,
 ) : DiffusionEngine {
@@ -86,6 +94,27 @@ internal class InProcessDiffusionEngine(
 
     override fun generateVideo(params: VideoGenerationRequest): Flow<GenerationStreamEvent> =
         videoGenerationExecutor.generate(params)
+
+    override suspend fun upscale(request: UpscaleRequest): Bitmap {
+        val resolvedModel = modelRepository.resolve(appContext, request.model)
+        val useVulkan = request.useVulkan && !BackendRuntimePolicy.isBlacklisted(ComputeSubsystem.IMAGE, ComputeBackend.VULKAN)
+        val backend = if (useVulkan) "vulkan" else "cpu"
+        val nThreads = CpuTopology.getOptimalThreadCount(CpuTopology.TaskType.DIFFUSION)
+        val tileSize = 128
+
+        return generationMutex.withLock {
+            withContext(StableDiffusion.diffusionDispatcher) {
+                StableDiffusion.upscaleImage(
+                    modelPath = resolvedModel.absolutePath,
+                    input = request.input,
+                    factor = request.factor,
+                    nThreads = nThreads,
+                    tileSize = tileSize,
+                    backend = backend,
+                )
+            }
+        }
+    }
 
     override fun cancelGeneration() {
         state.activeModel?.cancelGeneration()

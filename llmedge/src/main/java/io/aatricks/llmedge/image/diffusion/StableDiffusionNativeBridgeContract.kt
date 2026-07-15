@@ -203,4 +203,16 @@ internal interface StableDiffusionNativeBridgeContract {
             easyCacheStartPercent,
             easyCacheEndPercent,
         )
+
+    fun upscale(
+        esrganPath: String,
+        nThreads: Int,
+        tileSize: Int,
+        backend: String,
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        factor: Int,
+        outDims: IntArray,
+    ): IntArray? = throw UnsatisfiedLinkError("nativeUpscale")
 }

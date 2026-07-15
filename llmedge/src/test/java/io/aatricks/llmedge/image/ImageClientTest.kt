@@ -3023,4 +3023,77 @@ class ImageClientTest {
             modelFile.delete()
         }
     }
+
+    @Test
+    fun `in-process upscale returns 4x dims and mock records backend cpu`() = runTest {
+        val realScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile = java.io.File.createTempFile("upscale-model", ".bin", context.filesDir).apply { writeBytes(byteArrayOf(0x01)) }
+
+        val bridge = io.aatricks.llmedge.MockStableDiffusionBridge()
+        StableDiffusion.overrideNativeBridgeForTests { bridge }
+
+        val edgeScope = LLMEdgeScope(realScope, 1)
+        val client = ImageClient.forTesting(
+            context = context,
+            scope = edgeScope,
+            config = LLMEdgeConfig(
+                image = ImageRuntimeConfig(workerMode = io.aatricks.llmedge.DiffusionWorkerMode.IN_PROCESS)
+            ),
+            resolver = DefaultModelRepository(),
+        )
+
+        try {
+            val inputBitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+            val request = UpscaleRequest(
+                input = inputBitmap,
+                model = ModelSpec.localFile(modelFile),
+                useVulkan = false
+            )
+            val result = client.upscale(request)
+            assertEquals(256, result.width)
+            assertEquals(256, result.height)
+            assertEquals(1, bridge.upscaleCalls.size)
+            assertEquals("cpu", bridge.upscaleCalls[0].backend)
+            assertEquals(modelFile.absolutePath, bridge.upscaleCalls[0].esrganPath)
+        } finally {
+            client.close()
+            edgeScope.close()
+            realScope.cancel()
+            StableDiffusion.resetNativeBridgeForTests()
+            modelFile.delete()
+        }
+    }
+
+    @Test
+    fun `upscale with input larger than 1024 throws IllegalArgumentException`() = runTest {
+        val realScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val edgeScope = LLMEdgeScope(realScope, 1)
+        val client = ImageClient.forTesting(
+            context = context,
+            scope = edgeScope,
+            config = LLMEdgeConfig(),
+            resolver = DefaultModelRepository(),
+        )
+
+        try {
+            val inputBitmap = Bitmap.createBitmap(1025, 1025, Bitmap.Config.ARGB_8888)
+            val request = UpscaleRequest(
+                input = inputBitmap,
+                model = ModelSpec.localFile(java.io.File("dummy.bin")),
+            )
+            var threw = false
+            try {
+                client.upscale(request)
+            } catch (e: IllegalArgumentException) {
+                threw = true
+            }
+            assertTrue(threw)
+        } finally {
+            client.close()
+            edgeScope.close()
+            realScope.cancel()
+        }
+    }
 }

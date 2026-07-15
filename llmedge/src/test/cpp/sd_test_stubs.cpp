@@ -111,12 +111,16 @@ static void fill_image(sd_image_t& image, int width, int height, int channel, ui
     }
 }
 
-sd_image_t* generate_image(sd_ctx_t*, const sd_img_gen_params_t* params) {
+bool generate_image(sd_ctx_t*, const sd_img_gen_params_t* params,
+                    sd_image_t** images_out, int* num_images_out) {
+    if (!images_out || !num_images_out) return false;
     auto* images = static_cast<sd_image_t*>(std::malloc(sizeof(sd_image_t)));
     fill_image(images[0], params->width > 0 ? params->width : 256,
                params->height > 0 ? params->height : 256,
                3, 42);
-    return images;
+    *images_out = images;
+    *num_images_out = 1;
+    return true;
 }
 
 bool generate_video(sd_ctx_t*, const sd_vid_gen_params_t* params,
@@ -146,10 +150,38 @@ bool generate_video(sd_ctx_t*, const sd_vid_gen_params_t* params,
 
 void free_sd_audio(sd_audio_t*) {}
 
-upscaler_ctx_t* new_upscaler_ctx(const char*, bool, bool, int, int, const char*, const char*) { return nullptr; }
+upscaler_ctx_t* new_upscaler_ctx(const char* esrgan_path, bool direct, int n_threads, int tile_size, const char* backend, const char* params_backend) {
+    (void)esrgan_path; (void)direct; (void)n_threads; (void)tile_size; (void)backend; (void)params_backend;
+    return reinterpret_cast<upscaler_ctx_t*>(1);
+}
 void free_upscaler_ctx(upscaler_ctx_t*) {}
-sd_image_t upscale(upscaler_ctx_t*, sd_image_t input_image, uint32_t) { return input_image; }
-int get_upscale_factor(upscaler_ctx_t*) { return 1; }
+int get_upscale_factor(upscaler_ctx_t*) { return 4; }
+bool upscale(upscaler_ctx_t* upscaler_ctx, sd_image_t input, uint32_t upscale_factor, sd_image_t** images_out, int* num_images_out) {
+    (void)upscaler_ctx; (void)upscale_factor;
+    if (!images_out || !num_images_out) return false;
+    sd_image_t* out = (sd_image_t*)calloc(1, sizeof(sd_image_t));
+    if (!out) return false;
+    out->width = input.width * 4;
+    out->height = input.height * 4;
+    out->channel = 3;
+    out->data = (uint8_t*)calloc(out->width * out->height * out->channel, sizeof(uint8_t));
+    if (!out->data) {
+        free(out);
+        return false;
+    }
+    *images_out = out;
+    *num_images_out = 1;
+    return true;
+}
+void free_sd_images(sd_image_t* result_images, int num_images) {
+    if (!result_images) return;
+    for (int i = 0; i < num_images; ++i) {
+        if (result_images[i].data) {
+            free(result_images[i].data);
+        }
+    }
+    free(result_images);
+}
 
 bool convert(const char*, const char*, const char*, enum sd_type_t, const char*, bool) { return true; }
 
@@ -157,6 +189,7 @@ bool preprocess_canny(sd_image_t, float, float, float, float, bool) { return tru
 
 }  // extern "C"
 
+ModelLoader::ModelLoader() = default;
 bool ModelLoader::init_from_file(const std::string&, const std::string&) { return true; }
 int64_t ModelLoader::get_params_mem_size(ggml_backend_t, ggml_type) { return 1024 * 1024; }
 std::map<ggml_type, uint32_t> ModelLoader::get_wtype_stat() { return {}; }
@@ -250,7 +283,12 @@ sd_image_t* sd_generate_image_with_precomputed_condition(sd_ctx_t* sd_ctx,
                                                          const sd_condition_raw_t* uncond) {
     (void)cond;
     (void)uncond;
-    return generate_image(sd_ctx, sd_img_gen_params);
+    sd_image_t* images = nullptr;
+    int num_images = 0;
+    if (!generate_image(sd_ctx, sd_img_gen_params, &images, &num_images)) {
+        return nullptr;
+    }
+    return images;
 }
 
 }  // extern "C"

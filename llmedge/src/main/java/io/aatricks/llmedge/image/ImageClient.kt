@@ -61,6 +61,13 @@ data class ImageGenerationRequest(
     val sequential: Boolean? = null,
 )
 
+data class UpscaleRequest(
+    val input: Bitmap,
+    val model: ModelSpec,
+    val factor: Int = 0,
+    val useVulkan: Boolean = false,
+)
+
 data class VideoGenerationRequest(
     val prompt: String,
     val negative: String = "",
@@ -188,6 +195,21 @@ class ImageClient internal constructor(
     fun generateStream(
         params: ImageGenerationRequest,
     ): Flow<GenerationStreamEvent> = engine.generateStream(params)
+
+    /**
+     * Upscales an input image using an ESRGAN model.
+     *
+     * @param request the upscaling request details
+     * @return the upscaled Bitmap
+     * @throws IllegalArgumentException if the input image dimensions exceed 1024x1024
+     * @throws io.aatricks.llmedge.core.LLMEdgeException if the upscaling process fails
+     */
+    suspend fun upscale(request: UpscaleRequest): Bitmap {
+        require(request.input.width <= 1024 && request.input.height <= 1024) {
+            "Input image dimensions must not exceed 1024x1024 (got ${request.input.width}x${request.input.height})"
+        }
+        return engine.upscale(request)
+    }
 
     /** Request cancellation for the active generation, if any. */
     fun cancelGeneration() {
