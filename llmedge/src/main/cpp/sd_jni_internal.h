@@ -20,6 +20,7 @@ struct SdHandle {
     std::shared_ptr<ModelManager> model_manager;
     float flowShift = 0.0f;
     std::string loraModelDir;
+    std::string param_desc;
     int last_width = 0;
     int last_height = 0;
     JavaVM* jvm = nullptr;

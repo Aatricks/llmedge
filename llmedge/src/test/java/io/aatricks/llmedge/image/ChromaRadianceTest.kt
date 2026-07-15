@@ -54,7 +54,7 @@ class ChromaRadianceTest {
         assertEquals("silveroxides/Chroma1-HD-GGUF", ditSpec.repoId)
         assertEquals("Chroma1-HD-Q3_K_S.gguf", ditSpec.filename)
         assertEquals(ChromaRadiance.t5xxl, request.t5xxl)
-        assertNull(request.vae)
+        assertEquals(ChromaRadiance.fluxVae, request.vae)
         assertTrue(request.splitDiffusionModel)
         assertEquals(true, request.sequential)
     }
@@ -81,5 +81,17 @@ class ChromaRadianceTest {
         assertEquals(12345L, request.seed)
         assertTrue(!request.flashAttention)
         assertEquals(false, request.sequential)
+    }
+
+    @Test
+    fun testChromaVaeConfiguration() {
+        val mobileRequest = ChromaRadiance.mobileImageRequest(prompt = "A majestic dragon")
+        val vaeSpec = mobileRequest.vae as? ModelSpec.HuggingFace
+        org.junit.Assert.assertNotNull("Mobile image request VAE should not be null", vaeSpec)
+        assertEquals("lodestones/Chroma", vaeSpec?.repoId)
+        assertEquals("ae.safetensors", vaeSpec?.filename)
+
+        val radianceRequest = ChromaRadiance.imageRequest(prompt = "A majestic dragon")
+        assertNull("Radiance image request VAE should be null", radianceRequest.vae)
     }
 }

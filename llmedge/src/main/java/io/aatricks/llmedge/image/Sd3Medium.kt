@@ -75,13 +75,12 @@ object Sd3Medium {
                 ),
         )
 
-    /** T5XXL FP8 text encoder (~4.89 GB). */
+    /** Quantized T5XXL text encoder (Q3_K_S GGUF, ~2.1 GB). */
     @JvmField
     val t5xxl: ModelSpec =
         ModelSpec.huggingFace(
-            repoId = "Comfy-Org/stable-diffusion-3.5-fp8",
-            filename = "text_encoders/t5xxl_fp8_e4m3fn.safetensors",
-            revision = "main",
+            repoId = "city96/t5-v1_1-xxl-encoder-gguf",
+            filename = "t5-v1_1-xxl-encoder-Q3_K_S.gguf",
             preferredQuantizations = emptyList(),
             hints =
                 ModelHints(

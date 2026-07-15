@@ -68,4 +68,11 @@ class Sd3MediumTest {
         assertFalse(request.splitDiffusionModel)
         assertNull(request.sequential)
     }
+
+    @Test
+    fun testT5xxlIsQuantizedGguf() {
+        val spec = Sd3Medium.t5xxl as io.aatricks.llmedge.model.ModelSpec.HuggingFace
+        assertEquals("city96/t5-v1_1-xxl-encoder-gguf", spec.repoId)
+        assertEquals("t5-v1_1-xxl-encoder-Q3_K_S.gguf", spec.filename)
+    }
 }
