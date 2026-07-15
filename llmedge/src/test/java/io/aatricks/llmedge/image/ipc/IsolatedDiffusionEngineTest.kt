@@ -209,6 +209,108 @@ class IsolatedDiffusionEngineTest {
     }
 
     @Test
+    fun `CPU-session crash implicating the vulkan driver retries once with vulkan quarantined`() = runTest {
+        val params = ImageGenerationRequest(prompt = "hello")
+
+        every {
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+        } returns io.aatricks.llmedge.core.WorkerCrashedException(
+            backend = "CPU",
+            exitReason = 5,
+            crashSummary = "phase=GENERATING; SIGSEGV | /vendor/lib64/hw/mt6855/vulkan.mtk.so | base.apk!libsdcpp.so",
+        )
+
+        val initConfigs = mutableListOf<WorkerInitConfig>()
+        coEvery { connectionManager.connect(any()) } answers {
+            initConfigs.add(firstArg())
+            connection
+        }
+
+        val requestSlots = mutableListOf<IpcImageRequest>()
+        every {
+            worker.generateImage(any(), any())
+        } answers {
+            val callback = secondArg<IDiffusionResultCallback>()
+            requestSlots.add(firstArg())
+            if (requestSlots.size == 1) {
+                connection.onDeath?.invoke()
+            } else {
+                val shm = SharedMemory.create("test", 12)
+                callback.onCompleted(IpcImageResult(IpcFrameBuffer(shm, 1, 1, 1), null))
+            }
+        }
+        val mockBitmap = mockk<android.graphics.Bitmap>(relaxed = true)
+        every { PixelCodec.decodeBitmap(any()) } returns mockBitmap
+
+        val result = engine.generate(params)
+
+        assertEquals(mockBitmap, result)
+        assertEquals(2, requestSlots.size)
+        assertEquals(false, initConfigs[1].useVulkan)
+        assertTrue(
+            "expected persisted IMAGE:VULKAN verdict",
+            BackendVerdictStore(context).load().contains(
+                io.aatricks.llmedge.runtime.ComputeSubsystem.IMAGE to
+                    io.aatricks.llmedge.runtime.ComputeBackend.VULKAN,
+            ),
+        )
+    }
+
+    @Test
+    fun `CPU-session crash without vulkan driver evidence is not retried`() = runTest {
+        val params = ImageGenerationRequest(prompt = "hello")
+
+        every {
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+        } returns io.aatricks.llmedge.core.WorkerCrashedException(
+            backend = "CPU",
+            exitReason = 5,
+            // The prior-hang marker names VULKAN without implicating the driver in this crash.
+            crashSummary = "phase=GENERATING; gpu-disabled-after-prior-hang(IMAGE:VULKAN)",
+        )
+
+        val requestSlots = mutableListOf<IpcImageRequest>()
+        every {
+            worker.generateImage(any(), any())
+        } answers {
+            requestSlots.add(firstArg())
+            connection.onDeath?.invoke()
+        }
+
+        val error = runCatching { engine.generate(params) }.exceptionOrNull()
+
+        assertTrue(error is io.aatricks.llmedge.core.WorkerCrashedException)
+        assertEquals(1, requestSlots.size)
+        assertTrue(BackendVerdictStore(context).load().isEmpty())
+    }
+
+    @Test
+    fun `vulkan create-failure marker from the worker becomes a persisted verdict`() = runTest {
+        io.aatricks.llmedge.image.diffusion.VulkanCreateFailureMarker.record(context)
+
+        val freshEngine = IsolatedDiffusionEngine(
+            context = context,
+            edgeScope = scope,
+            config = LLMEdgeConfig(),
+            connectionManager = connectionManager,
+        )
+
+        val verdicts = BackendVerdictStore(context).load()
+        assertTrue(
+            "expected IMAGE:VULKAN verdict from marker, got $verdicts",
+            verdicts.contains(
+                io.aatricks.llmedge.runtime.ComputeSubsystem.IMAGE to
+                    io.aatricks.llmedge.runtime.ComputeBackend.VULKAN,
+            ),
+        )
+        assertTrue(
+            "marker file should be consumed",
+            !io.aatricks.llmedge.image.diffusion.VulkanCreateFailureMarker.file(context).exists(),
+        )
+        freshEngine.close()
+    }
+
+    @Test
     fun `forced direct request does not retry after worker OOM during loading`() = runTest {
         val params =
             ImageGenerationRequest(

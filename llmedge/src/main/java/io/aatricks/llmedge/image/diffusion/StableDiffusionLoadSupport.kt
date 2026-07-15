@@ -315,6 +315,7 @@ internal object StableDiffusionLoadSupport {
 
         val handle =
             createHandleWithBackendFallback(
+                context = context,
                 resolved = resolved,
                 request = request,
                 loadPlan = loadPlan,
@@ -371,6 +372,7 @@ internal object StableDiffusionLoadSupport {
     }
 
     private fun createHandleWithBackendFallback(
+        context: Context,
         resolved: StableDiffusionResolvedAssets,
         request: StableDiffusionLoadRequest,
         loadPlan: StableDiffusionLoadHeuristics.LoadPlan,
@@ -387,6 +389,12 @@ internal object StableDiffusionLoadSupport {
                     if (backend != ComputeBackend.CPU) {
                         val detail = error?.message?.let { ": $it" } ?: ""
                         AndroidLogAdapter.w(LOG_TAG, "nativeCreate failed on $backend; retrying with CPU backend$detail")
+                    }
+                    // A failed Vulkan create may leave the vendor driver in a bad state even
+                    // though the CPU fallback proceeds. Breadcrumb it so the host quarantines
+                    // Vulkan for future sessions instead of re-poking the driver every time.
+                    if (backend == ComputeBackend.VULKAN) {
+                        VulkanCreateFailureMarker.record(context)
                     }
                 },
             ) { backend ->
