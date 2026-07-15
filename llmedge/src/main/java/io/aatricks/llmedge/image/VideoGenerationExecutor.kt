@@ -21,6 +21,7 @@ internal class VideoGenerationExecutor(
     private val generationMutex: Mutex,
     private val state: ImageClientState,
     private val requestExecutor: DiffusionRequestExecutor,
+    private val executionPlanSelector: VideoExecutionPlanSelector,
     private val phaseListener: DiffusionPhaseListener? = null,
 ) {
     fun generate(params: VideoGenerationRequest): Flow<GenerationStreamEvent> =
@@ -32,7 +33,15 @@ internal class VideoGenerationExecutor(
                         val frames =
                             generationMutex.withLock {
                                 state.lastGenerationMetrics = null
-                                when (val plan = ImageRuntimeRequestPlanner.videoPlan(params, config)) {
+                                val decision = executionPlanSelector.decide(params, config)
+                                when (
+                                    val plan =
+                                        ImageRuntimeRequestPlanner.videoPlan(
+                                            params,
+                                            config,
+                                            sequentialLoad = decision.mode == ImageExecutionMode.SEQUENTIAL,
+                                        )
+                                ) {
                                     is DiffusionExecutionPlan.Direct -> {
                                         generateDirect(params, plan.request) { message, current, total ->
                                             emitProgress(producer, message, current, total)

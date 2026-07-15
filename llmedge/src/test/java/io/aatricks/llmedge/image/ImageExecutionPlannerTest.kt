@@ -181,6 +181,27 @@ class ImageExecutionPlannerTest {
         assertEquals(listOf(DiffusionPhases.RESOLVING_MODEL), phases)
     }
 
+    @Test
+    fun `recipe inference recognizes Chroma Radiance topology`() {
+        val request =
+            ImageGenerationRequest(
+                prompt = "x",
+                model = io.aatricks.llmedge.model.ModelSpec.LocalFile(File("dit.safetensors")),
+                t5xxl = io.aatricks.llmedge.model.ModelSpec.LocalFile(File("t5xxl.safetensors")),
+                splitDiffusionModel = true,
+            )
+
+        val recipe = ImageExecutionPlanner.recipeFor(request)
+        assertEquals(ImageConditioningProfile.CHROMA_T5, recipe.profile)
+        assertEquals(
+            listOf(
+                listOf(ImageExecutionComponentKind.T5XXL),
+                listOf(ImageExecutionComponentKind.DIFFUSION_MODEL)
+            ),
+            recipe.phases
+        )
+    }
+
     private fun maskedT5Recipe(): ImageExecutionRecipe =
         ImageExecutionRecipe(
             profile = ImageConditioningProfile.MASKED_T5,

@@ -72,6 +72,7 @@ data class VideoGenerationRequest(
     val seed: Long = -1L,
     val flowShift: Float = Float.POSITIVE_INFINITY,
     val flashAttention: Boolean = true,
+    /** True forces staged loading; false chooses direct or staged loading from resolved sizes and current memory headroom. */
     val forceSequentialLoad: Boolean = false,
     val initImage: Bitmap? = null,
     val strength: Float = 1.0f,

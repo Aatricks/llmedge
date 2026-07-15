@@ -17,6 +17,7 @@ internal enum class ImageConditioningProfile {
     LLM,
     SD3_CLIP_T5,
     MASKED_T5,
+    CHROMA_T5,
 }
 
 internal enum class ImageExecutionComponentKind {
@@ -91,6 +92,11 @@ internal object ImageExecutionPlanner {
                         listOf(ImageExecutionComponentKind.T5XXL),
                         diffusionPhase,
                     ),
+                )
+            params.splitDiffusionModel && params.t5xxl != null && params.clipL == null && params.clipG == null ->
+                ImageExecutionRecipe(
+                    profile = ImageConditioningProfile.CHROMA_T5,
+                    phases = listOf(listOf(ImageExecutionComponentKind.T5XXL), diffusionPhase),
                 )
             params.splitDiffusionModel && params.textEncoder != null ->
                 ImageExecutionRecipe(
