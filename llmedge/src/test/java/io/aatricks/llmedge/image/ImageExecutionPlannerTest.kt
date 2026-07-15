@@ -3,6 +3,7 @@ package io.aatricks.llmedge.image
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.LLMEdgeConfig
+import io.aatricks.llmedge.core.InsufficientMemoryException
 import io.aatricks.llmedge.core.ProgressEvent
 import io.aatricks.llmedge.image.ipc.DiffusionPhases
 import io.aatricks.llmedge.model.ModelRepository
@@ -59,7 +60,7 @@ class ImageExecutionPlannerTest {
                     ImageExecutionComponentKind.DIFFUSION_MODEL to (4 * gib),
                 ),
                 memory = ImageMemorySnapshot(
-                    availableSystemBytes = 5 * gib,
+                    availableSystemBytes = 6 * gib,
                     lowMemoryThresholdBytes = gib / 2,
                     totalSystemBytes = 8 * gib,
                 ),
@@ -74,8 +75,8 @@ class ImageExecutionPlannerTest {
         val recipe = maskedT5Recipe()
         val sizes =
             mapOf(
-                ImageExecutionComponentKind.TEXT_ENCODER to (2 * gib),
-                ImageExecutionComponentKind.DIFFUSION_MODEL to (4 * gib),
+                ImageExecutionComponentKind.TEXT_ENCODER to gib,
+                ImageExecutionComponentKind.DIFFUSION_MODEL to gib,
             )
         val memory =
             ImageMemorySnapshot(
@@ -92,6 +93,52 @@ class ImageExecutionPlannerTest {
             ImageExecutionMode.SEQUENTIAL,
             ImageExecutionPlanner.decide(true, recipe, sizes, memory).mode,
         )
+    }
+
+    @Test
+    fun `forced Chroma staging rejects Radiance when safe sequential headroom is insufficient`() {
+        val memory =
+            ImageMemorySnapshot(
+                availableSystemBytes = 12_741L * 1024L * 1024L,
+                lowMemoryThresholdBytes = 512L * 1024L * 1024L,
+                totalSystemBytes = 15_632L * 1024L * 1024L,
+            )
+
+        val error =
+            runCatching {
+                ImageExecutionPlanner.decide(
+                    sequential = true,
+                    recipe = chromaRecipe(),
+                    componentSizes = mapOf(
+                        ImageExecutionComponentKind.T5XXL to 2_100_000_000L,
+                        ImageExecutionComponentKind.DIFFUSION_MODEL to 5_780_000_000L,
+                    ),
+                    memory = memory,
+                )
+            }.exceptionOrNull()
+
+        assertTrue(error is InsufficientMemoryException)
+    }
+
+    @Test
+    fun `forced Chroma staging allows the Q3 mobile model with 16GB system memory`() {
+        val decision =
+            ImageExecutionPlanner.decide(
+                sequential = true,
+                recipe = chromaRecipe(),
+                componentSizes = mapOf(
+                    ImageExecutionComponentKind.T5XXL to 2_100_000_000L,
+                    ImageExecutionComponentKind.DIFFUSION_MODEL to 4_290_000_000L,
+                ),
+                memory = ImageMemorySnapshot(
+                    availableSystemBytes = 12_741L * 1024L * 1024L,
+                    lowMemoryThresholdBytes = 512L * 1024L * 1024L,
+                    totalSystemBytes = 15_632L * 1024L * 1024L,
+                ),
+            )
+
+        assertEquals(ImageExecutionMode.SEQUENTIAL, decision.mode)
+        assertEquals("FORCED_SEQUENTIAL", decision.reason)
     }
 
     @Test
@@ -149,7 +196,7 @@ class ImageExecutionPlannerTest {
                     },
                 memorySnapshotProvider = {
                     ImageMemorySnapshot(
-                        availableSystemBytes = 5 * gib,
+                        availableSystemBytes = 6 * gib,
                         lowMemoryThresholdBytes = gib / 2,
                         totalSystemBytes = 8 * gib,
                     )
@@ -182,6 +229,52 @@ class ImageExecutionPlannerTest {
     }
 
     @Test
+    fun `default selector resolves forced sequential components before planning`() = runTest {
+        val dit = ModelSpec.LocalFile(File("dit.gguf"))
+        val encoder = ModelSpec.LocalFile(File("t5xxl.gguf"))
+        val resolved = File.createTempFile("planner", ".bin").apply { deleteOnExit() }
+        val requested = mutableListOf<ModelSpec>()
+        val selector =
+            DefaultImageExecutionPlanSelector(
+                context = ApplicationProvider.getApplicationContext<Context>(),
+                resolver =
+                    object : ModelRepository {
+                        override suspend fun resolve(
+                            context: Context,
+                            spec: ModelSpec,
+                            onProgress: ((ProgressEvent.Downloading) -> Unit)?,
+                        ): File {
+                            requested += spec
+                            return resolved
+                        }
+                    },
+                memorySnapshotProvider = {
+                    ImageMemorySnapshot(
+                        availableSystemBytes = 12_741L * 1024L * 1024L,
+                        lowMemoryThresholdBytes = 512L * 1024L * 1024L,
+                        totalSystemBytes = 15_632L * 1024L * 1024L,
+                    )
+                },
+                fileSizeProvider = { spec, _ -> if (spec === dit) 4_290_000_000L else 2_100_000_000L },
+            )
+
+        val decision =
+            selector.decide(
+                ImageGenerationRequest(
+                    prompt = "x",
+                    model = dit,
+                    t5xxl = encoder,
+                    splitDiffusionModel = true,
+                    sequential = true,
+                ),
+                LLMEdgeConfig(),
+            )
+
+        assertEquals(ImageExecutionMode.SEQUENTIAL, decision.mode)
+        assertEquals(listOf(encoder, dit), requested)
+    }
+
+    @Test
     fun `recipe inference recognizes Chroma Radiance topology`() {
         val request =
             ImageGenerationRequest(
@@ -208,6 +301,16 @@ class ImageExecutionPlannerTest {
             phases =
                 listOf(
                     listOf(ImageExecutionComponentKind.TEXT_ENCODER),
+                    listOf(ImageExecutionComponentKind.DIFFUSION_MODEL),
+                ),
+        )
+
+    private fun chromaRecipe(): ImageExecutionRecipe =
+        ImageExecutionRecipe(
+            profile = ImageConditioningProfile.CHROMA_T5,
+            phases =
+                listOf(
+                    listOf(ImageExecutionComponentKind.T5XXL),
                     listOf(ImageExecutionComponentKind.DIFFUSION_MODEL),
                 ),
         )

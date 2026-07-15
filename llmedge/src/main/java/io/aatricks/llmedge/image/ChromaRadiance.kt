@@ -23,12 +23,26 @@ object ChromaRadiance {
                 ),
         )
 
-    /** T5XXL FP8 text encoder. */
+    /** The smaller Chroma1-HD Q3 DiT model intended for mobile devices. */
+    @JvmField
+    val mobileDiffusionModel: ModelSpec =
+        ModelSpec.huggingFace(
+            repoId = "silveroxides/Chroma1-HD-GGUF",
+            filename = "Chroma1-HD-Q3_K_S.gguf",
+            preferredQuantizations = emptyList(),
+            hints =
+                ModelHints(
+                    artifactKind = ModelArtifactKind.DIFFUSION_MODEL,
+                    capabilities = setOf(ModelCapability.IMAGE),
+                ),
+        )
+
+    /** Quantized T5XXL text encoder shared by the mobile and Radiance presets. */
     @JvmField
     val t5xxl: ModelSpec =
         ModelSpec.huggingFace(
-            repoId = "comfyanonymous/flux_text_encoders",
-            filename = "t5xxl_fp8_e4m3fn.safetensors",
+            repoId = "city96/t5-v1_1-xxl-encoder-gguf",
+            filename = "t5-v1_1-xxl-encoder-Q3_K_S.gguf",
             preferredQuantizations = emptyList(),
             hints =
                 ModelHints(
@@ -63,6 +77,37 @@ object ChromaRadiance {
             seed = seed,
             flashAttention = flashAttention,
             model = diffusionModel,
+            t5xxl = t5xxl,
+            splitDiffusionModel = true,
+            sequential = sequential,
+        )
+
+    /**
+     * Builds an [ImageGenerationRequest] pre-wired for the smaller Chroma1-HD Q3 model.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun mobileImageRequest(
+        prompt: String,
+        negative: String = "",
+        width: Int = 512,
+        height: Int = 512,
+        steps: Int = 20,
+        cfgScale: Float = 4.0f,
+        seed: Long = -1L,
+        flashAttention: Boolean = true,
+        sequential: Boolean? = true,
+    ): ImageGenerationRequest =
+        ImageGenerationRequest(
+            prompt = prompt,
+            negative = negative,
+            width = width,
+            height = height,
+            steps = steps,
+            cfgScale = cfgScale,
+            seed = seed,
+            flashAttention = flashAttention,
+            model = mobileDiffusionModel,
             t5xxl = t5xxl,
             splitDiffusionModel = true,
             sequential = sequential,
