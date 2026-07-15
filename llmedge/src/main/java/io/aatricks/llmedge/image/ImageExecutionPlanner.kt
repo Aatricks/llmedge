@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import io.aatricks.llmedge.LLMEdgeConfig
 import io.aatricks.llmedge.core.AndroidLogAdapter
+import io.aatricks.llmedge.core.InsufficientMemoryException
 import io.aatricks.llmedge.model.ModelRepository
 import io.aatricks.llmedge.model.ModelSpec
 import kotlin.math.max
@@ -72,6 +73,8 @@ internal object ImageExecutionPlanner {
     private const val MEBIBYTE = 1024L * 1024L
     private const val MIN_DEVICE_RESERVE_BYTES = 256L * MEBIBYTE
     private const val MIN_WORKSPACE_BYTES = 128L * MEBIBYTE
+    // Android Chroma runs have reached roughly twice the staged estimate before the LMK fires.
+    private const val CHROMA_SEQUENTIAL_HEADROOM_MULTIPLIER = 2L
 
     fun recipeFor(params: ImageGenerationRequest): ImageExecutionRecipe {
         val diffusionPhase = buildList {
@@ -122,7 +125,12 @@ internal object ImageExecutionPlanner {
                     "This image request does not expose a splittable conditioning layout.",
                 )
             }
-            return ImageExecutionDecision(ImageExecutionMode.SEQUENTIAL, "FORCED_SEQUENTIAL", recipe)
+            return sequentialDecision(
+                reason = "FORCED_SEQUENTIAL",
+                recipe = recipe,
+                componentSizes = componentSizes,
+                memory = memory,
+            )
         }
         if (!recipe.supportsSequential) {
             return ImageExecutionDecision(ImageExecutionMode.DIRECT, "AUTO_DIRECT_NONSPLITTABLE", recipe)
@@ -136,7 +144,12 @@ internal object ImageExecutionPlanner {
         return if (directEstimate <= budget) {
             ImageExecutionDecision(ImageExecutionMode.DIRECT, "AUTO_DIRECT_FITS", recipe)
         } else {
-            ImageExecutionDecision(ImageExecutionMode.SEQUENTIAL, "AUTO_SEQUENTIAL_MEMORY", recipe)
+            sequentialDecision(
+                reason = "AUTO_SEQUENTIAL_MEMORY",
+                recipe = recipe,
+                componentSizes = componentSizes,
+                memory = memory,
+            )
         }
     }
 
@@ -152,6 +165,43 @@ internal object ImageExecutionPlanner {
         memory: ImageMemorySnapshot,
     ): Long =
         recipe.phases.maxOfOrNull { phase -> estimatePeakBytes(phase, componentSizes, memory) } ?: 0L
+
+    fun requiredSequentialPeakBytes(
+        recipe: ImageExecutionRecipe,
+        componentSizes: Map<ImageExecutionComponentKind, Long>,
+        memory: ImageMemorySnapshot,
+    ): Long {
+        val estimatedPeak = estimatedSequentialPeakBytes(recipe, componentSizes, memory)
+        return if (recipe.profile == ImageConditioningProfile.CHROMA_T5) {
+            saturatingMultiply(estimatedPeak, CHROMA_SEQUENTIAL_HEADROOM_MULTIPLIER)
+        } else {
+            estimatedPeak
+        }
+    }
+
+    private fun sequentialDecision(
+        reason: String,
+        recipe: ImageExecutionRecipe,
+        componentSizes: Map<ImageExecutionComponentKind, Long>,
+        memory: ImageMemorySnapshot,
+    ): ImageExecutionDecision {
+        if (recipe.components.any { it !in componentSizes }) {
+            return ImageExecutionDecision(ImageExecutionMode.SEQUENTIAL, reason, recipe)
+        }
+        if (memory.availableSystemBytes <= 0L || memory.totalSystemBytes <= 0L) {
+            return ImageExecutionDecision(ImageExecutionMode.SEQUENTIAL, reason, recipe)
+        }
+        val requiredBytes = requiredSequentialPeakBytes(recipe, componentSizes, memory)
+        val budget = safeBudgetBytes(memory)
+        if (requiredBytes > budget) {
+            throw InsufficientMemoryException(
+                requiredBytes = requiredBytes,
+                availableBytes = budget,
+                operation = "sequential image generation",
+            )
+        }
+        return ImageExecutionDecision(ImageExecutionMode.SEQUENTIAL, reason, recipe)
+    }
 
     private fun safeBudgetBytes(memory: ImageMemorySnapshot): Long {
         val reserve = max(MIN_DEVICE_RESERVE_BYTES, memory.totalSystemBytes.coerceAtLeast(0L) / 16L)
@@ -171,6 +221,9 @@ internal object ImageExecutionPlanner {
 
     private fun saturatingAdd(left: Long, right: Long): Long =
         if (Long.MAX_VALUE - left < right) Long.MAX_VALUE else left + right
+
+    private fun saturatingMultiply(value: Long, multiplier: Long): Long =
+        if (value > Long.MAX_VALUE / multiplier) Long.MAX_VALUE else value * multiplier
 }
 
 internal fun interface ImageExecutionPlanSelector {
@@ -193,7 +246,7 @@ internal class DefaultImageExecutionPlanSelector(
     ): ImageExecutionDecision {
         val recipe = ImageExecutionPlanner.recipeFor(params)
         val memory = memorySnapshotProvider()
-        if (params.sequential != null || !recipe.supportsSequential) {
+        if (params.sequential == false || !recipe.supportsSequential) {
             val decision = ImageExecutionPlanner.decide(
                 sequential = params.sequential,
                 recipe = recipe,
@@ -204,8 +257,8 @@ internal class DefaultImageExecutionPlanSelector(
             return decision
         }
 
-        // AUTO planning resolves the real artifacts before estimating their footprint. Keep an
-        // isolated worker in the resolving phase while a model download is in flight.
+        // Sequential planning resolves the real artifacts before estimating their footprint. Keep
+        // an isolated worker in the resolving phase while a model download is in flight.
         phaseListener?.onPhase(io.aatricks.llmedge.image.ipc.DiffusionPhases.RESOLVING_MODEL)
         val componentSizes = LinkedHashMap<ImageExecutionComponentKind, Long>()
         for ((component, spec) in componentSpecs(recipe, params, config)) {
@@ -225,7 +278,8 @@ internal class DefaultImageExecutionPlanSelector(
         val estimates =
             componentSizes?.let {
                 "directBytes=${ImageExecutionPlanner.estimatedDirectPeakBytes(decision.recipe, it, memory)} " +
-                    "sequentialBytes=${ImageExecutionPlanner.estimatedSequentialPeakBytes(decision.recipe, it, memory)}"
+                    "sequentialBytes=${ImageExecutionPlanner.estimatedSequentialPeakBytes(decision.recipe, it, memory)} " +
+                    "sequentialRequiredBytes=${ImageExecutionPlanner.requiredSequentialPeakBytes(decision.recipe, it, memory)}"
             } ?: "directBytes=not_calculated sequentialBytes=not_calculated"
         AndroidLogAdapter.i(
             "ImageExecutionPlanner",

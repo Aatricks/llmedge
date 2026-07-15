@@ -32,8 +32,8 @@ class ChromaRadianceTest {
         assertTrue(ditSpec.hints.capabilities.contains(ModelCapability.IMAGE))
 
         val t5Spec = request.t5xxl as ModelSpec.HuggingFace
-        assertEquals("comfyanonymous/flux_text_encoders", t5Spec.repoId)
-        assertEquals("t5xxl_fp8_e4m3fn.safetensors", t5Spec.filename)
+        assertEquals("city96/t5-v1_1-xxl-encoder-gguf", t5Spec.repoId)
+        assertEquals("t5-v1_1-xxl-encoder-Q3_K_S.gguf", t5Spec.filename)
         assertEquals(ModelArtifactKind.TEXT_ENCODER, t5Spec.hints.artifactKind)
         assertTrue(t5Spec.hints.capabilities.contains(ModelCapability.TEXT))
         assertTrue(t5Spec.hints.capabilities.contains(ModelCapability.IMAGE))
@@ -42,6 +42,19 @@ class ChromaRadianceTest {
         assertNull(request.clipL)
         assertNull(request.clipG)
         assertNull(request.textEncoder)
+        assertTrue(request.splitDiffusionModel)
+        assertEquals(true, request.sequential)
+    }
+
+    @Test
+    fun testMobileImageRequestDefaults() {
+        val request = ChromaRadiance.mobileImageRequest(prompt = "A majestic dragon")
+
+        val ditSpec = request.model as ModelSpec.HuggingFace
+        assertEquals("silveroxides/Chroma1-HD-GGUF", ditSpec.repoId)
+        assertEquals("Chroma1-HD-Q3_K_S.gguf", ditSpec.filename)
+        assertEquals(ChromaRadiance.t5xxl, request.t5xxl)
+        assertNull(request.vae)
         assertTrue(request.splitDiffusionModel)
         assertEquals(true, request.sequential)
     }
