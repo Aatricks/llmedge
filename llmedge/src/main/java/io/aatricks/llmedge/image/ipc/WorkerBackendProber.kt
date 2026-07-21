@@ -101,7 +101,12 @@ internal object WorkerBackendProber {
                     stallMs = PROBE_TIMEOUT_MS
                 )
             }
-            
+            AndroidLogAdapter.w(
+                LOG_TAG,
+                "Backend probe failed: ${t.javaClass.simpleName} (connection=${connection != null}, " +
+                    "classified=${classifierEx?.javaClass?.simpleName}, priorVerdict=$alreadyHasVulkanVerdict)",
+            )
+
             if (classifierEx is WorkerKilledByMemoryException) {
                 return ComputeBackendAvailability(false, false, null)
             }
