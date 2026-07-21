@@ -73,10 +73,14 @@ internal object WorkerBackendProber {
         val store = BackendVerdictStore(context)
         var connection: WorkerConnectionManager.Connection? = null
         try {
-            connection = manager.connect(null)
+            // Timeout covers the bind as well as the binder call: a stalled service spawn
+            // must fail the probe, not park it forever. It runs on the IO dispatcher's real
+            // clock so runTest virtual time cannot fire it early.
             val result = withContext(Dispatchers.IO) {
                 withTimeout(PROBE_TIMEOUT_MS) {
-                    connection.worker.probeBackends(blacklistSeed)
+                    val live = manager.connect(null)
+                    connection = live
+                    live.worker.probeBackends(blacklistSeed)
                 }
             }
             val availability = mapResult(result)
@@ -130,10 +134,11 @@ internal object WorkerBackendProber {
     private suspend fun executeRetryProbe(context: Context, manager: WorkerConnectionManager, store: BackendVerdictStore, blacklistSeed: List<String>): ComputeBackendAvailability {
         var connection: WorkerConnectionManager.Connection? = null
         try {
-            connection = manager.connect(null)
             val result = withContext(Dispatchers.IO) {
                 withTimeout(PROBE_TIMEOUT_MS) {
-                    connection.worker.probeBackends(blacklistSeed)
+                    val live = manager.connect(null)
+                    connection = live
+                    live.worker.probeBackends(blacklistSeed)
                 }
             }
             val mapped = mapResult(result)

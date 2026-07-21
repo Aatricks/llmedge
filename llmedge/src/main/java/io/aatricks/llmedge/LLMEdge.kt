@@ -16,6 +16,7 @@ import io.aatricks.llmedge.text.TextClient
 import io.aatricks.llmedge.vision.VisionClient
 import io.aatricks.llmedge.vision.VisionPipeline
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 data class VulkanDeviceInfo(
     val deviceCount: Int,
@@ -125,6 +126,16 @@ class LLMEdge private constructor(
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): LLMEdge =
             ClientBootstrap.createOwned(context, scope, config.execution.inferenceThreads) { bootstrap ->
+                // Warm the crash-safe GPU probe so text/vision Vulkan gating (which requires a
+                // worker-probe verdict) resolves without the host app calling it explicitly.
+                // Skipped under Robolectric, where the worker service can never bind.
+                if (android.os.Build.FINGERPRINT != "robolectric") {
+                    scope.launch {
+                        runCatching {
+                            io.aatricks.llmedge.image.ipc.WorkerBackendProber.probe(bootstrap.appContext)
+                        }
+                    }
+                }
                 LLMEdge(
                     appContext = bootstrap.appContext,
                     edgeScope = bootstrap.edgeScope,

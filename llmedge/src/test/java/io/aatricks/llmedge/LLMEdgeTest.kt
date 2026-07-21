@@ -31,6 +31,10 @@ class LLMEdgeTest {
     }
     @Test
     fun `no-arg getImageBackendAvailability with no cache returns all-false and never touches StableDiffusion`() {
+        // Robolectric shares the sandbox across same-config classes; clear any leaked memo.
+        io.aatricks.llmedge.image.ipc.WorkerBackendProber::class.java.getDeclaredField("cached")
+            .apply { isAccessible = true }
+            .set(io.aatricks.llmedge.image.ipc.WorkerBackendProber, null)
         io.mockk.mockkObject(io.aatricks.llmedge.image.diffusion.StableDiffusion)
         
         val availability = LLMEdge.getImageBackendAvailability()

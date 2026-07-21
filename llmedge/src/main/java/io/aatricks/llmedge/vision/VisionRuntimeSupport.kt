@@ -6,6 +6,7 @@ import io.aatricks.llmedge.core.LLMEdgeScope
 import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
+import io.aatricks.llmedge.core.runtime.RuntimeCapabilities
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
 import io.aatricks.llmedge.core.runtime.runtimePoolProfile
@@ -146,7 +147,11 @@ internal fun createVisionRuntimePool(
                         subsystem = io.aatricks.llmedge.runtime.ComputeSubsystem.VISION,
                         allowGpu = config.vision.useVulkan,
                         openClAvailable = SmolLM.isOpenClAvailable(),
-                        vulkanAvailable = SmolLM.isVulkanBackendAvailable(),
+                        // Same gate as text: SmolLM's registry aborts on Vulkan < 1.2 drivers,
+                        // so only probe it once the worker probe proved the driver survives.
+                        vulkanAvailable =
+                            RuntimeCapabilities.probeDerivedAvailability(context).vulkanAvailable &&
+                                SmolLM.isVulkanBackendAvailable(),
                     )
                 },
             ),
