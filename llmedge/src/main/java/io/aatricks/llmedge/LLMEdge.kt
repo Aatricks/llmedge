@@ -144,11 +144,14 @@ class LLMEdge private constructor(
         fun getTextBackendAvailability(): ComputeBackendAvailability =
             RuntimeCapabilities.textBackendAvailability()
             
+        /**
+         * Crash-safe variant: Vulkan capability is derived from the isolated-worker probe
+         * ([probeImageBackendAvailability]) instead of loading the SmolLM runtime in-process.
+         * On drivers below Vulkan 1.2 (e.g. Adreno 619) the in-process check aborts the host.
+         */
         @JvmStatic
-        fun getTextBackendAvailability(context: Context): ComputeBackendAvailability {
-            io.aatricks.llmedge.image.ipc.WorkerBackendProber.persistedOrNull(context.applicationContext)
-            return RuntimeCapabilities.textBackendAvailability()
-        }
+        fun getTextBackendAvailability(context: Context): ComputeBackendAvailability =
+            RuntimeCapabilities.probeDerivedAvailability(context)
 
         /**
          * Returns backend availability for the speech-to-text stack.
@@ -198,11 +201,13 @@ class LLMEdge private constructor(
         fun getVisionBackendAvailability(): ComputeBackendAvailability =
             RuntimeCapabilities.visionBackendAvailability()
             
+        /**
+         * Crash-safe variant: see [getTextBackendAvailability] — vision rides on SmolLM and
+         * shares the same in-process abort hazard.
+         */
         @JvmStatic
-        fun getVisionBackendAvailability(context: Context): ComputeBackendAvailability {
-            io.aatricks.llmedge.image.ipc.WorkerBackendProber.persistedOrNull(context.applicationContext)
-            return RuntimeCapabilities.visionBackendAvailability()
-        }
+        fun getVisionBackendAvailability(context: Context): ComputeBackendAvailability =
+            RuntimeCapabilities.probeDerivedAvailability(context)
 
         @Deprecated(
             message = "Ambiguous subsystem name. Prefer getImageBackendAvailability().vulkanAvailable or another per-subsystem capability API.",

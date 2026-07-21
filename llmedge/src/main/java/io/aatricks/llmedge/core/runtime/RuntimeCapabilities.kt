@@ -23,6 +23,22 @@ internal object RuntimeCapabilities {
     fun imageBackendAvailability(): ComputeBackendAvailability =
         WorkerBackendProber.cachedOrNull() ?: ComputeBackendAvailability(false, false, null)
 
+    /**
+     * GPU availability derived purely from the isolated-worker probe — never loads a GPU
+     * driver in the host process. Used for the SmolLM-based stacks (text/vision) whose own
+     * Vulkan check runs ggml backend registration in-process; that path GGML_ABORTs the host
+     * on Vulkan < 1.2 drivers (e.g. Adreno 619) and cannot be made crash-safe from Kotlin.
+     */
+    fun probeDerivedAvailability(context: android.content.Context): ComputeBackendAvailability {
+        val probe =
+            WorkerBackendProber.cachedOrNull()
+                ?: WorkerBackendProber.persistedOrNull(context.applicationContext)
+        return ComputeBackendAvailability(
+            openClAvailable = probe?.openClAvailable ?: false,
+            vulkanAvailable = probe?.vulkanAvailable ?: false,
+        )
+    }
+
     fun visionBackendAvailability(): ComputeBackendAvailability =
         ComputeBackendAvailability(
             openClAvailable = SmolLM.isOpenClAvailable(),

@@ -47,27 +47,35 @@ class LLMEdgeTest {
     }
 
     @Test
-    fun `text availability under quarantine skips SmolLM isVulkanBackendAvailable`() {
+    fun `text availability context overload derives from worker probe without touching SmolLM`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        
+        val cachedField =
+            io.aatricks.llmedge.image.ipc.WorkerBackendProber::class.java.getDeclaredField("cached")
+        cachedField.isAccessible = true
+        cachedField.set(io.aatricks.llmedge.image.ipc.WorkerBackendProber, null)
+        io.aatricks.llmedge.image.ipc.BackendVerdictStore(context).reset()
+
         io.mockk.mockkObject(io.aatricks.llmedge.text.runtime.SmolLM)
-        io.mockk.every { io.aatricks.llmedge.text.runtime.SmolLM.isOpenClAvailable() } returns true
-        io.mockk.every { io.aatricks.llmedge.text.runtime.SmolLM.isVulkanBackendAvailable() } returns true
-        
-        // Setup quarantine
-        io.aatricks.llmedge.image.ipc.BackendVerdictStore(context).recordHang(
-            io.aatricks.llmedge.runtime.ComputeSubsystem.IMAGE,
-            io.aatricks.llmedge.runtime.ComputeBackend.VULKAN
+
+        // Never probed: conservative all-false.
+        val before = LLMEdge.getTextBackendAvailability(context)
+        org.junit.Assert.assertFalse(before.vulkanAvailable)
+        org.junit.Assert.assertFalse(before.openClAvailable)
+
+        // A persisted worker probe drives the answer.
+        io.aatricks.llmedge.image.ipc.BackendVerdictStore(context).recordImageProbe(
+            ComputeBackendAvailability(false, true, VulkanDeviceInfo(1, 100, 200, 0)),
         )
-        
-        val availability = LLMEdge.getTextBackendAvailability(context)
-        org.junit.Assert.assertFalse(availability.vulkanAvailable)
-        org.junit.Assert.assertTrue(availability.openClAvailable)
-        
+        val after = LLMEdge.getTextBackendAvailability(context)
+        org.junit.Assert.assertTrue(after.vulkanAvailable)
+
         io.mockk.verify(exactly = 0) {
             io.aatricks.llmedge.text.runtime.SmolLM.isVulkanBackendAvailable()
         }
-        
+        io.mockk.verify(exactly = 0) {
+            io.aatricks.llmedge.text.runtime.SmolLM.isOpenClAvailable()
+        }
+
         io.mockk.unmockkObject(io.aatricks.llmedge.text.runtime.SmolLM)
     }
 }
