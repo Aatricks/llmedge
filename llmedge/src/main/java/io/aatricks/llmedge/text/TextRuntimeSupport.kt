@@ -7,6 +7,7 @@ import io.aatricks.llmedge.core.runtime.BackendCandidateResolver
 import io.aatricks.llmedge.core.runtime.ManagedRuntimeBase
 import io.aatricks.llmedge.core.runtime.RuntimePool
 import io.aatricks.llmedge.core.runtime.RuntimeCacheKeyBuilder
+import io.aatricks.llmedge.core.runtime.RuntimeCapabilities
 import io.aatricks.llmedge.core.runtime.createCachedRuntimePool
 import io.aatricks.llmedge.core.runtime.runtimePoolProfile
 import io.aatricks.llmedge.model.ModelRepository
@@ -80,7 +81,12 @@ internal fun createTextRuntimePool(
                         subsystem = ComputeSubsystem.TEXT,
                         allowGpu = options.useVulkan ?: config.text.useVulkan,
                         openClAvailable = SmolLM.isOpenClAvailable(),
-                        vulkanAvailable = SmolLM.isVulkanBackendAvailable(),
+                        // Short-circuit: only touch SmolLM's registry (which GGML_ABORTs on
+                        // Vulkan < 1.2 drivers) after the isolated-worker probe proved the
+                        // driver survives instance creation.
+                        vulkanAvailable =
+                            RuntimeCapabilities.probeDerivedAvailability(context).vulkanAvailable &&
+                                SmolLM.isVulkanBackendAvailable(),
                     )
                 },
             ),

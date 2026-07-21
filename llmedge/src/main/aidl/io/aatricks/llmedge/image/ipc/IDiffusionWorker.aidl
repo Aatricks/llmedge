@@ -7,6 +7,7 @@ import io.aatricks.llmedge.image.ipc.IpcVideoRequest;
 import io.aatricks.llmedge.image.ipc.IDiffusionResultCallback;
 import io.aatricks.llmedge.image.ipc.IDiffusionVideoCallback;
 import io.aatricks.llmedge.image.ipc.IpcUpscaleRequest;
+import io.aatricks.llmedge.image.ipc.IpcBackendProbeResult;
 
 interface IDiffusionWorker {
     int getPid();
@@ -18,4 +19,5 @@ interface IDiffusionWorker {
     // Debug builds only (FLAG_DEBUGGABLE); throws SecurityException otherwise.
     void installFaultInjection(in Bundle args);
     oneway void upscaleImage(in IpcUpscaleRequest request, IDiffusionResultCallback callback);
+    IpcBackendProbeResult probeBackends(in List<String> blacklistSeed);
 }

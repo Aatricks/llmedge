@@ -982,6 +982,13 @@ class TextClientTest {
     @Test
     fun `generate retries decode failure with cpu safe runtime`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        // Vulkan candidacy is gated on the worker probe now; seed a positive result.
+        io.aatricks.llmedge.image.ipc.WorkerBackendProber::class.java.getDeclaredField("cached")
+            .apply { isAccessible = true }
+            .set(
+                io.aatricks.llmedge.image.ipc.WorkerBackendProber,
+                io.aatricks.llmedge.ComputeBackendAvailability(false, true, null),
+            )
         val modelFile = createTempGgufFile(context.cacheDir)
         val modelSpec = ModelSpec.localFile(modelFile)
         val resolver =

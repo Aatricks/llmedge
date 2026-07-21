@@ -217,6 +217,56 @@ class IsolatedWorkerTest {
     }
 
     @Test
+    fun probeSurvivesNativeAbortInWorkerAndPersistsVerdict() {
+        // Reset the prober's process-lifetime memo so this test drives a live probe.
+        WorkerBackendProber::class.java.getDeclaredField("cached")
+            .apply { isAccessible = true }
+            .set(WorkerBackendProber, null)
+        WorkerBackendProber::class.java.getDeclaredField("vulkanQuarantined")
+            .apply { isAccessible = true }
+            .set(WorkerBackendProber, false)
+
+        // Pre-bind the worker so the fault is installed in the process the prober will reach.
+        val connected = CountDownLatch(1)
+        var binder: IBinder? = null
+        val connection =
+            object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                    binder = service
+                    connected.countDown()
+                }
+
+                override fun onServiceDisconnected(name: ComponentName?) = Unit
+            }
+        try {
+            assertTrue(
+                context.bindService(
+                    Intent(context, DiffusionWorkerService::class.java),
+                    connection,
+                    Context.BIND_AUTO_CREATE,
+                ),
+            )
+            assertTrue("service did not connect", connected.await(20, TimeUnit.SECONDS))
+            IDiffusionWorker.Stub.asInterface(binder).installFaultInjection(
+                Bundle().apply {
+                    putString(DiffusionWorkerService.FAULT_MODE, DiffusionWorkerService.FAULT_NATIVE_ABORT)
+                },
+            )
+
+            val result = runBlocking { withTimeout(60_000) { WorkerBackendProber.probe(context) } }
+
+            // The host (this test process) survived the worker abort; Vulkan must be quarantined.
+            assertTrue("probe after a worker abort must not report Vulkan", !result.vulkanAvailable)
+            val verdicts = BackendVerdictStore(context).load()
+            assertTrue(verdicts.contains(ComputeSubsystem.IMAGE to ComputeBackend.VULKAN))
+            assertTrue(verdicts.contains(ComputeSubsystem.VIDEO to ComputeBackend.VULKAN))
+            assertTrue(WorkerBackendProber.isVulkanQuarantined())
+        } finally {
+            runCatching { context.unbindService(connection) }
+        }
+    }
+
+    @Test
     fun watchdogKillsHungWorkerAndPersistsVerdict() {
         val config =
             LLMEdgeConfig(

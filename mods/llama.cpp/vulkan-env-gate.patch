@@ -1,0 +1,20 @@
+Honor GGML_DISABLE_VULKAN in the backend registry, mirroring the same gate in the
+stable-diffusion.cpp fork (ggml-backend-reg.cpp). Without it, any code path that
+touches the registry on a Vulkan-compiled build (including availability probes)
+runs ggml_vk_instance_init, which GGML_ABORTs the process on drivers below
+Vulkan 1.2 (e.g. Adreno 619) — see llmedge-examples#29.
+--- a/ggml/src/ggml-backend.cpp
++++ b/ggml/src/ggml-backend.cpp
+@@ -497,7 +497,11 @@
+ #endif
+
+ #ifdef GGML_USE_VULKAN
+-    ggml_backend_vk_reg_devices();
++    if (getenv("GGML_DISABLE_VULKAN") == nullptr) {
++        ggml_backend_vk_reg_devices();
++    } else {
++        fprintf(stderr, "ggml_backend_registry_init: Vulkan backend disabled by GGML_DISABLE_VULKAN\n");
++    }
+ #endif
+
+ #ifdef GGML_USE_CANN

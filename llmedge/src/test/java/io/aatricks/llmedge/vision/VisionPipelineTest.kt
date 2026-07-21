@@ -99,6 +99,13 @@ class VisionPipelineTest {
     @Test
     fun `prepare uses config-backed runtime defaults`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        // Vulkan candidacy is gated on the worker probe now; seed a positive result.
+        io.aatricks.llmedge.image.ipc.WorkerBackendProber::class.java.getDeclaredField("cached")
+            .apply { isAccessible = true }
+            .set(
+                io.aatricks.llmedge.image.ipc.WorkerBackendProber,
+                io.aatricks.llmedge.ComputeBackendAvailability(false, true, null),
+            )
         val resolver = mockk<ModelRepository>()
         val config =
             LLMEdgeConfig(

@@ -36,10 +36,12 @@ internal class WorkerConnectionManager(private val context: Context) {
     private var serviceConnection: ServiceConnection? = null
 
     /** Binds (or reuses the live connection) and (re)initializes the worker with [initConfig]. */
-    suspend fun connect(initConfig: WorkerInitConfig): Connection =
+    suspend fun connect(initConfig: WorkerInitConfig?): Connection =
         mutex.withLock {
             current?.takeIf { !it.dead && it.binder.isBinderAlive }?.let { live ->
-                live.worker.initialize(initConfig)
+                if (initConfig != null) {
+                    live.worker.initialize(initConfig)
+                }
                 return live
             }
             unbindLocked()
@@ -55,7 +57,9 @@ internal class WorkerConnectionManager(private val context: Context) {
                 },
                 0,
             )
-            worker.initialize(initConfig)
+            if (initConfig != null) {
+                worker.initialize(initConfig)
+            }
             current = connection
             return connection
         }

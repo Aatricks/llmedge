@@ -16,6 +16,7 @@ import io.aatricks.llmedge.text.TextClient
 import io.aatricks.llmedge.vision.VisionClient
 import io.aatricks.llmedge.vision.VisionPipeline
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 data class VulkanDeviceInfo(
     val deviceCount: Int,
@@ -125,6 +126,16 @@ class LLMEdge private constructor(
             modelRepository: ModelRepository = DefaultModelRepository(),
         ): LLMEdge =
             ClientBootstrap.createOwned(context, scope, config.execution.inferenceThreads) { bootstrap ->
+                // Warm the crash-safe GPU probe so text/vision Vulkan gating (which requires a
+                // worker-probe verdict) resolves without the host app calling it explicitly.
+                // Skipped under Robolectric, where the worker service can never bind.
+                if (android.os.Build.FINGERPRINT != "robolectric") {
+                    scope.launch {
+                        runCatching {
+                            io.aatricks.llmedge.image.ipc.WorkerBackendProber.probe(bootstrap.appContext)
+                        }
+                    }
+                }
                 LLMEdge(
                     appContext = bootstrap.appContext,
                     edgeScope = bootstrap.edgeScope,
@@ -138,35 +149,76 @@ class LLMEdge private constructor(
          * Returns backend availability for the text/LLM stack.
          *
          * This probes the SmolLM runtime, not Stable Diffusion.
+         * Note: may load the GPU driver; prefer the context overloads.
          */
         @JvmStatic
         fun getTextBackendAvailability(): ComputeBackendAvailability =
             RuntimeCapabilities.textBackendAvailability()
+            
+        /**
+         * Crash-safe variant: Vulkan capability is derived from the isolated-worker probe
+         * ([probeImageBackendAvailability]) instead of loading the SmolLM runtime in-process.
+         * On drivers below Vulkan 1.2 (e.g. Adreno 619) the in-process check aborts the host.
+         */
+        @JvmStatic
+        fun getTextBackendAvailability(context: Context): ComputeBackendAvailability =
+            RuntimeCapabilities.probeDerivedAvailability(context)
 
         /**
          * Returns backend availability for the speech-to-text stack.
          *
          * Bark remains CPU-only and is therefore excluded from this GPU probe.
+         * Note: may load the GPU driver; prefer the context overloads.
          */
         @JvmStatic
         fun getSpeechBackendAvailability(): ComputeBackendAvailability =
             RuntimeCapabilities.speechBackendAvailability()
+            
+        @JvmStatic
+        fun getSpeechBackendAvailability(context: Context): ComputeBackendAvailability {
+            io.aatricks.llmedge.image.ipc.WorkerBackendProber.persistedOrNull(context.applicationContext)
+            return RuntimeCapabilities.speechBackendAvailability()
+        }
+
+        /**
+         * Probes backend availability in a safe, isolated worker process. Call this once to populate 
+         * the cache before calling getImageBackendAvailability().
+         */
+        suspend fun probeImageBackendAvailability(context: Context): ComputeBackendAvailability =
+            io.aatricks.llmedge.image.ipc.WorkerBackendProber.probe(context.applicationContext)
 
         /**
          * Returns backend availability for the image/video diffusion stack.
+         * 
+         * Call probeImageBackendAvailability(context) once to populate; unknown reports unavailable.
          */
         @JvmStatic
         fun getImageBackendAvailability(): ComputeBackendAvailability =
             RuntimeCapabilities.imageBackendAvailability()
+            
+        @JvmStatic
+        fun getImageBackendAvailability(context: Context): ComputeBackendAvailability =
+            io.aatricks.llmedge.image.ipc.WorkerBackendProber.cachedOrNull() ?:
+            io.aatricks.llmedge.image.ipc.WorkerBackendProber.persistedOrNull(context.applicationContext) ?:
+            ComputeBackendAvailability(false, false, null)
 
         /**
          * Returns backend availability for the vision-language stack.
          *
          * Vision rides on the SmolLM runtime and shares its backend capabilities.
+         * Note: may load the GPU driver; prefer the context overloads.
          */
         @JvmStatic
         fun getVisionBackendAvailability(): ComputeBackendAvailability =
             RuntimeCapabilities.visionBackendAvailability()
+            
+        /**
+         * Crash-safe variant: see [getTextBackendAvailability] — vision rides on SmolLM and
+         * shares the same in-process abort hazard.
+         */
+        @JvmStatic
+        fun getVisionBackendAvailability(context: Context): ComputeBackendAvailability =
+            RuntimeCapabilities.probeDerivedAvailability(context)
 
         @Deprecated(
             message = "Ambiguous subsystem name. Prefer getImageBackendAvailability().vulkanAvailable or another per-subsystem capability API.",

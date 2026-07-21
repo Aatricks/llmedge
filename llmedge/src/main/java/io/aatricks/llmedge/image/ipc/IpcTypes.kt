@@ -21,6 +21,14 @@ internal data class WorkerInitConfig(
 ) : Parcelable
 
 @Parcelize
+internal data class IpcBackendProbeResult(
+    val openClAvailable: Boolean,
+    val vulkanDeviceCount: Int,
+    val vulkanFreeBytes: Long,
+    val vulkanTotalBytes: Long
+) : Parcelable
+
+@Parcelize
 internal data class IpcModelSpec(
     /** "local" or "hf". */
     val type: String,

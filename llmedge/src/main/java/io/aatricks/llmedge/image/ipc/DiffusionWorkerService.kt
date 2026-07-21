@@ -238,6 +238,21 @@ internal class DiffusionWorkerService : Service() {
                     }
                 }
             }
+
+            override fun probeBackends(blacklistSeed: List<String>): IpcBackendProbeResult {
+                if (simulateFaultIfRequested()) {
+                    // A crash fault is pending delivery; never reply, so the process death
+                    // surfaces to the caller as binder death — like a real mid-probe crash.
+                    java.util.concurrent.CountDownLatch(1).await()
+                }
+                WorkerVulkanGate.apply(WorkerVulkanGate.shouldDisable(useVulkan = true, blacklistSeed))
+                val openClAvailable = io.aatricks.llmedge.image.diffusion.StableDiffusion.isOpenClAvailable()
+                val vulkanDeviceCount = io.aatricks.llmedge.image.diffusion.StableDiffusion.getVulkanDeviceCount()
+                val vulkanMemory = if (vulkanDeviceCount > 0) io.aatricks.llmedge.image.diffusion.StableDiffusion.getVulkanDeviceMemory(0) else null
+                val vulkanFreeBytes = if (vulkanMemory != null && vulkanMemory.size >= 2) vulkanMemory[0] else 0L
+                val vulkanTotalBytes = if (vulkanMemory != null && vulkanMemory.size >= 2) vulkanMemory[1] else 0L
+                return IpcBackendProbeResult(openClAvailable, vulkanDeviceCount, vulkanFreeBytes, vulkanTotalBytes)
+            }
         }
 
     /** Returns true when a fault was simulated instead of generating. */

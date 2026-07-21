@@ -67,4 +67,38 @@ class BackendVerdictStoreTest {
         store.reset()
         assertTrue(store.load().isEmpty())
     }
+
+    @Test
+    fun `recordImageProbe and loadImageProbe round trip`() {
+        val availability = io.aatricks.llmedge.ComputeBackendAvailability(
+            openClAvailable = true,
+            vulkanAvailable = true,
+            vulkanDeviceInfo = io.aatricks.llmedge.VulkanDeviceInfo(
+                deviceCount = 2,
+                freeMemoryMB = 1000L,
+                totalMemoryMB = 2000L,
+                deviceIndex = 0
+            )
+        )
+        store.recordImageProbe(availability)
+        val loaded = store.loadImageProbe()
+        assertEquals(availability, loaded)
+    }
+
+    @Test
+    fun `loadImageProbe returns null on fingerprint mismatch`() {
+        val availability = io.aatricks.llmedge.ComputeBackendAvailability(
+            openClAvailable = true,
+            vulkanAvailable = true,
+            vulkanDeviceInfo = null
+        )
+        store.recordImageProbe(availability)
+        
+        context.getSharedPreferences("llmedge_backend_verdicts", Context.MODE_PRIVATE)
+            .edit()
+            .putString("fingerprint", "some/other/build:fingerprint")
+            .commit()
+            
+        org.junit.Assert.assertNull(store.loadImageProbe())
+    }
 }
