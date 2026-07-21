@@ -221,4 +221,16 @@ class IpcMarshallingTest {
         ipcRequest.input.memory.close()
         roundTripped.input.memory.close()
     }
+
+    @Test
+    fun `probe result survives parcel round trip`() {
+        val result = IpcBackendProbeResult(
+            openClAvailable = true,
+            vulkanDeviceCount = 1,
+            vulkanFreeBytes = 1000L,
+            vulkanTotalBytes = 2000L
+        )
+        val decoded = parcelRoundTrip(result)
+        assertEquals(result, decoded)
+    }
 }

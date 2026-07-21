@@ -3,6 +3,7 @@ package io.aatricks.llmedge.core.runtime
 import io.aatricks.llmedge.ComputeBackendAvailability
 import io.aatricks.llmedge.VulkanDeviceInfo
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
+import io.aatricks.llmedge.image.ipc.WorkerBackendProber
 import io.aatricks.llmedge.speech.stt.Whisper
 import io.aatricks.llmedge.text.runtime.SmolLM
 
@@ -10,26 +11,22 @@ internal object RuntimeCapabilities {
     fun textBackendAvailability(): ComputeBackendAvailability =
         ComputeBackendAvailability(
             openClAvailable = SmolLM.isOpenClAvailable(),
-            vulkanAvailable = SmolLM.isVulkanBackendAvailable(),
+            vulkanAvailable = if (WorkerBackendProber.isVulkanQuarantined()) false else SmolLM.isVulkanBackendAvailable(),
         )
 
     fun speechBackendAvailability(): ComputeBackendAvailability =
         ComputeBackendAvailability(
             openClAvailable = Whisper.isOpenClAvailable(),
-            vulkanAvailable = Whisper.isVulkanBackendAvailable(),
+            vulkanAvailable = if (WorkerBackendProber.isVulkanQuarantined()) false else Whisper.isVulkanBackendAvailable(),
         )
 
     fun imageBackendAvailability(): ComputeBackendAvailability =
-        ComputeBackendAvailability(
-            openClAvailable = StableDiffusion.isOpenClAvailable(),
-            vulkanAvailable = isStableDiffusionVulkanAvailable(),
-            vulkanDeviceInfo = getStableDiffusionVulkanDeviceInfo(),
-        )
+        WorkerBackendProber.cachedOrNull() ?: ComputeBackendAvailability(false, false, null)
 
     fun visionBackendAvailability(): ComputeBackendAvailability =
         ComputeBackendAvailability(
             openClAvailable = SmolLM.isOpenClAvailable(),
-            vulkanAvailable = SmolLM.isVulkanBackendAvailable(),
+            vulkanAvailable = if (WorkerBackendProber.isVulkanQuarantined()) false else SmolLM.isVulkanBackendAvailable(),
         )
 
     fun isStableDiffusionVulkanAvailable(): Boolean {
