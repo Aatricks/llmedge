@@ -3,6 +3,7 @@ package io.aatricks.llmedge
 import android.content.Context
 import android.graphics.Bitmap
 import io.aatricks.llmedge.image.diffusion.GenerateParams
+import io.aatricks.llmedge.image.diffusion.LoraApplyMode
 import io.aatricks.llmedge.image.diffusion.StableDiffusion
 import io.aatricks.llmedge.image.diffusion.StableDiffusionComponentPaths
 import java.io.File
@@ -24,6 +25,7 @@ import org.robolectric.annotation.Config
  *   LLMEDGE_TEST_SD3_CLIP_L_PATH
  *   LLMEDGE_TEST_SD3_CLIP_G_PATH
  *   LLMEDGE_TEST_SD3_VAE_PATH
+ *   LLMEDGE_TEST_SD3_LORA_PATH (optional)
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -38,6 +40,7 @@ class Sd3MediumLinuxE2ETest {
         val clipLPath = env("LLMEDGE_TEST_SD3_CLIP_L_PATH")
         val clipGPath = env("LLMEDGE_TEST_SD3_CLIP_G_PATH")
         val vaePath = env("LLMEDGE_TEST_SD3_VAE_PATH")
+        val loraPath = env("LLMEDGE_TEST_SD3_LORA_PATH")
 
         Assume.assumeTrue("Diffusion model path not set", !diffusionPath.isNullOrBlank())
         Assume.assumeTrue("CLIP_L path not set", !clipLPath.isNullOrBlank())
@@ -51,10 +54,19 @@ class Sd3MediumLinuxE2ETest {
 
         val width = 256
         val height = 256
-        val steps = 28
-        val cfg = 4.5f
+        val loraFile = loraPath?.let(::File)
+        if (loraFile != null) {
+            Assume.assumeTrue("LoRA file not found", loraFile.isFile)
+        }
+        val steps = if (loraFile != null) 4 else 28
+        val cfg = if (loraFile != null) 3.0f else 4.5f
         val seed = 42L
-        val prompt = "a red fox in snow, detailed, 8k"
+        val prompt =
+            if (loraFile != null) {
+                "a red fox in snow, detailed, 8k <lora:${loraFile.nameWithoutExtension}:0.125>"
+            } else {
+                "a red fox in snow, detailed, 8k"
+            }
 
         val context = org.robolectric.RuntimeEnvironment.getApplication() as Context
         val sd =
@@ -68,6 +80,8 @@ class Sd3MediumLinuxE2ETest {
                 keepVaeOnCpu = true,
                 flashAttn = true,
                 sequentialLoad = false,
+                loraModelDir = loraFile?.parentFile?.absolutePath,
+                loraApplyMode = LoraApplyMode.AUTO,
                 componentPaths = StableDiffusionComponentPaths(
                     clipLPath = clipLPath,
                     clipGPath = clipGPath,
@@ -103,7 +117,8 @@ class Sd3MediumLinuxE2ETest {
 
         val outputDir = File("build/outputs/images")
         outputDir.mkdirs()
-        val outputFile = File(outputDir, "sd3_medium_e2e_${width}x${height}_s${steps}_seed${seed}.png")
+        val outputPrefix = if (loraFile != null) "hyper_sd3" else "sd3_medium"
+        val outputFile = File(outputDir, "${outputPrefix}_e2e_${width}x${height}_s${steps}_seed${seed}.png")
         FileOutputStream(outputFile).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
 
         println("[Sd3MediumLinuxE2ETest] uniqueColors=$uniqueColors output=${outputFile.absolutePath}")

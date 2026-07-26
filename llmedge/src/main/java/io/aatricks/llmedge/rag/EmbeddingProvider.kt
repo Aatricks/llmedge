@@ -23,6 +23,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import com.ml.shubham0204.sentence_embeddings.SentenceEmbedding
 import java.io.File
+import java.io.InputStream
+import java.net.URI
 import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 
@@ -33,7 +35,82 @@ data class EmbeddingConfig(
     val outputTensorName: String = "sentence_embedding",
     val useFP16: Boolean = false,
     val useXNNPack: Boolean = true,
-)
+) {
+    companion object {
+        @JvmStatic
+        @JvmOverloads
+        fun fromFiles(
+            modelFile: File,
+            tokenizerFile: File,
+            useTokenTypeIds: Boolean = false,
+            outputTensorName: String = "sentence_embedding",
+            useFP16: Boolean = false,
+            useXNNPack: Boolean = true,
+        ): EmbeddingConfig =
+            EmbeddingConfig(
+                modelAssetPath = modelFile.toURI().toASCIIString(),
+                tokenizerAssetPath = tokenizerFile.toURI().toASCIIString(),
+                useTokenTypeIds = useTokenTypeIds,
+                outputTensorName = outputTensorName,
+                useFP16 = useFP16,
+                useXNNPack = useXNNPack,
+            )
+    }
+}
+
+internal sealed interface EmbeddingFileSource {
+    fun materialize(
+        cachedFile: File,
+        assetOpener: (String) -> InputStream,
+    ): File
+
+    data class Asset(private val path: String) : EmbeddingFileSource {
+        override fun materialize(
+            cachedFile: File,
+            assetOpener: (String) -> InputStream,
+        ): File {
+            if (cachedFile.isFile) return cachedFile
+            cachedFile.parentFile?.mkdirs()
+            val tmpFile = File(cachedFile.parent, "${cachedFile.name}.${System.nanoTime()}.tmp")
+            try {
+                assetOpener(path).use { input ->
+                    tmpFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                if (!tmpFile.renameTo(cachedFile)) {
+                    tmpFile.copyTo(cachedFile, overwrite = true)
+                    tmpFile.delete()
+                }
+                return cachedFile
+            } catch (t: Throwable) {
+                tmpFile.delete()
+                throw t
+            }
+        }
+    }
+
+    data class LocalFile(private val file: File) : EmbeddingFileSource {
+        override fun materialize(
+            cachedFile: File,
+            assetOpener: (String) -> InputStream,
+        ): File {
+            require(file.isFile && file.canRead()) {
+                "Embedding file is not readable: ${file.absolutePath}"
+            }
+            return file
+        }
+    }
+
+    companion object {
+        fun parse(path: String): EmbeddingFileSource =
+            if (path.startsWith("file:", ignoreCase = true)) {
+                LocalFile(File(URI(path)))
+            } else {
+                Asset(path)
+            }
+    }
+}
 
 class EmbeddingProvider(private val context: Context, private var config: EmbeddingConfig = EmbeddingConfig()) {
     private val se = SentenceEmbedding()
@@ -59,35 +136,21 @@ class EmbeddingProvider(private val context: Context, private var config: Embedd
         return "${hash}_$basename"
     }
 
-    private suspend fun copyAssetToFiles(assetPath: String, outFile: File) = withContext(Dispatchers.IO) {
-        if (outFile.exists()) return@withContext
-        outFile.parentFile?.mkdirs()
-        val tmpFile = File(outFile.parent, "${outFile.name}.${System.nanoTime()}.tmp")
-        try {
-            context.assets.open(assetPath).use { input ->
-                tmpFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-            if (!tmpFile.renameTo(outFile)) {
-                tmpFile.copyTo(outFile, overwrite = true)
-                tmpFile.delete()
-            }
-        } catch (e: Throwable) {
-            tmpFile.delete()
-            throw e
-        }
-    }
-
     suspend fun init() = sessionMutex.withLock {
         check(!closed) { "EmbeddingProvider is closed" }
         withContext(Dispatchers.IO) {
             if (initialized) return@withContext
             val modelsDir = File(context.filesDir, "embedding_models")
-            val modelFile = File(modelsDir, getUniqueFileName(config.modelAssetPath))
-            val tokenizerFile = File(modelsDir, getUniqueFileName(config.tokenizerAssetPath))
-            copyAssetToFiles(config.modelAssetPath, modelFile)
-            copyAssetToFiles(config.tokenizerAssetPath, tokenizerFile)
+            val modelFile =
+                EmbeddingFileSource.parse(config.modelAssetPath).materialize(
+                    File(modelsDir, getUniqueFileName(config.modelAssetPath)),
+                    context.assets::open,
+                )
+            val tokenizerFile =
+                EmbeddingFileSource.parse(config.tokenizerAssetPath).materialize(
+                    File(modelsDir, getUniqueFileName(config.tokenizerAssetPath)),
+                    context.assets::open,
+                )
 
             val tokenizerBytes = tokenizerFile.readBytes()
             modelFilePath = modelFile.absolutePath

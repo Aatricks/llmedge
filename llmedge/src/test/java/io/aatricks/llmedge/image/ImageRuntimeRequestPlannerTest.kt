@@ -154,6 +154,33 @@ class ImageRuntimeRequestPlannerTest {
     }
 
     @Test
+    fun `sequential image plan retains LoRA prompt resolution through every runtime`() {
+        val params =
+            ImageGenerationRequest(
+                prompt = "x <lora:hyper:0.125>",
+                model = ModelSpec.LocalFile(File("dit.safetensors")),
+                vae = ModelSpec.LocalFile(File("vae.safetensors")),
+                t5xxl = ModelSpec.LocalFile(File("t5xxl.safetensors")),
+                clipL = ModelSpec.LocalFile(File("clip_l.safetensors")),
+                clipG = ModelSpec.LocalFile(File("clip_g.safetensors")),
+                loraModelDir = "/models/lora",
+                loraApplyMode = io.aatricks.llmedge.image.diffusion.LoraApplyMode.IMMEDIATELY,
+                splitDiffusionModel = true,
+                sequential = true,
+            )
+
+        val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(params, LLMEdgeConfig())
+
+        org.junit.Assert.assertEquals("/models/lora", plan.conditioningRequest.options.loraModelDir)
+        org.junit.Assert.assertEquals("/models/lora", plan.conditioningRequest2?.options?.loraModelDir)
+        org.junit.Assert.assertEquals("/models/lora", plan.diffusionRequest.options.loraModelDir)
+        org.junit.Assert.assertEquals(
+            io.aatricks.llmedge.image.diffusion.LoraApplyMode.IMMEDIATELY,
+            plan.diffusionRequest.options.loraApplyMode,
+        )
+    }
+
+    @Test
     fun `masked T5 sequential planner isolates the text encoder before the diffusion model`() {
         val ditModel = ModelSpec.LocalFile(File("minit2i.safetensors"))
         val textEncoder = ModelSpec.LocalFile(File("flan-t5-large.safetensors"))

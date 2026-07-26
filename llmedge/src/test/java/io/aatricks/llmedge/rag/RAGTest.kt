@@ -1,9 +1,11 @@
 package io.aatricks.llmedge.rag
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import java.io.File
+import kotlinx.coroutines.test.runTest
 
 class RAGTest {
 
@@ -74,6 +76,23 @@ class RAGTest {
         assertEquals("text_embeddings", config.outputTensorName)
         assertEquals(false, config.useFP16)
         assertEquals(false, config.useXNNPack)
+    }
+
+    @Test
+    fun `local embedding files are used without copying packaged assets`() = runTest {
+        val directory = createTempDir(prefix = "embedding-files-")
+        val modelFile = File(directory, "model.onnx").apply { writeText("model") }
+        val tokenizerFile = File(directory, "tokenizer.json").apply { writeText("{}") }
+        val copiedModel = File(directory, "copied-model.onnx")
+        val config = EmbeddingConfig.fromFiles(modelFile, tokenizerFile)
+
+        val resolvedModel =
+            EmbeddingFileSource.parse(config.modelAssetPath).materialize(copiedModel) {
+                error("AssetManager must not be used for local embedding files")
+            }
+
+        assertEquals(modelFile.canonicalFile, resolvedModel.canonicalFile)
+        assertFalse(copiedModel.exists())
     }
 
     @Test

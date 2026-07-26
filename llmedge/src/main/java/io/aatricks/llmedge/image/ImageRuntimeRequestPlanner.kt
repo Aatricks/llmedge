@@ -111,7 +111,7 @@ internal object ImageRuntimeRequestPlanner {
                 vaeDecodeOnly = true,
                 sequentialLoad = true,
                 preferPerformanceMode = config.image.preferPerformanceMode,
-                loraModelDir = null,
+                loraModelDir = params.loraModelDir,
                 loraApplyMode = params.loraApplyMode,
             )
         val conditioningSpec: DiffusionRuntimeSpec
