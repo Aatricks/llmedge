@@ -46,7 +46,31 @@ internal object StableDiffusionMetadataSupport {
 
         val filename = explicitFilename ?: resolvedModelPath.substringAfterLast('/')
         val lowerName = filename.lowercase(Locale.US)
-        val ggufMetadata = GgufModelMetadataSupport.inspect(resolvedModelPath)
+        val architectureHint =
+            listOfNotNull(explicitFilename, modelId, resolvedModelPath)
+                .joinToString(" ")
+                .lowercase(Locale.US)
+        val knownDiffusionArchitecture =
+            when {
+                architectureHint.contains("wan") -> "wan"
+                architectureHint.contains("hunyuan") -> "hunyuan_video"
+                architectureHint.contains("sd3") -> "sd3"
+                architectureHint.contains("flux") -> "flux"
+                architectureHint.contains("chroma") -> "chroma"
+                architectureHint.contains("minit2i") -> "minit2i"
+                architectureHint.contains("stable-diffusion") -> "stable-diffusion"
+                architectureHint.contains("sdxl") -> "sdxl"
+                architectureHint.contains("sd15") -> "sd15"
+                architectureHint.contains("qwen-image") -> "qwen-image"
+                architectureHint.contains("z-image") -> "z-image"
+                else -> null
+            }
+        val ggufMetadata =
+            if (knownDiffusionArchitecture == null) {
+                GgufModelMetadataSupport.inspect(resolvedModelPath)
+            } else {
+                null
+            }
         val tags = mutableSetOf<String>()
 
         AndroidLogAdapter.d(
@@ -58,8 +82,7 @@ internal object StableDiffusionMetadataSupport {
             when {
                 !ggufMetadata?.architecture.isNullOrBlank() -> ggufMetadata?.architecture
                 !modelId.isNullOrBlank() -> modelId
-                lowerName.contains("hunyuan") -> "hunyuan_video"
-                lowerName.contains("wan") -> "wan"
+                knownDiffusionArchitecture != null -> knownDiffusionArchitecture
                 else -> null
             }
 

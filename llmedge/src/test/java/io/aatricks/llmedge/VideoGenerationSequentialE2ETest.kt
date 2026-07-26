@@ -368,7 +368,7 @@ class VideoGenerationSequentialE2ETest {
         val diffusionModel =
                 StableDiffusion.load(
                         context = context,
-                        modelPath = paths.modelPath,
+                        diffusionModelPath = paths.modelPath,
                         vaePath = paths.vaePath,
                         t5xxlPath = null, // No T5 - we already precomputed conditions
                         nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
