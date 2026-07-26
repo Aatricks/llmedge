@@ -1,6 +1,7 @@
 package io.aatricks.llmedge
 
 import io.aatricks.llmedge.image.diffusion.StableDiffusionLoadSupport
+import io.aatricks.llmedge.runtime.GGUFReader
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +12,72 @@ import java.io.File
 import io.aatricks.llmedge.image.diffusion.VideoModelMetadata
 
 class MetadataInferenceTest {
+
+    @Test
+    fun `known wan gguf uses request hints without opening the generic gguf reader`() = runTest {
+        val modelFile = File.createTempFile("wan2.1-t2v-1.3b-", ".gguf")
+        modelFile.writeBytes(byteArrayOf('G'.code.toByte(), 'G'.code.toByte(), 'U'.code.toByte(), 'F'.code.toByte()))
+        GGUFReader.overrideNativeBridgeForTests {
+            object : GGUFReader.NativeBridge {
+                override fun getGGUFContextNativeHandle(modelPath: String): Long = 1L
+                override fun getContextSize(nativeHandle: Long): Long = -1L
+                override fun getChatTemplate(nativeHandle: Long): String = ""
+                override fun getArchitecture(nativeHandle: Long): String = "unexpected-native-architecture"
+                override fun getParameterCount(nativeHandle: Long): String = "999B"
+                override fun getModelName(nativeHandle: Long): String = "unexpected-native-model"
+                override fun releaseGGUFContext(nativeHandle: Long) = Unit
+            }
+        }
+
+        try {
+            val metadata =
+                StableDiffusionLoadSupport.inferVideoModelMetadata(
+                    resolvedModelPath = modelFile.absolutePath,
+                    modelId = "samuelchristlie/Wan2.1-T2V-1.3B-GGUF",
+                    explicitFilename = "Wan2.1-T2V-1.3B-Q3_K_S.gguf",
+                )
+
+            assertEquals("samuelchristlie/Wan2.1-T2V-1.3B-GGUF", metadata.architecture)
+            assertEquals("t2v", metadata.modelType)
+            assertEquals("1.3B", metadata.parameterCount)
+        } finally {
+            GGUFReader.resetNativeBridgeForTests()
+            modelFile.delete()
+        }
+    }
+
+    @Test
+    fun `known image diffusion gguf uses filename hints without opening the generic gguf reader`() = runTest {
+        val modelFile = File.createTempFile("sd3-finetune-", ".gguf")
+        modelFile.writeBytes(byteArrayOf('G'.code.toByte(), 'G'.code.toByte(), 'U'.code.toByte(), 'F'.code.toByte()))
+        GGUFReader.overrideNativeBridgeForTests {
+            object : GGUFReader.NativeBridge {
+                override fun getGGUFContextNativeHandle(modelPath: String): Long = 1L
+                override fun getContextSize(nativeHandle: Long): Long = -1L
+                override fun getChatTemplate(nativeHandle: Long): String = ""
+                override fun getArchitecture(nativeHandle: Long): String = "unexpected-native-architecture"
+                override fun getParameterCount(nativeHandle: Long): String = "999B"
+                override fun getModelName(nativeHandle: Long): String = "unexpected-native-model"
+                override fun releaseGGUFContext(nativeHandle: Long) = Unit
+            }
+        }
+
+        try {
+            val metadata =
+                StableDiffusionLoadSupport.inferVideoModelMetadata(
+                    resolvedModelPath = modelFile.absolutePath,
+                    modelId = null,
+                    explicitFilename = "sd3-finetune.gguf",
+                )
+
+            assertEquals("sd3", metadata.architecture)
+            assertNull(metadata.modelType)
+            assertNull(metadata.parameterCount)
+        } finally {
+            GGUFReader.resetNativeBridgeForTests()
+            modelFile.delete()
+        }
+    }
 
     @Test
     fun `inferVideoModelMetadata detects wan architecture from filename`() = runTest {

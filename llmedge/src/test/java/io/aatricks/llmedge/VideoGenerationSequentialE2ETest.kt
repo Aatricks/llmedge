@@ -368,7 +368,7 @@ class VideoGenerationSequentialE2ETest {
         val diffusionModel =
                 StableDiffusion.load(
                         context = context,
-                        modelPath = paths.modelPath,
+                        diffusionModelPath = paths.modelPath,
                         vaePath = paths.vaePath,
                         t5xxlPath = null, // No T5 - we already precomputed conditions
                         nThreads = Runtime.getRuntime().availableProcessors().coerceAtMost(8),
@@ -482,6 +482,26 @@ class VideoGenerationSequentialE2ETest {
                     hashes.toSet().size > 1
             )
         }
+
+        (System.getenv("LLMEDGE_TEST_OUTPUT_DIR") ?: System.getProperty("LLMEDGE_TEST_OUTPUT_DIR"))
+                ?.takeIf(String::isNotBlank)
+                ?.let(::File)
+                ?.also(File::mkdirs)
+                ?.let { outputDir ->
+                    bitmaps.forEachIndexed { index, bitmap ->
+                        File(outputDir, "frame_%02d.png".format(index)).outputStream().use { output ->
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                        }
+                    }
+                    File(outputDir, "wan-sequential.gif").outputStream().use { output ->
+                        io.aatricks.llmedge.vision.ImageUtils.createAnimatedGif(
+                                frames = bitmaps,
+                                delayMs = 125,
+                                output = output,
+                                loop = 0,
+                        )
+                    }
+                }
 
         println("[SequentialE2E] ✓ All validations passed!")
     }
