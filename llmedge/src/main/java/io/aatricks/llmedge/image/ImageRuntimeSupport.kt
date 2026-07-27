@@ -205,6 +205,9 @@ internal class DiffusionRuntimeLoader(
                 chromaT5ConditionerOnly = chromaT5ConditionerOnly,
             )
         } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) {
+                throw error
+            }
             if (!shouldRetryWithoutFlash(spec, options)) {
                 throw error
             }

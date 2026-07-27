@@ -37,6 +37,9 @@ internal suspend fun <TSpec, TOptions, TRuntime : ManagedRuntime, TResult> Runti
         try {
             return execute(RuntimeExecutionContext(runtime = acquire.runtime, acquire = acquire))
         } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) {
+                throw error
+            }
             val blacklisted = recordBackendFailureIfNeeded(spec, options, acquire.runtime, error)
             if (!blacklisted) {
                 throw error

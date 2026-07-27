@@ -8,6 +8,7 @@ import io.aatricks.llmedge.text.ConversationWindow
 import io.aatricks.llmedge.text.ConversationSessionSupport
 import io.aatricks.llmedge.text.TextClient
 import io.aatricks.llmedge.text.TextModelOptions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
@@ -87,6 +88,8 @@ class ToolAgent internal constructor(
                         )
                     emit(ToolAgentEvent.Completed(result))
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (t: Throwable) {
                 emit(ToolAgentEvent.Failed(t.message ?: "Tool agent failed.", t))
             }
