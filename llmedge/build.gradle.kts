@@ -177,6 +177,18 @@ android {
     }
 }
 
+// JniKeepRulesTest reads these, so Gradle must re-run the tests when they change.
+tasks.withType<Test>().configureEach {
+    inputs
+        .file(layout.projectDirectory.file("consumer-rules.pro"))
+        .withPropertyName("consumerProguardRules")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs
+        .dir(layout.projectDirectory.dir("src/main/cpp"))
+        .withPropertyName("jniSources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
     // Sentence Embeddings (on-device) - provides ONNX-based sentence-transformers
