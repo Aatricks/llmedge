@@ -11,6 +11,30 @@
     native <methods>;
 }
 
+# The native layer resolves these by name via FindClass/GetMethodID, so R8 must
+# not rename or remove them. The rule above only covers classes that themselves
+# declare native methods, which none of these do.
+-keep class io.aatricks.llmedge.speech.stt.Whisper$TranscriptionSegment {
+    <init>(int, long, long, java.lang.String);
+}
+-keep interface io.aatricks.llmedge.speech.stt.Whisper$ProgressCallback { *; }
+-keep interface io.aatricks.llmedge.speech.stt.Whisper$SegmentCallback { *; }
+-keep interface io.aatricks.llmedge.image.diffusion.VideoProgressCallback { *; }
+-keepclassmembers class * implements io.aatricks.llmedge.speech.stt.Whisper$ProgressCallback {
+    void onProgress(int);
+}
+-keepclassmembers class * implements io.aatricks.llmedge.speech.stt.Whisper$SegmentCallback {
+    void onNewSegment(int, long, long, java.lang.String);
+}
+-keepclassmembers class * implements io.aatricks.llmedge.image.diffusion.VideoProgressCallback {
+    void onProgress(int, int, int, int, float);
+}
+# BarkTTS wraps its callback in an anonymous object whose onProgress is only
+# ever invoked from native, so R8 would otherwise strip the method body.
+-keepclassmembers class io.aatricks.llmedge.speech.tts.** {
+    void onProgress(int, int);
+}
+
 # Keep ML Kit classes
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.internal.mlkit_text_recognition.** { *; }
