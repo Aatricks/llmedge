@@ -39,6 +39,7 @@ class GGUFReader : Closeable {
         fun getModelName(nativeHandle: Long): String
         fun getFileType(nativeHandle: Long): Int = -1
         fun getDominantTensorType(nativeHandle: Long): Int = -1
+        fun getTensorNamePrefixes(nativeHandle: Long): String = ""
         fun releaseGGUFContext(nativeHandle: Long)
     }
 
@@ -143,6 +144,21 @@ class GGUFReader : Closeable {
         return if (dominantTensorType < 0) null else dominantTensorType
     }
 
+    /**
+     * The distinct first segments of this file's tensor names — `text_encoders`, `joint_blocks`,
+     * `first_stage_model` and so on. Exactly one segment deep; see the DEPTH CONTRACT note in
+     * `gguf_reader_internal.cpp`, which callers' prefix keys must match.
+     *
+     * Enough to tell a bare denoiser from an all-in-one bundle without reading any weights.
+     */
+    internal fun getTensorNamePrefixes(): Set<String> {
+        verifyHandle()
+        return nativeBridge.getTensorNamePrefixes(nativeHandle)
+            .lineSequence()
+            .filter(String::isNotBlank)
+            .toSet()
+    }
+
     override fun close() {
         if (nativeHandle != 0L) {
             nativeBridge.releaseGGUFContext(nativeHandle)
@@ -175,6 +191,9 @@ class GGUFReader : Closeable {
         override fun getModelName(nativeHandle: Long): String =
             getModelNameBytes(nativeHandle)?.toString(Charsets.UTF_8).orEmpty()
 
+        override fun getTensorNamePrefixes(nativeHandle: Long): String =
+            getTensorNamePrefixesBytes(nativeHandle)?.toString(Charsets.UTF_8).orEmpty()
+
         private external fun getChatTemplateBytes(nativeHandle: Long): ByteArray?
 
         private external fun getArchitectureBytes(nativeHandle: Long): ByteArray?
@@ -182,6 +201,8 @@ class GGUFReader : Closeable {
         private external fun getParameterCountBytes(nativeHandle: Long): ByteArray?
 
         private external fun getModelNameBytes(nativeHandle: Long): ByteArray?
+
+        private external fun getTensorNamePrefixesBytes(nativeHandle: Long): ByteArray?
 
         override external fun getFileType(nativeHandle: Long): Int
         override external fun getDominantTensorType(nativeHandle: Long): Int

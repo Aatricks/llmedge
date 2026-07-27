@@ -1,48 +1,51 @@
 package io.aatricks.llmedge.model
 
+import io.aatricks.llmedge.core.InvalidModelFileException
+import io.aatricks.llmedge.runtime.GGUFReader
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.ByteArrayOutputStream
 import java.io.File
 
+/**
+ * Classification is asserted against the tensor-name prefixes the native reader returns. The
+ * DEPTH CONTRACT those keys depend on — exactly one segment — lives in
+ * `gguf_reader_internal.cpp`; the fixtures below use real checkpoint layouts so a change on
+ * either side shows up here.
+ */
 class GgufFileSummaryTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
-    private var fileCounter = 0
+    private var counter = 0
+
+    @After
+    fun tearDown() {
+        GGUFReader.resetNativeBridgeForTests()
+    }
 
     @Test
-    fun `reads architecture and classifies a diffusion-only checkpoint`() {
-        val file = writeGguf(
-            architecture = "sd3",
-            tensorNames = listOf("joint_blocks.0.x_block.attn.qkv.weight", "model.diffusion_model.pos_embed"),
-        )
+    fun `city96 style DiT-only checkpoint is not an all-in-one`() {
+        stubReader("sd3", setOf("joint_blocks", "pos_embed", "x_embedder", "final_layer"))
 
-        val summary = GgufFileSummary.read(file)!!
+        val summary = GgufFileSummary.read(ggufFile())!!
 
         assertEquals("sd3", summary.architecture)
-        assertEquals(2L, summary.tensorCount)
         assertEquals(setOf(GgufComponent.DIFFUSION), summary.components)
         assertFalse(summary.isAllInOne)
     }
 
     @Test
-    fun `flags a bundle carrying text encoders and a VAE`() {
-        val file = writeGguf(
-            architecture = "sd3",
-            tensorNames = listOf(
-                "model.diffusion_model.joint_blocks.0.weight",
-                "text_encoders.clip_l.transformer.weight",
-                "first_stage_model.decoder.conv_in.weight",
-            ),
-        )
+    fun `second-state style bundle is flagged as all-in-one`() {
+        stubReader("sd3", setOf("model", "text_encoders", "first_stage_model"))
 
-        val summary = GgufFileSummary.read(file)!!
+        val summary = GgufFileSummary.read(ggufFile())!!
 
         assertEquals(
             setOf(GgufComponent.DIFFUSION, GgufComponent.TEXT_ENCODER, GgufComponent.VAE),
@@ -52,156 +55,103 @@ class GgufFileSummaryTest {
     }
 
     @Test
-    fun `skips metadata value types it does not read`() {
-        val file = writeGguf(
-            architecture = "flux",
-            tensorNames = listOf("model.diffusion_model.double_blocks.0.weight"),
-            extraMetadata = listOf(
-                "some.uint32" to KvValue.UInt32(7),
-                "some.float32" to KvValue.Float32(1.5f),
-                "some.bool" to KvValue.Bool(true),
-                "some.uint64" to KvValue.UInt64(1L shl 40),
-                "some.strings" to KvValue.StringArray(listOf("alpha", "beta")),
-                "some.ints" to KvValue.UInt32Array(listOf(1, 2, 3)),
-            ),
-        )
+    fun `a text-encoder-only checkpoint claims no diffusion components`() {
+        stubReader("t5encoder", setOf("enc", "token_embd"))
 
-        val summary = GgufFileSummary.read(file)!!
-
-        assertEquals("flux", summary.architecture)
-        assertEquals(setOf(GgufComponent.DIFFUSION), summary.components)
-    }
-
-    @Test
-    fun `returns null for a non-gguf file`() {
-        val file = temporaryFolder.newFile("not-a-model.gguf").apply { writeText("definitely not gguf") }
-
-        assertNull(GgufFileSummary.read(file))
-    }
-
-    @Test
-    fun `returns null for a truncated header rather than throwing`() {
-        val complete = writeGguf(architecture = "sd3", tensorNames = listOf("model.diffusion_model.a.weight"))
-        val truncated = temporaryFolder.newFile("truncated.gguf")
-        truncated.writeBytes(complete.readBytes().copyOf(20))
-
-        assertNull(GgufFileSummary.read(truncated))
-    }
-
-    @Test
-    fun `reports no components for an unrecognised tensor layout`() {
-        val file = writeGguf(architecture = "unknown", tensorNames = listOf("mystery.weight"))
-
-        val summary = GgufFileSummary.read(file)!!
+        val summary = GgufFileSummary.read(ggufFile())!!
 
         assertTrue(summary.components.isEmpty())
         assertFalse(summary.isAllInOne)
     }
 
-    private sealed interface KvValue {
-        data class Str(val value: String) : KvValue
+    @Test
+    fun `a reader that yields no tensors summarises to null`() {
+        stubReader("sd3", emptySet())
 
-        data class UInt32(val value: Int) : KvValue
-
-        data class Float32(val value: Float) : KvValue
-
-        data class Bool(val value: Boolean) : KvValue
-
-        data class UInt64(val value: Long) : KvValue
-
-        data class StringArray(val values: List<String>) : KvValue
-
-        data class UInt32Array(val values: List<Int>) : KvValue
+        assertNull(GgufFileSummary.read(ggufFile()))
     }
 
-    /** Builds a minimal but spec-shaped GGUF v3 header; the weight payload is irrelevant here. */
-    private fun writeGguf(
-        architecture: String?,
-        tensorNames: List<String>,
-        extraMetadata: List<Pair<String, KvValue>> = emptyList(),
-    ): File {
-        val out = ByteArrayOutputStream()
-        out.write(byteArrayOf('G'.code.toByte(), 'G'.code.toByte(), 'U'.code.toByte(), 'F'.code.toByte()))
-        out.writeUInt32(3)
-        out.writeUInt64(tensorNames.size.toLong())
+    @Test
+    fun `a failing reader summarises to null rather than throwing`() {
+        GGUFReader.overrideNativeBridgeForTests {
+            object : GGUFReader.NativeBridge {
+                override fun getGGUFContextNativeHandle(modelPath: String): Long =
+                    throw UnsatisfiedLinkError("libggufreader.so unavailable")
 
-        val metadata = buildList {
-            architecture?.let { add("general.architecture" to KvValue.Str(it)) }
-            addAll(extraMetadata)
-        }
-        out.writeUInt64(metadata.size.toLong())
-        metadata.forEach { (key, value) ->
-            out.writeGgufString(key)
-            out.writeKv(value)
+                override fun getContextSize(nativeHandle: Long): Long = -1L
+
+                override fun getChatTemplate(nativeHandle: Long): String = ""
+
+                override fun getArchitecture(nativeHandle: Long): String = ""
+
+                override fun getParameterCount(nativeHandle: Long): String = ""
+
+                override fun getModelName(nativeHandle: Long): String = ""
+
+                override fun releaseGGUFContext(nativeHandle: Long) = Unit
+            }
         }
 
-        tensorNames.forEach { name ->
-            out.writeGgufString(name)
-            out.writeUInt32(2) // dimension count
-            out.writeUInt64(16)
-            out.writeUInt64(16)
-            out.writeUInt32(0) // ggml type F32
-            out.writeUInt64(0) // offset
-        }
-        out.write(ByteArray(32)) // stand-in for the weight payload
+        assertNull(GgufFileSummary.read(ggufFile()))
+    }
 
-        return temporaryFolder.newFile("model-${fileCounter++}.gguf").apply {
-            writeBytes(out.toByteArray())
+    @Test
+    fun `requireDiffusionOnlyGguf rejects a bundle and names what it carries`() {
+        stubReader("sd3", setOf("model", "text_encoders", "first_stage_model"))
+
+        try {
+            ModelFileValidator.requireDiffusionOnlyGguf(ggufFile(), "sd3-medium-Q4_0.gguf")
+            fail("Expected an all-in-one checkpoint to be rejected")
+        } catch (expected: InvalidModelFileException) {
+            val message = expected.message.orEmpty()
+            assertTrue(message, message.contains("all-in-one"))
+            assertTrue(message, message.contains("text encoders and a VAE"))
+            assertTrue(message, message.contains("sd3-medium-Q4_0.gguf"))
         }
     }
 
-    private fun ByteArrayOutputStream.writeKv(value: KvValue) {
-        when (value) {
-            is KvValue.Str -> {
-                writeUInt32(8)
-                writeGgufString(value.value)
-            }
-            is KvValue.UInt32 -> {
-                writeUInt32(4)
-                writeUInt32(value.value.toLong())
-            }
-            is KvValue.Float32 -> {
-                writeUInt32(6)
-                writeUInt32(java.lang.Float.floatToIntBits(value.value).toLong())
-            }
-            is KvValue.Bool -> {
-                writeUInt32(7)
-                write(if (value.value) 1 else 0)
-            }
-            is KvValue.UInt64 -> {
-                writeUInt32(10)
-                writeUInt64(value.value)
-            }
-            is KvValue.StringArray -> {
-                writeUInt32(9)
-                writeUInt32(8)
-                writeUInt64(value.values.size.toLong())
-                value.values.forEach { writeGgufString(it) }
-            }
-            is KvValue.UInt32Array -> {
-                writeUInt32(9)
-                writeUInt32(4)
-                writeUInt64(value.values.size.toLong())
-                value.values.forEach { writeUInt32(it.toLong()) }
+    @Test
+    fun `requireDiffusionOnlyGguf accepts a DiT-only checkpoint`() {
+        stubReader("sd3", setOf("joint_blocks", "pos_embed"))
+        val file = ggufFile()
+
+        assertEquals(file, ModelFileValidator.requireDiffusionOnlyGguf(file))
+    }
+
+    @Test
+    fun `requireDiffusionOnlyGguf accepts a file it cannot classify`() {
+        stubReader("unknown", emptySet())
+        val file = ggufFile()
+
+        assertEquals(file, ModelFileValidator.requireDiffusionOnlyGguf(file))
+    }
+
+    private fun stubReader(architecture: String, prefixes: Set<String>) {
+        GGUFReader.overrideNativeBridgeForTests {
+            object : GGUFReader.NativeBridge {
+                override fun getGGUFContextNativeHandle(modelPath: String): Long = 1L
+
+                override fun getContextSize(nativeHandle: Long): Long = -1L
+
+                override fun getChatTemplate(nativeHandle: Long): String = ""
+
+                override fun getArchitecture(nativeHandle: Long): String = architecture
+
+                override fun getParameterCount(nativeHandle: Long): String = ""
+
+                override fun getModelName(nativeHandle: Long): String = ""
+
+                override fun getTensorNamePrefixes(nativeHandle: Long): String =
+                    prefixes.joinToString("\n")
+
+                override fun releaseGGUFContext(nativeHandle: Long) = Unit
             }
         }
     }
 
-    private fun ByteArrayOutputStream.writeGgufString(value: String) {
-        val bytes = value.toByteArray(Charsets.UTF_8)
-        writeUInt64(bytes.size.toLong())
-        write(bytes)
-    }
-
-    private fun ByteArrayOutputStream.writeUInt32(value: Long) {
-        for (index in 0 until 4) {
-            write(((value shr (index * 8)) and 0xFF).toInt())
+    /** `GGUFReader.load` validates the GGUF magic before ever reaching the bridge. */
+    private fun ggufFile(): File =
+        temporaryFolder.newFile("model-${counter++}.gguf").apply {
+            writeBytes("GGUF".toByteArray(Charsets.US_ASCII) + byteArrayOf(3, 0, 0, 0))
         }
-    }
-
-    private fun ByteArrayOutputStream.writeUInt64(value: Long) {
-        for (index in 0 until 8) {
-            write(((value shr (index * 8)) and 0xFF).toInt())
-        }
-    }
 }
