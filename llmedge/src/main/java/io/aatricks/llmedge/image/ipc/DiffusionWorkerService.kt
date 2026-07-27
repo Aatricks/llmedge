@@ -308,6 +308,10 @@ internal class DiffusionWorkerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Mirror this process's diagnostics to disk before anything else can log. The breadcrumb
+        // below only fires for an uncaught throwable that reaches the handler; when it does not
+        // (observed in the field), this trail is all the host has to localise the failure.
+        WorkerDiagnosticsLog.install(this, Process.myPid())
         // A generation exception is caught and reported over binder; an *uncaught* one kills this
         // process (exitReason REASON_CRASH) with the stack lost to logcat. Persist it so the host
         // can surface it in WorkerCrashedException — the only way to see it without adb.

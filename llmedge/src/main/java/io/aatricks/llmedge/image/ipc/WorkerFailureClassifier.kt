@@ -13,6 +13,9 @@ import java.io.File
 
 /** Maps a dead worker (binderDied) to a typed failure using ApplicationExitInfo (API 30+). */
 internal object WorkerFailureClassifier {
+    /** Kept generous: this is the whole post-mortem when no tombstone or breadcrumb exists. */
+    private const val WORKER_LOG_TAIL_CHARS = 4000
+
     /** Breadcrumb the worker writes on an uncaught JVM exception (see [DiffusionWorkerService]). */
     internal fun crashBreadcrumbFile(context: Context, pid: Int): File =
         File(context.filesDir, "diffusion-worker-crash-$pid.txt")
@@ -82,6 +85,12 @@ internal object WorkerFailureClassifier {
         if (parts.size == 1) {
             exitInfo?.description?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
         }
+
+        // Always last, and always present: when none of the above resolved a cause, the worker's
+        // own log trail is what tells us which pass it died in.
+        WorkerDiagnosticsLog.consumeTail(context, pid, WORKER_LOG_TAIL_CHARS)
+            ?.let { parts.add("worker-log:\n$it") }
+
         return parts.joinToString("; ")
     }
 

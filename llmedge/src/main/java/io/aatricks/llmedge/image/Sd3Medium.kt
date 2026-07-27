@@ -8,15 +8,16 @@ import io.aatricks.llmedge.model.ModelSpec
 /**
  * Stable Diffusion 3 Medium presets for on-device generation through stable-diffusion.cpp.
  *
- * This preset now includes the optional T5XXL FP8 text encoder for full text conditioning,
- * yielding high quality generation at the expense of downloading a ~4.89 GB encoder.
- * Sequential low-RAM mode is supported for SD3 split conditioning by loading CLIP-L, CLIP-G,
- * and T5XXL sequentially before loading the DiT + VAE.
+ * This preset includes the T5XXL text encoder for full text conditioning, as a Q3_K_S GGUF of
+ * the T5 v1.1 XXL encoder (~2.1 GB) rather than the fp8 safetensors ComfyUI ships. Same
+ * architecture and weights, lower precision: it trades some prompt fidelity for a download that
+ * fits on a phone. Sequential low-RAM mode is supported for SD3 split conditioning by loading
+ * CLIP-L + CLIP-G, then T5XXL, before loading the DiT + VAE.
  *
  * Mobile default resolution is 512x512, though the model's native resolution is 1024x1024.
  * Callers with sufficient RAM headroom may pass 1024x1024.
  *
- * The total split download size is approximately 8.0 GB.
+ * The total split download size is approximately 5.2 GB.
  */
 object Sd3Medium {
     /** The SD3 Medium DiT model (Q4_0, ~1.28 GB). */

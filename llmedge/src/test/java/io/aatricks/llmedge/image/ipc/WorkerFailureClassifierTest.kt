@@ -45,4 +45,51 @@ class WorkerFailureClassifierTest {
         assertTrue(result is WorkerCrashedException)
         assertEquals("CPU", (result as WorkerCrashedException).backend)
     }
+
+    /**
+     * Reproduces llmedge-examples#37: a REASON_CRASH worker death that left no tombstone (not a
+     * native crash) and no breadcrumb (the uncaught handler never ran), which previously reduced
+     * the whole post-mortem to the word "crash".
+     */
+    @Test
+    fun `crash summary carries the worker log trail when no breadcrumb exists`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val pid = 4242
+        WorkerDiagnosticsLog.logFile(context, pid).writeText(
+            "[100] I/DiffusionWorker: Worker engine initialized\n" +
+                "[200] I/DiffusionRuntimeLoader: Creating managed CPU runtime for t5xxl sequential=true\n",
+        )
+
+        val result =
+            WorkerFailureClassifier.classify(
+                context = context,
+                pid = pid,
+                lastPhase = DiffusionPhases.GENERATING,
+                lastBackend = "CPU",
+                killedByWatchdog = false,
+                stallMs = 0L,
+            ) as WorkerCrashedException
+
+        val summary = requireNotNull(result.crashSummary)
+        assertTrue(summary, summary.contains("worker-log:"))
+        assertTrue(summary, summary.contains("Creating managed CPU runtime for t5xxl"))
+        assertTrue("trail should be consumed", !WorkerDiagnosticsLog.logFile(context, pid).exists())
+    }
+
+    @Test
+    fun `crash summary omits the trail section when the worker left no log`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+
+        val result =
+            WorkerFailureClassifier.classify(
+                context = context,
+                pid = 5150,
+                lastPhase = DiffusionPhases.GENERATING,
+                lastBackend = "CPU",
+                killedByWatchdog = false,
+                stallMs = 0L,
+            ) as WorkerCrashedException
+
+        assertTrue(requireNotNull(result.crashSummary).let { !it.contains("worker-log:") })
+    }
 }

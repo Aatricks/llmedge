@@ -6,6 +6,26 @@ internal object AndroidLogAdapter {
     private const val WARN_LEVEL = "W"
     private const val ERROR_LEVEL = "E"
 
+    /** Receives every line alongside logcat, so diagnostics can outlive the process. */
+    internal fun interface Sink {
+        fun onLog(level: String, tag: String, message: String, throwable: Throwable?)
+    }
+
+    @Volatile private var sink: Sink? = null
+
+    internal fun setSink(sink: Sink?) {
+        this.sink = sink
+    }
+
+    private fun mirror(level: String, tag: String, message: String, throwable: Throwable? = null) {
+        val target = sink ?: return
+        try {
+            target.onLog(level, tag, message, throwable)
+        } catch (_: Throwable) {
+            // A failing diagnostic sink must never break the call it is observing.
+        }
+    }
+
     private val logClass: Class<*>? by lazy {
         try {
             Class.forName("android.util.Log")
@@ -33,6 +53,7 @@ internal object AndroidLogAdapter {
     fun w(tag: String, message: String) = log(warnMethod, WARN_LEVEL, tag, message)
 
     fun e(tag: String, message: String, throwable: Throwable? = null) {
+        mirror(ERROR_LEVEL, tag, message, throwable)
         val method = errorMethod
         if (method != null) {
             try {
@@ -48,6 +69,7 @@ internal object AndroidLogAdapter {
     }
 
     private fun log(method: java.lang.reflect.Method?, level: String, tag: String, message: String) {
+        mirror(level, tag, message)
         if (method != null) {
             try {
                 method.invoke(null, tag, message)
