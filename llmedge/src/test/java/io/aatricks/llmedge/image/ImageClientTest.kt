@@ -35,6 +35,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import java.lang.Thread.sleep
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.runTest
@@ -1417,6 +1418,51 @@ class ImageClientTest {
             edgeScope.close()
             StableDiffusion.resetNativeBridgeForTests()
         }
+    }
+
+    @Test
+    fun `diffusion load cancellation does not retry without flash attention`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val modelFile =
+            java.io.File.createTempFile("cancelled-image-load", ".safetensors", context.filesDir).apply {
+                writeBytes(byteArrayOf(0x01))
+            }
+        var loadCalls = 0
+        coEvery {
+            StableDiffusion.loadWithRuntimeBackend(
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), any(),
+                any(),
+                any(),
+                any(),
+            )
+        } coAnswers {
+            loadCalls++
+            throw CancellationException("cancelled during load")
+        }
+
+        val failure =
+            runCatching {
+                DiffusionRuntimeLoader(context, DefaultModelRepository()).load(
+                    spec = DiffusionRuntimeSpec(DiffusionRuntimeRole.IMAGE, ModelSpec.localFile(modelFile)),
+                    options =
+                        DiffusionLoadOptions(
+                            subsystem = ComputeSubsystem.IMAGE,
+                            allowGpu = false,
+                            nThreads = 1,
+                            offloadToCpu = true,
+                            keepClipOnCpu = true,
+                            keepVaeOnCpu = true,
+                            flashAttn = true,
+                            preferPerformanceMode = false,
+                        ),
+                    backend = ComputeBackend.CPU,
+                )
+            }.exceptionOrNull()
+
+        assertTrue(failure is CancellationException)
+        assertEquals(1, loadCalls)
     }
 
     @Test

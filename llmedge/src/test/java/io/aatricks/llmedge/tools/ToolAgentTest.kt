@@ -9,6 +9,7 @@ import io.aatricks.llmedge.text.TextModelOptions
 import io.aatricks.llmedge.text.runtime.SmolLM
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -536,6 +537,38 @@ class ToolAgentTest {
                 events.filterIsInstance<ToolAgentEvent.TextChunk>().joinToString("") { it.value },
             )
             assertTrue(events.last() is ToolAgentEvent.Completed)
+        } finally {
+            edge.close()
+        }
+    }
+
+    @Test
+    fun `stream rethrows tool cancellation instead of emitting failure`() = runTest {
+        installBridge(listOf("""{"tool":"stop","arguments":{}}"""))
+        val edge = createEdge(this)
+        val agent =
+            edge.text.toolAgent(
+                model = localModel(edge),
+                options = TextModelOptions(temperature = 0.0f, useVulkan = false),
+                tools =
+                    listOf(
+                        Tool(
+                            name = "stop",
+                            description = "Stops the operation.",
+                            handler = { throw CancellationException("cancelled by tool") },
+                        ),
+                    ),
+            )
+
+        try {
+            var cancellation: CancellationException? = null
+            try {
+                agent.stream("Stop now.", maxSteps = 1).toList()
+            } catch (caught: CancellationException) {
+                cancellation = caught
+            }
+
+            assertEquals("cancelled by tool", cancellation?.message)
         } finally {
             edge.close()
         }

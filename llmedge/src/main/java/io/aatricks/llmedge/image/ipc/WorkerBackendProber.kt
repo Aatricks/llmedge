@@ -40,6 +40,11 @@ internal object WorkerBackendProber {
 
     internal fun isVulkanQuarantined(): Boolean = vulkanQuarantined
 
+    internal fun reset() {
+        cached = null
+        vulkanQuarantined = false
+    }
+
     suspend fun probe(context: Context): ComputeBackendAvailability = mutex.withLock {
         cached?.let { return it }
 
@@ -110,6 +115,10 @@ internal object WorkerBackendProber {
                 "Backend probe failed: ${t.javaClass.simpleName} (connection=${connection != null}, " +
                     "classified=${classifierEx?.javaClass?.simpleName}, priorVerdict=$alreadyHasVulkanVerdict)",
             )
+
+            if (connection == null) {
+                return ComputeBackendAvailability(false, false, null)
+            }
 
             if (classifierEx is WorkerKilledByMemoryException) {
                 return ComputeBackendAvailability(false, false, null)

@@ -5,6 +5,7 @@ import io.aatricks.llmedge.runtime.ComputeBackend
 import io.aatricks.llmedge.runtime.ComputeSubsystem
 import io.aatricks.llmedge.runtime.ModelCache
 import java.lang.Thread.sleep
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -113,6 +114,32 @@ class RuntimePoolTest {
         assertEquals(ComputeBackend.CPU, second.backend)
         assertEquals(2, loadCalls)
         assertEquals(1, closeCalls)
+    }
+
+    @Test
+    fun `execution cancellation is not treated as a backend failure`() = runTest {
+        var attempts = 0
+        val pool = createPool { _, _, backend ->
+            FakeRuntime(backend)
+        }
+        val options = FakeOptions(allowGpu = true, openClAvailable = true)
+
+        val failure =
+            runCatching {
+                pool.executeWithRetry("model", options) {
+                    attempts++
+                    throw CancellationException("backend cancelled")
+                }
+            }.exceptionOrNull()
+
+        assertTrue(failure is CancellationException)
+        assertEquals(1, attempts)
+        assertFalse(
+            BackendRuntimePolicy.isBlacklisted(
+                ComputeSubsystem.TEXT,
+                ComputeBackend.OPENCL,
+            ),
+        )
     }
 
     @Test

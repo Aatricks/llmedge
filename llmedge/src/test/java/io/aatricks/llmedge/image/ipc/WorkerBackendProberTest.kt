@@ -3,6 +3,7 @@ package io.aatricks.llmedge.image.ipc
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.aatricks.llmedge.core.WorkerKilledByMemoryException
+import io.aatricks.llmedge.image.ImageClient
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
 import io.mockk.every
@@ -215,6 +216,46 @@ class WorkerBackendProberTest {
         
         val result2 = WorkerBackendProber.probe(context)
         assertFalse(result2.vulkanAvailable)
+        coVerify(exactly = 1) { anyConstructed<WorkerConnectionManager>().connect(null) }
+    }
+
+    @Test
+    fun `public verdict reset clears cached probe and quarantine state`() {
+        val cachedField = WorkerBackendProber::class.java.getDeclaredField("cached").apply { isAccessible = true }
+        val quarantinedField =
+            WorkerBackendProber::class.java.getDeclaredField("vulkanQuarantined").apply {
+                isAccessible = true
+            }
+        cachedField.set(
+            WorkerBackendProber,
+            io.aatricks.llmedge.ComputeBackendAvailability(
+                openClAvailable = false,
+                vulkanAvailable = false,
+                vulkanDeviceInfo = null,
+            ),
+        )
+        quarantinedField.set(WorkerBackendProber, true)
+        store.recordHang(ComputeSubsystem.IMAGE, ComputeBackend.VULKAN)
+
+        ImageClient.resetBackendVerdicts(context)
+
+        assertNull(WorkerBackendProber.cachedOrNull())
+        assertFalse(WorkerBackendProber.isVulkanQuarantined())
+        assertTrue(store.load().isEmpty())
+    }
+
+    @Test
+    fun `worker bind failure does not create a permanent vulkan verdict`() = runTest {
+        io.mockk.mockkConstructor(WorkerConnectionManager::class)
+        coEvery {
+            anyConstructed<WorkerConnectionManager>().connect(null)
+        } throws SecurityException("worker service unavailable")
+
+        val result = WorkerBackendProber.probe(context)
+
+        assertFalse(result.vulkanAvailable)
+        assertTrue(store.load().isEmpty())
+        assertFalse(WorkerBackendProber.isVulkanQuarantined())
         coVerify(exactly = 1) { anyConstructed<WorkerConnectionManager>().connect(null) }
     }
 }

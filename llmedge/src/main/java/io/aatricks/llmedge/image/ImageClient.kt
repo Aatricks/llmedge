@@ -140,6 +140,7 @@ class ImageClient internal constructor(
         fun resetBackendVerdicts(context: Context) {
             io.aatricks.llmedge.image.ipc.BackendVerdictStore(context).reset()
             BackendRuntimePolicy.resetForTests()
+            io.aatricks.llmedge.image.ipc.WorkerBackendProber.reset()
         }
     }
 
