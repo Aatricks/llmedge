@@ -25,6 +25,11 @@ enum class GgufComponent {
  * Only the metadata and tensor-info sections are read, so the cost is independent of the weight
  * payload. Every failure degrades to `null` rather than throwing: this exists to produce a better
  * error message, and must never be the reason a valid model is rejected.
+ *
+ * Deliberately not built on [io.aatricks.llmedge.runtime.GGUFReader], which overlaps only on
+ * `general.architecture`: that reader enumerates no tensors, so it cannot tell a bare denoiser
+ * from a bundle, and it needs its native library — which would put a `.so` dependency on the
+ * import path and take this classification out of reach of JVM unit tests.
  */
 data class GgufFileSummary(
     val version: Int,
