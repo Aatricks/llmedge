@@ -67,6 +67,42 @@ object ModelFileValidator {
         return file
     }
 
+    /**
+     * Rejects an all-in-one checkpoint for a caller that loads the text encoders and VAE
+     * separately. Such a file lands in `diffusion_model_path`, so its baked-in encoders and the
+     * separately supplied ones are both loaded — a misconfiguration that surfaces later as a
+     * generation-time crash rather than a load error, which makes it near-impossible to diagnose
+     * from an app log alone.
+     *
+     * A file whose components cannot be determined passes: this exists to explain a known
+     * mistake, not to gate models.
+     */
+    @JvmStatic
+    fun requireDiffusionOnlyGguf(
+        file: File,
+        displayName: String = file.name,
+    ): File {
+        val summary = GgufFileSummary.read(file) ?: return file
+        if (!summary.isAllInOne) return file
+        val bundled =
+            summary.components
+                .filter { it != GgufComponent.DIFFUSION }
+                .sorted()
+                .joinToString(" and ") {
+                    when (it) {
+                        GgufComponent.TEXT_ENCODER -> "text encoders"
+                        GgufComponent.VAE -> "a VAE"
+                        GgufComponent.DIFFUSION -> "a denoiser"
+                    }
+                }
+        throw InvalidModelFileException(
+            file.absolutePath,
+            "$displayName is an all-in-one checkpoint (it bundles $bundled). This preset " +
+                "downloads those separately and needs a diffusion-model-only file. Pick a " +
+                "DiT-only GGUF, or switch to a preset that takes all-in-one checkpoints.",
+        )
+    }
+
     @JvmStatic
     fun resolveReadableFile(
         context: Context,

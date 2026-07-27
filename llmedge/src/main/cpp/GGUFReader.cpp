@@ -89,6 +89,13 @@ Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_getModelNam
     return to_utf8_bytes(env, modelName);
 }
 
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_getTensorNamePrefixesBytes(JNIEnv* env, jobject thiz, jlong nativeHandle) {
+    gguf_context* ggufContext = reinterpret_cast<gguf_context*>(nativeHandle);
+    const std::string prefixes = llmedge_gguf_get_tensor_name_prefixes(ggufContext);
+    return to_utf8_bytes(env, prefixes);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_io_aatricks_llmedge_runtime_GGUFReader_00024DefaultNativeBridge_releaseGGUFContext(JNIEnv* env, jobject thiz, jlong nativeHandle) {
     auto* ggufContext = reinterpret_cast<gguf_context*>(nativeHandle);
