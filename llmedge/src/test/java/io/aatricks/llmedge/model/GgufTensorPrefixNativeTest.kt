@@ -61,6 +61,35 @@ class GgufTensorPrefixNativeTest {
         assertFalse(summary.isAllInOne)
     }
 
+    /**
+     * The published SD3 Medium checkpoints, which is what an importer actually picks up. Only the
+     * header is needed, so the fixtures are HTTP range reads rather than multi-GB downloads —
+     * `gguf_init_from_file` with `no_alloc` accepts a file truncated after the tensor infos:
+     *
+     * ```
+     * curl -L -r 0-8388607 -o real-sd3-dit.gguf \
+     *   https://huggingface.co/city96/stable-diffusion-3-medium-gguf/resolve/main/sd3_medium-Q4_0.gguf
+     * curl -L -r 0-8388607 -o real-sd3-bundle.gguf \
+     *   https://huggingface.co/second-state/stable-diffusion-3-medium-GGUF/resolve/main/sd3-medium-Q4_0.gguf
+     * ```
+     */
+    @Test
+    fun `the published city96 SD3 DiT is classified as diffusion-only`() {
+        val summary = summarize("real-sd3-dit.gguf")
+
+        println("city96 sd3_medium-Q4_0 prefixes: ${summary.tensorPrefixes.sorted()}")
+        assertTrue(summary.components.toString(), GgufComponent.DIFFUSION in summary.components)
+        assertFalse("must not be rejected for a diffusion-only preset", summary.isAllInOne)
+    }
+
+    @Test
+    fun `the published second-state SD3 bundle is classified as all-in-one`() {
+        val summary = summarize("real-sd3-bundle.gguf")
+
+        println("second-state sd3-medium-Q4_0 prefixes: ${summary.tensorPrefixes.sorted()}")
+        assertTrue("must be rejected for a diffusion-only preset", summary.isAllInOne)
+    }
+
     private fun summarize(fixture: String): GgufFileSummary {
         assumeTrue("Set LLMEDGE_TEST_NATIVE_LIB and LLMEDGE_TEST_GGUF_DIR", nativeLib != null && ggufDir != null)
         val file = File(ggufDir, fixture)
