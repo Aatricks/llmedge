@@ -15,6 +15,11 @@ fi
 read -r -a example_tasks <<< "$EXAMPLE_TASKS"
 
 echo "Building llmedge-examples against the local :llmedge composite build (${example_tasks[*]})..."
+# This script exists to compile the examples against the SDK commit under review, so the
+# examples' release pin (an exact, clean SDK revision) cannot apply here — and cannot be
+# satisfied at all once a submodule bump moves HEAD past the pinned commit. Release builds
+# performed any other way still enforce it.
+export LLMEDGE_SKIP_SDK_REVISION_CHECK=true
 (cd "$EXAMPLES_DIR" && ./gradlew --no-daemon "${example_tasks[@]}") || {
 	echo "ERROR: llmedge-examples failed to compile against the local :llmedge checkout." >&2
 	echo "This likely means a public API change in :llmedge broke the examples." >&2
