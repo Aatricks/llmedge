@@ -93,7 +93,7 @@ class WorkerBackendProberTest {
         coEvery { anyConstructed<WorkerConnectionManager>().connect(null) } returns connection
 
         every {
-            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any(), any())
         } returns io.aatricks.llmedge.core.WorkerCrashedException(
             backend = "VULKAN",
             exitReason = 5,
@@ -137,7 +137,7 @@ class WorkerBackendProberTest {
         every { connection.pid } returns 1234
 
         every {
-            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any(), any())
         } returns io.aatricks.llmedge.core.GenerationHangException(backend = "VULKAN", phase = "PROBE", stallMs = 10000L)
 
         every { worker.probeBackends(any()) } answers {

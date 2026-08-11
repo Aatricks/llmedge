@@ -7,18 +7,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GenerationWatchdogTest {
+    private data class Verdict(
+        val phase: String,
+        val backend: String?,
+        val stallMs: Long,
+        val hardWall: Boolean,
+    )
+
     private class Harness(
         config: WorkerWatchdogConfig = WorkerWatchdogConfig(),
     ) {
         var nowMs = 0L
         var cpuMs: Long? = 0L
-        var verdicts = mutableListOf<Triple<String, String?, Long>>()
+        var verdicts = mutableListOf<Verdict>()
         val watchdog =
             GenerationWatchdog(
                 config = config,
                 clock = { nowMs },
                 cpuTimeMsReader = { cpuMs },
-            ) { phase, backend, stallMs -> verdicts.add(Triple(phase, backend, stallMs)) }
+            ) { phase, backend, stallMs, hardWall -> verdicts.add(Verdict(phase, backend, stallMs, hardWall)) }
 
         /** Advance time in sample-interval ticks, optionally accruing CPU. */
         fun run(
@@ -42,9 +49,9 @@ class GenerationWatchdogTest {
         h.watchdog.onPhase(DiffusionPhases.LOADING, "VULKAN")
         h.run(durationMs = 95_000, cpuBusyFraction = 0.0)
         assertEquals(1, h.verdicts.size)
-        val (phase, backend, _) = h.verdicts.single()
-        assertEquals(DiffusionPhases.LOADING, phase)
-        assertEquals("VULKAN", backend)
+        assertEquals(DiffusionPhases.LOADING, h.verdicts.single().phase)
+        assertEquals("VULKAN", h.verdicts.single().backend)
+        assertFalse(h.verdicts.single().hardWall)
     }
 
     @Test
@@ -68,7 +75,20 @@ class GenerationWatchdogTest {
         // Steps stop AND cpu is flat -> verdict after the step stall window.
         h.run(durationMs = 310_000, cpuBusyFraction = 0.0)
         assertEquals(1, h.verdicts.size)
-        assertEquals(DiffusionPhases.STEP, h.verdicts.single().first)
+        assertEquals(DiffusionPhases.STEP, h.verdicts.single().phase)
+    }
+
+    /** Regression: OUKITEL WP55 issue — a slow CPU run heartbeating every ~38s was killed at the wall. */
+    @Test
+    fun `hard wall spares a worker that is still heartbeating steps`() {
+        val h = Harness()
+        h.watchdog.onPhase(DiffusionPhases.GENERATING, "CPU")
+        repeat(60) {
+            h.run(durationMs = 40_000, cpuBusyFraction = 1.0)
+            h.watchdog.onStep(it, 60)
+        }
+        assertTrue(h.nowMs > 30 * 60_000)
+        assertTrue(h.verdicts.isEmpty())
     }
 
     @Test
@@ -86,6 +106,10 @@ class GenerationWatchdogTest {
         h.watchdog.onPhase(DiffusionPhases.RESOLVING_MODEL, null)
         h.run(durationMs = 31 * 60_000, cpuBusyFraction = 1.0)
         assertEquals(1, h.verdicts.size)
+        // Hard-wall verdicts report total elapsed time, not the stall window, and are flagged so
+        // callers don't read a timeout as a driver hang.
+        assertTrue(h.verdicts.single().hardWall)
+        assertTrue(h.verdicts.single().stallMs >= 30 * 60_000)
     }
 
     @Test
