@@ -211,7 +211,9 @@ internal object HFDownloadSupport {
         modelFile: HFModelTree.HFModelFile,
     ): DownloadTarget {
         val revisionDir = File(destinationRoot, "${HFFileSelectionSupport.sanitize(resolved.modelId)}/${resolved.revision}")
-        val targetName = modelFile.path.substringAfterLast('/')
+        // Mirror the repo's directory layout: repos like MiniT2I/MiniT2I ship the same basename
+        // under several variant folders, and flattening to the basename makes them collide.
+        val targetName = HFFileSelectionSupport.relativeCachePath(modelFile.path)
         return DownloadTarget(
             modelFile = modelFile,
             targetFile = File(revisionDir, targetName),
