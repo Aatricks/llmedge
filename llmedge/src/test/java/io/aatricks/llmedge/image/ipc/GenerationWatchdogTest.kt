@@ -101,7 +101,7 @@ class GenerationWatchdogTest {
     }
 
     @Test
-    fun `hard wall fires regardless of cpu activity`() {
+    fun `hard wall fires on a busy but heartbeat-less phase`() {
         val h = Harness()
         h.watchdog.onPhase(DiffusionPhases.RESOLVING_MODEL, null)
         h.run(durationMs = 31 * 60_000, cpuBusyFraction = 1.0)
