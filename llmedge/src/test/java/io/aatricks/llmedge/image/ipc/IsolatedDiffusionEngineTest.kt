@@ -89,7 +89,7 @@ class IsolatedDiffusionEngineTest {
 
         // Mock WorkerFailureClassifier to return WorkerKilledByMemoryException
         every {
-            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any(), any())
         } returns WorkerKilledByMemoryException()
 
         // Capture request params without mockk capture slots (which can be flaky)
@@ -174,7 +174,7 @@ class IsolatedDiffusionEngineTest {
         )
 
         every {
-            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any(), any())
         } returns WorkerKilledByMemoryException()
 
         val requestSlots = mutableListOf<IpcImageRequest>()
@@ -216,7 +216,7 @@ class IsolatedDiffusionEngineTest {
         val params = ImageGenerationRequest(prompt = "hello")
 
         every {
-            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any(), any())
         } returns io.aatricks.llmedge.core.WorkerCrashedException(
             backend = "CPU",
             exitReason = 5,
@@ -264,7 +264,7 @@ class IsolatedDiffusionEngineTest {
         val params = ImageGenerationRequest(prompt = "hello")
 
         every {
-            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any(), any())
         } returns io.aatricks.llmedge.core.WorkerCrashedException(
             backend = "CPU",
             exitReason = 5,
@@ -323,7 +323,7 @@ class IsolatedDiffusionEngineTest {
                 sequential = false,
             )
         every {
-            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any(), any())
         } returns WorkerKilledByMemoryException()
         val requestSlots = mutableListOf<IpcImageRequest>()
 
@@ -624,7 +624,7 @@ class IsolatedDiffusionEngineTest {
 
         // Mock WorkerFailureClassifier to return WorkerCrashedException (implicating Vulkan)
         every {
-            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any())
+            WorkerFailureClassifier.classify(any(), any(), any(), any(), any(), any(), any())
         } returns io.aatricks.llmedge.core.WorkerCrashedException(
             backend = "VULKAN",
             exitReason = 5,
