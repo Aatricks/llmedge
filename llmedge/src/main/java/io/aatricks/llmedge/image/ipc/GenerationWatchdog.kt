@@ -12,6 +12,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * minutes and must never be killed; a driver dispatch deadlock sits at 0% with all threads
  * sleeping. RESOLVING_MODEL (network download) is legitimately CPU-flat and only the hard wall
  * applies there. If CPU time is unreadable the stall rule is skipped entirely (hard wall only).
+ *
+ * The hard wall backstops exactly those two blind spots — it is not a cap on total runtime, so it
+ * also requires the heartbeat window to have lapsed. A slow-but-progressing generation is never
+ * killed; there is deliberately no absolute upper bound on a run that keeps reporting progress.
  */
 internal class GenerationWatchdog(
     private val config: WorkerWatchdogConfig,

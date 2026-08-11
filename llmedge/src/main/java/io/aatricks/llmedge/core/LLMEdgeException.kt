@@ -87,12 +87,12 @@ class GenerationHangException(
     val backend: String?,
     val phase: String,
     val stallMs: Long,
-    /** True when the total-runtime wall expired rather than the worker going idle. */
+    /** True when the total-runtime hard wall expired rather than the worker going idle. */
     val hardWall: Boolean = false,
 ) : WorkerProcessException(
     (
         if (hardWall) {
-            "Generation exceeded the total time limit (${stallMs}ms elapsed, phase $phase)"
+            "Generation hit the hard wall in phase $phase after ${stallMs}ms with no progress"
         } else {
             "Generation hung in phase $phase for ${stallMs}ms with an idle worker"
         }
@@ -100,7 +100,7 @@ class GenerationHangException(
         (backend?.let { " (backend=$it)" } ?: "") +
         "; the worker process was killed." +
         if (hardWall) {
-            " The device is likely too slow for this model/resolution; try fewer steps or a smaller size."
+            " The worker was not idle: a stalled download or a compute loop that never advances is the likely cause."
         } else {
             " This usually indicates a broken GPU driver."
         },
