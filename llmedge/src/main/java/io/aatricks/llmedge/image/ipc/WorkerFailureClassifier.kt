@@ -27,9 +27,15 @@ internal object WorkerFailureClassifier {
         lastBackend: String?,
         killedByWatchdog: Boolean,
         stallMs: Long,
+        hardWall: Boolean = false,
     ): WorkerProcessException {
         if (killedByWatchdog) {
-            return GenerationHangException(backend = lastBackend, phase = lastPhase, stallMs = stallMs)
+            return GenerationHangException(
+                backend = lastBackend,
+                phase = lastPhase,
+                stallMs = stallMs,
+                hardWall = hardWall,
+            )
         }
         val exitInfo = exitInfoFor(context, pid)
         return when (exitInfo?.reason) {

@@ -225,6 +225,9 @@ internal class IsolatedDiffusionEngine(
         return try {
             issue(false)
         } catch (hang: GenerationHangException) {
+            // A total-runtime timeout says "too slow", not "broken driver": don't blacklist a
+            // backend over it, and don't retry on CPU (slower still — it would just time out again).
+            if (hang.hardWall) throw hang
             recordHangVerdict(subsystem, hang.backend)
             when (config.image.hangRecoveryPolicy) {
                 HangRecoveryPolicy.FAIL_FAST -> throw hang
@@ -385,6 +388,7 @@ internal class IsolatedDiffusionEngine(
     ): T {
         val connection = connectionManager.connect(buildInitConfig(forceCpu))
         val killedByWatchdog = AtomicBoolean(false)
+        val killedByHardWall = AtomicBoolean(false)
         val verdictStallMs = AtomicLong(0L)
 
         var watchdog: GenerationWatchdog? = null
@@ -394,8 +398,9 @@ internal class IsolatedDiffusionEngine(
                     config = config.image.watchdog,
                     clock = clock,
                     cpuTimeMsReader = cpuReaderFor(connection.pid),
-                ) { _, _, stallMs ->
+                ) { _, _, stallMs, hardWall ->
                     killedByWatchdog.set(true)
+                    killedByHardWall.set(hardWall)
                     verdictStallMs.set(stallMs)
                     connectionManager.killWorker(connection)
                 }
@@ -411,6 +416,7 @@ internal class IsolatedDiffusionEngine(
                     lastBackend = watchdogRef?.lastBackend(),
                     killedByWatchdog = killedByWatchdog.get(),
                     stallMs = verdictStallMs.get(),
+                    hardWall = killedByHardWall.get(),
                 ),
             )
         }

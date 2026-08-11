@@ -17,7 +17,7 @@ internal class GenerationWatchdog(
     private val config: WorkerWatchdogConfig,
     private val clock: () -> Long,
     private val cpuTimeMsReader: () -> Long?,
-    private val onHangVerdict: (phase: String, backend: String?, stallMs: Long) -> Unit,
+    private val onHangVerdict: (phase: String, backend: String?, stallMs: Long, hardWall: Boolean) -> Unit,
 ) {
     private val fired = AtomicBoolean(false)
     private val stopped = AtomicBoolean(false)
@@ -51,11 +51,14 @@ internal class GenerationWatchdog(
     fun sample() {
         if (fired.get() || stopped.get()) return
         val now = clock()
-        if (now - startMs >= config.hardWallTimeoutMs) {
-            fire(now)
+        val stallMs = now - windowStartMs
+        // The hard wall backstops the phases the stall rule can't judge (download, unreadable CPU);
+        // it is not a cap on total runtime. A worker still emitting heartbeats is making progress —
+        // killing it just fails slow devices that would have finished.
+        if (now - startMs >= config.hardWallTimeoutMs && stallMs >= stallTimeoutFor(phase)) {
+            fire(now, hardWall = true)
             return
         }
-        val stallMs = now - windowStartMs
         if (stallMs < stallTimeoutFor(phase)) return
         if (phase == DiffusionPhases.RESOLVING_MODEL) return // downloads are CPU-flat; hard wall only
 
@@ -86,9 +89,13 @@ internal class GenerationWatchdog(
 
     fun lastBackend(): String? = backend
 
-    private fun fire(now: Long) {
+    private fun fire(
+        now: Long,
+        hardWall: Boolean = false,
+    ) {
         if (fired.compareAndSet(false, true)) {
-            onHangVerdict(phase, backend, now - windowStartMs)
+            val reportedMs = if (hardWall) now - startMs else now - windowStartMs
+            onHangVerdict(phase, backend, reportedMs, hardWall)
         }
     }
 
