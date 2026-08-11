@@ -57,6 +57,8 @@ internal object HFDownloadSupport {
         val expectedSize: Long?,
         val expectedSha: String?,
         val downloadUrl: String,
+        /** Where builds before the nested-layout fix cached this file, when that differs. */
+        val legacyFlatFile: File? = null,
     ) {
         fun toResult(
             requestedModelId: String,
@@ -108,6 +110,9 @@ internal object HFDownloadSupport {
         val files = HFModels.tree().getModelFileTree(resolved.modelId, resolved.revision, token, recursive)
         val modelFile = fileSelector(files) ?: throw IllegalArgumentException(noMatchMessage)
         val target = buildDownloadTarget(destinationRoot, resolved, modelFile)
+        deleteFlatLayoutLeftover(target).takeIf { it > 0L }?.let {
+            Log.i(LOG_TAG, "Removed flat-layout cache leftover for ${modelFile.path}, reclaimed $it bytes")
+        }
 
         if (!forceDownload && isFileValidCached(target.targetFile, target.expectedSize, target.expectedSha)) {
             Log.d(
@@ -139,6 +144,20 @@ internal object HFDownloadSupport {
 
         verifyDownloadedFile(target)
         target.toResult(modelId, revision, resolved, fromCache = false)
+    }
+
+    /**
+     * Reclaims the copy an older build left at the flat, basename-only cache path. It cannot be
+     * reused — nothing records which repo subdirectory it came from — and for a diffusion
+     * transformer it is multiple GB of dead weight on the device. Returns the bytes reclaimed.
+     */
+    internal fun deleteFlatLayoutLeftover(target: DownloadTarget): Long {
+        val legacy = target.legacyFlatFile ?: return 0L
+        if (!legacy.isFile) return 0L
+        val freed = legacy.length()
+        if (!legacy.delete()) return 0L
+        File(legacy.parent, "${legacy.name}.validated").delete()
+        return freed
     }
 
     fun isFileValidCached(targetFile: File, expectedSize: Long?, expectedSha: String?): Boolean {
@@ -211,10 +230,14 @@ internal object HFDownloadSupport {
         modelFile: HFModelTree.HFModelFile,
     ): DownloadTarget {
         val revisionDir = File(destinationRoot, "${HFFileSelectionSupport.sanitize(resolved.modelId)}/${resolved.revision}")
-        val targetName = modelFile.path.substringAfterLast('/')
+        // Mirror the repo's directory layout: repos like MiniT2I/MiniT2I ship the same basename
+        // under several variant folders, and flattening to the basename makes them collide.
+        val targetName = HFFileSelectionSupport.relativeCachePath(modelFile.path)
+        val flatName = modelFile.path.substringAfterLast('/')
         return DownloadTarget(
             modelFile = modelFile,
             targetFile = File(revisionDir, targetName),
+            legacyFlatFile = File(revisionDir, flatName).takeIf { targetName != flatName },
             expectedSize = modelFile.lfs?.size ?: modelFile.size,
             expectedSha = modelFile.lfs?.oid ?: modelFile.oid,
             downloadUrl = HFEndpoints.fileDownloadEndpoint(

@@ -23,6 +23,17 @@ internal object HFFileSelectionSupport {
 
     fun sanitize(modelId: String): String = modelId.replace("/", "_")
 
+    /**
+     * Repo-relative cache path for a downloaded file, preserving subdirectories so that variants
+     * sharing a basename (e.g. `minit2i-b-16/…` and `minit2i-l-16/…`) land on distinct files.
+     * Traversal segments are dropped: the path comes from the Hub API, not from us.
+     */
+    fun relativeCachePath(repoPath: String): String =
+        repoPath.split('/')
+            .filter { it.isNotEmpty() && it != "." && it != ".." }
+            .joinToString("/")
+            .ifEmpty { sanitize(repoPath) }
+
     fun selectModelFile(
         files: List<HFModelTree.HFModelFile>,
         filename: String?,

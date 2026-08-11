@@ -336,6 +336,13 @@ class StableDiffusion internal constructor(
                 tensorTypeRules: String?,
         ): Long
 
+        /** Tail of sd.cpp's own error output from the most recent [supportNativeCreate]. */
+        internal fun supportNativeLastErrorLog(): String? =
+            runCatching { nativeLastErrorLog() }.getOrNull()?.takeIf { it.isNotBlank() }
+
+        @JvmStatic
+        private external fun nativeLastErrorLog(): String?
+
         @JvmStatic
         private external fun nativeGetVulkanDeviceCount(): Int
 

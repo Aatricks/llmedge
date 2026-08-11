@@ -22,6 +22,31 @@ class HFDownloadVerificationTest {
         )
 
     @Test
+    fun `flat-layout leftover is reclaimed once the nested path is used`() {
+        val revisionDir = File.createTempFile("hf-revision", "").also { it.delete() }
+        val legacy = File(revisionDir, "diffusion_pytorch_model.safetensors")
+        val nested = File(revisionDir, "minit2i-l-16/transformer/diffusion_pytorch_model.safetensors")
+        nested.parentFile!!.mkdirs()
+        legacy.writeBytes(ByteArray(16))
+        File(legacy.parent, "${legacy.name}.validated").writeText("stale")
+
+        HFDownloadSupport.deleteFlatLayoutLeftover(
+            HFDownloadSupport.DownloadTarget(
+                modelFile = HFModelTree.HFModelFile(path = "minit2i-l-16/transformer/diffusion_pytorch_model.safetensors"),
+                targetFile = nested,
+                expectedSize = null,
+                expectedSha = null,
+                downloadUrl = "https://example.invalid/model.safetensors",
+                legacyFlatFile = legacy,
+            ),
+        )
+
+        assertFalse("Unusable flat-layout copy should be deleted", legacy.exists())
+        assertFalse(File(legacy.parent, "${legacy.name}.validated").exists())
+        revisionDir.deleteRecursively()
+    }
+
+    @Test
     fun `sha mismatch throws and deletes the file`() {
         val file = File.createTempFile("hf-verify", ".gguf")
         file.writeBytes(byteArrayOf(1, 2, 3, 4))

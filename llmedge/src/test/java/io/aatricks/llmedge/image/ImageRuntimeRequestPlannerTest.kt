@@ -209,22 +209,24 @@ class ImageRuntimeRequestPlannerTest {
         assertFalse(plan.diffusionRequest.options.offloadToCpu)
     }
 
+    // MiniT2I cannot survive on-load quantization: its custom ops and non-block-aligned dims
+    // leave a partially converted DiT, which is what stopped L/16 loading at all.
     @Test
-    fun `MiniT2I large request selects correct quant options in direct planning`() {
+    fun `MiniT2I large request stays full precision in direct planning`() {
         val config = LLMEdgeConfig()
         val request = MiniT2I.largeImageRequest("test prompt")
         val plan = ImageRuntimeRequestPlanner.imageRequest(request, config)
-        org.junit.Assert.assertEquals("q8_0", plan.options.weightType)
-        org.junit.Assert.assertEquals(".*mask_token.*=f16", plan.options.tensorTypeRules)
+        org.junit.Assert.assertNull(plan.options.weightType)
+        org.junit.Assert.assertNull(plan.options.tensorTypeRules)
     }
 
     @Test
-    fun `MiniT2I large request selects correct quant options in sequential diffusion planning`() {
+    fun `MiniT2I large request stays full precision in sequential diffusion planning`() {
         val config = LLMEdgeConfig()
         val request = MiniT2I.largeImageRequest("test prompt")
         val plan = ImageRuntimeRequestPlanner.imageSequentialPlan(request, config)
-        org.junit.Assert.assertEquals("q8_0", plan.diffusionRequest.options.weightType)
-        org.junit.Assert.assertEquals(".*mask_token.*=f16", plan.diffusionRequest.options.tensorTypeRules)
+        org.junit.Assert.assertNull(plan.diffusionRequest.options.weightType)
+        org.junit.Assert.assertNull(plan.diffusionRequest.options.tensorTypeRules)
     }
 
     @Test
@@ -237,7 +239,7 @@ class ImageRuntimeRequestPlannerTest {
     }
 
     @Test
-    fun `MiniT2I equivalent HF spec selects correct quant options`() {
+    fun `MiniT2I equivalent HF spec stays full precision`() {
         val config = LLMEdgeConfig()
         val spec = ModelSpec.huggingFace(
             repoId = "MiniT2I/MiniT2I",
@@ -245,8 +247,8 @@ class ImageRuntimeRequestPlannerTest {
         )
         val request = MiniT2I.largeImageRequest("test prompt").copy(model = spec)
         val plan = ImageRuntimeRequestPlanner.imageRequest(request, config)
-        org.junit.Assert.assertEquals("q8_0", plan.options.weightType)
-        org.junit.Assert.assertEquals(".*mask_token.*=f16", plan.options.tensorTypeRules)
+        org.junit.Assert.assertNull(plan.options.weightType)
+        org.junit.Assert.assertNull(plan.options.tensorTypeRules)
     }
 
     @Test

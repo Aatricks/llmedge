@@ -502,7 +502,13 @@ internal object StableDiffusionLoadSupport {
             append("Failed to initialize Stable Diffusion context for $resolvedModelPath.")
             if (taesdPath != null) append(" Custom TAE/TAEHV: $taesdPath.")
             if (resolvedVaePath != null) append(" Custom VAE: $resolvedVaePath.")
-            append(" This often happens due to incompatible VAE/TAE weights or insufficient memory. Check logcat for [SmolSD] errors.")
+            append(" This often happens due to incompatible VAE/TAE weights or insufficient memory.")
+            val nativeErrors = StableDiffusion.supportNativeLastErrorLog()
+            if (nativeErrors != null) {
+                append(" Native errors:\n$nativeErrors")
+            } else {
+                append(" Check logcat for [SmolSD] errors.")
+            }
         }
 }
 

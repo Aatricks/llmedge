@@ -1,6 +1,7 @@
 #include <jni.h>
 
 #include <cstdlib>
+#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -385,9 +386,25 @@ static SdHandle* try_create_llm_only_handle(JNIEnv* env, const char* llmPath, bo
 #endif
 }
 
+// sd.cpp explains a failed load only through its log callback, which lands in logcat -- unreadable
+// for a field reporter with nothing but the app's own log file. Keep the last few error lines so
+// the load failure surfaced to Kotlin can carry the reason with it.
+constexpr size_t kErrorTailLines = 8;
+std::mutex g_error_tail_mutex;
+std::deque<std::string> g_error_tail;
+
+void record_error_tail(const char* text) {
+    std::lock_guard<std::mutex> lock(g_error_tail_mutex);
+    g_error_tail.emplace_back(text);
+    while (g_error_tail.size() > kErrorTailLines) {
+        g_error_tail.pop_front();
+    }
+}
+
 void sd_android_log_cb(enum sd_log_level_t level, const char* text, void* data) {
     (void)data;
     if (!text) return;
+    if (level == SD_LOG_ERROR) record_error_tail(text);
     switch (level) {
         case SD_LOG_DEBUG: __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "%s", text); break;
         case SD_LOG_INFO:  __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, "%s", text); break;
@@ -636,6 +653,10 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
     if (jPhotoMakerPath && photoMakerPathRaw) env->ReleaseStringUTFChars(jPhotoMakerPath, photoMakerPathRaw);
 
     sd_set_log_callback(sd_android_log_cb, nullptr);
+    {
+        std::lock_guard<std::mutex> lock(g_error_tail_mutex);
+        g_error_tail.clear();
+    }
 
     ALOGI("Initializing Stable Diffusion with:");
     ALOGI("  modelPath=%s", modelPath ? modelPath : "NULL");
@@ -863,6 +884,20 @@ Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeCreate(
         jni_thread_cache_init(handle->jvm);
     }
     return reinterpret_cast<jlong>(handle);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_aatricks_llmedge_image_diffusion_StableDiffusion_nativeLastErrorLog(JNIEnv* env, jobject) {
+    std::string joined;
+    {
+        std::lock_guard<std::mutex> lock(g_error_tail_mutex);
+        for (const auto& line : g_error_tail) {
+            if (!joined.empty()) joined += '\n';
+            joined += line;
+        }
+    }
+    if (joined.empty()) return nullptr;
+    return env->NewStringUTF(joined.c_str());
 }
 
 extern "C" JNIEXPORT void JNICALL
