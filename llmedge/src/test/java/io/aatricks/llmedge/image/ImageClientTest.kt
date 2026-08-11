@@ -2685,7 +2685,7 @@ class ImageClientTest {
     }
 
     @Test
-    fun `createDiffusionRuntimePool cache key differentiates quantized and default runtimes`() = runTest {
+    fun `MiniT2I is never loaded quantized and Large stages its phases`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dummyFile = java.io.File(context.filesDir, "dummy_model.safetensors").apply { writeBytes(byteArrayOf(0x01)) }
         val fakeRepo = object : io.aatricks.llmedge.model.ModelRepository {
@@ -2713,21 +2713,18 @@ class ImageClientTest {
             val resultLarge = runtimePool.coordinator.acquireDetailed(largeRequestDirect.spec, largeRequestDirect.options)
             val resultStandard = runtimePool.coordinator.acquireDetailed(standardRequestDirect.spec, standardRequestDirect.options)
 
-            assertTrue(resultLarge.keyPrefix.contains("weightType=q8_0"))
-            assertTrue(resultLarge.keyPrefix.contains("tensorTypeRules=.*mask_token.*=f16"))
-
+            // MiniT2I's custom ops and non-block-aligned dims cannot survive on-load
+            // quantization: a partially converted DiT is what broke L/16 loading entirely.
+            assertTrue(resultLarge.keyPrefix.contains("weightType=null"))
+            assertTrue(resultLarge.keyPrefix.contains("tensorTypeRules=null"))
             assertTrue(resultStandard.keyPrefix.contains("weightType=null"))
             assertTrue(resultStandard.keyPrefix.contains("tensorTypeRules=null"))
+            assertTrue(capturedRequests.isNotEmpty())
+            assertTrue(capturedRequests.all { it.weightType == null && it.tensorTypeRules == null })
 
-            org.junit.Assert.assertNotEquals(resultLarge.keyPrefix, resultStandard.keyPrefix)
-
-            val largeReq = capturedRequests.find { it.weightType == "q8_0" }
-            val standardReq = capturedRequests.find { it.weightType == null }
-
-            org.junit.Assert.assertNotNull(largeReq)
-            org.junit.Assert.assertNotNull(standardReq)
-            assertEquals(".*mask_token.*=f16", largeReq?.tensorTypeRules)
-            org.junit.Assert.assertNull(standardReq?.tensorTypeRules)
+            // L/16 must stage its phases; B/16 leaves the choice to the memory heuristic.
+            assertEquals(true, MiniT2I.largeImageRequest("x").sequential)
+            org.junit.Assert.assertNull(MiniT2I.imageRequest("x").sequential)
         } finally {
             runtimePool.close()
             scope.close()

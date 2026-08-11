@@ -33,7 +33,7 @@ class MiniT2ITest {
     }
 
     @Test
-    fun `large image request uses the L transformer and automatic planning`() {
+    fun `large image request uses the L transformer and staged planning`() {
         val request = MiniT2I.largeImageRequest(prompt = "a cat", seed = 42L)
 
         val model = request.model as ModelSpec.HuggingFace
@@ -43,6 +43,7 @@ class MiniT2ITest {
         assertSame(MiniT2I.diffusionModelLarge, request.model)
         assertSame(MiniT2I.textEncoder, request.textEncoder)
         assertTrue(request.diffusionModelOnly)
-        assertNull(request.sequential)
+        // 3.6 GB fp32 DiT alongside a ~3 GB FLAN-T5 must not be resident at once.
+        assertEquals(true, request.sequential)
     }
 }

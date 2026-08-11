@@ -92,6 +92,9 @@ object MiniT2I {
             cfgScale = cfgScale,
             seed = seed,
             flashAttention = flashAttention,
+            // L/16 is a 3.6 GB fp32 DiT sharing the process with a ~3 GB FLAN-T5. Stage the two
+            // phases so peak memory is the larger one rather than their sum.
+            sequential = true,
         )
 
     private fun buildRequest(
@@ -104,6 +107,7 @@ object MiniT2I {
         cfgScale: Float,
         seed: Long,
         flashAttention: Boolean,
+        sequential: Boolean? = null,
     ): ImageGenerationRequest =
         ImageGenerationRequest(
             prompt = prompt,
@@ -117,5 +121,6 @@ object MiniT2I {
             model = model,
             textEncoder = textEncoder,
             diffusionModelOnly = true,
+            sequential = sequential,
         )
 }
